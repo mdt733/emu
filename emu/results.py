@@ -57,6 +57,18 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
         ('terrain_successes_up','Supported step-up successes'),
         ('terrain_attempts_down','Step-down attempts'),
         ('terrain_successes_down','Supported step-down successes'),
+        ('academy_active_fraction','Academy occupancy fraction (frames)'),
+        ('academy_expected_birth_fraction','Academy target among ALL world births'),
+        ('academy_up_crossings','Academy supported uphill lips'),
+        ('academy_down_crossings','Academy supported downhill lips'),
+        ('academy_near_attempts_up','Academy near-height uphill encounters'),
+        ('academy_near_successes_up','Academy near-height supported up'),
+        ('academy_near_attempts_down','Academy near-height downhill encounters'),
+        ('academy_near_successes_down','Academy near-height supported down'),
+        ('academy_footholds','Academy upper footholds'),
+        ('academy_transfers','Academy supported weight transfers'),
+        ('academy_four_lip_milestones','Academy 4 supported lips (nonterminal)'),
+        ('academy_episodes','Academy episodes completed'),
         ('physical_slope_deg_max','Sampled real slope max (deg)'),
     )
     values={label:row.get(key,'') for key,label in keys if row.get(key,'') not in ('',None)}
@@ -72,6 +84,9 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
         '| Measurement | Value |','| --- | ---: |',
         *[f'| {label} | {value} |' for label,value in values.items()],
         '','These are training-rollout observations, not held-out walking scores.',
+        'Academy crossings are distinct verified per-lip events, whereas Academy',
+        'episodes count completed course attempts. The newest metrics row is',
+        'not a cumulative sum across the full training run.',
         'A requested velocity is not an achieved velocity. Mechanical J/m is',
         'not verified battery consumption. Successful steps require actual',
         'foot-supported upper-platform contact; compare direction-matched exams.',
@@ -187,32 +202,22 @@ def append_metrics_csv(path: Path, row: dict[str, Any]) -> None:
         w.writerow(row)
 
 
-def read_metrics_csv(path: Path) -> list[dict[str, str]]:
-    return read_csv_rows(path)
-
-
 def _fmt_len(v: float) -> str:
     # sentinel -1.0 from masked_mean means "no episodes of this kind this rollout".
     return '-' if v < 0 else f"{v:.0f}"
 
 
 def format_line(version: str, step: int, reward: float, row: dict[str, float], report: dict[str, Any], train_fps: float,
-                wall_fps: float | None = None, nan_grad_skips: int = 0,
-                *, slope_deg: float = 0.0, contact_terrain_radius: float = 0.0) -> str:
+                wall_fps: float | None = None, nan_grad_skips: int = 0) -> str:
     """Readable first line; detailed diagnostics remain in the run's console.log.
 
     The \u201cstep\u201d height is an exposure ceiling, not the sampled ledge height.
     Shaft J/m is simulated positive mechanical work, not battery energy.
     """
-    if 'slope_max_deg' in report:
-        # Real-world sampled slope, not a static compiled terrain setting.
-        # The fraction is the ACTUAL physical slant-world occupancy seen.
-        slope = (f"≤{report['slope_max_deg']:.1f}°"
-                 f"({100*row.get('physical_slope_world_fraction',0.):.0f}%)")
-    elif contact_terrain_radius > 0.0:
-        slope = f"≤{5.0*contact_terrain_radius:.1f}°"
-    else:
-        slope = f"{slope_deg:.1f}°"
+    # The current trainer always reports actual prism-gradient teaching.
+    # No fallback to a retired rotated-floor or fake gravity incline.
+    slope = (f"≤{report['slope_max_deg']:.1f}°"
+             f"({100*row.get('physical_slope_world_fraction',0.):.0f}%)")
     exposure = 100.0 * float(report.get('terrain_exposure', 0.0))
     ceiling_cm = 100.0 * float(report.get('terrain_height_m', 0.0))
     jpm = float(row.get('shaft_j_per_m_forward', -1.0))
@@ -295,6 +300,15 @@ def format_line(version: str, step: int, reward: float, row: dict[str, float], r
                f"{int(row.get('command_probe_attempts_vx_lo',0))} "
                f"slope={int(slope_near)} step={int(step_near)} "
                f"ctl_Jm={row.get('control_shaft_j_per_m',-1.):.1f}")
+        if row.get('academy_active_fraction',0.)>0.:
+            line6+=(f" academy={int(row.get('academy_up_crossings',0))}"
+                    f"↑/{int(row.get('academy_down_crossings',0))}↓"
+                    f" four_lips={int(row.get('academy_four_lip_milestones',0))}"
+                    f"/{int(row.get('academy_episodes',0))}"
+                    f" foothold={int(row.get('academy_footholds',0))}"
+                    f" transfer={int(row.get('academy_transfers',0))}"
+                    f" actual/asked={100*row.get('academy_active_fraction',0):.0f}%/"
+                    f"{100*row.get('academy_expected_birth_fraction',0):.0f}%")
         return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5 + "\n" + line6
     return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5
 
@@ -835,6 +849,35 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             if 'terrain_episode_success' in metrics else 0.0,
         'terrain_crossings': float(np.asarray(metrics['terrain_cross_new']).sum())
             if 'terrain_cross_new' in metrics else 0.0,
+        # A streaming world has no prescribed up/down balance or finite finish.
+        # Count actual approached and supported lips, in each direction.
+        'academy_active_fraction': mean_metric(metrics,'academy_active'),
+        'academy_crossings': float(np.asarray(
+            metrics.get('academy_cross_new',0.)).sum()),
+        'academy_encounter_verdicts': float(np.asarray(
+            metrics.get('academy_lip_attempt_new',0.)).sum()),
+        # Matched per-lip approach verdicts, not frame-level near masks:
+        # even a 14-second linger at the lip is ONE failed encounter.
+        **{f'academy_{band}_{outcome}_{direction}':float(np.asarray(
+            metrics.get(f'academy_{band}_{outcome}_{direction}',0.)).sum())
+           for band in ('near','easy')
+           for outcome in ('attempts','successes')
+           for direction in ('up','down')},
+        'academy_up_crossings': float(np.asarray(
+            metrics.get('academy_cross_up',0.)).sum()),
+        'academy_down_crossings': float(np.asarray(
+            metrics.get('academy_cross_down',0.)).sum()),
+        'academy_footholds': float(np.asarray(
+            metrics.get('academy_foothold_new',0.)).sum()),
+        'academy_transfers': float(np.asarray(
+            metrics.get('academy_transfer_new',0.)).sum()),
+        'academy_clearances': float(np.asarray(
+            metrics.get('academy_clearance_new',0.)).sum()),
+        'academy_episodes': float(np.asarray(
+            metrics.get('academy_episode_attempt',0.)).sum()),
+        'academy_four_lip_milestones': float(np.asarray(
+            metrics.get('academy_course_new',0.)).sum()),
+        'academy_reward_per_frame': mean_metric(metrics,'academy_reward'),
         'terrain_ascent_guidance_per_frame': mean_metric(metrics, 'terrain_ascent_guidance'),
         'terrain_verified_transfer_reward_sum': float(
             np.asarray(metrics.get('terrain_verified_transfer_credit',0.)).sum()),
@@ -1142,7 +1185,7 @@ def posture_report(root: Path) -> int:
     files = ([root] if root.is_file() and root.name == 'metrics.csv' else
              sorted(root.rglob('metrics.csv')) if root.is_dir() else [])
     if not files:
-        print(f'No metrics.csv under {root}. Try ~/robot_lab/emu_runs or --root /path/to/run.')
+        print(f'No metrics.csv under {root}. Try ~/emu-data/runs or --root /path/to/run.')
         return 1
     found = 0
     for file in files:
@@ -1175,7 +1218,7 @@ def posture_report(root: Path) -> int:
 
 def posture_main(argv=None):
     p = argparse.ArgumentParser(description='Read-only posture-height review for old EMU training runs')
-    p.add_argument('--root', type=Path, default=Path.home() / 'robot_lab' / 'emu_runs')
+    p.add_argument('--root', type=Path, default=Path.home() / 'emu-data' / 'runs')
     return posture_report(p.parse_args(argv).root)
 
 

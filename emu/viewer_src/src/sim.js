@@ -3,12 +3,12 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
-import { SensorObserver, ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe } from './sensor.js';
-import { chasePose, smoothHeading, smoothFactor } from './chase-camera.js';
-import { sampleEpisodeCadence } from './cadence.js';
+import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe } from './sensor.js';
+import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredAttitude, sampleShove, expectedShoveRate } from './sim-math.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
-import { measuredAttitude } from './attitude.js';
 import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient } from './terrain.js';
+import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
+import { createSolidCarpet, safeCarpetShift } from './training-solid-carpet.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
@@ -111,6 +111,23 @@ export class EmuBrowserSim {
     this.terrainMode = 'flat';
     this.terrainMaxDegrees = 10;
     this.parkChallengeLevel = 'balanced';
+    this.carpetRole = 'step';
+    this.carpetDifficulty = {...CARPET_DEFAULT};
+    this.carpetTileOverlay = null;
+    this.carpetTileCenter = null;
+    this.carpetWindowCenter = null;
+    this.carpetMocapIds = [];
+    this.carpetGeomIds = new Set();
+    // Actual browser MuJoCo torso forces, not merely SVG decorations.
+    // The real GPU trainer samples independent stochastic pushes; this
+    // visibly repeatable spectator demo is NOT a replay of those RNG draws.
+    this.shovePreview={enabled:false,forceLimitN:0,intensity:0,mode:'drill',
+      stepsLeft:0,last:[0,0],manualPending:false,visualLeft:0};
+    this.shoveArrow=new THREE.ArrowHelper(
+      new THREE.Vector3(1,0,0),new THREE.Vector3(0,0,0),
+      .4,0xffbb66,.12,.075);
+    this.shoveArrow.visible=false;
+    this.scene.add(this.shoveArrow);
     this.sensorObstacle = 'flat';
     this.surfaceSlopeDegrees=3;
     this.surfaceStepHeightCm=2;
@@ -157,14 +174,10 @@ export class EmuBrowserSim {
     this.paused = false;
     this.autoReset = false;
     this.sensorNoise = true;
-    this.arraySensor = bundle.schema===3 &&
-      bundle.observation.sensor_contract?.sensor_model_revision===
-        'forward_tof4x4_array_plane_fit_no_tripod_2'
-      ? new ArrayFlowObserver(bundle.observation.sensor_contract) : null;
-    this.sensorObserver = [2,3].includes(bundle.schema) && !this.arraySensor
-      ? new SensorObserver(bundle.observation.sensor_contract) : null;
-    this.terrainObserver = bundle.schema === 3
-      ? new TerrainActorObserver(bundle.observation.sensor_contract) : null;
+    // Policy parser has already verified schema-3 array-only semantics.
+    // There is no 232 tripod observer or synthetic fallback.
+    this.arraySensor=new ArrayFlowObserver(bundle.observation.sensor_contract);
+    this.terrainObserver=new TerrainActorObserver(bundle.observation.sensor_contract);
     this.fallenFor = 0;
     this.controlFrames = 0; // visible proof of live policy inference
     this.motorTravelRad = 0; // integrated actuated joint movement (rad)
@@ -251,6 +264,7 @@ export class EmuBrowserSim {
       }
       this.worldAxes.visible = grid;
       if (this.parkGridOverlay) this.parkGridOverlay.visible = grid;
+    if (this.carpetTileOverlay) this.carpetTileOverlay.visible=grid;
     }
     if (typeof trail === 'boolean') {
       this.showTrail = trail;
@@ -293,6 +307,19 @@ export class EmuBrowserSim {
       this.parkMarkers=null;
     }
     this.park = null;
+    this.carpetWindowCenter=null;
+    this.carpetMocapIds=[];
+    this.carpetGeomIds.clear();
+    this.shovePreview.stepsLeft=0;
+    this.shovePreview.visualLeft=0;
+    this.shoveArrow.visible=false;
+    if(this.carpetTileOverlay){
+      this.scene.remove(this.carpetTileOverlay);
+      this.carpetTileOverlay.geometry.dispose();
+      this.carpetTileOverlay.material.dispose();
+      this.carpetTileOverlay=null;
+      this.carpetTileCenter=null;
+    }
     this.depthReading=null;
     this.depthLastMs=0;
     // Terrain geometry moved; rebuild guide heights on the next nav tick.
@@ -362,7 +389,7 @@ export class EmuBrowserSim {
   }
 
   setTerrainMode(mode, maximum=this.terrainMaxDegrees) {
-    if (!['flat','ramp','park','sensor'].includes(mode)) throw new Error('Unknown terrain');
+    if (!['flat','ramp','park','carpet','sensor'].includes(mode)) throw new Error('Unknown terrain');
     const degrees = Number(maximum);
     if (!Number.isFinite(degrees) || degrees < 1 || degrees > 20) throw new Error('Terrain angle must be 1–20°');
     if (mode===this.terrainMode && degrees===this.terrainMaxDegrees) return;
@@ -371,6 +398,109 @@ export class EmuBrowserSim {
     this.loadModel(); // rebuilds only browser MuJoCo contacts
   }
   setTerrainEnabled(enabled) { this.setTerrainMode(enabled ? 'ramp' : 'flat'); }
+  setTrainingCarpet({role=this.carpetRole,limits=this.carpetDifficulty}={}) {
+    const checked=carpetRoleLimits(limits,role); // refuse invalid or unknown roles
+    const next={...limits,seed:checked.seed,slopeDeg:Number(limits.slopeDeg),
+      transitionDeg:Number(limits.transitionDeg),stepUpM:Number(limits.stepUpM),
+      stepDownM:Number(limits.stepDownM)};
+    if(['seed','slopeDeg','transitionDeg','stepUpM','stepDownM']
+      .some(key=>!Number.isFinite(next[key])||next[key]<0))
+      throw Error('Invalid training difficulty');
+    if(role===this.carpetRole&&JSON.stringify(next)===JSON.stringify(this.carpetDifficulty))return;
+    this.carpetRole=role;
+    this.carpetDifficulty=next;
+    if(this.terrainMode==='carpet')this.loadModel();
+  }
+  setShovePreview({enabled=false,forceLimitN=0,intensity=0,mode='drill'}={}){
+    const on=Boolean(enabled);
+    const limit=Math.max(0,Math.min(10,Number(forceLimitN)||0));
+    const strength=Math.max(0,Math.min(1,Number(intensity)||0));
+    if(!['training','inspection','drill'].includes(mode))
+      throw Error('Invalid shove mode');
+    const v=this.shovePreview;
+    if(v.enabled===on && v.forceLimitN===limit &&
+       v.intensity===strength && v.mode===mode)return;
+    v.enabled=on;v.forceLimitN=limit;v.intensity=strength;
+    v.mode=mode;
+    v.stepsLeft=0;
+    v.visualLeft=0;
+    v.manualPending=false;
+    v.last=[0,0];
+    this.shoveArrow.visible=false;
+    if(this.data&&this.torsoId>=0){
+      const offset=6*this.torsoId;
+      this.data.xfrc_applied[offset]=0;
+      this.data.xfrc_applied[offset+1]=0;
+      this.data.xfrc_applied[offset+2]=0;
+    }
+  }
+  triggerShove(){
+    if(!this.data||this.terrainMode!=='carpet'||this.shovePreview.forceLimitN<=0)
+      return false;
+    this.shovePreview.manualPending=true;
+    return true;
+  }
+  applyViewerShove(dt){
+    if(!this.data||this.torsoId<0)return;
+    const xfrc=this.data.xfrc_applied;
+    const offset=6*this.torsoId;
+    xfrc[offset]=0;xfrc[offset+1]=0;xfrc[offset+2]=0;
+    const v=this.shovePreview;
+    if(this.terrainMode!=='carpet'||v.forceLimitN<=0){
+      v.stepsLeft=0;v.visualLeft=0;v.manualPending=false;
+      this.shoveArrow.visible=false;return;
+    }
+    if(v.stepsLeft===0){
+      const push=sampleShove({
+        intensity:v.enabled?v.intensity:0,
+        mode:v.mode,
+        maxForceN:v.forceLimitN,
+        manual:v.manualPending
+      });
+      v.manualPending=false;
+      if(push){
+        v.stepsLeft=push.frames;
+        v.last=[push.fx,push.fy];
+      }
+    }
+    if(v.stepsLeft>0){
+      xfrc[offset]=v.last[0];
+      xfrc[offset+1]=v.last[1];
+      v.stepsLeft--;
+      v.visualLeft=25;
+      const m=Math.hypot(...v.last);
+      if(m>1e-7){
+        const direction=new THREE.Vector3(v.last[0]/m,v.last[1]/m,0);
+        const center=this.torsoId*3;
+        const pos=new THREE.Vector3(
+          this.data.xpos[center]-direction.x*.36,
+          this.data.xpos[center+1]-direction.y*.36,
+          this.data.xpos[center+2]+.12);
+        this.shoveArrow.position.copy(pos);
+        this.shoveArrow.setDirection(direction);
+        this.shoveArrow.setLength(.32,.13,.08);
+        this.shoveArrow.setColor(0xffbb66);
+        this.shoveArrow.visible=true;
+      }
+    }else if(v.visualLeft>0){
+      v.visualLeft--;
+      this.shoveArrow.setColor(0x856e57);
+      this.shoveArrow.visible=true; // fading trace; no force is applied
+    }else this.shoveArrow.visible=false;
+  }
+  shoveTelemetry(){
+    const s=this.shovePreview;
+    return {enabled:s.enabled,limit:s.forceLimitN,intensity:s.intensity,
+      mode:s.mode,
+      // Expected Bernoulli attempt frequency before on-force frames;
+      // rare training impulses are per-world, not total across GPU envs.
+      expectedHz:s.enabled?expectedShoveRate(s.intensity,s.mode):0,
+      active:Boolean(this.data&&this.torsoId>=0&&
+        Math.hypot(Number(this.data.xfrc_applied[6*this.torsoId]),
+                   Number(this.data.xfrc_applied[6*this.torsoId+1]))>1e-7),
+      recent:s.visualLeft>0,force:[...s.last]};
+  }
+
   setSensorObstacle(id) {
     if(!['flat','step-up','step-up-1cm','step-up-2cm','step-down','crest','trough','log','angled',
       'lab-uphill','lab-downhill','lab-camber-left','lab-camber-right',
@@ -418,7 +548,7 @@ export class EmuBrowserSim {
     const next=Boolean(enabled);
     if (next===this.parkTreesEnabled) return;
     this.parkTreesEnabled=next;
-    if(this.terrainMode==='park')this.loadModel();
+    if(['park','carpet'].includes(this.terrainMode))this.loadModel();
   }
   setHeadingHold(enabled) {
     this.headingHold=Boolean(enabled);
@@ -445,7 +575,9 @@ export class EmuBrowserSim {
       ? generateTerrainPark({maxDegrees:this.terrainMaxDegrees,
                              trees:this.parkTreesEnabled,features:this.parkFeaturesEnabled,
                              challengeLevel:this.parkChallengeLevel})
-      : null;
+      : this.terrainMode==='carpet'
+        ? createSolidCarpet(this.carpetDifficulty,this.carpetRole)
+        : null;
     const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park,obstacle:this.sensorObstacle,
       slopeDegrees:this.surfaceSlopeDegrees,stepHeightCm:this.surfaceStepHeightCm});
     this.model = this.mujoco.MjModel.from_xml_string(xml);
@@ -453,12 +585,13 @@ export class EmuBrowserSim {
     this.data = new this.mujoco.MjData(this.model);
     this.mjvScene = new this.mujoco.MjvScene(this.model, this.maxGeoms);
     this.resolveIds();
-    if(this.park){
+    if(this.park?.physics==='nine-solid-boxes'){
+      // The nine live MuJoCo BOX geoms render themselves in refreshScene().
+      // Do not put a decorative hfield over their real vertical contact faces.
+      this.makeCarpetTileOverlay();
+    }else if(this.park){
       this.parkSurface=createParkSurface(THREE,this.park,this.grassTexture);
       this.scene.add(this.parkSurface);
-      // Depth-tested so feet, rocks and trunks can occlude the grid, with
-      // polygon offset and render order to prevent coplanar flicker. It hugs
-      // every peak and depression: no floating world-Z grid on slopes.
       this.parkGridOverlay=new THREE.Mesh(this.parkSurface.geometry,
         new THREE.MeshBasicMaterial({
           map:this.parkGridTexture,transparent:true,opacity:1,
@@ -504,6 +637,49 @@ export class EmuBrowserSim {
     this.footIds = ['r_foot', 'l_foot'].map(n => this.name2id(mj.mjtObj.mjOBJ_BODY, n));
     this.footGeomIds = ['r_foot_ball','l_foot_ball'].map(n =>
       this.name2id(mj.mjtObj.mjOBJ_GEOM,n));
+    if(this.park?.physics==='nine-solid-boxes'){
+      this.carpetMocapIds=Array.from({length:9},(_,i)=>{
+        const body=this.name2id(mj.mjtObj.mjOBJ_BODY,'viewer_carpet_body_'+i);
+        const mocap=Number(this.model.body_mocapid[body]);
+        if(!Number.isInteger(mocap)||mocap<0)
+          throw Error('Physical training box is missing a MuJoCo mocap ID');
+        return mocap;
+      });
+      this.carpetGeomIds=new Set(Array.from({length:9},(_,i)=>
+        this.name2id(mj.mjtObj.mjOBJ_GEOM,'viewer_carpet_solid_'+i)));
+    }
+  }
+
+  writeCarpetMocap(tiles,prior=null){
+    if(this.carpetMocapIds.length!==9||tiles.length!==9)
+      throw Error('Nine physical MuJoCo carpet tiles required');
+    for(let slot=0;slot<9;slot++){
+      const t=tiles[slot],p=prior?.[slot];
+      if(p&&p.i===t.i&&p.j===t.j)continue;
+      const m=this.carpetMocapIds[slot];
+      for(let k=0;k<3;k++)this.data.mocap_pos[3*m+k]=t.center[k];
+      for(let k=0;k<4;k++)this.data.mocap_quat[4*m+k]=t.quat[k];
+    }
+  }
+
+  recycleCarpetWindow(){
+    if(this.terrainMode!=='carpet'||!this.data||!this.carpetWindowCenter)return;
+    const current=this.carpetWindowCenter;
+    const next=[Math.floor(this.data.qpos[0]/.5),
+                Math.floor(this.data.qpos[1]/.5)];
+    if(next[0]===current[0]&&next[1]===current[1])return;
+    if(Math.abs(next[0]-current[0])>1||Math.abs(next[1]-current[1])>1)
+      return; // never teleport tiles after anomalous leaps
+    const tiles=this.park.window(next[0],next[1]);
+    const footPositions=this.footGeomIds.map(id=>
+      [this.data.geom_xpos[3*id],this.data.geom_xpos[3*id+1]]);
+    if(!safeCarpetShift(this.park.tiles,tiles,footPositions))return;
+    this.writeCarpetMocap(tiles,this.park.tiles);
+    this.park.tiles=tiles;
+    this.carpetWindowCenter=next;
+    this.carpetTileCenter=null;
+    // Rebuild contacts against the new real positions before sensor reads.
+    this.mujoco.mj_forward(this.model,this.data);
   }
 
   createParkMarkers() {
@@ -550,6 +726,15 @@ export class EmuBrowserSim {
     this.requestedYaw = this.commandTarget.yaw;
     this.command.yaw = this.requestedYaw;
     this.data.qvel[5] = this.command.yaw;
+    if(this.park?.physics==='nine-solid-boxes'){
+      // Spawn at the centre of the first 50cm support, not the four-lip
+      // intersection at world (0,0). The trainer also uses supported births.
+      this.data.qpos[0]=.25;
+      this.data.qpos[1]=.25;
+      this.carpetWindowCenter=[0,0];
+      this.park.tiles=this.park.window(0,0);
+      this.writeCarpetMocap(this.park.tiles);
+    }
     mj.mj_forward(this.model, this.data);
     this.headingTarget=this.actualHeading();
     // Training samples cadence at birth, then holds it through command changes.
@@ -558,16 +743,19 @@ export class EmuBrowserSim {
     this.prevAction.fill(0);
     this.prevRawTarget.fill(0);
     this.deliveredCtrl.fill(0);
-    if (this.sensorObserver) this.sensorObserver.reset(this.sensorPose(),this.sensorNoise);
-    if (this.terrainObserver) this.terrainObserver.reset(
+    this.terrainObserver.reset(
       this.terrainActorPose(),this.model,this.data,this.footGeomIds,this.sensorNoise);
-    if (this.arraySensor) this.arraySensor.reset(
+    this.arraySensor.reset(
       this.sensorPose(),this.model,this.data,this.sensorNoise);
     const base = this.buildBaseObs();
     for (let i = 0; i < 4; i++) this.history[i].set(base);
     this.flattenHistory();
     this.controlAccumulator = 0;
     this.fallenFor = 0;
+    this.shovePreview.stepsLeft=0;
+    this.shovePreview.visualLeft=0;
+    this.shovePreview.manualPending=false;
+    this.shoveArrow.visible=false;
     this.pathTrail.clear();
     this.levelPoseValid = false;
     this.chaseReady = false;
@@ -610,13 +798,13 @@ export class EmuBrowserSim {
   }
 
   navigationTrees() {
-    if(this.terrainMode!=='park'||!this.park)return [];
+    if(!['park','carpet'].includes(this.terrainMode)||!this.park)return [];
     // The existing pose-lattice planner assumes a 62cm circular clearance
     // around each supplied obstacle. Feature waypoints make autonomous
     // navigation avoid untrained steps/logs, but manual joystick can inspect.
     return [
       ...(this.parkTreesEnabled?this.park.trees:[]),
-      ...(this.parkFeaturesEnabled ? this.park.features.flatMap(f=>{
+      ...(this.terrainMode==='park'&&this.parkFeaturesEnabled ? this.park.features.flatMap(f=>{
         // Planner is intentionally conservative. Include the *physical*
         // obstacle footprint, not just one centre point; human joystick
         // driving remains unrestricted for actual challenge attempts.
@@ -653,7 +841,58 @@ export class EmuBrowserSim {
   }
 
   terrainHeightAt(x,y) {
-    return this.terrainMode==='park' && this.park ? this.park.sampleHeight(x,y) : 0;
+    return ['park','carpet'].includes(this.terrainMode) && this.park ? this.park.sampleHeight(x,y) : 0;
+  }
+  makeCarpetTileOverlay() {
+    // Read-only visual ruler following the robot. The collision hfield is
+    // static for this preview; moving these lines does NOT move collision.
+    const geometry=new THREE.BufferGeometry();
+    this.carpetTileOverlay=new THREE.LineSegments(geometry,
+      new THREE.LineBasicMaterial({color:0xe7bc78,transparent:true,
+         opacity:.85,depthTest:true,depthWrite:false}));
+    this.carpetTileOverlay.renderOrder=4;
+    this.carpetTileOverlay.frustumCulled=false;
+    this.scene.add(this.carpetTileOverlay);
+    this.carpetTileCenter=null;
+  }
+  updateCarpetTileOverlay() {
+    if(!this.carpetTileOverlay||!this.park||!this.data)return;
+    const x=this.data.qpos[0],y=this.data.qpos[1],size=.5;
+    const cx=this.carpetWindowCenter?.[0]??Math.floor(x/size);
+    const cy=this.carpetWindowCenter?.[1]??Math.floor(y/size);
+    const key=cx+','+cy;
+    if(key===this.carpetTileCenter)return;
+    this.carpetTileCenter=key;
+    const positions=[];
+    const add=(a,b)=>positions.push(...a,...b);
+    for(let i=-1;i<=2;i++){
+      const xx=(cx+i)*size;
+      for(let j=-1;j<=1;j++){
+        const y0=(cy+j)*size,y1=y0+size;
+        const a=[xx,y0,this.park.sampleHeight(xx,y0)+.006];
+        const b=[xx,y1,this.park.sampleHeight(xx,y1)+.006];
+        add(a,b);
+      }
+    }
+    for(let j=-1;j<=2;j++){
+      const yy=(cy+j)*size;
+      for(let i=-1;i<=1;i++){
+        const x0=(cx+i)*size,x1=x0+size;
+        add([x0,yy,this.park.sampleHeight(x0,yy)+.006],
+            [x1,yy,this.park.sampleHeight(x1,yy)+.006]);
+      }
+    }
+    // One diagonal line per 50cm tile, making the 18 triangles legible.
+    for(let j=-1;j<=1;j++)for(let i=-1;i<=1;i++){
+      const x0=(cx+i)*size,y0=(cy+j)*size;
+      add([x0,y0,this.park.sampleHeight(x0,y0)+.006],
+          [x0+size,y0+size,this.park.sampleHeight(x0+size,y0+size)+.006]);
+    }
+    this.carpetTileOverlay.geometry.dispose();
+    this.carpetTileOverlay.geometry=new THREE.BufferGeometry();
+    this.carpetTileOverlay.geometry.setAttribute('position',
+      new THREE.Float32BufferAttribute(positions,3));
+    this.carpetTileOverlay.visible=this.showGrid;
   }
 
   createNavigationGuides() {
@@ -773,11 +1012,15 @@ export class EmuBrowserSim {
       this.data.ctrl[i] = this.deliveredCtrl[i];
     }
 
+    // One control-frame force is held across all MuJoCo substeps, just
+    // like the real trainer's xfrc_applied on its torso body.
+    this.applyViewerShove(cdt);
     const nsub = Number(this.bundle.control.control_substeps || 4);
     const beforeJoints=this.actQpos.map(i=>Number(this.data.qpos[i]));
     for (let k = 0; k < nsub; k++) this.mujoco.mj_step(this.model, this.data);
     for(let i=0;i<this.actQpos.length;i++)
       this.motorTravelRad+=Math.abs(Number(this.data.qpos[this.actQpos[i]])-beforeJoints[i]);
+    this.recycleCarpetWindow();
 
     for (let i = 0; i < 6; i++) {
       const raw = clamp(action[i] * span[i], -span[i], span[i]);
@@ -786,10 +1029,9 @@ export class EmuBrowserSim {
     }
 
     this.phase = (this.phase + cdt * this.phaseRate() * TWO_PI) % TWO_PI;
-    if (this.sensorObserver) this.sensorObserver.advance(this.sensorPose(),this.sensorNoise);
-    if (this.terrainObserver) this.terrainObserver.advance(
+    this.terrainObserver.advance(
       this.terrainActorPose(),this.model,this.data,this.footGeomIds,this.sensorNoise);
-    if (this.arraySensor) this.arraySensor.advance(
+    this.arraySensor.advance(
       this.sensorPose(),this.model,this.data,this.sensorNoise);
     const base = this.buildBaseObs();
     this.history[0].set(this.history[1]);
@@ -828,7 +1070,7 @@ export class EmuBrowserSim {
     // MuJoCo freejoint angular qvel is body-local, not world angular velocity.
     const gyro=Array.from(this.data.qvel.slice(3,6));
     const heightAt=(x,y)=>{
-      if(this.terrainMode==='park'&&this.park) return this.park.sampleHeight(x,y);
+      if(['park','carpet'].includes(this.terrainMode)&&this.park) return this.park.sampleHeight(x,y);
       if(this.terrainMode==='ramp'&&Math.abs(y)<.44){
         if(x>=.85&&x<=1.65)return .008+(x-.85)*Math.tan(Math.PI/180);
         if(x>1.65&&x<2.17)return .015;
@@ -851,6 +1093,9 @@ export class EmuBrowserSim {
     // shared height surface rather than pretending it is a flat plane.
     const R=this.bodyRotation(),offset=this.torsoId*3;
     return {R,torso:Array.from(this.data.xpos.slice(offset,offset+3)),
+      // v5041 uses nine actual moving solid MuJoCo boxes. Never let a
+      // future-terrain preview ray (or a ghost flat surface) override
+      // the true collision raycast in actor observations.
       terrainHeightAt:this.terrainMode==='park'&&this.park ?
         (x,y)=>this.park.sampleHeight(x,y):null};
   }
@@ -880,14 +1125,11 @@ export class EmuBrowserSim {
     const noisyGravity=[
       grav[0]+ns*.008*n0,grav[1]+ns*.008*n1,grav[2]-ns*.004*n0
     ];
-    const sensor = this.arraySensor
-      ? this.arraySensor.read(noisyGravity,this.terrainObserver.read())
-      : this.sensorObserver?.read(noisyGravity);
-    if (sensor) {
-      base[3]=sensor.gyro[0];
-      base[4]=sensor.gyro[1];
-      base[5]=sensor.gyro[2];
-    }
+    const sensor=this.arraySensor.read(
+      noisyGravity,this.terrainObserver.read());
+    base[3]=sensor.gyro[0];
+    base[4]=sensor.gyro[1];
+    base[5]=sensor.gyro[2];
 
     for (let i = 0; i < 6; i++) base[k++] = qpos[this.actQpos[i]] + ns*0.0015*n0;
     for (let i = 0; i < 6; i++) base[k++] = qvel[this.actQvel[i]] + ns*0.015*n1;
@@ -902,10 +1144,10 @@ export class EmuBrowserSim {
       base[k++] = rel[0]; base[k++] = rel[1]; base[k++] = rel[2];
     }
 
-    base[k++] = sensor ? sensor.velocity[0] : bodyVel[0] + ns*0.018*n0;
-    base[k++] = sensor ? sensor.velocity[1] : bodyVel[1] + ns*0.018*n1;
-    base[k++] = sensor ? sensor.depth : tz + ns*0.0025*n1;
-    base[k++] = sensor ? sensor.velocityConfidence : clamp(1 - 0.18*ns, 0.2, 1.0);
+    base[k++] = sensor.velocity[0];
+    base[k++] = sensor.velocity[1];
+    base[k++] = sensor.depth;
+    base[k++] = sensor.velocityConfidence;
 
     base[k++] = this.command.vx;
     base[k++] = this.command.vy;
@@ -926,16 +1168,12 @@ export class EmuBrowserSim {
     base[k++] = clamp(Math.abs(sf0) / 0.10, 0, 1.5);
     base[k++] = clamp(Math.abs(sf1) / 0.10, 0, 1.5);
 
-    if (sensor) {
-      base[k++] = sensor.forwardGrade;
-      base[k++] = sensor.sideGrade;
-      base[k++] = sensor.groundConfidence;
-    }
-    if (this.terrainObserver) {
-      const grid=this.terrainObserver.read();
-      for(const range of grid.ranges) base[k++]=range;
-      for(const valid of grid.valid) base[k++]=valid?1:0;
-    }
+    base[k++] = sensor.forwardGrade;
+    base[k++] = sensor.sideGrade;
+    base[k++] = sensor.groundConfidence;
+    const grid=this.terrainObserver.read();
+    for(const range of grid.ranges) base[k++]=range;
+    for(const valid of grid.valid) base[k++]=valid?1:0;
     if (k !== this.baseObsDim) throw new Error(`Internal observation builder produced ${k} fields instead of ${this.baseObsDim}`);
     return base;
   }
@@ -1054,7 +1292,8 @@ export class EmuBrowserSim {
       mesh.userData.robotPart = Number(vg.objtype) === Number(mj.mjtObj.mjOBJ_GEOM.value)
         && Number.isInteger(geomId) && geomId >= 0
         && geomId < Number(this.model.ngeom)
-        && Number(this.model.geom_bodyid[geomId]) > 0;
+        && Number(this.model.geom_bodyid[geomId]) > 0
+        && !this.carpetGeomIds.has(geomId); // mocap tiles are TERRAIN, not self-occlusion
       // Heightfield collision is rendered by the seamless grass mesh above.
       mesh.visible = !mesh.userData.parkHeightfield;
       if (!mesh.userData.floor) mesh.material.color.setRGB(rgba[0], rgba[1], rgba[2]);
@@ -1111,7 +1350,7 @@ export class EmuBrowserSim {
     this.chaseHeading = first ? heading
       : smoothHeading(this.chaseHeading, heading, smoothFactor(dt, 6));
     const terrainAt = (x, y) =>
-      this.terrainMode === 'park' && this.park ? this.park.sampleHeight(x, y) : 0;
+      ['park','carpet'].includes(this.terrainMode) && this.park ? this.park.sampleHeight(x, y) : 0;
     const desired = chasePose(torso, this.chaseHeading, terrainAt);
     const position = new THREE.Vector3(...desired.position);
     const target = new THREE.Vector3(...desired.target);
@@ -1188,7 +1427,7 @@ export class EmuBrowserSim {
     const n=this.depthConfig.subrays;
     // Auto protects the large hfield mesh from 64 costly triangle casts.
     // Selecting 4 or 5 overrides this and shows the actual cost.
-    const sampleCount=n==='auto'?(this.terrainMode==='park'?1:4):n;
+    const sampleCount=n==='auto'?(['park','carpet'].includes(this.terrainMode)?1:4):n;
     const reading=readDepthProbe(pose,(start,dir,maxRange)=>{
       raycaster.set(origin,direction.set(...dir).normalize());
       raycaster.far=maxRange;
@@ -1248,6 +1487,7 @@ export class EmuBrowserSim {
 
   render(dt = 1 / 60) {
     this.refreshScene();
+    this.updateCarpetTileOverlay();
     this.updateDepthInspector(performance.now());
     if (this.cameraMode === 'orbit') this.controls.update();
     else if (this.cameraMode === 'chase') this.updateChaseCamera(dt);

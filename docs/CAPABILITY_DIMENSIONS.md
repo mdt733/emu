@@ -67,21 +67,20 @@ controller yet knows the maximum tolerable *individual* birth noise.
 Eventually score recovery from each family and nuisance direction at its
 attempted intensity while protecting reliable normal gait.
 
-**Slopes:** real two-slab contact inclines; azimuth determines uphill,
-downhill and lateral camber. Today the four episode outcomes independently
-contribute to evidence but must all succeed to increase **one** maximum
-angle. Current target uses measured actual physical inclines, distinguishes
-easy versus near-target, can retreat below the initial 0.7° probe.
-A four-direction target array is future work, not implemented yet. Angles
-should be relative to robot heading for stringent directional exams.
+**Slopes:** on the current unified prism carpet, grade comes from the
+actual local supporting triangle, not a rotated infinite slab.
+Promotion evidence distinguishes near-frontier physical exposure and
+command tracking, rather than treating mere survival as directional
+control. Independent gradient and commanded-direction tests must not
+confuse an easy downhill episode with achieved uphill competence.
 
-**Steps:** real discontinuous slab lip, not an obstacle sticker. Actual
-up/down surface difference is measured, and only physically completed,
-supported near-height crossings may advance the shared height. Current
-training lip orientation is random at about ±20°, **not** ±45°; a fixed
-exam override can request a specified lip yaw. Four distinct height/approach
-targets need an intentionally broadened sampler and separate attribution.
-Do not credit flat, partial, or down-only contact as step-up competence.
+**Steps:** real shared-edge top-height discontinuities between
+the two triangular prisms on each square. Evidence is signed (up/down),
+must include true supported transfer and sufficient progress, and
+cannot credit body-height cheating, a flat seam, sidewall contact
+or repeated rocking across the same lip. The actual irregular 50 cm
+carpet is generated per birth; old ±20° separate-slab fixtures are
+historical and not the v5045 physical topology.
 
 **Transitions:** currently command hold duration and ramp length move
 together using tracking and fall-based feedback; command jump magnitude is

@@ -409,3 +409,200 @@ button:disabled { opacity: .4; cursor: default; }
 }
 
 .depth-legend{font-size:9px;color:#93b8aa;line-height:1.3;margin-top:5px}
+
+/* v5041: training terrain controls live in the existing Settings drawer. */
+.carpet-panel { display:grid; gap:9px; padding:12px; width:100%; min-width:0;
+  border:1px solid rgba(107,212,178,.3);border-radius:12px;
+  background:rgba(18,45,43,.35); }
+.carpet-panel b {font-size:12px;letter-spacing:.05em;color:#8eefd5}
+.carpet-panel small {font-size:11px;color:#b3c8cd;line-height:1.5}
+.carpet-panel label{display:flex;flex-wrap:wrap;align-items:center;gap:8px;
+  font-size:12px;line-height:1.4}
+.carpet-panel select {flex:1;min-width:170px}
+.carpet-file{cursor:pointer;color:#9edbcf}
+.carpet-values {font:11px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;
+  white-space:pre-wrap;color:#e7f4ee;background:rgba(0,0,0,.2);
+  border-radius:8px;padding:9px}
+.carpet-actions{display:flex;flex-wrap:wrap;gap:7px}
+.carpet-actions button{flex:1;min-width:110px;font-size:12px}
+
+
+/* v5041 world-first inspector: exactly two top-level worlds. Everything
+   else lives in the single existing, dismissible Settings drawer. */
+.topbar {
+  grid-template-columns: auto auto minmax(80px,1fr) auto;
+  gap: 14px;
+  align-items: center;
+  border-radius: 18px;
+  background: linear-gradient(120deg,rgba(12,24,29,.93),rgba(11,20,30,.85));
+}
+.brand { display:flex; flex-direction:column; gap:0; align-items:flex-start; }
+.brand strong {letter-spacing:.16em;line-height:1.1;color:#edf9f6;}
+.brand span {font-size:10px;max-width:155px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.world-switch {
+  display:flex;gap:4px;padding:4px;border-radius:13px;
+  background:rgba(5,15,21,.76);border:1px solid rgba(159,210,206,.15);
+}
+.world-switch button {
+  min-height:38px;padding:0 13px;white-space:nowrap;border:none;border-radius:10px;
+  background:transparent;color:#94b2bd;font-size:12px;font-weight:650;
+  transition:background .12s,color .12s;
+}
+.world-switch button:hover {color:#effff8;background:rgba(132,203,194,.10);}
+.world-switch button.active {background:rgba(83,184,152,.23);color:#c9ffea;box-shadow:inset 0 0 0 1px rgba(121,222,185,.28);}
+.world-switch button:focus-visible {outline:2px solid #83ddcb;outline-offset:2px;}
+.top-actions { align-items:center; }
+#settingsOpen {background:rgba(45,95,94,.26);border-color:rgba(133,216,190,.35);}
+.telemetry {border-radius:16px;max-width:220px;background:rgba(7,19,24,.75);border-color:rgba(136,195,192,.15);}
+.telemetry .metric b {font-variant-numeric:tabular-nums;}
+.world-settings,.carpet-panel {
+  display:flex;flex-direction:column;gap:10px;width:100%;
+  padding:13px;border-radius:14px;
+  border:1px solid rgba(120,204,182,.18);background:rgba(18,41,44,.32);
+}
+.world-settings-heading {
+  display:flex;flex-direction:column;gap:4px;font-size:15px;font-weight:700;color:#d0ffeb;
+}
+.world-settings-heading small {font-size:11px;color:#a9c6c5;font-weight:450;line-height:1.5;}
+.settings-drawer {width:min(408px,calc(100vw - 22px));padding:18px;box-shadow:0 26px 90px #0009;}
+.settings-drawer .control-row {gap:12px;}
+.settings-drawer .control-row label {display:flex;align-items:center;flex-wrap:wrap;gap:8px;width:100%;line-height:1.45;}
+.settings-drawer input[type=checkbox] {accent-color:#80d6b7;}
+.settings-drawer select,.settings-drawer input[type=number] {
+  max-width:100%;min-height:34px;padding:5px 7px;border:1px solid rgba(157,201,191,.30);
+  border-radius:8px;background:#142a30;color:#e5f4f2;
+}
+.settings-drawer input[type=number] {max-width:104px;margin-left:auto;}
+.inspector-details {
+  width:100%;border:1px solid rgba(129,182,187,.17);border-radius:12px;
+  background:rgba(9,23,31,.4);padding:10px 12px;font-size:12px;
+}
+.inspector-details summary {cursor:pointer;color:#c4e7e4;font-weight:700;line-height:1.5;list-style-position:inside;}
+.inspector-details[open] > summary {margin-bottom:12px;}
+.inspector-details .subtle {font-weight:400;display:block;margin-left:17px;}
+.inspector-details label {margin-top:8px;}
+.subtle {color:#91acb2;font-size:11px;line-height:1.55;}
+.lesson-card {
+  display:flex;flex-direction:column;gap:6px;
+  padding:13px;border:1px solid rgba(122,216,176,.26);
+  border-radius:13px;background:linear-gradient(135deg,rgba(41,85,70,.42),rgba(13,33,39,.6));
+}
+.lesson-card>strong {font-size:15px;color:#ccffe8;}
+.lesson-card>span {font-size:11px;color:#b3cbc7;}
+.lesson-metrics {display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;}
+.lesson-metrics span {display:flex;flex-direction:column;font-size:10px;letter-spacing:.03em;text-transform:uppercase;color:#90afa8;}
+.lesson-metrics b {font-size:13px;color:#edf9f0;letter-spacing:0;text-transform:none;}
+.lesson-command {padding-top:8px;border-top:1px solid rgba(164,222,196,.14);color:#a2c3b6;font-size:11px;}
+.lesson-command b {display:block;color:#edfffa;font-size:12px;margin-top:4px;font-variant-numeric:tabular-nums;}
+#carpetTestShove {width:100%;background:rgba(139,87,43,.24);border-color:rgba(248,173,92,.38);color:#ffd7ab;}
+.carpet-values {font-size:10px;line-height:1.65;white-space:pre-wrap;padding:10px;}
+.carpet-panel small {line-height:1.5;}
+.carpet-panel .viewer-checkbox {display:flex;gap:8px;}
+/* Sensor readout is now a collapsed part of Settings, never an
+   independent overlay competing with the world selector. */
+.settings-drawer .depth-panel,
+.settings-drawer .depth-panel[hidden] {
+  position:static;display:block;width:100%;max-height:none;overflow:visible;
+  padding:8px 0 0;border:0;border-radius:0;box-shadow:none;
+  background:transparent;backdrop-filter:none;pointer-events:auto;
+}
+.settings-drawer .depth-head {font-size:11px;}
+.settings-drawer .depth-row {margin:10px 0;}
+.settings-drawer .depth-grid {gap:5px;max-width:230px;}
+.settings-drawer .depth-cell {height:38px;}
+.sensor-details .depth-legend {margin-top:10px;}
+@media(max-width:1100px) {
+  .topbar {grid-template-columns:auto auto 1fr;gap:8px;}
+  .topbar .status {display:none;}
+}
+@media(max-width:720px) {
+  .topbar {grid-template-columns:auto 1fr;align-items:center;row-gap:8px;}
+  .topbar .world-switch {grid-column:1 / -1;grid-row:2;justify-self:stretch;}
+  .topbar .world-switch button {flex:1;min-height:36px;font-size:12px;}
+  .topbar .top-actions {justify-self:end;gap:4px;}
+  .topbar .top-actions button,.topbar .file-button {padding:0 8px;min-height:35px;}
+  .settings-drawer {top:max(112px,calc(env(safe-area-inset-top) + 107px));bottom:8px;}
+  .telemetry {top:125px;left:8px;max-width:min(208px,calc(100vw - 16px));}
+  .nav-hud {top:125px;}
+}
+@media(max-width:430px) {
+  .brand span {display:none;}
+  .topbar .top-actions {gap:3px;}
+  .topbar .top-actions button {font-size:11px;}
+  .telemetry {width:190px;padding:8px;gap:5px 8px;}
+  .telemetry .metric b {font-size:12px;}
+  .telemetry .metric span {font-size:9px;}
+  .settings-drawer {width:auto;}
+  .lesson-metrics {gap:7px;}
+  .nav-hud {top:125px;right:7px;max-width:145px;}
+}
+
+/* Hide secondary gait diagnostics until requested. Keep the HUD readable
+   while watching narrow steps and visible shove arrows. */
+.telemetry {display:flex;flex-direction:column;width:min(258px,calc(100vw - 20px));max-width:none;gap:8px;}
+.telemetry-primary,.telemetry-extra {display:grid;grid-template-columns:1fr 1fr;gap:8px 10px;}
+.telemetry .terrain-slope {grid-column:1 / -1;}
+.telemetry .metric span {font-size:9px;}
+.telemetry .metric b {font-size:12px;}
+.telemetry-more {border-top:1px solid rgba(166,216,207,.16);padding-top:6px;}
+.telemetry-more summary {cursor:pointer;font-size:11px;color:#a2ccbc;list-style-position:inside;}
+.telemetry-extra {padding-top:9px;}
+#viewerExercise {color:#a5f1d6;}
+@media(max-width:430px){.telemetry{width:196px}.telemetry-primary{gap:6px 7px}}
+
+/* Focused Carpet inspector: specialist selection first, then editable
+   role-scaled values. General preferences and sensor diagnostics are
+   collapsed at the bottom. No floating role/nav overlays on Carpet. */
+body[data-world="carpet"] .nav-hud {display:none !important;}
+.specialty-picker {display:flex !important;flex-direction:column;align-items:stretch !important;
+  gap:7px !important;font-size:12px;font-weight:700;color:#c1f9e0;}
+.specialty-picker b {font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:#a8d4bf;}
+.specialty-picker select {width:100%;height:43px;font-size:14px;font-weight:650;
+  background:#1e4740 !important;color:#f5fff8;border-color:rgba(147,221,189,.48);}
+.carpet-panel {gap:13px;}
+.carpet-panel > p {margin:0;font-size:11px;line-height:1.5;}
+.carpet-panel .viewer-checkbox {font-size:12px !important;}
+.tuning-group {width:100%;display:flex;flex-direction:column;gap:12px;
+  padding:12px;border:1px solid rgba(132,204,181,.18);border-radius:12px;
+  background:rgba(6,24,27,.34);}
+.tuning-heading {display:flex;align-items:baseline;justify-content:space-between;
+  flex-wrap:wrap;gap:5px;border-top:1px solid rgba(147,206,180,.18);
+  padding-top:11px;}
+.tuning-heading:first-child {border:0;padding:0;}
+.tuning-heading b {color:#abf1cc;font-size:12px;letter-spacing:.04em;}
+.tuning-heading small {font-size:10px;color:#8fb0ad;font-weight:400;}
+.settings-drawer .control-row .tuning-row {display:grid;grid-template-columns:1fr auto;
+  align-items:center;gap:5px 8px;margin:0;font-size:11px;line-height:1.3;}
+.tuning-row output {font:700 12px ui-monospace,SFMono-Regular,Consolas,monospace;
+  color:#d2ffeb;font-variant-numeric:tabular-nums;}
+.settings-drawer .control-row .tuning-row input[type="range"] {
+  grid-column:1/-1;width:100%;height:21px;margin:0;accent-color:#87dfb1;
+}
+#carpetResetLimits {width:100%;min-height:38px;background:rgba(53,104,82,.20);
+  border-color:rgba(138,210,179,.32);font-size:12px;}
+#carpetTestShove {width:100%;min-height:38px;}
+#carpetPushRate {width:100%;}
+#lessonCommand {padding:9px;border-radius:8px;background:rgba(3,19,23,.5);
+  font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;color:#e0f8e7;}
+#carpetDiagnostics[open] {margin-top:5px;}
+.settings-drawer .control-row {gap:11px;}
+.settings-drawer #carpetPanel {order:0;}
+.settings-drawer #viewPreferences {margin-top:3px;}
+
+/* Concrete provenance of the ACTUAL MuJoCo 3×3 geometry at tiny
+   teaching frontiers. This does not exaggerate collisions. */
+.carpet-evidence {
+  white-space:pre-wrap;
+  padding:12px;border-radius:12px;
+  background:rgba(5,25,29,.8);
+  border:1px solid rgba(138,210,186,.32);
+  color:#cfefe2;
+  font:10.5px/1.78 ui-monospace,SFMono-Regular,Consolas,monospace;
+  font-variant-numeric:tabular-nums;
+}
+#carpetDifficultyMode,#carpetStepTrack {width:100%;font-size:11px;line-height:1.35;}
+.telemetry .terrain-assigned {grid-column:1 / -1;
+  padding:8px 0 6px;border-top:1px solid rgba(146,205,175,.22);}
+.telemetry .terrain-assigned b {font-size:12px;color:#bcffe0;letter-spacing:.01em;}
+
+

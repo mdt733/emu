@@ -11,6 +11,8 @@ from pathlib import Path
 from .checkpoint_io import save_checkpoint, load_checkpoint
 from .results import append_metrics_csv, write_json, write_rows_csv
 from dataclasses import dataclass
+from contextlib import contextmanager
+from threading import Event, Thread
 import time
 import math
 import argparse
@@ -89,6 +91,11 @@ EVAL_PERF_TIMER_NAMES = tuple(f'eval_{name}' for name in PANELS)
 
 def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, float, float, float],
            combo_mix: float = 0.0, sensor_scale: float | None = None):
+    # The learner and every held-out panel must use the same physical
+    # topology and sensor meaning. Fail before compiling MJX otherwise.
+    if not (config.unified_capability_focus and config.terrain_carpet
+            and config.terrain_carpet_prisms):
+        raise ValueError('Fixed evaluator requires the real unified prism world')
     seed = EVAL_SEED + seed_offset
     vx_hi, vx_lo, vy, yaw = limits
     env = EmuMJXEnv(
@@ -96,25 +103,27 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
         max_episode_steps=MAX_EPISODE_STEPS,
         # A held-out physical exam must use the learner's actual push
         # physics: the new 360 learner can earn >0.70N challenges.
-        push_max_force_n=(config.push_max_force_n if config.unified_capability_focus else 0.70),
+        push_max_force_n=config.push_max_force_n,
         vx_hi_max=vx_hi, vx_lo_min=vx_lo,
         vy_max_mps=vy, yaw_max_rad_s=yaw, phase_speed_gain=config.phase_speed_gain,
         attitude_profile=config.attitude_profile, pitch_command_max_deg=config.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE if sensor_scale is None else sensor_scale,
         observation_schema=config.observation_schema, open_frontier=False,
-        # Fixed evaluation of the new array-only 360 actor must use its real
-        # two-slab world and sensor meanings even with ZERO terrain exposure.
-        # Archived 220/232/older tripod-360 panels remain unchanged.
-        unified_capability_focus=bool(config.unified_capability_focus),
+        # A frozen benchmark is not permitted to substitute old slab/box
+        # physics, even when its requested terrain exposure is zero.
+        unified_capability_focus=True, terrain_carpet=True,
+        terrain_carpet_prisms=True,
+        solver_iterations=config.solver_iterations,
+        solver_ls_iterations=config.solver_ls_iterations,
+        carpet_transition_cap_deg=config.carpet_transition_cap_deg,
         velocity_i_ramp_s=config.velocity_i_ramp_s,
         velocity_i_multiplier=config.velocity_i_multiplier,
-        terrain_step_max_m=(config.terrain_step_max_m if config.unified_capability_focus else 0.0),
+        terrain_step_max_m=config.terrain_step_max_m,
         combo_mix_frac=combo_mix, combo_probe_frac=0.0,
     )
-    if config.unified_capability_focus:
-        from .training_config import training_sensor_contract
-        if env.sensor_contract != training_sensor_contract(config):
-            raise RuntimeError('frozen fixed evaluator sensor geometry differs from unified policy')
+    from .training_config import training_sensor_contract
+    if env.sensor_contract != training_sensor_contract(config):
+        raise RuntimeError('frozen fixed evaluator sensor geometry differs from unified policy')
     trainer = make_trainer(env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
                            epochs=1, minibatches=1, entropy_cost=PPO_ENTROPY_COST,
                            value_cost=PPO_VALUE_COST)
@@ -160,7 +169,7 @@ def initial_metrics() -> dict[str, float]:
     return out
 
 
-def broad_score(out: dict[str, float], *, profile: str = 'v5014') -> float:
+def broad_score(out: dict[str, float]) -> float:
     survival_weights = {
         'core': .05, 'stress30': .08, 'dynamic50': .10, 'dynamic80': .16,
         'combo70': .12, 'resilience50': .12, 'resilience75': .14,
@@ -175,18 +184,51 @@ def broad_score(out: dict[str, float], *, profile: str = 'v5014') -> float:
         .10 * min(1.0, out.get('eval_combo70_yaw_mae', 2.0) / .40) +
         .06 * min(1.0, out.get('eval_growthcombo110_yaw_mae', 2.0) / .55)
     )
-    if profile == 'v5015':
-        # v5015 checkpoint selection must not reward a descending gait.
-        panels = ('dynamic50', 'dynamic80', 'combo70', 'resilience75')
-        shortfall = sum(max(0.0, out.get(f'eval_{p}_height_shortfall_m', 0.0)) for p in panels) / len(panels)
-        pitch_err = sum(max(0.0, out.get(f'eval_{p}_pitch_mae', 0.0)) for p in panels) / len(panels)
-        penalties += 0.15 * min(1.0, shortfall / 0.035) + 0.10 * min(1.0, pitch_err / 0.35)
+    # v5015 checkpoint selection must not reward a descending gait.
+    panels = ('dynamic50', 'dynamic80', 'combo70', 'resilience75')
+    shortfall = sum(max(0.0, out.get(f'eval_{p}_height_shortfall_m', 0.0)) for p in panels) / len(panels)
+    pitch_err = sum(max(0.0, out.get(f'eval_{p}_pitch_mae', 0.0)) for p in panels) / len(panels)
+    penalties += 0.15 * min(1.0, shortfall / 0.035) + 0.10 * min(1.0, pitch_err / 0.35)
     return float(survival - penalties)
 
 
+@contextmanager
+def _eval_heartbeat(progress: Callable[[str], None] | None, label: str,
+                    interval_s: float = 20.0):
+    """Emit bounded wall-clock progress while JAX is blocking on a compilation.
+
+    The thread only prints a message: no JAX calls, no mutation of the
+    policy, worlds, optimiser or examiner. A stopped event guarantees that
+    completed panels cannot keep printing stale 'working' lines.
+    """
+    if progress is None:
+        yield
+        return
+    done = Event()
+    started = time.perf_counter()
+    def ticker():
+        while not done.wait(interval_s):
+            progress(f"fixed-eval still working: {label} "
+                     f"({time.perf_counter()-started:.0f}s elapsed; "
+                     "first use can compile MJX kernels)")
+    worker = Thread(target=ticker, name='emu-fixed-eval-heartbeat', daemon=True)
+    worker.start()
+    try:
+        yield
+    finally:
+        done.set()
+        worker.join(timeout=1.0)
+
+
 def evaluate_fixed(worlds: dict[str, tuple[Any, dict[str, Any]]], policy_params: Any,
-                   obs_norm: dict[str, Any], *, step: int, cohorts: int, perf=None) -> dict[str, float]:
-    """Evaluate all fixed panels without mutating any training subsystem."""
+                   obs_norm: dict[str, Any], *, step: int, cohorts: int, perf=None,
+                   progress: Callable[[str], None] | None = None) -> dict[str, float]:
+    """Evaluate all fixed panels without mutating any training subsystem.
+
+    Progress callbacks are read-only console reporting; the exam's physical
+    scenarios, deterministic seeds, scores and two-cohort final standard
+    are unchanged.
+    """
     import jax
 
     base_key = jax.random.PRNGKey(EVAL_SEED)
@@ -196,16 +238,30 @@ def evaluate_fixed(worlds: dict[str, tuple[Any, dict[str, Any]]], policy_params:
     started = time.perf_counter()
     obs_std = obs_norm['var'] ** 0.5
 
-    for name, (world_name, salt, episode) in PANELS.items():
+    total_panels=len(PANELS)
+    total_cohorts=max(1, int(cohorts))
+    if progress is not None:
+        progress(f"fixed-eval BEGIN step={step:,} — {total_panels} physical panels "
+                 f"× {total_cohorts} cohorts, {EVAL_HORIZON} frames/cohort "
+                 "(JAX first-use compilation can take minutes; training is no longer updating)")
+    for index, (name, (world_name, salt, episode)) in enumerate(PANELS.items(),start=1):
         env, trainer = worlds[world_name]
         t0 = time.perf_counter()
         summaries = []
-        for cohort in range(max(1, int(cohorts))):
-            key = jax.random.fold_in(base_key, salt + 10007 * cohort)
-            compact = trainer['evaluate_summary'](
-                policy_params, env.params_array(episode), obs_norm['mean'], obs_std,
-                key, EVAL_HORIZON)
-            compact = np.asarray(jax.device_get(compact), dtype=np.float64)
+        if progress is not None:
+            progress(f"fixed-eval panel {index}/{total_panels} {name} START "
+                     f"({total_cohorts} cohorts, {env.num_envs} worlds)")
+        for cohort in range(total_cohorts):
+            if progress is not None:
+                progress(f"fixed-eval panel {index}/{total_panels} {name} "
+                         f"cohort {cohort+1}/{total_cohorts} running")
+            label=f"panel {index}/{total_panels} {name} cohort {cohort+1}/{total_cohorts}"
+            with _eval_heartbeat(progress,label):
+                key = jax.random.fold_in(base_key, salt + 10007 * cohort)
+                compact = trainer['evaluate_summary'](
+                    policy_params, env.params_array(episode), obs_norm['mean'], obs_std,
+                    key, EVAL_HORIZON)
+                compact = np.asarray(jax.device_get(compact), dtype=np.float64)
             summaries.append({k: float(v) for k, v in zip(EVAL_FIELDS, compact)})
             env_steps += int(env.num_envs) * EVAL_HORIZON
         summary = {k: float(sum(x[k] for x in summaries) / len(summaries)) for k in EVAL_FIELDS}
@@ -213,15 +269,24 @@ def evaluate_fixed(worlds: dict[str, tuple[Any, dict[str, Any]]], policy_params:
         timings[name] = time.perf_counter() - t0
         if perf is not None:
             perf.add(f'eval_{name}', timings[name])
+        if progress is not None:
+            progress(f"fixed-eval panel {index}/{total_panels} {name} DONE "
+                     f"survival={summary['survival']:.1%} "
+                     f"vx_mae={summary['vx_mae']:.3f}m/s "
+                     f"panel_wall={timings[name]:.1f}s "
+                     f"total_wall={time.perf_counter()-started:.1f}s")
 
     elapsed = time.perf_counter() - started
-    scoring_profile = next(iter(worlds.values()))[0].attitude_profile
-    out['eval_broad_score'] = broad_score(out, profile=scoring_profile)
+    out['eval_broad_score'] = broad_score(out)
     out['perf_fixed_eval_total_s'] = float(elapsed)
     out['perf_eval_cohorts_used'] = float(max(1, int(cohorts)))
     out['perf_eval_env_steps'] = float(env_steps)
     out['perf_eval_env_steps_per_s'] = float(env_steps / max(elapsed, 1e-9))
     out.update({f'perf_eval_{name}_s': float(seconds) for name, seconds in timings.items()})
+    if progress is not None:
+        progress(f"fixed-eval COMPLETE step={step:,} "
+                 f"score={out['eval_broad_score']:+.3f} "
+                 f"total_wall={elapsed:.1f}s; publishing read-only evidence")
     return out
 
 
@@ -231,6 +296,7 @@ def record_fixed_exam(
     curriculum_state: Callable[[], dict], health_state: Callable[[], dict],
     field_state: Callable[[], dict], lr_scale: float, version: str,
     perf: Any, log_prefix: str, checkpoint_meta: dict | None = None,
+    progress: Callable[[str], None] | None = None,
 ) -> tuple[dict[str, float], float]:
     """Evaluate one frozen policy and retain the strongest exact checkpoint.
 
@@ -240,7 +306,7 @@ def record_fixed_exam(
     step = snapshot.step
     out = evaluate_fixed(
         worlds, snapshot.params, snapshot.norm(),
-        step=snapshot.step, cohorts=cohorts, perf=perf)
+        step=snapshot.step, cohorts=cohorts, perf=perf, progress=progress)
     broad_history.append(float(out['eval_broad_score']))
     out['eval_broad_tail3'] = float(sum(broad_history[-3:]) / len(broad_history[-3:]))
 
@@ -281,178 +347,3 @@ def record_fixed_exam(
 
 
 # Saved-checkpoint command and recovery capability atlas.
-def checkpoint_training_profile(checkpoint: Path) -> tuple[str, float]:
-    """Identify a policy's training contract for independent atlas tests."""
-    ck = Path(checkpoint).expanduser().resolve()
-    for path in (ck.parent.parent / 'training_config.json', ck.parent / 'training_config.json'):
-        if path.is_file():
-            cfg = json.loads(path.read_text(encoding='utf-8'))
-            return (str(cfg.get('attitude_profile') or 'v5014'),
-                    float(cfg.get('pitch_command_max_deg', 8.0214)))
-    root = ck.parent / 'lineage.json'
-    if root.is_file():
-        lineage = json.loads(root.read_text(encoding='utf-8'))
-        if lineage.get('version') == 'v5015' and lineage.get('phases'):
-            return 'v5015', float(lineage['phases'][-1]['pitch_max_deg'])
-    return 'v5014', 8.0214
-
-
-def fmt(x, d=3):
-    try: return f"{float(x):.{d}f}"
-    except Exception: return '-'
-
-
-def command_tol(axis: str, value: float) -> float:
-    a=abs(float(value))
-    if axis.startswith('vx'): return max(0.06, 0.20*a)
-    if axis.startswith('vy'): return max(0.05, 0.25*a)
-    return max(0.18, 0.20*a)
-
-
-def physical_frontiers(rows: list[dict], value_key='level_abs') -> dict:
-    out={}
-    for target in (0.95,0.80,0.50):
-        ok=[r for r in rows if float(r.get('survival',0)) >= target and float(r.get('tracking_ok',0)) >= 0.5]
-        out[f'frontier_{int(target*100)}'] = max((float(r[value_key]) for r in ok), default=None)
-    return out
-
-
-def recovery_frontiers(rows: list[dict], value_key='level') -> dict:
-    out={}
-    for target in (0.95,0.80,0.50):
-        ok=[r for r in rows if float(r.get('recovery_rate',0)) >= target]
-        out[f'frontier_{int(target*100)}'] = max((float(r[value_key]) for r in ok), default=None)
-    return out
-
-
-def atlas_main(argv=None):
-    ap=argparse.ArgumentParser(description=f'EMU {VERSION} physical capability/recovery atlas')
-    ap.add_argument('--checkpoint', required=True)
-    ap.add_argument('--out-dir', required=True)
-    ap.add_argument('--device', choices=['auto','cpu','cuda','gpu'], default='cuda')
-    ap.add_argument('--allow-cpu-mjx', action='store_true')
-    ap.add_argument('--envs', type=int, default=1024)
-    ap.add_argument('--horizon', type=int, default=300, help='control steps; 300 = 6s at 20ms')
-    ap.add_argument('--seed', type=int, default=733)
-    args=ap.parse_args(argv)
-
-    configure_jax(args.device)
-    import jax
-    require_backend(args.allow_cpu_mjx)
-
-    ck=Path(args.checkpoint).expanduser().resolve(); out=Path(args.out_dir).expanduser().resolve()
-    out.mkdir(parents=True, exist_ok=True)
-
-    try:
-        payload = load_checkpoint(ck)
-    except Exception as exc:
-        raise SystemExit(f'invalid checkpoint {ck}: {exc}') from exc
-    state=payload['state']; params=jax.device_put(state['params'])
-    norm=payload.get('obs_norm') or {}
-
-    attitude_profile, pitch_deg = checkpoint_training_profile(ck)
-    env=EmuMJXEnv(str(ROBOT_XML), num_envs=args.envs, seed=args.seed,
-                  attitude_profile=attitude_profile, pitch_command_max_deg=pitch_deg,
-                  max_episode_steps=max(args.horizon+50, 700), push_max_force_n=0.70, vx_hi_max=1.8, vx_lo_min=-0.9,
-                  vy_max_mps=0.70, yaw_max_rad_s=4.5,
-                  phase_speed_gain=1.25, sensor_noise_scale=1.5,
-                  open_frontier=False, combo_mix_frac=0.0)
-    tr=make_trainer(env, seed=args.seed, lr=2e-4, rollout=32, epochs=1, minibatches=1)
-    obs_mean=jax.numpy.asarray(norm.get('mean', np.zeros((tr['obs_dim'],),np.float32)), dtype=jax.numpy.float32)
-    obs_std=jax.numpy.asarray(np.sqrt(norm.get('var', np.ones((tr['obs_dim'],),np.float32))), dtype=jax.numpy.float32)
-
-    eval_fields=('survival','first_fall_step_mean','vx_mae','vy_mae','yaw_mae','gravity_z','foot_mid_cone','step_evidence','support','pitch_mae','height_shortfall_m')
-    rows=[]; summary={'checkpoint':str(ck),'attitude_profile':attitude_profile,'pitch_command_max_deg':pitch_deg,'envs':args.envs,'horizon_steps':args.horizon,'control_dt_s':CONTROL_DT,'commands':{},'recovery':{}}
-    t0=time.time(); basekey=jax.random.PRNGKey(args.seed+9000); salt=0
-
-    def base_ep():
-        ep = task_param_defaults()
-        ep.update(regime_command_frac=1.0, probe_cmd_vx=0.08, probe_cmd_vy=0.0, probe_cmd_yaw=0.0)
-        return ep
-
-    def eval_command(axis, value):
-        nonlocal salt
-        ep=base_ep()
-        if axis=='vx_forward' or axis=='vx_reverse': ep['probe_cmd_vx']=value
-        elif axis.startswith('vy'): ep['probe_cmd_vy']=value
-        elif axis.startswith('yaw'): ep['probe_cmd_yaw']=value
-        salt+=1; k=jax.random.fold_in(basekey,salt)
-        arr=np.asarray(jax.device_get(tr['evaluate_summary'](params,env.params_array(ep),obs_mean,obs_std,k,args.horizon)),dtype=float)
-        d={k2:float(v) for k2,v in zip(eval_fields,arr)}
-        mae=d['vx_mae'] if axis.startswith('vx') else d['vy_mae'] if axis.startswith('vy') else d['yaw_mae']
-        tol=command_tol(axis,value)
-        return {**d,'axis':axis,'level':float(value),'level_abs':abs(float(value)),'tracking_mae':mae,'tracking_tol':tol,'tracking_ok':float(mae<=tol)}
-
-    command_sweeps={
-        'vx_forward':[0.20,0.40,0.60,0.80,1.00,1.20,1.40,1.60],
-        'vx_reverse':[-0.10,-0.20,-0.30,-0.40,-0.50,-0.60,-0.70,-0.80],
-        'vy_left':[0.10,0.18,0.26,0.34,0.42,0.50,0.60],
-        'vy_right':[-0.10,-0.18,-0.26,-0.34,-0.42,-0.50,-0.60],
-        'yaw_left':[0.50,1.0,1.5,2.0,2.5,3.0,3.5,4.0],
-        'yaw_right':[-0.50,-1.0,-1.5,-2.0,-2.5,-3.0,-3.5,-4.0],
-    }
-    for axis,levels in command_sweeps.items():
-        rr=[]
-        for x in levels:
-            r=eval_command(axis,x); r['kind']='command'; rr.append(r); rows.append(r)
-            print(f"[atlas] {axis:12s} {x:+.3f}: survival={r['survival']:.3f} mae={r['tracking_mae']:.3f} tol={r['tracking_tol']:.3f}",flush=True)
-        summary['commands'][axis]={**physical_frontiers(rr),'curve':rr}
-
-    def eval_recovery(name, level, overrides):
-        nonlocal salt
-        ep=base_ep(); ep.update(overrides)
-        salt+=1; k=jax.random.fold_in(basekey,salt)
-        ff,fr=tr['evaluate_recovery'](params,env.params_array(ep),obs_mean,obs_std,k,args.horizon,10)
-        ff,fr=jax.device_get((ff,fr))
-        return {'kind':'recovery','axis':name,'level':float(level),
-                **recovery_outcome_numpy(ff,fr)}
-
-    recovery_specs={
-        'tilt_deg':[(x,{'probe_tilt_rad':math.radians(x)}) for x in [5,10,15,20,25,30,35,40,50,60]],
-        'linear_velocity_mps':[(x,{'probe_linvel_mps':x}) for x in [0.10,0.20,0.30,0.40,0.55,0.70,0.90,1.10,1.30]],
-        'angular_velocity_rad_s':[(x,{'probe_angvel_rad_s':x}) for x in [0.5,1.0,1.5,2.0,2.5,3.0,4.0,5.0,6.0]],
-        'joint_offset_deg':[(x,{'probe_joint_rad':math.radians(x)}) for x in [2,5,8,12,16,20,25,30,35]],
-    }
-    chaos_levels=[0.25,0.50,0.75,1.00,1.25,1.50]
-    recovery_specs['combined_chaos_scale']=[(x,{
-        'probe_tilt_rad':math.radians(40.0)*x,
-        'probe_linvel_mps':0.80*x,
-        'probe_angvel_rad_s':4.0*x,
-        'probe_joint_rad':math.radians(20.0)*x,
-    }) for x in chaos_levels]
-
-    for name,specs in recovery_specs.items():
-        rr=[]
-        for level,ov in specs:
-            r=eval_recovery(name,level,ov); rr.append(r); rows.append(r)
-            print(f"[atlas] {name:24s} {level:.3f}: survive={r['survival']:.3f} recover={r['recovery_rate']:.3f} p90={r['recovery_time_p90_s']:.2f}s",flush=True)
-        summary['recovery'][name]={**recovery_frontiers(rr),'curve':rr}
-
-    summary['wall_seconds']=round(time.time()-t0,2)
-    write_rows_csv(out/'capability_atlas.csv',rows)
-    (out/'capability_atlas.json').write_text(json.dumps(summary,indent=2),encoding='utf-8')
-
-    md=[f'# EMU {VERSION} capability / recovery atlas','',
-        f'- checkpoint: `{ck}`', f'- envs per point: `{args.envs}`', f'- horizon: `{args.horizon}` control steps ({args.horizon*CONTROL_DT:.1f}s)',
-        '', 'This report intentionally avoids a single aggregate score. The 95/80/50 frontiers are read-offs from the complete physical-unit curves in `capability_atlas.csv`.',
-        '', '## Command competence frontiers','', '| axis | 95% | 80% | 50% |','|---|---:|---:|---:|']
-    for name,v in summary['commands'].items(): md.append(f"| {name} | {fmt(v['frontier_95'])} | {fmt(v['frontier_80'])} | {fmt(v['frontier_50'])} |")
-    md += ['', 'A command point counts as competent only when survival clears the stated percentage **and** mean tracking MAE stays inside an explicit axis tolerance (recorded per row in the CSV).',
-           '', '## Recovery frontiers','', '| disturbance | 95% recovered | 80% recovered | 50% recovered |','|---|---:|---:|---:|']
-    for name,v in summary['recovery'].items(): md.append(f"| {name} | {fmt(v['frontier_95'])} | {fmt(v['frontier_80'])} | {fmt(v['frontier_50'])} |")
-    md += ['', 'Recovery means the robot remains unfallen and holds an appropriately commanded chassis attitude, command-tracking, supported state for 0.20s continuously. Recovery time distributions are retained for every point; survival by itself is not treated as recovery.',
-           '', f"Wall time: {summary['wall_seconds']:.1f}s", '']
-    (out/'atlas.md').write_text('\n'.join(md),encoding='utf-8')
-    print(f"[atlas] complete -> {out/'atlas.md'}",flush=True)
-    return 0
-
-
-# Stable compatibility entrypoints for CLI, scripts and existing tests.
-# All independent physical-exam implementations are in physical_exam.py.
-from .physical_exam import (
-    exam_gravity, sha256_file, source_commit, validate_request, exam_request,
-    evaluate_directional_run, score_terrain_course_trace, evaluate_terrain_course,
-    _summarize_worlds, evaluate_directional_pair, directional_main,
-    SCENARIOS, make_schedule, score_unified_capability_trace, _unified_exam_json,
-    unified_terrain_matrix_cases, evaluate_unified_capabilities,
-)

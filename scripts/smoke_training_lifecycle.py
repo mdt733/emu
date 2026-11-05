@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Bounded GPU acceptance: PPO → checkpoint → resume → exported actor.
 
-Pass --unified for the NEW 360-input actor, guarded to a maximum TWO PPO
-updates. First/continue/verify use independent fresh directories outside Git;
+v5045 accepts only --unified --carpet --prisms and performs exactly
+TWO PPO updates in 18 real true-prism terrain worlds.
+First/continue/verify use independent fresh directories outside Git;
 source hashes and old checkpoints are protected. No overnight unlock.
 """
 from __future__ import annotations
@@ -26,33 +27,33 @@ os.environ.setdefault('XLA_PYTHON_CLIENT_PREALLOCATE', 'false')
 from emu.checkpoint_io import load_checkpoint, payload_train_state_is_finite
 from emu.contracts import source_repo_root
 from emu.checkpoint_io import git_provenance, run_training
-from emu.training_config import ROLLOUT_STEPS, TrainingConfig, foundation_config, training_sensor_contract
+from emu.training_config import ROLLOUT_STEPS, TrainingConfig, training_sensor_contract
 
 SEED = 733
 ENVS = 8
 UPDATE_STEPS = ENVS * ROLLOUT_STEPS
 
 
-def configs(root: Path, *, unified: bool = False,
-            envs: int = ENVS) -> tuple[TrainingConfig, TrainingConfig]:
+def configs(root: Path, *, unified: bool = False, carpet: bool = False,
+            envs: int = ENVS, seed: int = SEED, prisms: bool = False) -> tuple[TrainingConfig, TrainingConfig]:
     updates = envs * ROLLOUT_STEPS
-    if unified:
-        # The EXACT public unified configuration, only with bounded total
-        # steps. Never duplicate the profile by reconstructing handpicked
-        # training defaults in the smoke script.
-        from types import SimpleNamespace
-        from emu.run import one_run_config
-        first = one_run_config(SimpleNamespace(
-            profile="sim2real", run_dir=str(root / "first"),
-            steps=updates, envs=envs, seed=SEED, device="cuda",
-            terrain_actor=True, unified_capabilities=True,
-            terrain_step_max_m=.04))
-    else:
-        first = replace(
-            foundation_config(run_dir=root / "first", seed=SEED,
-                              device="cuda", envs=envs),
-            steps=updates, attitude_profile="v5015",
-            pitch_command_max_deg=8.0)
+    # v5045 runs one real topology. Historical 220/232 and box-only
+    # lifecycle recipes live at their source-pinned Git commits.
+    if not (unified and carpet and prisms):
+        raise ValueError("v5045 acceptance requires --unified --carpet --prisms")
+    # The exact public prism configuration, only with bounded total
+    # steps. Never duplicate the profile by reconstructing handpicked
+    # training defaults in the smoke script.
+    from types import SimpleNamespace
+    from emu.run import one_run_config
+    first = one_run_config(SimpleNamespace(
+        profile="sim2real", run_dir=str(root / "first"),
+        steps=updates, envs=envs, seed=seed, device="cuda",
+        terrain_actor=True, unified_capabilities=True,
+        terrain_step_max_m=.08,
+        terrain_carpet=True, carpet_prisms=True, academy_stream=True,
+        terrain_lesson='coherent-careful',
+        growth_recipe='main-mature', force_program='gentle'))
     second = replace(first, run_dir=str(root / "continued"),
                      resume=str((root / "first/checkpoints/final.pkl").resolve()),
                      steps=2 * updates)
@@ -121,16 +122,6 @@ def digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def fixed_exam_exists(run_dir: Path, step: int) -> None:
-    file = run_dir / "fixed_eval.csv"
-    with file.open(newline="", encoding="utf-8") as f:
-        rows = list(csv.DictReader(f))
-    if not rows or int(float(rows[-1]["step"])) != step:
-        raise RuntimeError(f"no fixed evaluation for step {step:,} in {file}")
-    if not (run_dir / "checkpoints/best.pkl").is_file():
-        raise RuntimeError(f"fixed evaluation did not save best.pkl in {run_dir}")
-
-
 PHYSICAL_DIAGNOSTICS = (
     'servo_shaft_abs_power_w', 'servo_shaft_drive_power_w',
     'servo_shaft_brake_power_w', 'servo_over_rated_frac',
@@ -160,28 +151,29 @@ def physical_telemetry_exists(run_dir: Path) -> None:
         raise RuntimeError('Passive shin spring potential cannot exceed total spring potential')
 
 
-def first_stage(root: Path, *, unified: bool = False, envs: int = ENVS) -> None:
+def first_stage(root: Path, *, unified: bool = False,
+                carpet: bool = False, envs: int = ENVS, seed: int = SEED,
+                prisms: bool = False) -> None:
     updates = envs * ROLLOUT_STEPS
     provenance = current_source()
     if root.exists():
         raise RuntimeError(f"refusing to overwrite existing acceptance root: {root}")
     root.mkdir(parents=True)
-    first, _ = configs(root, unified=unified, envs=envs)
+    first, _ = configs(root, unified=unified, carpet=carpet, envs=envs, seed=seed, prisms=prisms)
     print(f"Acceptance stage 1: one PPO update ({updates} steps), {envs} MJX worlds", flush=True)
     run_training(first, provenance=provenance)
     checkpoint(root / "first/checkpoints/final.pkl", updates, config=first)
-    if not unified:
-        fixed_exam_exists(root / "first", updates)
     physical_telemetry_exists(root / "first")
-    print("PASS stage 1: bounded PPO, physical metrics and valid checkpoint "
-          "(independent walking exam not claimed)" if unified else
-          "PASS stage 1: trained checkpoint and read-only held-out exam", flush=True)
+    print("PASS stage 1: bounded prism PPO, physical metrics and valid checkpoint "
+          "(walking ability not claimed)", flush=True)
 
 
-def continue_stage(root: Path, *, unified: bool = False, envs: int = ENVS) -> None:
+def continue_stage(root: Path, *, unified: bool = False,
+                   carpet: bool = False, envs: int = ENVS, seed: int = SEED,
+                prisms: bool = False) -> None:
     updates = envs * ROLLOUT_STEPS
     provenance = current_source()
-    first, second = configs(root, unified=unified, envs=envs)
+    first, second = configs(root, unified=unified, carpet=carpet, envs=envs, seed=seed, prisms=prisms)
     parent = root / "first/checkpoints/final.pkl"
     checkpoint(parent, updates, config=first)
     first_config = TrainingConfig.load(root / "first/training_config.json")
@@ -196,24 +188,22 @@ def continue_stage(root: Path, *, unified: bool = False, envs: int = ENVS) -> No
     if digest(parent) != parent_hash:
         raise RuntimeError("the parent checkpoint changed during continuation")
     checkpoint(root / "continued/checkpoints/final.pkl", 2 * updates, config=second)
-    if not unified:
-        fixed_exam_exists(root / "continued", 2 * updates)
     physical_telemetry_exists(root / "continued")
     print("PASS stage 2: fresh continuation from untouched validated ancestor", flush=True)
 
 
-def verify_stage(root: Path, *, unified: bool = False, envs: int = ENVS) -> None:
+def verify_stage(root: Path, *, unified: bool = False,
+                 carpet: bool = False, envs: int = ENVS, seed: int = SEED,
+                prisms: bool = False) -> None:
     updates = envs * ROLLOUT_STEPS
     # Verify both original commit identities before opening pickle checkpoints.
     provenance = current_source()
     for name in ('first', 'continued'):
         require_pinned_source(root / name, provenance['commit'])
-    first, second = configs(root, unified=unified, envs=envs)
+    first, second = configs(root, unified=unified, carpet=carpet, envs=envs, seed=seed, prisms=prisms)
     p1 = checkpoint(root / "first/checkpoints/final.pkl", updates, config=first)
     p2 = checkpoint(root / "continued/checkpoints/final.pkl", 2 * updates, config=second)
     for folder, step in (("first", updates), ("continued", 2 * updates)):
-        if not unified:
-            fixed_exam_exists(root / folder, step)
         physical_telemetry_exists(root / folder)
     run_meta = json.loads((root / "continued/run_meta.json").read_text(encoding="utf-8"))
     if int(run_meta.get("resumed_from_step") or -1) != updates:
@@ -236,7 +226,7 @@ def verify_stage(root: Path, *, unified: bool = False, envs: int = ENVS) -> None
         raise RuntimeError("completed resume modified final checkpoint")
 
     # An actual deployable actor export is part of the acceptance contract.
-    from emu.viewer_server import build_bundle, write_bundle
+    from emu.policy_export import build_bundle, write_bundle
     exported = root / "tiny_smoke_actor.emupolicy"
     bundle = build_bundle(root / "continued/checkpoints/final.pkl",
                           label="Two-update smoke (not trained to walk)")
@@ -244,11 +234,22 @@ def verify_stage(root: Path, *, unified: bool = False, envs: int = ENVS) -> None
         raise RuntimeError("exported actor has unexpected training step")
     if unified:
         from emu.contracts import TERRAIN_OBS_DIM
-        from emu.viewer_server import load_exported_actor_for_exam
+        from emu.policy_export import load_exported_actor_for_exam
         if (bundle.get("schema") != 3 or
                 bundle.get("policy",{}).get("obs_dim") != TERRAIN_OBS_DIM):
             raise RuntimeError("exported unified actor is not a 360-input schema-3 policy")
     write_bundle(bundle, exported)
+    if carpet:
+        terrain_info=bundle.get('training') or {}
+        if (terrain_info.get('terrain_carpet') is not True or
+                terrain_info.get('terrain_carpet_prisms', False) is not prisms or
+                terrain_info.get('academy_stream') is not True or
+                terrain_info.get('carpet_transition_cap_deg') !=
+                    first.carpet_transition_cap_deg or
+                terrain_info.get('academy_height_cap_m') !=
+                    first.academy_height_cap_m):
+            raise RuntimeError(
+                'Exported 360 actor lost the physical carpet/prism/Academy provenance')
     if unified:
         # Decode exactly what the frozen physical examiner will consume;
         # this checks array-only ToF semantics, model hash, and normalizer.
@@ -269,9 +270,19 @@ def main() -> None:
     parser.add_argument("--root", required=True, help="new scratch folder OUTSIDE this Git checkout")
     parser.add_argument("--unified", action="store_true",
                         help="bounded 360-input unified acceptance; NEVER starts a campaign")
+    parser.add_argument("--carpet", action="store_true",
+                        help="required: one streaming prism carpet")
+    parser.add_argument("--prisms", action="store_true",
+                        help="required: 18 true convex-prism colliders")
+    parser.add_argument("--seed", type=int, default=SEED,
+                        help="source-pinned learner seed; same on all three stages")
     parser.add_argument("--envs", type=int, default=ENVS,
                         help="8 default, or 12/2048 with --unified")
     args = parser.parse_args()
+    if not (args.unified and args.carpet and args.prisms):
+        parser.error("v5045 acceptance requires --unified --carpet --prisms")
+    if not 0 <= args.seed < 2**31:
+        parser.error("--seed must be a nonnegative signed 32-bit integer")
     if args.unified:
         if args.envs not in (8, 12, 2048):
             parser.error("--unified accepts 8, 12 or 2048 worlds only")
@@ -282,11 +293,14 @@ def main() -> None:
         parser.error("legacy smoke has a fixed eight-world reference recipe")
     root = protected_root(args.root)
     if args.stage == "first":
-        first_stage(root, unified=args.unified, envs=args.envs)
+        first_stage(root, unified=args.unified, carpet=args.carpet,
+                    envs=args.envs, seed=args.seed, prisms=args.prisms)
     elif args.stage == "continue":
-        continue_stage(root, unified=args.unified, envs=args.envs)
+        continue_stage(root, unified=args.unified, carpet=args.carpet,
+                       envs=args.envs, seed=args.seed, prisms=args.prisms)
     else:
-        verify_stage(root, unified=args.unified, envs=args.envs)
+        verify_stage(root, unified=args.unified, carpet=args.carpet,
+                     envs=args.envs, seed=args.seed, prisms=args.prisms)
 
 
 if __name__ == "__main__":

@@ -18,10 +18,6 @@ from .environment import T
 from .directional import contact_pair_mask
 from .directional import heading_rate_request
 from .contracts import CONTROL_DT, P
-from .contracts import (
-    VX_ABS_TOL, VX_REL_TOL, VY_ABS_TOL, VY_REL_TOL, YAW_ABS_TOL, YAW_REL_TOL,
-    UPRIGHT_GRAVITY_Z_MIN, SUPPORT_MIN, NODE_STRUCTURAL_FRACTION_MIN,
-)
 
 # Fixed current PPO doctrine. These are not experiment knobs in modern EMU;
 # training_config records them with each run, while this module owns their use.
@@ -608,47 +604,6 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     evaluate_summary = jax.jit(evaluate_summary, static_argnums=(5,))
 
-    def evaluate_efficiency(params, curriculum_params, obs_mean, obs_std,
-                            eval_key, horizon):
-        """Common-condition efficiency telemetry, NEVER used as a PPO reward.
-
-        Three motor terms plus command smoothness are collected with the same
-        immutable exam seed. Interpret with survival/command performance;
-        a robot that falls early must not win merely by drawing less power.
-        This is simulated shaft power, not electrical battery consumption.
-        """
-        keys = jax.random.split(eval_key, env.num_envs)
-        state = env._reset_with_keys(keys, curriculum_params)
-        obs = env.obs(state)
-        totals = jnp.zeros((5,), dtype=jnp.float32)
-
-        def one(i, carry):
-            es, ob, sums = carry
-            mean, _ = apply(params, normalize_obs(
-                ob, obs_mean, obs_std, obs_norm_mask))
-            action = jnp.clip(mean, -1., 1.)
-            # action_delta_norm exists in the private reward computation,
-            # but REWARD_ONLY_METRICS deliberately strips it from StepOut.
-            # Measure the identical quantity directly from the pre-step
-            # action/state. Do not expand PPO telemetry or alter rewards.
-            action_delta_norm = jnp.linalg.norm(action - es.prev_action, axis=1)
-            out = env.step(es, action, curriculum_params)
-            m = out.metrics
-            sums = sums + jnp.stack((
-                jnp.sum(m['servo_shaft_abs_power_w']),
-                jnp.sum(m['servo_shaft_drive_power_w']),
-                jnp.sum(m['servo_over_rated_frac']),
-                jnp.sum(m['servo_peak_torque_limit_frac']),
-                jnp.sum(action_delta_norm),
-            ))
-            return out.state, out.obs, sums
-
-        _, _, sums = jax.lax.fori_loop(
-            0, horizon, one, (state, obs, totals))
-        return sums / float(env.num_envs * horizon)
-
-    evaluate_efficiency = jax.jit(evaluate_efficiency, static_argnums=(5,))
-
     def evaluate_trace(params, curriculum_params, obs_mean, obs_std, eval_key,
                        horizon, heading_kp=0.0, operator_command=None,
                        command_schedule=None, gyro_bias=0., gyro_noise=0.,
@@ -696,17 +651,49 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         noise = jax.random.normal(sensor_key,(horizon,env.num_envs))*jnp.asarray(gyro_noise)
         bias = jnp.asarray(gyro_bias,dtype=jnp.float32)
         limit = env.yaw_max_rad_s
+        # The live v5046+ world is a 2x2 window of 75cm tiles, NOT the
+        # retired nine 50cm slabs. Share this single terrain ownership
+        # contract with the physical independent scorer.
+        from .terrain_carpet_mjx import (
+            TILE_M, TILE_COUNT, TILE_WINDOW_SIDE, TILE_SIZE_Z_M)
 
         def record_state(es):
             data=es.data
             rotation=env._rotation_body_to_world(data)
             yaw=jnp.arctan2(rotation[:,1,0],rotation[:,0,0])
-            contacts=contact_pair_mask(
-                jnp,data.contact.geom1,data.contact.geom2,data.contact.dist,
-                int(env.ids['floor_geom']),tuple(int(x) for x in env.ids['foot_geoms']))
-            floor = int(env.ids['floor_geom'])
-            floor_normal = jnp.reshape(data.geom_xmat[:,floor],(env.num_envs,3,3))[:,:,2]
-            floor_origin = data.geom_xpos[:,floor,:]
+            foot_geoms=tuple(int(x) for x in env.ids['foot_geoms'])
+            # A non-planar square has TWO real support normals. Select
+            # the triangle under this root, never the retired 9 boxes.
+            prisms=tuple(int(g) for g in env.carpet_prism_geom_ids)
+            contacts=jnp.any(jnp.stack(tuple(
+                contact_pair_mask(jnp,data.contact.geom1,
+                                  data.contact.geom2,data.contact.dist,
+                                  int(g),foot_geoms)
+                for g in prisms),axis=1),axis=1)
+            tile=jnp.floor(data.qpos[:,:2]/TILE_M).astype(jnp.int32)
+            slot=(jnp.mod(tile[:,0],TILE_WINDOW_SIDE)
+                  +TILE_WINDOW_SIDE*jnp.mod(tile[:,1],TILE_WINDOW_SIDE))
+            h=es.carpet_hfields.reshape((env.num_envs,TILE_COUNT,4))
+            chosen=jnp.take_along_axis(
+                h,slot[:,None,None],axis=1)[:,0,:]
+            u=(data.qpos[:,0]/TILE_M-tile[:,0].astype(jnp.float32))
+            v=(data.qpos[:,1]/TILE_M-tile[:,1].astype(jnp.float32))
+            gx=jnp.where(u+v<=1.,chosen[:,1]-chosen[:,0],
+                                    chosen[:,3]-chosen[:,2])
+            gy=jnp.where(u+v<=1.,chosen[:,2]-chosen[:,0],
+                                    chosen[:,3]-chosen[:,1])
+            # hfield samples are scaled by 0.50m on the actual prism
+            # surface. Divide that real rise by the 0.75m tile width:
+            # normalized hfield deltas alone would double the grade.
+            gradient_scale=TILE_SIZE_Z_M/TILE_M
+            normal=jnp.stack((-gx*gradient_scale,-gy*gradient_scale,
+                              jnp.ones_like(gx)),axis=1)
+            floor_normal=normal/jnp.linalg.norm(normal,axis=1,keepdims=True)
+            top=env._carpet_real_top_height(
+                data,data.qpos[:,:3][:,None,:],es.carpet_hfields)[:,0]
+            floor_origin=jnp.stack((
+                data.qpos[:,0],data.qpos[:,1],
+                jnp.where(jnp.isfinite(top),top,0.)),axis=1)
             return (data.qpos[:,:2],yaw,data.xpos[:,env.foot_bodies,:],
                     contacts,floor_normal,floor_origin)
 
@@ -815,14 +802,64 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 # Actual disturbance delivered in the previous MJX step;
                 # recorded only for frozen recovery assessment.
                 applied_push_force_n=jnp.linalg.norm(es.push_force,axis=1))
-            if env.terrain_step_mocap_id >= 0:
-                # Same collision pairs as the training environment; the
-                # frozen examiner never infers support from root altitude.
-                platform_id = int(env.terrain_step_geom_id)
-                contact = getattr(es.data, '_impl', es.data).contact
-                sample['terrain_platform_contact'] = contact_pair_mask(
-                    jnp, contact.geom1, contact.geom2, contact.dist,
-                    int(platform_id), tuple(int(x) for x in env.ids['foot_geoms']))
+            if env.terrain_carpet:
+                # Raw pre-step MJX contact pairs and full physical solid
+                # transforms for a separate NUMPY trajectory scorer. These
+                # are independent of the teacher's academy_cross_new credit:
+                # the operator can check sustained new-tile top support,
+                # approach direction and signed actual lip geometry.
+                solids=tuple(int(g) for g in env.carpet_prism_geom_ids)
+                foot_geoms=tuple(int(g) for g in env.ids['foot_geoms'])
+                carpet_pairs=jnp.stack(tuple(
+                    contact_pair_mask(
+                        jnp,es.data.contact.geom1,es.data.contact.geom2,
+                        es.data.contact.dist,g,foot_geoms)
+                    for g in solids),axis=1)
+                c=es.data.contact
+                contact_vertical=[]
+                for g in solids:
+                    foot_vertical=[]
+                    for foot in foot_geoms:
+                        matching=((c.geom1==g)&(c.geom2==foot))|(
+                                  (c.geom1==foot)&(c.geom2==g))
+                        # A real top-support face has a near-vertical
+                        # normal; side contacts (even at a box corner)
+                        # cannot satisfy this criterion alone.
+                        vertical=jnp.max(jnp.where(
+                            matching&(c.dist<=.003),
+                            jnp.abs(c.frame[:,:,0,2]),0.),axis=1)
+                        foot_vertical.append(vertical)
+                    contact_vertical.append(jnp.stack(foot_vertical,axis=1))
+                sample.update({
+                    "carpet_raw_contact_pairs":carpet_pairs,
+                    "carpet_contact_vertical":jnp.stack(contact_vertical,axis=1),
+                    "carpet_root_cell":jnp.floor(
+                        es.data.qpos[:,:2]/TILE_M).astype(jnp.int32),
+                    "carpet_solid_geom_xpos":es.data.geom_xpos[:,solids,:],
+                    "carpet_solid_geom_xmat":es.data.geom_xmat[:,solids,:].reshape(
+                        (env.num_envs,len(solids),3,3)),
+                })
+                # PRE-step world-space vertex evidence for the independent
+                # prism scorer, time-aligned with raw MJX contact pairs.
+                corner=es.carpet_hfields.reshape((env.num_envs,TILE_COUNT,4))
+                tile_z=es.data.mocap_pos[:,list(env.carpet_mocap_ids),2]
+                sample["carpet_prism_corner_z"]=tile_z[:,:,None]+.5*corner
+            if env.academy_stream:
+                # Read-only per-lip physical measurements from the same
+                # step function as training; never the policy reward alone.
+                sample.update({
+                    "academy_active":out.metrics['academy_active'],
+                    "academy_lip_index":out.metrics['academy_lip_index'],
+                    "academy_cross_new":out.metrics['academy_cross_new'],
+                    "academy_lip_attempt_new":out.metrics['academy_lip_attempt_new'],
+                    "academy_course_new":out.metrics['academy_course_new'],
+                    "academy_cross_up":out.metrics['academy_cross_up'],
+                    "academy_cross_down":out.metrics['academy_cross_down'],
+                    "academy_clearance_new":out.metrics['academy_clearance_new'],
+                    "academy_foothold_new":out.metrics['academy_foothold_new'],
+                    "academy_transfer_new":out.metrics['academy_transfer_new'],
+                    "academy_lip_height_m":out.metrics['academy_lip_height_m'],
+                })
             return (out.state,out.obs,next_target,next_estimate,next_history),sample
 
         zeros=jnp.zeros((env.num_envs,),dtype=jnp.float32)
@@ -831,33 +868,24 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         (last,_,_,_,_),frames=jax.lax.scan(
             step,(initial,obs,zeros,zeros,queue),(schedule,noise))
         last_xy,last_yaw,last_foot,last_contacts,_,_=record_state(last)
-        if env.terrain_step_mocap_id >= 0:
-            if env.unified_capability_focus:
-                # Same two actual MJX collision surfaces; no constructed
-                # heightfield or training-only success labels in the examiner.
-                return dict(
-                    **frames,
-                    initial_terrain_mocap_pos=initial.data.mocap_pos[:,env.terrain_step_mocap_id,:],
-                    initial_terrain_mocap_quat=initial.data.mocap_quat[:,env.terrain_step_mocap_id,:],
-                    initial_unified_ground_mocap_pos=initial.data.mocap_pos[:,env.unified_ground_mocap_id,:],
-                    initial_upper_xmat=jnp.reshape(
-                        initial.data.geom_xmat[:,env.terrain_step_geom_id,:],(env.num_envs,3,3)),
-                    initial_ground_xmat=jnp.reshape(
-                        initial.data.geom_xmat[:,int(env.ids['floor_geom']),:],(env.num_envs,3,3)),
-                    initial_root_quat=initial.data.qpos[:,3:7],
-                    last_position_xy=last_xy,
-                    last_heading_rad=last_yaw,last_foot_xyz=last_foot,
-                    last_floor_contact=last_contacts,
-                    last_servo_torque_nm=last.data.actuator_force[:,:ACTION_DIM],
-                    last_servo_joint_rate_rad_s=last.data.qvel[:,env.act_qvel],
-                    last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
-                    spring_reference_rad=env.spring_reference,
-                    spring_stiffness_nm_rad=env.spring_stiffness,
-                    servo_peak_limit_nm=env.servo_stall_torque_nm)
+        if env.terrain_carpet:
+            from .terrain_carpet_mjx import slot_indices
+            cx,cy=slot_indices(jnp,initial.carpet_center[:,0],
+                               initial.carpet_center[:,1])
+            solids=tuple(int(g) for g in env.carpet_prism_geom_ids)
             return dict(
                 **frames,
-                initial_terrain_mocap_pos=initial.data.mocap_pos[:, env.terrain_step_mocap_id, :],
-                initial_terrain_mocap_quat=initial.data.mocap_quat[:, env.terrain_step_mocap_id, :],
+                # Actual live collision surfaces, NOT inactive heightfields.
+                initial_carpet_solid_geom_xpos=initial.data.geom_xpos[:,solids,:],
+                initial_carpet_solid_geom_xmat=initial.data.geom_xmat[
+                    :,solids,:].reshape((env.num_envs,len(solids),3,3)),
+                initial_carpet_solid_half_sizes=jnp.asarray(
+                    env.mj_model.geom_size[list(solids),:3]),
+                initial_carpet_cells=jnp.stack((cx,cy),axis=-1),
+                initial_carpet_source_hfields=initial.carpet_hfields,
+                initial_foot_radii_m=jnp.asarray(
+                    env.mj_model.geom_size[list(env.ids['foot_geoms']),0]),
+                initial_root_quat=initial.data.qpos[:,3:7],
                 last_position_xy=last_xy,
                 last_heading_rad=last_yaw,last_foot_xyz=last_foot,
                 last_floor_contact=last_contacts,
@@ -881,98 +909,15 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
     # specializations. Bias/noise are dynamic data and cannot stale-cache.
     evaluate_trace = jax.jit(evaluate_trace, static_argnums=(5,6,11))
 
-    def evaluate_recovery(params, curriculum_params, obs_mean, obs_std, eval_key, horizon,
-                          stable_steps=10, recovery_not_before=0):
-        """Return fall/recovery times for capability probes.
-
-        Recovery means sustained healthy dynamic command tracking: alive,
-        commanded-attitude-compatible, supported, and tracking the three
-        movement axes for ``stable_steps``.
-        """
-        keys = jax.random.split(eval_key, env.num_envs)
-        env_state = env._reset_with_keys(keys, curriculum_params)
-        obs = env.obs(env_state)
-        first_fall0 = jnp.full((env.num_envs,), -1, dtype=jnp.int32)
-        first_recovery0 = jnp.full((env.num_envs,), -1, dtype=jnp.int32)
-        streak0 = jnp.zeros((env.num_envs,), dtype=jnp.int32)
-
-        def one_step(i, carry):
-            es, ob, first_fall, first_recovery, streak = carry
-            mean, _ = apply(params, normalize_obs(ob, obs_mean, obs_std, obs_norm_mask))
-            action = jnp.clip(mean, -1.0, 1.0)
-            out = env.step(es, action, curriculum_params)
-            m = out.metrics
-            fell = m['episode_fell'] > 0.5
-            first_fall = jnp.where(jnp.logical_and(first_fall < 0, fell), i + 1, first_fall)
-            # Slightly forgiving instantaneous gates plus a consecutive-frame
-            # requirement are a better definition of dynamic recovery than
-            # demanding low body rates during a walking gait.
-            vx_tol = jnp.maximum(VX_ABS_TOL, VX_REL_TOL * jnp.abs(m['cmd_vx']))
-            vy_tol = jnp.maximum(VY_ABS_TOL, VY_REL_TOL * jnp.abs(m['cmd_vy']))
-            yaw_tol = jnp.maximum(YAW_ABS_TOL, YAW_REL_TOL * jnp.abs(m['cmd_yaw']))
-            stable = (
-                (first_fall < 0) &
-                (m['structural_attitude_ok'] > .5) &  # requested chassis attitude, not rigid upright
-                (jnp.abs(m['vx'] - m['cmd_vx']) <= vx_tol) &
-                (jnp.abs(m['vy'] - m['cmd_vy']) <= vy_tol) &
-                (jnp.abs(m['yaw_rate'] - m['cmd_yaw']) <= yaw_tol) &
-                (m['support'] > SUPPORT_MIN)
-            )
-            streak = jnp.where(stable, streak + 1, 0)
-            newly = ((first_recovery < 0) & (streak >= stable_steps) &
-                     (i >= jnp.maximum(4, recovery_not_before + stable_steps - 1)))
-            first_recovery = jnp.where(newly, i + 1, first_recovery)
-            return out.state, out.obs, first_fall, first_recovery, streak
-
-        _, _, first_fall, first_recovery, _ = jax.lax.fori_loop(
-            0, horizon, one_step,
-            (env_state, obs, first_fall0, first_recovery0, streak0))
-        return first_fall, first_recovery
-
-    evaluate_recovery = jax.jit(evaluate_recovery, static_argnums=(5, 6))
-
-    def evaluate_node_window(params, curriculum_params, obs_mean, obs_std, eval_key, horizon,
-                             window_steps=50, settle_steps=25):
-        """Held-out node exam matching the capability-field window contract.
-
-        After settling, compare mean absolute tracking error with mean dynamic
-        tolerance and require structural health for the configured window fraction.
-        The result is one Bernoulli verdict per environment.
-        """
-        keys=jax.random.split(eval_key,env.num_envs)
-        env_state=env._reset_with_keys(keys,curriculum_params); obs=env.obs(env_state)
-        err0=jnp.zeros((env.num_envs,3),dtype=jnp.float32)
-        tol0=jnp.zeros((env.num_envs,3),dtype=jnp.float32)
-        good0=jnp.zeros((env.num_envs,),dtype=jnp.float32)
-        count0=jnp.zeros((env.num_envs,),dtype=jnp.float32)
-        end_step=jnp.minimum(jnp.asarray(horizon,dtype=jnp.int32),jnp.asarray(settle_steps+window_steps,dtype=jnp.int32))
-        def one_step(i,carry):
-            es,ob,err,tol,good,count=carry
-            mean,_=apply(params,normalize_obs(ob,obs_mean,obs_std,obs_norm_mask)); action=jnp.clip(mean,-1.0,1.0)
-            out=env.step(es,action,curriculum_params); m=out.metrics
-            use=(i>=settle_steps)&(i<end_step)
-            usef=use.astype(jnp.float32)
-            vx_tol=jnp.maximum(VX_ABS_TOL,VX_REL_TOL*jnp.abs(m['cmd_vx'])); vy_tol=jnp.maximum(VY_ABS_TOL,VY_REL_TOL*jnp.abs(m['cmd_vy'])); yaw_tol=jnp.maximum(YAW_ABS_TOL,YAW_REL_TOL*jnp.abs(m['cmd_yaw']))
-            e=jnp.stack((jnp.abs(m['vx']-m['cmd_vx']),jnp.abs(m['vy']-m['cmd_vy']),jnp.abs(m['yaw_rate']-m['cmd_yaw'])),axis=1)
-            tt=jnp.stack((vx_tol,vy_tol,yaw_tol),axis=1)
-            structural=((m['structural_attitude_ok']>.5)&(m['support']>SUPPORT_MIN)&(m['bad_contact']<.5)&(m['episode_fell']<.5)).astype(jnp.float32)
-            err=err+usef*e; tol=tol+usef*tt; good=good+usef*structural; count=count+usef
-            return out.state,out.obs,err,tol,good,count
-        _,_,err,tol,good,count=jax.lax.fori_loop(0,horizon,one_step,(env_state,obs,err0,tol0,good0,count0))
-        c=jnp.maximum(count,1.0); tracking=jnp.all((err/c[:,None]) <= (tol/c[:,None]),axis=1); structural=(good/c)>=NODE_STRUCTURAL_FRACTION_MIN
-        enough=count>=jnp.minimum(jnp.asarray(float(window_steps)),jnp.asarray(float(max(1,horizon-settle_steps))))
-        return tracking & structural & enough
-
-    evaluate_node_window = jax.jit(evaluate_node_window, static_argnums=(5,6,7))
-
     return {
         'make_initial_state': make_initial_state,
         'train_update': train_update,
+        # Only the opt-in full-GPU diagnostic compiles this entry point.
+        # Exact actor/action/physics/sensors/telemetry and bootstrap
+        # from the training rollout; no policy-gradient epochs.
+        'benchmark_rollout': jax.jit(rollout_once),
         'evaluate_summary': evaluate_summary,
-        'evaluate_efficiency': evaluate_efficiency,
         'evaluate_trace': evaluate_trace,
-        'evaluate_recovery': evaluate_recovery,
-        'evaluate_node_window': evaluate_node_window,
         'obs_dim': obs_dim,
     }
 

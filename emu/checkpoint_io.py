@@ -305,19 +305,7 @@ def save_rotating_snapshot(checkpoints_dir: Path, state: Any, meta: dict[str, An
             pass
     return timing
 
-
-def find_newest_valid_snapshot(checkpoints_dir: Path) -> Path | None:
-    for candidate in sorted(checkpoints_dir.glob('snapshot_step_*.pkl'), reverse=True):
-        try:
-            load_checkpoint(candidate, validate=True)
-            return candidate
-        except Exception:
-            continue
-    return None
-
-
 # Resume discovery
-from pathlib import Path
 
 
 def resume_candidates(run_dir: Path) -> list[Path]:
@@ -354,26 +342,13 @@ def find_valid_resume(run_dir: Path, *,
     return None
 
 
-def find_evaluation(root: Path) -> Path | None:
-    """Best policy checkpoint for read-only viewing/evaluation across experiment arms."""
-    candidates: list[tuple[int, float, Path]] = []
-    for run in ("graph", "shadow", "foundation20"):
-        ck = Path(root) / run / "checkpoints"
-        for priority, name in enumerate(("final.pkl", "best.pkl", "latest.pkl")):
-            path = ck / name
-            if path.exists():
-                candidates.append((priority, -path.stat().st_mtime, path))
-    return min(candidates, key=lambda item: (item[0], item[1]))[2] if candidates else None
-
-
 # Exact run boundaries, validated checkpoint handoffs, recovery and subprocess launch.
 import os
 import shutil
 import subprocess
 import sys
 import uuid
-from pathlib import Path
-from typing import Any, Callable
+from typing import Callable
 from dataclasses import dataclass
 
 from .contracts import VERSION, source_repo_root
@@ -388,10 +363,6 @@ def update_boundary_at_or_after(target_steps: int, envs: int) -> int:
         raise ValueError(f"invalid PPO batch size: envs={envs} rollout={ROLLOUT_STEPS}")
     target = int(target_steps)
     return ((target + batch - 1) // batch) * batch
-
-
-def foundation_handoff_step(envs: int) -> int:
-    return update_boundary_at_or_after(FOUNDATION_STEPS, envs)
 
 
 def checkpoint_step(path: Path, *,
@@ -494,7 +465,34 @@ def resume_training_lineage(
         src_recovery = src_ckpt_dir / 'recovery.pkl'
         dst_recovery = dst_ckpt_dir / 'recovery.pkl'
         if src_recovery.exists() and not dst_recovery.exists():
-            active_source = source_provenance_from_env().get('git_commit')
+            # A research fork inherits the *selected final.pkl* on purpose.
+            # Its ancestral recovery.pkl was earned with the PRE-FORK
+            # Academy/reward/solver curriculum. Rewinding a changed teacher
+            # to that older recipe would silently contaminate the treatment.
+            # Only share a rollback candidate if all substantive recipe
+            # fields match; runtime path, seed, target age are not teacher
+            # changes. Same-run power-loss recovery is unaffected.
+            from dataclasses import asdict
+            from .training_config import TrainingConfig
+            source_cfg = src_ckpt_dir.parent / 'training_config.json'
+            destination_cfg = run_dir / 'training_config.json'
+            matching_recipe = False
+            if source_cfg.is_file() and destination_cfg.is_file():
+                try:
+                    source_fields=asdict(TrainingConfig.load(source_cfg))
+                    target_fields=asdict(TrainingConfig.load(destination_cfg))
+                    for ignored in ('run_dir','steps','seed','device','resume'):
+                        source_fields.pop(ignored,None)
+                        target_fields.pop(ignored,None)
+                    matching_recipe=(source_fields==target_fields)
+                except (OSError,ValueError,TypeError) as exc:
+                    print(f"{LOG} fork recovery recipe validation failed: "
+                          f"{exc}; will not inherit rollback",flush=True)
+            if not matching_recipe:
+                print(f"{LOG} research fork changes physical/teacher recipe; "
+                      "ancestor recovery.pkl NOT inherited",flush=True)
+            active_source = (source_provenance_from_env().get('git_commit')
+                             if matching_recipe else None)
             ancestor_source = ((resumed_payload['meta'].get('source_provenance') or {})
                                .get('git_commit'))
             if not active_source or ancestor_source != active_source:
@@ -657,13 +655,6 @@ def resolve_target_checkpoint(run_dir: Path, *, target_steps: int, envs: int, la
     return None, resume, expected
 
 
-def resolve_foundation_handoff(foundation: Path, *, envs: int) -> tuple[Path | None, Path | None, int]:
-    """Foundation-specific name for the shared-ancestor completion contract."""
-    return resolve_target_checkpoint(
-        foundation, target_steps=FOUNDATION_STEPS, envs=envs, label='foundation'
-    )
-
-
 def git_provenance() -> dict[str, Any]:
     def git(*args: str) -> str:
         return subprocess.check_output(["git", *args], cwd=source_repo_root(), text=True, stderr=subprocess.DEVNULL).strip()
@@ -699,21 +690,60 @@ def run_training(config: TrainingConfig, *, provenance: dict[str, Any]) -> None:
     # "Traceback" line. Keep a small bounded diagnostic tail while still
     # writing the FULL uncropped output to the canonical run console.log.
     from collections import deque
+    from threading import Event, Thread
     error_tail = deque(maxlen=40)
+    # The child may block inside JAX compilation without producing a newline.
+    # Heartbeat reports only wall-clock silence; no JAX or learner calls.
+    stop_heartbeat = Event()
+    last_child_output = [time.monotonic()]
+    phase = ["initializing Python/MuJoCo/MJX worlds"]
+
+    def heartbeat() -> None:
+        while not stop_heartbeat.wait(30.0):
+            quiet = time.monotonic() - last_child_output[0]
+            if quiet >= 30.0:
+                print(f"{LOG} working: {phase[0]} "
+                      f"({quiet:.0f}s since trainer output; full details in console.log)",
+                      flush=True)
+
     with (run_dir / "console.log").open("a", encoding="utf-8") as log:
-        proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, bufsize=1)
+        proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, text=True, bufsize=1)
         assert proc.stdout is not None
-        for line in proc.stdout:
-            log.write(line); log.flush()
-            t = line.strip()
-            if t:
-                error_tail.append(t)
-            if (t.startswith(LOG + " step=") or
-                    t.startswith(LOG + "   lessons ") or
-                    "fixed-eval step=" in t or "AUTO-RECOVERY" in t or
-                    "training complete" in t or "Traceback" in t):
-                print("    " + t[:350], flush=True)
-        rc = proc.wait()
+        worker = Thread(target=heartbeat, daemon=True, name="emu-trainer-heartbeat")
+        worker.start()
+        try:
+            for line in proc.stdout:
+                log.write(line); log.flush()
+                t = line.strip()
+                if t:
+                    last_child_output[0] = time.monotonic()
+                    error_tail.append(t)
+                    if "compiling MJX/JAX update" in t:
+                        phase[0] = "first full PPO JAX compilation"
+                    elif "fixed-eval" in t:
+                        phase[0] = "frozen MJX physical examination"
+                    elif "compile+first_update=" in t or t.startswith(LOG + " step="):
+                        phase[0] = "steady PPO training"
+                if (t.startswith(LOG + " step=") or
+                        t.startswith(LOG + "   lessons ") or
+                        t.startswith(LOG + "   speed ") or
+                        t.startswith(LOG + " training start ") or
+                        t.startswith(LOG + " one cold-start ") or
+                        t.startswith(LOG + " obs_dim=") or
+                        t.startswith(LOG + " compiling MJX/JAX update") or
+                        t.startswith(LOG + " compile+first_update=") or
+                        t.startswith(LOG + " fixed-eval ") or
+                        t.startswith(LOG + " PPO TARGET REACHED") or
+                        t.startswith(LOG + " final ") or
+                        t.startswith(LOG + " WARNING:") or
+                        "AUTO-RECOVERY" in t or
+                        "training complete" in t or "Traceback" in t):
+                    print("    " + t[:400], flush=True)
+            rc = proc.wait()
+        finally:
+            stop_heartbeat.set()
+            worker.join(timeout=1.0)
     if rc:
         print(f"{LOG} training subprocess exited with code {rc}; last diagnostic lines:", flush=True)
         for line in error_tail:

@@ -14,9 +14,8 @@ from pathlib import Path
 
 from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
                             run_training, update_boundary_at_or_after)
-from .contracts import (source_repo_root, OBS_SCHEMA_LEGACY,
-                        OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN)
-from .training_config import (TrainingConfig, foundation_config, mature_config,
+from .contracts import source_repo_root, OBS_SCHEMA_TERRAIN
+from .training_config import (TrainingConfig, prism_base_config,
                               training_sensor_contract, verify_existing_phase_config)
 
 
@@ -25,18 +24,21 @@ def one_run_config(args) -> TrainingConfig:
     if args.envs <= 0 or args.steps <= 0:
         raise ValueError('--envs and --steps must both be positive')
     run_dir = Path(args.run_dir).expanduser().resolve()
-    if args.profile == 'foundation':
-        cfg = foundation_config(run_dir=run_dir, seed=args.seed,
-                                device=args.device, envs=args.envs)
-    elif args.profile in ('mature', 'sim2real'):
-        # v5016 reuses the stable learning engine: pitch is a SHARED task
-        # distribution, not a pitch-only experiment arm. Future trials can
-        # vary acquisition, motor cost and terrain with this range fixed.
-        cfg = mature_config('graph', run_dir=run_dir, steps=args.steps,
+    if args.profile != 'sim2real':
+        raise ValueError(
+            'v5045 prism-only training requires --profile sim2real '
+            '(archived foundation/mature profiles are Git-history-only)')
+    # One current 360-input profile. Foundation is an *age* within the same
+    # run, never a separate obsolete 220-input training configuration.
+    cfg = prism_base_config(run_dir=run_dir, steps=args.steps,
                             seed=args.seed, device=args.device, envs=args.envs,
                             resume=None)
-    else:
-        raise ValueError(f'unknown profile: {args.profile}')
+    solver_iterations=getattr(args,"solver_iterations",None)
+    solver_ls_iterations=getattr(args,"solver_ls_iterations",None)
+    for key,value in (("solver_iterations",solver_iterations),
+                      ("solver_ls_iterations",solver_ls_iterations)):
+        if value is not None and (type(value) is not int or not 1<=value<=100):
+            raise ValueError(f"--{key.replace('_','-')} requires integer 1..100")
     unified = bool(getattr(args, 'unified_capabilities', False))
     foundation_steps=int(getattr(args,'foundation_steps',20_000_000))
     foundation_mix=str(getattr(args,'foundation_mix','main'))
@@ -51,10 +53,19 @@ def one_run_config(args) -> TrainingConfig:
             or not 0.0<=rehearsal_arg<=0.5):
         raise ValueError('--athletic-rehearsal-share requires unified learning and 0..0.5')
     athletic_share=(float(rehearsal_arg) if rehearsal_arg is not None
-                    else .10 if unified and growth_recipe=='main-mature'
-                    else 0.0 if unified else cfg.athletic_rehearsal_frac)
+                    else .10 if growth_recipe=='main-mature' else 0.0)
     terrain_lesson=str(getattr(args,'terrain_lesson','mixed'))
     temporal_share=float(getattr(args,'temporal_vx_reward_share',0.))
+    stillness_birth_frac=float(getattr(args,'stillness_birth_frac',0.))
+    if not (math.isfinite(stillness_birth_frac) and 0. <= stillness_birth_frac <= .25):
+        raise ValueError('--stillness-birth-frac must be in [0,0.25]')
+    science_promotion=float(getattr(args,'science_step_promotion_mm',0.))
+    science_retreat=float(getattr(args,'science_step_retreat_mm',0.))
+    science_attempts=getattr(args,'science_step_min_attempts',4)
+    if (not math.isfinite(science_promotion) or not 0.<=science_promotion<=10.
+        or not math.isfinite(science_retreat) or not 0.<=science_retreat<=10.
+        or type(science_attempts) is not int or not 4<=science_attempts<=32):
+        raise ValueError('step frontier science requires 0..10mm and 4..32 attempts')
     if (not math.isfinite(temporal_share) or not 0.<=temporal_share<=1.0
             or (temporal_share>0. and not unified)):
         raise ValueError('--temporal-vx-reward-share requires unified actor and 0..1')
@@ -63,8 +74,6 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('invalid experimental lesson selection')
     if force_program not in ('gentle','aggressive') or not (0.<=retention_share<=.4):
         raise ValueError('invalid force programme or retention share')
-    if not unified and (growth_recipe!='legacy' or retention_share or terrain_lesson!='mixed'):
-        raise ValueError('recovery-first lessons require unified actor')
     if (not math.isfinite(velocity_i_ramp_s) or
             not 0.1 <= velocity_i_ramp_s <= 5.0 or
             not math.isfinite(velocity_i_multiplier) or
@@ -80,96 +89,116 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('unknown foundation mix')
     if teaching_schedule not in ('balanced','staged','terrain-early','steering'):
         raise ValueError('unknown teaching schedule')
-    if not unified and (foundation_steps!=20_000_000 or foundation_mix!='main'):
-        raise ValueError('foundation experiments require --unified-capabilities')
     requested_pitch=getattr(args, 'pitch_deg', None)
     # Main-style gentle cold posture, without changing mature sim2real runs.
-    pitch_deg=float((8.0 if unified or args.profile != 'sim2real' else 30.0)
-                    if requested_pitch is None else requested_pitch)
+    pitch_deg=float(8.0 if requested_pitch is None else requested_pitch)
     if not math.isfinite(pitch_deg) or not 0.0 < pitch_deg <= 30.0:
         raise ValueError('--pitch-deg must be within (0, 30] degrees')
     weight=float(getattr(args,'motor_guidance_weight',0.0))
     if not math.isfinite(weight) or not 0.0 <= weight <= 0.10:
         raise ValueError('--motor-guidance-weight must be in [0, 0.10]')
-    grade=float(getattr(args,'contact_slope_deg',0.0))
-    if not math.isfinite(grade) or not 0.0 <= grade <= 5.0:
-        raise ValueError('--contact-slope-deg must be in [0, 5] degrees')
-    sensor_actor = bool(getattr(args, 'sensor_actor', False))
     terrain_actor = bool(getattr(args, 'terrain_actor', False))
     terrain_max = float(getattr(args,'terrain_step_max_m',0.0))
     if unified and (not terrain_actor or args.profile != 'sim2real'):
         raise ValueError('unified capability learning requires sim2real and terrain_360')
 
-    if sensor_actor and terrain_actor:
-        raise ValueError('--sensor-actor and --terrain-actor are mutually exclusive')
     if not math.isfinite(terrain_max) or not 0.0 <= terrain_max <= .08:
         raise ValueError('--terrain-step-max-m must be between 0 and 0.08')
     if terrain_actor and not 0.001 <= terrain_max <= .08:
         raise ValueError('--terrain-actor needs --terrain-step-max-m above zero')
-    if terrain_max > 0 and (grade > 0 or getattr(args,'contact_terrain_radius',0.0)>0):
-        raise ValueError('finite steps and inclined floor are not yet compatible')
-    if (sensor_actor or terrain_actor) and args.profile not in ('foundation', 'sim2real'):
-        raise ValueError('--sensor-actor requires --profile foundation or sim2real')
-    if grade > 0 and args.profile != 'sim2real':
-        raise ValueError('real contact slope requires --profile sim2real')
-    terrain_radius=float(getattr(args,'contact_terrain_radius',0.0))
-    if not math.isfinite(terrain_radius) or not 0.0 <= terrain_radius <= 1.0:
-        raise ValueError('--contact-terrain-radius must be in [0, 1]')
-    if terrain_radius > 0 and args.profile != 'sim2real':
-        raise ValueError('per-world real contact terrain requires --profile sim2real')
-    if terrain_radius > 0 and grade > 0:
-        raise ValueError('shared real incline and per-world real terrain are mutually exclusive')
+    terrain_carpet=bool(getattr(args,'terrain_carpet',False))
+    carpet_prisms=bool(getattr(args,'carpet_prisms',False))
+    if carpet_prisms and not terrain_carpet:
+        raise ValueError('--carpet-prisms requires --terrain-carpet')
+    carpet_transition_cap_deg=float(getattr(args,'carpet_transition_cap_deg',3.0))
+    if (not math.isfinite(carpet_transition_cap_deg) or
+            not 0.0<=carpet_transition_cap_deg<=15.0 or
+            (not terrain_carpet and carpet_transition_cap_deg!=3.0)):
+        raise ValueError('--carpet-transition-cap-deg requires --terrain-carpet and value 0..15')
+    if terrain_carpet and not (unified and terrain_actor and args.profile=='sim2real'):
+        raise ValueError('--terrain-carpet requires unified sim2real terrain_360')
+    academy_stream=bool(getattr(args,'academy_stream',False))
+    intro=int(getattr(args,'academy_intro_steps',60_000_000))
+    start=int(getattr(args,'academy_start_steps',80_000_000))
+    ramp=int(getattr(args,'academy_ramp_steps',20_000_000))
+    intro_share=float(getattr(args,'academy_intro_share',.10))
+    academy_share=float(getattr(args,'academy_max_share',.50))
+    height_cap=float(getattr(args,'academy_height_cap_m',.150))
+    course_frames=int(getattr(args,'academy_course_episode_frames',1200))
+    if academy_stream and terrain_lesson not in (
+            'coherent','coherent-direct','coherent-careful'):
+        raise ValueError(
+            'multi-lip Academy requires a coherent straight-ahead STEP lesson; '
+            'set --terrain-lesson coherent-careful (recommended)')
+    if ((academy_stream and not (unified and terrain_actor)) or
+        intro<0 or start<intro or ramp<=0 or
+        not (0.<=intro_share<=academy_share<=.85) or
+        not math.isfinite(height_cap) or not .003<=height_cap<=.25 or
+        not 700<=course_frames<=1500):
+        raise ValueError('streaming Academy requires unified terrain_360 and a valid age/share/height contract')
+    # Only the single policy / real prism carpet is executable in v5045.
+    # Prior foundation, 232-input and nine-box lineages are source-pinned
+    # to their historical Git commits; do not accept fake --plan recipes.
+    if not (unified and terrain_actor and terrain_carpet and carpet_prisms
+            and academy_stream):
+        raise ValueError(
+            "v5045 prism-only training requires --profile sim2real "
+            "--terrain-actor --unified-capabilities --terrain-carpet "
+            "--carpet-prisms --academy-stream (no legacy plane/232/box modes)")
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
-                   observation_schema=(OBS_SCHEMA_TERRAIN if terrain_actor else
-                                       OBS_SCHEMA_SENSOR if sensor_actor else OBS_SCHEMA_LEGACY),
+                   solver_iterations=solver_iterations,
+                   solver_ls_iterations=solver_ls_iterations,
+                   observation_schema=OBS_SCHEMA_TERRAIN,
                    terrain_step_max_m=terrain_max, unified_capability_focus=unified,
                    foundation_steps=foundation_steps, foundation_mix=foundation_mix,
                    teaching_schedule=teaching_schedule,
                    velocity_i_ramp_s=velocity_i_ramp_s,
                    velocity_i_multiplier=velocity_i_multiplier,
                    growth_recipe=growth_recipe, retention_share=retention_share,
+                   academy_stream=academy_stream,
+                   terrain_carpet=terrain_carpet,
+                   terrain_carpet_prisms=carpet_prisms,
+                   carpet_transition_cap_deg=carpet_transition_cap_deg,
+                   academy_intro_steps=intro,academy_start_steps=start,
+                   academy_ramp_steps=ramp,academy_intro_share=intro_share,
+                   academy_max_share=academy_share,
+                   academy_height_cap_m=height_cap,
+                   academy_course_episode_frames=course_frames,
                    terrain_lesson=terrain_lesson, force_program=force_program,
                    temporal_vx_reward_share=temporal_share,
+                   stillness_birth_frac=stillness_birth_frac,
+                   science_step_promotion_mm=science_promotion,
+                   science_step_retreat_mm=science_retreat,
+                   science_step_min_attempts=science_attempts,
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
-                   difficulty_base_step=(.0024 if (unified and growth_recipe=='main-mature')
-                                         else .0014 if unified else cfg.difficulty_base_step),
-                   fall_target=(.34 if (unified and growth_recipe=='main-mature')
-                                else .30 if unified else cfg.fall_target),
+                   difficulty_base_step=(.0024 if growth_recipe=='main-mature' else .0014),
+                   fall_target=(.34 if growth_recipe=='main-mature' else .30),
                    # Keep the proven 20M command/phase economics rather than
                    # accidentally inheriting mature speed limits.
-                   vx_hi_max=(.60 if growth_recipe=='main-mature' and unified else .40 if unified else cfg.vx_hi_max),
-                   vx_lo_min=(-.20 if growth_recipe=='main-mature' and unified else -.12 if unified else cfg.vx_lo_min),
-                   vy_max_mps=(.22 if growth_recipe=='main-mature' and unified else .14 if unified else cfg.vy_max_mps),
-                   yaw_max_rad_s=(1.50 if growth_recipe=='main-mature' and unified else .90 if unified else cfg.yaw_max_rad_s),
-                   freeze_obs_norm_after_steps=0 if unified else cfg.freeze_obs_norm_after_steps,
-                   cloud_probes_per_eval=0 if unified else cfg.cloud_probes_per_eval,
-                   cloud_final_probes=0 if unified else cfg.cloud_final_probes,
-                   combo_probe_frac=(.12 if growth_recipe=='main-mature' and unified
-                                     else .08 if unified else cfg.combo_probe_frac),
-                   phase_speed_gain=(1.25 if growth_recipe=='main-mature' and unified
-                                     else .75 if unified else cfg.phase_speed_gain),
-                   regime_command_frac=(.85 if growth_recipe=='main-mature' and unified
-                                        else .60 if unified else cfg.regime_command_frac),
+                   vx_hi_max=(.60 if growth_recipe=='main-mature' else .40),
+                   vx_lo_min=(-.20 if growth_recipe=='main-mature' else -.12),
+                   vy_max_mps=(.22 if growth_recipe=='main-mature' else .14),
+                   yaw_max_rad_s=(1.50 if growth_recipe=='main-mature' else .90),
+                   freeze_obs_norm_after_steps=0,
+                   cloud_probes_per_eval=0, cloud_final_probes=0,
+                   combo_probe_frac=(.12 if growth_recipe=='main-mature' else .08),
+                   phase_speed_gain=(1.25 if growth_recipe=='main-mature' else .75),
+                   regime_command_frac=(.85 if growth_recipe=='main-mature' else .60),
                    athletic_rehearsal_frac=athletic_share,
-                   combo_mix_frac=(.88 if growth_recipe=='main-mature' and unified
-                                   else 0.0 if unified else cfg.combo_mix_frac),
-                   frontier_vx_hi_safety=1.4 if unified else cfg.frontier_vx_hi_safety,
-                   frontier_vx_lo_safety=.55 if unified else cfg.frontier_vx_lo_safety,
-                   frontier_vy_safety=.55 if unified else cfg.frontier_vy_safety,
-                   frontier_yaw_safety=3.5 if unified else cfg.frontier_yaw_safety,
-                   frontier_combo_safety=2.0 if unified else cfg.frontier_combo_safety,
-                   frontier_push_safety_n=(.70 if force_program=='gentle' and unified
-                                           else 4.0 if unified else cfg.frontier_push_safety_n),
+                   combo_mix_frac=(.88 if growth_recipe=='main-mature' else 0.0),
+                   frontier_vx_hi_safety=1.4,
+                   frontier_vx_lo_safety=.55,
+                   frontier_vy_safety=.55,
+                   frontier_yaw_safety=3.5,
+                   frontier_combo_safety=2.0,
+                   frontier_push_safety_n=(.70 if force_program=='gentle' else 4.0),
                    # Main's foundation still sees ≤0.70N; the unified
                    # governor may later earn real larger pushes.
-                   push_max_force_n=4.0 if unified else cfg.push_max_force_n,
-                   capability_field_mode='shadow' if unified else cfg.capability_field_mode,
+                   push_max_force_n=4.0, capability_field_mode='shadow',
                    pitch_command_max_deg=pitch_deg, motor_guidance_weight=weight,
-                   contact_slope_deg=grade,domain_randomization=terrain_radius > 0,
-                   domain_terrain_radius=terrain_radius,
-                   domain_terrain_mode='contact' if terrain_radius > 0 else 'gravity')
+                   domain_randomization=False)
 
 
 def _validated_same_source_extension(config: TrainingConfig, old: TrainingConfig,

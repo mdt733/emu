@@ -27,12 +27,15 @@ from typing import Any
 
 import numpy as np
 
-from .checkpoint_io import resume_training_lineage, promote_checkpoint, try_restore_recovery
+from .checkpoint_io import (
+    resume_training_lineage, promote_checkpoint, try_restore_recovery,
+    save_checkpoint, save_rotating_snapshot, load_checkpoint,
+    source_provenance_from_env,
+)
 from .environment import EmuMJXEnv
-from .environment import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
+from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .capability_field import CapabilityField
-from .capability_cloud import record_capability_cloud_exam
-from .contracts import ACTION_DIM, OBS_DIM, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, SENSOR_OBS_DIM, TERRAIN_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
+from .contracts import ACTION_DIM, OBS_SCHEMA_TERRAIN, TERRAIN_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
     TrainingConfig, doctrine_dict, training_sensor_contract,
     ROLLOUT_STEPS, PPO_EPOCHS, PPO_MINIBATCHES, PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST,
@@ -40,19 +43,20 @@ from .training_config import (
     PROFILE_PERFORMANCE, MAX_EPISODE_STEPS,
     OBS_NORM_MODE, PPO_TARGET_KL, PPO_LR_SCALE_MIN, PPO_LR_SCALE_INIT, PPO_LR_SCALE_MAX, PPO_LR_ADJUST, FOUNDATION_STEPS,
     EVAL_EVERY_STEPS, EVAL_SEED, EVAL_COHORTS, FINAL_EVAL_COHORTS,
-    CLOUD_EVAL_EVERY_STEPS, CLOUD_ENVS, CLOUD_HORIZON, CLOUD_BATCH_POINTS,
     FIELD_HALF_LIFE_STEPS, SENSOR_NOISE_SCALE,
     RECOVERY_TILT_MAX_DEG, RECOVERY_POSITION_MAX_M, RECOVERY_LINVEL_MAX_MPS,
     RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG,
 )
 from .curriculum import RegimeGovernor
-from .curriculum import TrainingHealth
-from .capability_focus import teaching_profile, attention_weights, FOCUS_NAMES
-from .ppo import make_trainer, update_running_stats, build_obs_norm_mask
-from .results import summarize_rollout, augment_rollout_row
-from .ppo import PerfBook, configure_jax, require_backend
+from .training_health import TrainingHealth
+from .capability_focus import (teaching_profile, attention_weights, FOCUS_NAMES,
+                               academy_birth_allocation, academy_focus_mix,
+                               academy_conditional_birth_share)
+from .ppo import (make_trainer, update_running_stats, build_obs_norm_mask,
+                  PerfBook, configure_jax, require_backend)
 from .results import (
-    ensure_run_dir, write_json, read_csv_rows, read_metrics_csv, format_line,
+    summarize_rollout, augment_rollout_row,
+    ensure_run_dir, write_json, read_csv_rows, format_line,
     attach_field_influence, make_metrics_row, append_training_observation,
     write_capability_field_artifacts,
 )
@@ -61,8 +65,6 @@ from .evaluation import (
     EVAL_PERF_TIMER_NAMES, PolicySnapshot, checkpoint_eval_score, record_fixed_exam,
 )
 from .contracts import ROBOT_XML, VERSION
-from .checkpoint_io import (save_checkpoint, save_rotating_snapshot, load_checkpoint,
-                            source_provenance_from_env)
 
 RUN_VERSION = f'emu_{VERSION}'
 LOG_PREFIX = f'[{RUN_VERSION}]'
@@ -70,7 +72,7 @@ LOG_PREFIX = f'[{RUN_VERSION}]'
 TRAIN_PERF_TIMER_NAMES = (
     'train_update', 'host_metric_transfer', 'capability_field_update',
     'host_rollout_summary', 'governor_and_params', 'obs_norm_and_sync',
-    'log_io', 'fixed_eval_total', 'capability_cloud',
+    'log_io', 'fixed_eval_total',
     'checkpoint_best_device_get', 'checkpoint_best_pickle_write', 'checkpoint_best_total',
     'checkpoint_latest_device_get', 'checkpoint_latest_pickle_write', 'checkpoint_latest_total',
     'checkpoint_snapshot_device_get', 'checkpoint_snapshot_pickle_write', 'checkpoint_snapshot_total',
@@ -90,7 +92,6 @@ def env_kwargs_from_args(args) -> dict:
         vy_max_mps=args.vy_max_mps, yaw_max_rad_s=args.yaw_max_rad_s,
         phase_speed_gain=args.phase_speed_gain,
         motor_guidance_weight=args.motor_guidance_weight,
-        contact_slope_deg=args.contact_slope_deg,
         terrain_step_max_m=args.terrain_step_max_m,
         unified_capability_focus=args.unified_capability_focus,
         velocity_i_ramp_s=args.velocity_i_ramp_s,
@@ -98,7 +99,15 @@ def env_kwargs_from_args(args) -> dict:
         retention_share=args.retention_share,
         terrain_lesson=args.terrain_lesson,
         temporal_vx_reward_share=args.temporal_vx_reward_share,
-        verified_ascent_reallocation=args.verified_ascent_reallocation,
+        stillness_birth_frac=args.stillness_birth_frac,
+        academy_stream=args.academy_stream,
+        terrain_carpet=args.terrain_carpet,
+        terrain_carpet_prisms=args.terrain_carpet_prisms,
+        solver_iterations=args.solver_iterations,
+        solver_ls_iterations=args.solver_ls_iterations,
+        carpet_transition_cap_deg=args.carpet_transition_cap_deg,
+        academy_height_cap_m=args.academy_height_cap_m,
+        academy_course_episode_frames=args.academy_course_episode_frames,
         attitude_profile=args.attitude_profile,
         pitch_command_max_deg=args.pitch_command_max_deg,
         sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
@@ -113,8 +122,6 @@ def env_kwargs_from_args(args) -> dict:
         domain_config=DomainRandomizationConfig(
             enabled=bool(args.domain_randomization),
             robot_radius=float(args.domain_robot_radius),
-            terrain_radius=float(args.domain_terrain_radius),
-            terrain_mode=args.domain_terrain_mode,
             hardware_radius=float(args.domain_hardware_radius),
         ),
     )
@@ -131,10 +138,15 @@ def unified_launch_mode(args: TrainingConfig) -> str:
     training target. The runner independently enforces Git and checkpoint
     provenance; this gate accepts research forks; inspect_run verifies compatibility.
     """
-    if not args.unified_capability_focus:
-        return 'legacy'
-    core = (args.device == 'cuda'
+    # Fail before JAX compilation if a caller bypasses the public
+    # prism-only CLI and supplies a retired configuration directly.
+    if not (args.unified_capability_focus
             and args.observation_schema == OBS_SCHEMA_TERRAIN
+            and args.terrain_carpet and args.terrain_carpet_prisms
+            and args.academy_stream and args.attitude_profile == 'v5015'):
+        raise ValueError('v5045 trainer requires one unified v5015 '
+                         '360-input prism carpet with streaming Academy')
+    core = (args.device == 'cuda'
             and args.terrain_step_max_m >= .001
             and args.open_frontier)
     if (core and os.environ.get('EMU_UNIFIED_ACCEPTANCE') == 'bounded-ppo-lifecycle'
@@ -178,6 +190,11 @@ def train(args: TrainingConfig) -> int:
     3. collect the next rollout and update PPO.
     The first rollout is collected before entering the loop.
     """
+    # The old independent sparse cloud was only built for archived
+    # non-unified policies. The current prism actor is evaluated with the
+    # fixed real-MJX panel and separate frozen-policy prism examiner.
+    if args.cloud_probes_per_eval or args.cloud_final_probes:
+        raise ValueError("retired sparse capability-cloud probes are unavailable in v5045")
     launch_mode = unified_launch_mode(args)
     bounded_acceptance = launch_mode == 'bounded'
     continuous_growth = launch_mode == 'continuous'
@@ -194,17 +211,15 @@ def train(args: TrainingConfig) -> int:
     run_name = run_dir.name
     ensure_run_dir(run_dir)
 
-    # Schema/physical sensor meaning is part of the learning state:
-    # legacy 220, sim2real 232 and terrain 360 policies cannot share
-    # an observation normalizer or checkpoint merely by array reshaping.
+    # One exact 360-input actor and normalizer/checkpoint identity.
+    # Historical 220/232 schemas cannot enter this executable trainer.
     sensor_contract = training_sensor_contract(args)
-    obs_dim = (TERRAIN_OBS_DIM if args.observation_schema == OBS_SCHEMA_TERRAIN else
-               SENSOR_OBS_DIM if sensor_contract is not None else OBS_DIM)
-    obs_meta = (dict(
-        checkpoint_schema=(9 if args.observation_schema == OBS_SCHEMA_TERRAIN else 8),
-        observation_schema=args.observation_schema,
+    if sensor_contract is None:
+        raise RuntimeError('v5045 trainer has no 360-input sensor contract')
+    obs_dim = TERRAIN_OBS_DIM
+    obs_meta = dict(
+        checkpoint_schema=9, observation_schema=OBS_SCHEMA_TERRAIN,
         sensor_contract=sensor_contract, obs_dim=obs_dim)
-        if sensor_contract is not None else {})
     resumed_payload, resumed_step, already_complete = resume_training_lineage(
         run_dir, resume=getattr(args, 'resume', ''), target_steps=args.steps, envs=args.envs,
         expected_observation_schema=args.observation_schema,
@@ -223,11 +238,24 @@ def train(args: TrainingConfig) -> int:
     perf = PerfBook(enabled=bool(PROFILE_PERFORMANCE), known_names=TRAIN_PERF_TIMER_NAMES)
 
     env = EmuMJXEnv(str(ROBOT_XML), num_envs=args.envs, seed=args.seed,
-                    max_episode_steps=MAX_EPISODE_STEPS, **env_kwargs_from_args(args))
+                    max_episode_steps=MAX_EPISODE_STEPS,
+                    **env_kwargs_from_args(args))
+    # A physics topology change is NOT an observation-contract change.
+    # Record the actual compiled model so resumed policies and physical
+    # fixed-evaluation reports cannot silently confuse the old torso-contact
+    # world with the new two-ball-foot-only world.
+    meta['mjx_physics'] = {
+        'feet_only_contacts': env.feet_only_contacts,
+        'reset_forward_capacity': env.reset_forward_capacity,
+        'solver_iterations': int(env.mj_model.opt.iterations),
+        'solver_ls_iterations': int(env.mj_model.opt.ls_iterations),
+        'ngeom': int(env.mj_model.ngeom),
+        'padded_contacts_per_world': int(
+            env.mjx.make_data(env.mjx_model_template)._impl.contact.geom1.shape[0]),
+    }
+    write_json(run_dir / 'run_meta.json', meta)
     if env.obs_dim != obs_dim or env.sensor_contract != sensor_contract:
         raise RuntimeError('Observation contract mismatch between trainer and sensor environment')
-    if args.observation_schema == OBS_SCHEMA_TERRAIN and args.terrain_step_max_m <= 0:
-        raise ValueError('terrain_360 actor requires a physical terrain topology, including flat foundation')
     trainer = make_trainer(env, seed=args.seed, lr=args.ppo_lr, rollout=ROLLOUT_STEPS, epochs=PPO_EPOCHS, minibatches=PPO_MINIBATCHES,
                            entropy_cost=args.ppo_entropy_cost, value_cost=args.ppo_value_cost)
     # A two-update CUDA acceptance verifies PPO, physical telemetry,
@@ -252,28 +280,6 @@ def train(args: TrainingConfig) -> int:
               'walking exams disabled; use independent frozen policy exam '
               'after checkpoint/resume/export verification', flush=True)
 
-    # Sparse capability cloud: intentionally much smaller than the fixed
-    # continuity evaluator. Each cloud point is one real vx+vy+yaw command
-    # combination plus a categorical disturbance family and one severity
-    # scalar. Nuisance direction/sign is randomized across the vector batch
-    # rather than becoming another map dimension.
-    cloud_enabled = int(args.cloud_probes_per_eval) > 0 or int(args.cloud_final_probes) > 0
-    cloud_eval_env = cloud_eval_trainer = None
-    cloud_rows: list[dict] = []
-    if cloud_enabled:
-        cloud_eval_env = EmuMJXEnv(str(ROBOT_XML), num_envs=int(CLOUD_ENVS),
-                    seed=EVAL_SEED + 44000, max_episode_steps=max(MAX_EPISODE_STEPS, int(CLOUD_HORIZON)+50),
-                    push_max_force_n=max(4.0, float(args.push_max_force_n or 0.35)),
-                    vx_hi_max=1.20, vx_lo_min=-0.65, vy_max_mps=0.65, yaw_max_rad_s=5.0,
-                    phase_speed_gain=args.phase_speed_gain,
-                    attitude_profile=args.attitude_profile,
-                    pitch_command_max_deg=args.pitch_command_max_deg,
-                    sensor_noise_scale=SENSOR_NOISE_SCALE, observation_schema=args.observation_schema,
-                    open_frontier=False, combo_mix_frac=0.0)
-        cloud_eval_trainer = make_trainer(cloud_eval_env, seed=EVAL_SEED + 44000, lr=args.ppo_lr, rollout=ROLLOUT_STEPS,
-                           epochs=1, minibatches=1, entropy_cost=args.ppo_entropy_cost, value_cost=args.ppo_value_cost)
-        cloud_rows = read_csv_rows(run_dir / 'heldout_capability_cloud.csv')
-
     # No track-level flags to validate here -- a regime's difficulty is judged directly by RegimeGovernor, with no scheduling layer in between.
     governor = RegimeGovernor(fall_target=args.fall_target,
                               difficulty_base_step=args.difficulty_base_step,
@@ -284,7 +290,10 @@ def train(args: TrainingConfig) -> int:
                               frontier_vx_lo_safety=args.frontier_vx_lo_safety,
                               frontier_vy_safety=args.frontier_vy_safety, frontier_yaw_safety=args.frontier_yaw_safety,
                               frontier_combo_safety=args.frontier_combo_safety, frontier_push_safety_n=args.frontier_push_safety_n,
-                              unified_capability_focus=args.unified_capability_focus)
+                              unified_capability_focus=args.unified_capability_focus,
+                              science_step_promotion_mm=args.science_step_promotion_mm,
+                              science_step_retreat_mm=args.science_step_retreat_mm,
+                              science_step_min_attempts=args.science_step_min_attempts)
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:
@@ -296,6 +305,16 @@ def train(args: TrainingConfig) -> int:
     if resumed_payload is not None:
         try:
             governor.load_state_dict(resumed_payload['curriculum_state'])
+            # A fork must not spend 260M's partially collected old-threshold
+            # evidence. Preserve heights and all learned weights. Do NOT
+            # erase evidence on later same-source crash recovery.
+            ancestor_sha = ((resumed_payload.get('meta', {}).get('source_provenance') or {})
+                            .get('git_commit'))
+            if (args.science_reset_step_evidence_on_fork and
+                    ancestor_sha != source_provenance_from_env().get('git_commit')):
+                governor.terrain_evidence = governor._empty_terrain_evidence()
+                print(f'{LOG_PREFIX} science: reset inherited step evidence once '
+                      '(learned frontiers preserved)', flush=True)
             health.load_state_dict(resumed_payload['health_state'])
             print(f"{LOG_PREFIX} --resume: restored curriculum + training health "
                   f"(updates={governor._updates_done_total}, core_bad_streak={governor.core_bad_streak}, "
@@ -351,6 +370,25 @@ def train(args: TrainingConfig) -> int:
                 target_control=max(base_control,args.retention_share)
                 weights=[w*(1.-target_control)/other_total for w in weights[:-1]]
                 weights.append(target_control)
+            # Academy is an additional episode birth role, not a separate
+            # optimizer or policy. Its share is relative to ALL worlds.
+            # Original role fractions survive inside non-Academy births.
+            academy_probability=0.0
+            if args.academy_stream and profile.adaptive_specialists:
+                academy_share=academy_birth_allocation(
+                    step=step,intro_steps=args.academy_intro_steps,
+                    start_steps=args.academy_start_steps,
+                    ramp_steps=args.academy_ramp_steps,
+                    intro_share=args.academy_intro_share,
+                    max_share=args.academy_max_share)
+                # Fast rehearsal was reserved BEFORE focus assignment.
+                # Honour 50% of ALL births rather than accidentally 50% of
+                # the remaining 75% when 25% of worlds rehearse fast gait.
+                conditional,actual_share=academy_conditional_birth_share(
+                    academy_share,float(d['athletic_rehearsal_frac']))
+                weights,academy_probability=academy_focus_mix(
+                    weights,conditional)
+            d['academy_episode_probability']=academy_probability
             for name,weight in zip(FOCUS_NAMES,weights):
                 d['focus_weight_'+name]=weight
             # Keep the 70-update steady-only bootstrap exactly where the
@@ -476,12 +514,16 @@ def train(args: TrainingConfig) -> int:
     # the restored step total, and log/save cadence continues from where
     # it left off instead of immediately firing at time zero.
     total_steps = resumed_step + args.envs * ROLLOUT_STEPS
-    start = time.time()
+    # The first rollout is real training. Starting the wall timer AFTER it
+    # made one-update lifecycle smoke report impossible multi-million FPS.
+    # Include the compilation/first-update wall time conservatively; steady
+    # training throughput is separately available in perf diagnostics.
+    start = t0
     last_log = resumed_step
     last_save = resumed_step
     last_snapshot = resumed_step
     last_seen_nan_skips = [0]  # mutable box so the log block above can update it
-    previous_rows=read_metrics_csv(run_dir / 'metrics.csv')
+    previous_rows=read_csv_rows(run_dir / 'metrics.csv')
     rollback_count=(int(float(previous_rows[-1].get('rollback_count',0)))
                     if previous_rows else 0)
     # Canonical rollback candidate: never overwrite a stronger existing
@@ -507,7 +549,7 @@ def train(args: TrainingConfig) -> int:
     # Held-out evaluation state is reporting/artifact state only; it never feeds
     # PPO, curriculum, health or capability-field updates.
     latest_eval = initial_eval_metrics()
-    fixed_history = read_metrics_csv(run_dir / 'fixed_eval.csv')
+    fixed_history = read_csv_rows(run_dir / 'fixed_eval.csv')
     last_eval_step = int(float(fixed_history[-1]['step'])) if fixed_history else resumed_step
     if fixed_history:
         for key in latest_eval:
@@ -515,8 +557,6 @@ def train(args: TrainingConfig) -> int:
                 latest_eval[key] = float(fixed_history[-1][key])
     broad_eval_history = [float(row['eval_broad_score']) for row in fixed_history[-2:]
                           if row.get('eval_broad_score') not in (None, '')]
-    last_cloud_step = max(
-        [int(float(row.get('policy_step', resumed_step))) for row in cloud_rows] or [resumed_step])
     best_eval_score = -1e9
 
     # Preserve evaluation cadence/history and best-checkpoint monotonicity across
@@ -536,6 +576,13 @@ def train(args: TrainingConfig) -> int:
             return
         if not force and step - last_eval_step < args.fixed_eval_every_steps:
             return
+        # A full frozen physical exam compiles multiple JAX worlds and can
+        # take minutes after the last training progress line. Announce the
+        # phase BEFORE the first compile, never leave the console looking hung.
+        print(f'{LOG_PREFIX} fixed-eval starting at step={step:,} '
+              f'({"final" if force else "scheduled"}; '
+              f'{FINAL_EVAL_COHORTS if force else EVAL_COHORTS} cohorts; '
+              'training updates paused while independent MJX worlds run)',flush=True)
         snapshot = PolicySnapshot(step, state, obs_mean, obs_var, obs_count)
         out, best_eval_score = record_fixed_exam(
             snapshot, worlds=fixed_eval_worlds,
@@ -544,31 +591,13 @@ def train(args: TrainingConfig) -> int:
             best_score=best_eval_score, best_path=best_eval_path,
             curriculum_state=governor.state_dict, health_state=health.state_dict,
             field_state=field.state_dict, lr_scale=lr_scale, version=version,
-            checkpoint_meta=obs_meta, perf=perf, log_prefix=LOG_PREFIX)
+            checkpoint_meta=obs_meta, perf=perf, log_prefix=LOG_PREFIX,
+            progress=lambda message: print(f'{LOG_PREFIX} {message}',flush=True))
         last_eval_step = step
         latest_eval.update(out)
 
-    def maybe_cloud_eval(step: int, force: bool = False) -> None:
-        nonlocal last_cloud_step
-        if not cloud_enabled or cloud_eval_env is None or cloud_eval_trainer is None:
-            return
-        every = max(0, int(CLOUD_EVAL_EVERY_STEPS))
-        if not force and (every <= 0 or step - last_cloud_step < every):
-            return
-        count = int(args.cloud_final_probes if force else args.cloud_probes_per_eval)
-        if count <= 0:
-            return
-        record_capability_cloud_exam(
-            PolicySnapshot(step, state, obs_mean, obs_var, obs_count),
-            field=field, cloud_eval_env=cloud_eval_env,
-            cloud_eval_trainer=cloud_eval_trainer, cloud_rows=cloud_rows,
-            latest_eval=latest_eval, run_dir=run_dir, perf=perf,
-            log_prefix=LOG_PREFIX, force=force, count=count, every=every)
-        last_cloud_step = int(step)
-
     while total_steps < args.steps:
         maybe_fixed_eval(total_steps)
-        maybe_cloud_eval(total_steps)
         host_summary_t0 = time.perf_counter()
         row = summarize_rollout(rollout_metrics, rollout_params_for_metrics)
         # Continuous capability review: ordinary PPO experience updates the
@@ -596,7 +625,8 @@ def train(args: TrainingConfig) -> int:
         report = governor.advance_curriculum(
             row, step=total_steps, max_height_m=args.terrain_step_max_m,
             foundation_steps=args.foundation_steps,
-            kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
+            kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']),
+            academy_max_height_m=(args.academy_height_cap_m if args.academy_stream else 0.))
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
         report.update(health_collapse)
@@ -613,6 +643,10 @@ def train(args: TrainingConfig) -> int:
                 key='regime_frac_'+name
                 report[key]=float(params[key])
             report['foundation_control_mix']=float(params['foundation_control_mix'])
+            report['academy_expected_birth_fraction']=float(
+                (1.-params['athletic_rehearsal_frac'])*
+                params['specialist_mix']*params['focus_weight_step']*
+                params['academy_episode_probability'])
             for name in FOCUS_NAMES:
                 report['focus_alloc_'+name]=float(params['focus_weight_'+name])
             report['teaching_profile']=teaching_profile(
@@ -690,7 +724,12 @@ def train(args: TrainingConfig) -> int:
             # time would produce nonsense fps spikes right after a resume.
             wall_fps = (total_steps - resumed_step) / max(1e-9, elapsed)
             train_seconds = float(perf.total.get('train_update', 0.0)) if perf.enabled else 0.0
-            train_fps = ((total_steps - resumed_step) / max(1e-9, train_seconds)) if train_seconds > 0.0 else wall_fps
+            # train_update perf only measures subsequent updates, never the
+            # compile+first update. Its numerator must cover the SAME steps.
+            measured_train_steps = max(0, total_steps - resumed_step - args.envs * ROLLOUT_STEPS)
+            train_fps = (measured_train_steps / train_seconds
+                         if train_seconds > 0.0 and measured_train_steps > 0
+                         else wall_fps)
             # Surfaces optax.apply_if_finite's running counter, so a
             # skipped (non-finite) gradient update shows up in the log
             # instead of silently vanishing. Any nonzero value here means
@@ -733,9 +772,24 @@ def train(args: TrainingConfig) -> int:
             perf.add('log_io', time.perf_counter() - log_io_t0)
             if perf.enabled:
                 write_json(run_dir / 'performance.json', {'step': total_steps, 'cumulative': perf.row(prefix='')})
-            print(format_line(version, total_steps, float(np.mean(recent_rewards)), row, report, train_fps, wall_fps, nan_grad_skips,
-                              slope_deg=args.contact_slope_deg,
-                              contact_terrain_radius=args.domain_terrain_radius if args.domain_terrain_mode == 'contact' else 0.0), flush=True)
+            print(format_line(version, total_steps, float(np.mean(recent_rewards)),
+                              row, report, train_fps, wall_fps, nan_grad_skips),
+                  flush=True)
+            # No new synchronization: reuse existing cumulative PerfBook timers.
+            # The console's primary fps includes first-use JIT; this separates
+            # compiled full-PPO rate from host reporting/metrics overhead.
+            if perf.enabled and measured_train_steps > 0:
+                print(
+                    f"{LOG_PREFIX}   speed steady_full_ppo={train_fps:.0f}/s "
+                    f"wall_since_start={wall_fps:.0f}/s "
+                    f"cumulative_s(ppo/transfer/summary/field/governor/norm)="
+                    f"{perf.total.get('train_update',0.):.1f}/"
+                    f"{perf.total.get('host_metric_transfer',0.):.1f}/"
+                    f"{perf.total.get('host_rollout_summary',0.):.1f}/"
+                    f"{perf.total.get('capability_field_update',0.):.1f}/"
+                    f"{perf.total.get('governor_and_params',0.):.1f}/"
+                    f"{perf.total.get('obs_norm_and_sync',0.):.1f}",
+                    flush=True)
 
         if save_every_steps > 0 and total_steps - last_save >= save_every_steps:
             last_save = total_steps
@@ -865,10 +919,20 @@ def train(args: TrainingConfig) -> int:
         perf.add('obs_norm_and_sync', time.perf_counter() - norm_t0)
         total_steps = next_total_steps
 
-    # final write. Evaluate and report the exact policy that generated the
-    # final rollout before allowing that rollout to update governor stats.
+    # final write. The last rollout was not reduced by the while-loop; in a
+    # one-update smoke the reward history is otherwise EMPTY and prints 0.000,
+    # although PPO really saw nonzero rewards. Include the last rollout once.
+    recent_rewards.append(float(np.asarray(aux['rollout_reward_mean'])))
+    recent_rewards = recent_rewards[-64:]
+    # Evaluate and report the exact policy that generated the final rollout
+    # before allowing that rollout to update governor stats.
+    print(f'{LOG_PREFIX} PPO TARGET REACHED at step={total_steps:,}; '
+          'starting final read-only physics exams and checkpoint publication. '
+          'The next log lines report each exam panel; no new PPO updates '
+          'are running during this phase.',flush=True)
     maybe_fixed_eval(total_steps, force=True)
-    maybe_cloud_eval(total_steps, force=True)
+    print(f'{LOG_PREFIX} final physical exams finished; '
+          'summarizing final rollout and writing validated final checkpoint...',flush=True)
     row = summarize_rollout(rollout_metrics, rollout_params_for_metrics)
     row.update(field.update_from_rollout(
         rollout_metrics, step=total_steps, control_dt=CONTROL_DT,
@@ -881,7 +945,8 @@ def train(args: TrainingConfig) -> int:
     report = governor.advance_curriculum(
         row, step=total_steps, max_height_m=args.terrain_step_max_m,
         foundation_steps=args.foundation_steps,
-        kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']))
+        kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']),
+        academy_max_height_m=(args.academy_height_cap_m if args.academy_stream else 0.))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
     params = params_with_field(total_steps)
@@ -890,6 +955,10 @@ def train(args: TrainingConfig) -> int:
             key='regime_frac_'+name
             report[key]=float(params[key])
         report['foundation_control_mix']=float(params['foundation_control_mix'])
+        report['academy_expected_birth_fraction']=float(
+            (1.-params['athletic_rehearsal_frac'])*
+            params['specialist_mix']*params['focus_weight_step']*
+            params['academy_episode_probability'])
         for name in FOCUS_NAMES:
             report['focus_alloc_'+name]=float(params['focus_weight_'+name])
         report['teaching_profile']=teaching_profile(
@@ -901,11 +970,14 @@ def train(args: TrainingConfig) -> int:
     elapsed = time.time() - start
     wall_fps = (total_steps - resumed_step) / max(1e-9, elapsed)
     train_seconds = float(perf.total.get('train_update', 0.0)) if perf.enabled else 0.0
-    train_fps = ((total_steps - resumed_step) / max(1e-9, train_seconds)) if train_seconds > 0.0 else wall_fps
+    measured_train_steps = max(0, total_steps - resumed_step - args.envs * ROLLOUT_STEPS)
+    train_fps = (measured_train_steps / train_seconds
+                 if train_seconds > 0.0 and measured_train_steps > 0
+                 else wall_fps)
     nan_grad_skips = int(np.asarray(state.opt_state.total_notfinite))
     final_row = make_metrics_row(
         step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
-        reward=float(np.mean(recent_rewards) if recent_rewards else 0.0), row=row, report=report, aux=aux,
+        reward=float(np.mean(recent_rewards)), row=row, report=report, aux=aux,
         nan_grad_skips=nan_grad_skips, num_envs=args.envs,
         jax_backend=jax.default_backend(), perf_row=perf.row(), rollout_steps=ROLLOUT_STEPS, base_lr=args.ppo_lr)
     append_training_observation(
@@ -928,9 +1000,9 @@ def train(args: TrainingConfig) -> int:
         params=params, label='final')
     if perf.enabled:
         write_json(run_dir / 'performance.json', {'step': total_steps, 'cumulative': perf.row(prefix='')})
-    print(format_line(version, total_steps, final_row['reward_mean'], row, report, train_fps, wall_fps, nan_grad_skips,
-                      slope_deg=args.contact_slope_deg,
-                      contact_terrain_radius=args.domain_terrain_radius if args.domain_terrain_mode == 'contact' else 0.0), flush=True)
+    print(format_line(version, total_steps, final_row['reward_mean'],
+                      row, report, train_fps, wall_fps, nan_grad_skips),
+          flush=True)
     print(f'{LOG_PREFIX} training complete', flush=True)
     return 0
 

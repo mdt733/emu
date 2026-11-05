@@ -1,52 +1,45 @@
-# EMU documentation
+# EMU documentation — one current path
 
-Start at the [project README](../README.md) for scope,
-[HANDOVER](../HANDOVER.md) for what is currently frozen,
-or the [260M release card](V5032_PINNACLE_RELEASE.md) for the current actor.
-The old [training runbook](PINNACLE_CANDIDATE.md) remains reproducibility history.
+Start with [README](../README.md) for the robot,
+[CORE_SKELETON](CORE_SKELETON.md) for which module owns each concept,
+[INSTALL](INSTALL.md) for the single clean WSL checkout and
+[HANDOVER](../HANDOVER.md) for the latest training/promotion state.
 
-## Current, maintained
-
-| Document | Purpose |
+| Need | Maintained reference |
 |---|---|
-| [**PINNACLE 260M RELEASE**](V5032_PINNACLE_RELEASE.md) | **Current trained 360-input baseline**, physical results, limitations, SHA identities and rollback |
-| [POST-PINNACLE RESEARCH](https://github.com/mdt733/emu/issues/17) | Measurements and possible experiments to revisit later; no active science run |
-| [**INSTALL**](INSTALL.md) | New Windows/WSL2 GPU: Python 3.13, JAX CUDA, Node, pytest and 2048-world smoke |
-| [**ARCHITECTURE**](ARCHITECTURE.md) | One-page system diagram, actor/teacher/exam separation and exact file ownership |
-| [HANDOVER](../HANDOVER.md) | Current source/policy identity, honest v5032 physical baseline and immediate follow-up |
-| [RELEASE READINESS](RELEASE_READINESS.md) | Owner-approval checkpoints and physical graduation criteria |
-| [**PHYSICAL QUALITY**](PHYSICAL_QUALITY.md) | What genuinely defines a good robot; signed capability envelopes, path accuracy and no fake scalar |
-| [**260M PHYSICAL BASELINE**](PHYSICAL_BASELINE_260M.md) | Real original exam evidence: verified step crossing versus full controlled mission, per-direction/speed curves |
-| [UNIFIED CAPABILITY GROWTH](UNIFIED_CAPABILITY_GROWTH.md) | Six focus curricula, one actor and physically earned frontiers |
-| [CAPABILITY DIMENSIONS](CAPABILITY_DIMENSIONS.md) | Detailed motion, resilience, terrain and J/m metrics |
-| [VIEWER GRADUATED PARK](VIEWER_GRADUATED_PARK.md) | Eight real-collision viewer challenges and three difficulty levels |
-| [PLAYGROUND](PLAYGROUND.md) | Protected public demo, source-safe viewer and GitHub Pages |
-| [MAINTENANCE](MAINTENANCE.md) | Branch, checkpoint, code hygiene and clear ownership |
-| [TRAVERSABILITY REFUSAL](TRAVERSABILITY_REFUSAL.md) | **Deferred design only**: ToF-informed slowdown, retreat and replan |
+| How the one 360-input actor learns and how the eight-prism world works | [Live ownership / physics skeleton](CORE_SKELETON.md) |
+| How to install, check CUDA, store runs and recover them | [WSL installation](INSTALL.md) |
+| Which research knob and curriculum owns real steps / speed / balance | [Unified capability growth](UNIFIED_CAPABILITY_GROWTH.md) · [Capability dimensions](CAPABILITY_DIMENSIONS.md) |
+| How to judge commanded movement and signed contacts | [Physical quality](PHYSICAL_QUALITY.md) · [Independent 260M baseline](PHYSICAL_BASELINE_260M.md) |
+| Release approvals, rollback and promotion into main | [Release readiness](RELEASE_READINESS.md) · [260M Pinnacle release](V5032_PINNACLE_RELEASE.md) |
+| GPU contact, speed and teaching experiments | [v5046 solver study](V5046_OVERNIGHT_RESULTS_20261105.md) · [v5048 550M shared-parent results](V5048_SHARED_PARENT_RESULTS_20261105.md) · [GPU audit](JAX_GPU_WORKLOAD_AUDIT.md) |
+| Browser/WASM, park and protected publishing | [Playground](PLAYGROUND.md) · [Graduated park](VIEWER_GRADUATED_PARK.md) |
+| Engineering and experiment clean-up policy | [Maintenance](MAINTENANCE.md) · [Issue #17](https://github.com/mdt733/emu/issues/17) |
 
-## Completed experiments — not active launch commands
+## Completed 50M → eight forks → 200M research
 
-- [v5028 considered step-ups](V5028_CONSIDERED_STEPS.md) and
-  [speed-restoration audit](V5028_SPEED_FRONTIER_AUDIT.md)
-- [v5030 temporal reward study](V5030_REWARD_EXPERIMENTS.md)
-- [v5031 verified support-transfer A/B](V5031_VERIFIED_ASCENT.md)
-- [Older research history](history/README.md)
-- [Full v5031 handover snapshot](history/HANDOVER_V5031_COMPLETE.md)
+The v5048 experiment has completed **550M unique steps** and **148
+independent physical GPU panels** on
+[the original frozen experimental source](https://github.com/mdt733/emu/tree/experiment/v5048-shared-parent-pinnacle).
+The [measured v5048 result card](V5048_SHARED_PARENT_RESULTS_20261105.md)
+documents the real physical step-height caveat, matched 100M
+comparisons, the 200M temporal-speed policy and the unproven main
+promotion gates. The future-main branch intentionally **omits its
+temporary launcher** so the final architecture remains lean;
+only the original experiment SHA should be used for reproduction.
 
-Their original **source SHA** remains the reproducible reference.
-Historical source code was removed from the *active release-candidate
-tree*, not destroyed in Git. Do not launch old experiments from
-today's branch or transplant incompatible training checkpoints.
+The approved v5032 260M public policy remains unchanged.
+A completed CUDA training tournament is not a released Pinnacle.
 
-## Deferred until after the baseline is settled
+## Historical files
 
-[Organic terrain transitions](TERRAIN_TRANSITION_GAP.md) and
-[manual surface lab](SURFACE_LAB.md) remain reference material.
-The 260M candidate is complete and promoted as the new baseline.
-We will revisit supported 3cm-plus step-ups and organic terrain only
-after targeted diagnostics from [issue #17](https://github.com/mdt733/emu/issues/17).
+Old v5045 140M / v5046 20M / v5048 eight-arm launchers, retired
+workflows, earlier field geometries and research notebooks remain
+recoverable at their **immutable original Git commits**. They do not
+need to be in active `scripts/` or duplicated into a growing
+`docs/history/` folder.
 
-**Current baseline:** `main` now carries the 360-input 260M
-Pinnacle and approved portable actor. The old 232-input champion
-remains recoverable from commit `2ec9e9db0a816c658131311129ef89ec7a595a12`.
-Any *future* replacement again requires measured evidence and approval.
+For the original detailed v5045 file census and pruned code, see
+[the earlier cleanup commit](https://github.com/mdt733/emu/blob/feature/v5045-core-skeleton-audit/docs/CORE_SKELETON.md).
+For experiments, consult the issue and source-pinned result cards,
+not an old runbook presented as today's recommended launch.

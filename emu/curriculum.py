@@ -11,6 +11,7 @@ from typing import Any
 import math
 
 from .contracts import CONTROL_DT
+from .training_health import TrainingHealth  # stable public import
 from .training_config import FRONTIER_GROWTH_FRAC, FRONTIER_RETREAT_FRAC, FRONTIER_SENSOR_SAFETY
 
 # ---------------------------------------------------------------------------
@@ -52,7 +53,10 @@ class RegimeParams:
     # Saved with ordinary governor rollback/resume state.
     terrain_exposure: float = 0.0
     terrain_height_m: float = 0.0
-    # True inclined collision slabs; independent of discontinuous steps.
+    # Independently earned consecutive-lip frontier in the SAME governor.
+    academy_height_up_m: float = 0.003
+    academy_height_down_m: float = 0.003
+    # Physically colliding prism gradients, independent of discrete lips.
     slope_exposure: float = 0.0
     slope_max_deg: float = 0.0
 
@@ -74,11 +78,12 @@ class RegimeGovernor:
     REGIMES = ('steady', 'transition', 'resilience')
     # At 5% births, each PPO rollout contains too few finished terrain
     # episodes for reliable up/down decisions. Keep a short saved window.
-    TERRAIN_MIN_ATTEMPTS_PER_DIRECTION = 20
     TERRAIN_MAX_WINDOW_UPDATES = 40
-    TERRAIN_ASCENT_PRACTICE_MIN = 0.10
-    TERRAIN_DESCENT_PRACTICE_MIN = 0.50
-    TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE = 0.10
+    ACADEMY_MIN_ATTEMPTS_PER_DIRECTION = 12
+    ACADEMY_MAX_WINDOW_UPDATES = 50
+    ACADEMY_SEED_LIP_M = 0.003
+    ACADEMY_MIN_LIP_M = 0.0015
+    ACADEMY_HEIGHT_GROWTH_M = 0.0005
     COMMAND_SECTORS = ('vx_hi','vx_lo','vy_pos','vy_neg','yaw_pos','yaw_neg','mixed')
     COMMAND_MIN_EDGE_EPISODES = 4
     COMMAND_MIN_EASY_EPISODES = 4
@@ -130,9 +135,22 @@ class RegimeGovernor:
                  frontier_vx_lo_safety: float = 0.45, frontier_vy_safety: float = 0.45,
                  frontier_yaw_safety: float = 3.0, frontier_combo_safety: float = 1.60,
                  frontier_push_safety_n: float = 3.0,
-                 unified_capability_focus: bool = False):
+                 unified_capability_focus: bool = False,
+                 science_step_promotion_mm: float = 0.0,
+                 science_step_retreat_mm: float = 0.0,
+                 science_step_min_attempts: int = 4):
         self.params = RegimeParams()
         self.unified_capability_focus = bool(unified_capability_focus)
+        if (not math.isfinite(science_step_promotion_mm) or
+                not 0. <= science_step_promotion_mm <= 10. or
+                not math.isfinite(science_step_retreat_mm) or
+                not 0. <= science_step_retreat_mm <= 10. or
+                type(science_step_min_attempts) is not int or
+                not 4 <= science_step_min_attempts <= 32):
+            raise ValueError('invalid step science: millimetres 0..10; attempts 4..32')
+        self.science_step_promotion_mm = float(science_step_promotion_mm)
+        self.science_step_retreat_mm = float(science_step_retreat_mm)
+        self.science_step_min_attempts = science_step_min_attempts
         self.command_evidence = {k:self._empty_command_window()
                                  for k in self.COMMAND_SECTORS}
         self.slope_evidence = {k:self._empty_slope_window()
@@ -170,6 +188,7 @@ class RegimeGovernor:
         self._episodes_ema = {k: 0.0 for k in self.fall_ema}
         self._updates_done_total = 0
         self.terrain_evidence = self._empty_terrain_evidence()
+        self.academy_evidence = self._empty_academy_evidence()
         self.frontier_precision_ema = {k: -1.0 for k in ('vx_hi','vx_lo','vy','yaw','combo','accel')}
         self.frontier_bad_streak = {k: 0 for k in ('vx_hi','vx_lo','vy','yaw','combo','accel')}
         self.fall_target = DEFAULT_FALL_TARGET if fall_target is None else float(fall_target)
@@ -197,15 +216,21 @@ class RegimeGovernor:
 
     @staticmethod
     def _empty_terrain_evidence() -> dict[str, float]:
-        # Retain the original pooled fields for legacy non-unified runs.
-        # New closed cohorts are measured against REAL physical ledge height.
-        return dict(up_attempts=0., up_successes=0., up_falls=0.,
-                    down_attempts=0., down_successes=0., down_falls=0.,
-                    updates=0.,
-                    **{f'{direction}_{band}_{outcome}':0.
-                       for direction in ('up','down')
-                       for band in ('near','easy')
-                       for outcome in ('attempts','successes')})
+        # Source-pinned, severity-conditioned evidence only: no retired
+        # undifferentiated step success counts can enter a new frontier.
+        return dict(updates=0., **{
+            f'{direction}_{band}_{outcome}':0.
+            for direction in ('up','down')
+            for band in ('near','easy')
+            for outcome in ('attempts','successes')})
+
+    @staticmethod
+    def _empty_academy_evidence() -> dict[str,float]:
+        return dict(up_updates=0.,down_updates=0.,**{
+            f'{direction}_{band}_{kind}':0.
+            for direction in ('up','down')
+            for band in ('near','easy')
+            for kind in ('attempts','successes')})
 
     def state_dict(self) -> dict[str, Any]:
         """Everything that can affect the governor's next decision.
@@ -219,6 +244,7 @@ class RegimeGovernor:
             '_falls_ema': dict(self._falls_ema), '_episodes_ema': dict(self._episodes_ema),
             '_updates_done_total': self._updates_done_total,
             'terrain_evidence': dict(self.terrain_evidence),
+            'academy_evidence': dict(self.academy_evidence),
             'frontier_precision_ema': dict(self.frontier_precision_ema),
             'frontier_bad_streak': dict(self.frontier_bad_streak),
             **({'command_evidence': {k:dict(v) for k,v in
@@ -228,34 +254,22 @@ class RegimeGovernor:
         }
 
     def load_state_dict(self, d: dict[str, Any]) -> None:
-        expected = {
-            'params', 'competence', 'core_competence', 'best_len', 'core_bad_streak',
-            'fall_ema', '_falls_ema', '_episodes_ema', '_updates_done_total',
-            'frontier_precision_ema', 'frontier_bad_streak',
-        }
-        legacy = set(expected)
-        expected.add('terrain_evidence')
-        if self.unified_capability_focus:
-            expected.update(('command_evidence','slope_evidence'))
-        # Preserve exactly-known older flat governor state (empty new
-        # window), without bypassing external checkpoint source provenance.
-        if not isinstance(d, dict) or set(d) not in (legacy, expected):
-            raise ValueError(f"curriculum state keys mismatch: expected={sorted(expected)} got={sorted(d) if isinstance(d, dict) else type(d).__name__}")
+        # Source-pinned v5045 checkpoints must provide the complete current
+        # governor state. Historical layouts belong to historical commits;
+        # do not synthesize evidence after a silent schema migration.
+        expected = set(self.state_dict())
+        if not isinstance(d, dict) or set(d) != expected:
+            raise ValueError(
+                f"curriculum state keys mismatch: expected={sorted(expected)} "
+                f"got={sorted(d) if isinstance(d, dict) else type(d).__name__}")
         param_names = {f.name for f in dataclass_fields(RegimeParams)}
         if not isinstance(d['params'], dict):
             raise ValueError('curriculum params must be a dictionary')
-        old_names = param_names - {
-            'terrain_exposure','terrain_height_m','slope_exposure','slope_max_deg'}
-        previous_names = param_names - {'slope_exposure','slope_max_deg'}
-        if set(d['params']) == old_names:
-            saved_params = dict(d['params'],terrain_exposure=0.0,
-                terrain_height_m=0.0,slope_exposure=0.0,slope_max_deg=0.0)
-        elif set(d['params']) == previous_names:
-            saved_params = dict(d['params'],slope_exposure=0.0,slope_max_deg=0.0)
-        elif set(d['params']) == param_names:
-            saved_params = d['params']
-        else:
-            raise ValueError(f"curriculum parameter keys mismatch: expected={sorted(param_names)} got={sorted(d['params'])}")
+        saved_params = dict(d['params'])
+        if set(saved_params) != param_names:
+            raise ValueError(
+                f"curriculum parameter keys mismatch: expected={sorted(param_names)} "
+                f"got={sorted(saved_params)}")
         expected_regimes = set(self.REGIMES)
         expected_falls = expected_regimes | {'posture'}
         expected_frontier = {'vx_hi', 'vx_lo', 'vy', 'yaw', 'combo', 'accel'}
@@ -264,15 +278,8 @@ class RegimeGovernor:
                            ('frontier_precision_ema', expected_frontier), ('frontier_bad_streak', expected_frontier)):
             if not isinstance(d[name], dict) or set(d[name]) != keys:
                 raise ValueError(f"curriculum {name} keys mismatch")
-        evidence = d.get('terrain_evidence', self._empty_terrain_evidence())
+        evidence = d['terrain_evidence']
         names = set(self._empty_terrain_evidence())
-        legacy_names = {'up_attempts','up_successes','up_falls',
-                        'down_attempts','down_successes','down_falls','updates'}
-        if isinstance(evidence,dict) and set(evidence)==legacy_names:
-            # 40M-era pooled terrain episodes cannot justify promotion under
-            # the new severity-specific teacher; retain their diagnostic
-            # counts but introduce empty proof cohorts.
-            evidence={**self._empty_terrain_evidence(),**evidence}
         if (not isinstance(evidence, dict) or set(evidence) != names or
                 any(not math.isfinite(float(v)) or float(v) < 0. for v in evidence.values())):
             raise ValueError('curriculum terrain evidence window mismatch')
@@ -280,54 +287,54 @@ class RegimeGovernor:
                 evidence['updates'] > self.TERRAIN_MAX_WINDOW_UPDATES):
             raise ValueError('curriculum terrain evidence age out of range')
         for direction in ('up','down'):
-            if (evidence[f'{direction}_successes'] > evidence[f'{direction}_attempts'] or
-                    evidence[f'{direction}_falls'] > evidence[f'{direction}_attempts']):
-                raise ValueError('curriculum terrain evidence outcome exceeds attempts')
             for band in ('near','easy'):
                 if (evidence[f'{direction}_{band}_successes'] >
                         evidence[f'{direction}_{band}_attempts']):
                     raise ValueError('terrain severity successes exceed attempts')
         self.terrain_evidence = {k: float(v) for k,v in evidence.items()}
+        school=d['academy_evidence']
+        if (not isinstance(school,dict) or
+            set(school)!=set(self._empty_academy_evidence()) or
+            any(not math.isfinite(float(v)) or float(v)<0.
+                for v in school.values())):
+            raise ValueError('Academy evidence checkpoint mismatch')
+        if any(int(school[f'{direction}_updates']) != school[f'{direction}_updates']
+                or school[f'{direction}_updates']>self.ACADEMY_MAX_WINDOW_UPDATES
+                for direction in ('up','down')):
+            raise ValueError('Academy evidence window age invalid')
+        for direction in ('up','down'):
+            for band in ('near','easy'):
+                if (school[f'{direction}_{band}_successes'] >
+                    school[f'{direction}_{band}_attempts']):
+                    raise ValueError('Academy proof exceeds physical encounter count')
+        self.academy_evidence={k:float(v) for k,v in school.items()}
         if self.unified_capability_focus:
             entries=d['command_evidence']
             if (not isinstance(entries,dict) or
                 set(entries)!=set(self.COMMAND_SECTORS)):
                 raise ValueError('unified command frontier evidence schema mismatch')
             for sector,values in entries.items():
-                # Preserve exact 40M-era saved near-edge evidence while
-                # introducing additional easier-task failure counters.
-                valid=({'attempts','successes'},
-                       set(self._empty_command_window()))
-                if (not isinstance(values,dict) or set(values) not in valid or
+                if (not isinstance(values,dict) or
+                    set(values)!=set(self._empty_command_window()) or
                     not all(math.isfinite(float(x)) and float(x)>=0.
                             for x in values.values()) or
                     values['successes']>values['attempts'] or
-                    values.get('easy_successes',0.)>
-                    values.get('easy_attempts',0.)):
+                    values['easy_successes']>values['easy_attempts']):
                     raise ValueError(f'bad command frontier evidence {sector}')
-            self.command_evidence={
-                k:{**self._empty_command_window(),**v}
-                for k,v in entries.items()}
+            self.command_evidence={k:dict(v) for k,v in entries.items()}
             entries=d['slope_evidence']
             if (not isinstance(entries,dict) or
                 set(entries)!=set(self.SLOPE_DIRECTIONS)):
                 raise ValueError('unified slope evidence schema mismatch')
             for direction,values in entries.items():
-                # Old 40M-era cohorts stored pooled directions. Keep their
-                # field schema loadable but never promote severity using
-                # evidence whose actual incline was not recorded.
-                old={'attempts','successes'}
-                new=set(self._empty_slope_window())
-                if (not isinstance(values,dict) or set(values) not in (old,new)
-                    or not all(math.isfinite(float(x)) and float(x)>=0.
-                               for x in values.values()) or
-                    (values['successes']>values['attempts'] if set(values)==old
-                     else values['near_successes']>values['near_attempts'] or
-                          values['easy_successes']>values['easy_attempts'])):
+                if (not isinstance(values,dict) or
+                    set(values)!=set(self._empty_slope_window()) or
+                    not all(math.isfinite(float(x)) and float(x)>=0.
+                            for x in values.values()) or
+                    values['near_successes']>values['near_attempts'] or
+                    values['easy_successes']>values['easy_attempts']):
                     raise ValueError(f'bad slope evidence {direction}')
-            self.slope_evidence={
-                k:(self._empty_slope_window() if set(v)==old else dict(v))
-                for k,v in entries.items()}
+            self.slope_evidence={k:dict(v) for k,v in entries.items()}
         self.params = RegimeParams(**saved_params)
         for name in ('competence', 'fall_ema', '_falls_ema', '_episodes_ema',
                      'frontier_precision_ema', 'frontier_bad_streak'):
@@ -426,121 +433,83 @@ class RegimeGovernor:
         global_fall: float, global_retreat: bool,
         specialist_growth_enabled: bool = True,
     ) -> dict[str, str]:
-        """Use REAL settled tracking evidence to revise physical command limits.
+        """Advance resilience force, sensor noise and transition agility.
 
-        Maintain the original axis EMAs, hysteresis and safety bounds. No
-        fixed-policy exam or PPO reward feeds these training decisions.
+        The six-specialist governor owns signed velocity/yaw frontiers in
+        _advance_specialist_commands. The retired generic edge controller
+        and combo axis never execute in the current unified prism trainer.
         """
-        # Growth is judged on settled tracking near the current boundary, not
-        # on all rollout steps. This prevents
-        # command transitions, low-amplitude centre samples and estimator noise
-        # from voting a proven axis downward. A slow EMA + bad-streak hysteresis
-        # keeps a single ugly rollout from eating the envelope.
-        frontier_events = {}
-        if (self.open_frontier and not global_retreat and
-                (not self.unified_capability_focus or specialist_growth_enabled)):
-            axis_specs = (() if self.unified_capability_focus else (
-                ('vx_hi', 'frontier_precision_vx_forward', +1.0, self.FRONTIER_FLOOR_VX_HI, self.frontier_vx_hi_safety),
-                ('vx_lo', 'frontier_precision_vx_reverse', -1.0, abs(self.FRONTIER_FLOOR_VX_LO), self.frontier_vx_lo_safety),
-                ('vy', 'frontier_precision_vy', +1.0, self.FRONTIER_FLOOR_VY, self.frontier_vy_safety),
-                ('yaw', 'frontier_precision_yaw', +1.0, self.FRONTIER_FLOOR_YAW, self.frontier_yaw_safety),
-            ))
-            easy_enough = self.fall_ema['steady'] <= 0.25 and self.competence['steady'] >= 0.60
-            for axis, pkey, sign, floor_mag, safety_mag in axis_specs:
-                field = f'frontier_{axis}'
-                cur = float(getattr(self.params, field))
-                precision = float(row.get(pkey, -1.0))
-                if precision < 0.0:
-                    frontier_events[axis] = 'no_edge_data'
-                    continue
-                prev = float(self.frontier_precision_ema.get(axis, -1.0))
-                ema = precision if prev < 0.0 else ((1.0-self.FRONTIER_PRECISION_EMA_ALPHA)*prev + self.FRONTIER_PRECISION_EMA_ALPHA*precision)
-                self.frontier_precision_ema[axis] = ema
-                if ema < self.FRONTIER_RETREAT_PRECISION and precision < 0.35:
-                    self.frontier_bad_streak[axis] = int(self.frontier_bad_streak.get(axis, 0)) + 1
-                else:
-                    self.frontier_bad_streak[axis] = max(0, int(self.frontier_bad_streak.get(axis, 0)) - 1)
-                good = ema >= self.FRONTIER_EXPAND_PRECISION and precision >= 0.55
-                sustained_bad = self.frontier_bad_streak[axis] >= self.FRONTIER_BAD_STREAK_LIMIT
-                if easy_enough and good:
-                    mag = min(safety_mag, max(abs(cur), floor_mag) * (1.0 + FRONTIER_GROWTH_FRAC))
-                    setattr(self.params, field, sign * mag)
-                    frontier_events[axis] = 'expand_edge_proven'
-                elif sustained_bad:
-                    mag = max(floor_mag, abs(cur) * (1.0 - FRONTIER_RETREAT_FRAC))
-                    setattr(self.params, field, sign * mag)
-                    frontier_events[axis] = 'retreat_sustained_tracking'
-                else:
-                    frontier_events[axis] = 'hold'
+        if not self.unified_capability_focus:
+            raise ValueError('current prism frontiers require unified specialists')
+        events: dict[str, str] = {}
+        if not (self.open_frontier and not global_retreat
+                and specialist_growth_enabled):
+            return events
 
-            cur = float(self.params.frontier_push_n)
-            if self.fall_ema['resilience'] <= 0.25 and self.competence['resilience'] >= 0.48:
-                self.params.frontier_push_n = min(self.frontier_push_safety_n, cur * (1.0 + (.08 if self.unified_capability_focus else FRONTIER_GROWTH_FRAC)))
-                frontier_events['push_n'] = 'expand'
-            elif self.fall_ema['resilience'] >= 0.42:
-                self.params.frontier_push_n = max(0.70, cur * (1.0 - (.12 if self.unified_capability_focus else FRONTIER_RETREAT_FRAC)))
-                frontier_events['push_n'] = 'retreat'
+        cur = float(self.params.frontier_push_n)
+        if self.fall_ema['resilience'] <= 0.25 and self.competence['resilience'] >= 0.48:
+            self.params.frontier_push_n = min(
+                self.frontier_push_safety_n, cur * 1.08)
+            events['push_n'] = 'expand'
+        elif self.fall_ema['resilience'] >= 0.42:
+            self.params.frontier_push_n = max(0.70, cur * 0.88)
+            events['push_n'] = 'retreat'
+        else:
+            events['push_n'] = 'hold'
+
+        cur = float(self.params.frontier_sensor_scale)
+        settled = min(float(row.get('precision_vx', 0.0)),
+                      float(row.get('precision_vy', 0.0)),
+                      float(row.get('precision_yaw', 0.0)))
+        if global_fall <= 0.25 and settled >= 0.55:
+            self.params.frontier_sensor_scale = min(
+                FRONTIER_SENSOR_SAFETY, cur * 1.015)
+            events['sensor'] = 'expand'
+        elif global_fall >= 0.50:
+            self.params.frontier_sensor_scale = max(
+                1.50, cur * (1.0 - 0.5 * FRONTIER_RETREAT_FRAC))
+            events['sensor'] = 'retreat'
+        else:
+            events['sensor'] = 'hold'
+
+        # The old generic combo precision controller was deliberately
+        # disabled in unified mode. Combined commands are assessed by the
+        # specialist's own evidence rather than this stale EMA.
+        events['combo'] = 'no_edge_data'
+        tp = float(row.get('transition_precision', -1.0))
+        if tp >= 0.0:
+            prev = float(self.frontier_precision_ema.get('accel', -1.0))
+            ema = (tp if prev < 0.0 else
+                   (1.0 - self.FRONTIER_PRECISION_EMA_ALPHA) * prev +
+                   self.FRONTIER_PRECISION_EMA_ALPHA * tp)
+            self.frontier_precision_ema['accel'] = ema
+            if ema < 0.25 and tp < 0.32:
+                self.frontier_bad_streak['accel'] = (
+                    int(self.frontier_bad_streak.get('accel', 0)) + 1)
             else:
-                frontier_events['push_n'] = 'hold'
-
-            cur = float(self.params.frontier_sensor_scale)
-            settled = min(float(row.get('precision_vx', 0.0)),
-                          float(row.get('precision_vy', 0.0)),
-                          float(row.get('precision_yaw', 0.0)))
-            if global_fall <= 0.25 and settled >= 0.55:
-                self.params.frontier_sensor_scale = min(FRONTIER_SENSOR_SAFETY, cur * (1.0 + (.015 if self.unified_capability_focus else .5*FRONTIER_GROWTH_FRAC)))
-                frontier_events['sensor'] = 'expand'
-            elif global_fall >= 0.50:
-                self.params.frontier_sensor_scale = max(1.50, cur * (1.0 - 0.5*FRONTIER_RETREAT_FRAC))
-                frontier_events['sensor'] = 'retreat'
+                self.frontier_bad_streak['accel'] = max(
+                    0, int(self.frontier_bad_streak.get('accel', 0)) - 1)
+            if (self.fall_ema['transition'] <= 0.25 and
+                self.competence['transition'] >= 0.60 and ema >= 0.55):
+                self.params.frontier_transition_hold_s = max(
+                    CONTROL_DT, self.params.frontier_transition_hold_s * 0.975)
+                self.params.frontier_ramp_steps = max(
+                    1.0, self.params.frontier_ramp_steps * 0.95)
+                events['accel'] = 'expand_transition_proven'
+            elif (self.fall_ema['transition'] >= 0.50 or
+                  self.frontier_bad_streak['accel'] >= self.FRONTIER_BAD_STREAK_LIMIT):
+                self.params.frontier_transition_hold_s = min(
+                    0.90, self.params.frontier_transition_hold_s *
+                    (1.0 + FRONTIER_RETREAT_FRAC))
+                self.params.frontier_ramp_steps = min(
+                    4.0, self.params.frontier_ramp_steps *
+                    (1.0 + 2.0 * FRONTIER_RETREAT_FRAC))
+                events['accel'] = 'retreat'
             else:
-                frontier_events['sensor'] = 'hold'
-
-            cp = (-1.0 if self.unified_capability_focus
-                  else float(row.get('frontier_precision_combo', -1.0)))
-            cur = float(self.params.frontier_combo_radius)
-            if cp >= 0.0:
-                prev = float(self.frontier_precision_ema.get('combo', -1.0))
-                ema = cp if prev < 0.0 else ((1.0-self.FRONTIER_PRECISION_EMA_ALPHA)*prev + self.FRONTIER_PRECISION_EMA_ALPHA*cp)
-                self.frontier_precision_ema['combo'] = ema
-                if ema < self.FRONTIER_RETREAT_PRECISION and cp < 0.35:
-                    self.frontier_bad_streak['combo'] = int(self.frontier_bad_streak.get('combo', 0)) + 1
-                else:
-                    self.frontier_bad_streak['combo'] = max(0, int(self.frontier_bad_streak.get('combo', 0)) - 1)
-                if easy_enough and ema >= 0.60 and cp >= 0.55:
-                    self.params.frontier_combo_radius = min(self.frontier_combo_safety, cur * (1.0 + (.06 if self.unified_capability_focus else FRONTIER_GROWTH_FRAC)))
-                    frontier_events['combo'] = 'expand_edge_proven'
-                elif self.frontier_bad_streak['combo'] >= self.FRONTIER_BAD_STREAK_LIMIT:
-                    self.params.frontier_combo_radius = max(self.FRONTIER_FLOOR_COMBO, cur * (1.0 - FRONTIER_RETREAT_FRAC))
-                    frontier_events['combo'] = 'retreat_sustained_tracking'
-                else:
-                    frontier_events['combo'] = 'hold'
-            else:
-                frontier_events['combo'] = 'no_edge_data'
-
-            tp = float(row.get('transition_precision', -1.0))
-            if tp >= 0.0:
-                prev = float(self.frontier_precision_ema.get('accel', -1.0))
-                ema = tp if prev < 0.0 else ((1.0-self.FRONTIER_PRECISION_EMA_ALPHA)*prev + self.FRONTIER_PRECISION_EMA_ALPHA*tp)
-                self.frontier_precision_ema['accel'] = ema
-                if ema < 0.25 and tp < 0.32:
-                    self.frontier_bad_streak['accel'] = int(self.frontier_bad_streak.get('accel', 0)) + 1
-                else:
-                    self.frontier_bad_streak['accel'] = max(0, int(self.frontier_bad_streak.get('accel', 0)) - 1)
-                if self.fall_ema['transition'] <= 0.25 and self.competence['transition'] >= 0.60 and ema >= 0.55:
-                    self.params.frontier_transition_hold_s = max(CONTROL_DT, self.params.frontier_transition_hold_s * (1.0 - (.025 if self.unified_capability_focus else FRONTIER_GROWTH_FRAC)))
-                    self.params.frontier_ramp_steps = max(1.0, self.params.frontier_ramp_steps * (1.0 - (.05 if self.unified_capability_focus else 2.0*FRONTIER_GROWTH_FRAC)))
-                    frontier_events['accel'] = 'expand_transition_proven'
-                elif self.fall_ema['transition'] >= 0.50 or self.frontier_bad_streak['accel'] >= self.FRONTIER_BAD_STREAK_LIMIT:
-                    self.params.frontier_transition_hold_s = min(0.90, self.params.frontier_transition_hold_s * (1.0 + FRONTIER_RETREAT_FRAC))
-                    self.params.frontier_ramp_steps = min(4.0, self.params.frontier_ramp_steps * (1.0 + 2.0*FRONTIER_RETREAT_FRAC))
-                    frontier_events['accel'] = 'retreat'
-                else:
-                    frontier_events['accel'] = 'hold'
-            else:
-                frontier_events['accel'] = 'no_transition_data'
-
-        return frontier_events
+                events['accel'] = 'hold'
+        else:
+            events['accel'] = 'no_transition_data'
+        return events
 
     def advance_slope(self, row: dict[str,float], *, kl_ok: bool = True):
         """One shared *physical-practice* incline target, four directions.
@@ -617,155 +586,144 @@ class RegimeGovernor:
             return 'expand_real_slope_angle'
         return 'hold_probe_learning'
 
-    def advance_terrain(self, row: dict[str,float], *, step: int,
-                        max_height_m: float, foundation_steps: int,
-                        unified: bool = False, kl_ok: bool = True) -> str:
-        """Physically verified up/down growth, using a checkpointed cohort.
+    def advance_academy(self, row: dict[str,float], *, max_height_m:float,
+                        enabled:bool, kl_ok:bool=True) -> str:
+        """Grow UP and DOWN independently from real, approached lip encounters.
 
-        A single PPO rollout at 5% terrain exposure sees only a handful of
-        completed episodes. Aggregate direction-conditioned outcomes across
-        updates, then judge a CLOSED evidence batch; never pool down-only
-        successes or spend old/easier evidence after difficulty changes.
+        Easy crossings audit retained skill; near-frontier encounters alone
+        authorize expansion. Neither direction can hold the other hostage.
         """
-        if max_height_m <= 0. or (step < foundation_steps and not unified):
-            return 'foundation_flat'
-        # Specialist worlds independently probe actual supported steps from
-        # their first birth. Main's non-unified bootstrap remains unchanged.
-        p = self.params
-        speed_lesson = unified
-        exposure_min = .10 if speed_lesson else .05
-        practice_max = .20 if speed_lesson else self.TERRAIN_ASCENT_PRACTICE_MAX_EXPOSURE
-        expansion_max = .20 if speed_lesson else .25
-        height_increment = .0005 if speed_lesson else .00025
-        # Legacy terrain retains its historical core-gait prerequisites.
-        # Only the unified six-cohort teacher removes cross-specialist
-        # dependencies. This must not change old 220/232 training recipes.
-        core_ok = self.core_competence >= .55 and self.fall_ema['posture'] <= .32
-        if p.terrain_exposure <= 0.:
-            if not unified and not core_ok:
-                return 'await_core_walk'
-            self.terrain_evidence = self._empty_terrain_evidence()
-            p.terrain_exposure = .15 if speed_lesson else .05
-            p.terrain_height_m = min(.004 if unified else .010,max_height_m)
-            return 'terrain_unified_seed_4mm' if unified else 'terrain_seed_1cm_5pct'
-        if not unified and not core_ok:
-            self.terrain_evidence = self._empty_terrain_evidence()
-            p.terrain_exposure = max(exposure_min,p.terrain_exposure*.90)
-            p.terrain_height_m = max(min(.010,max_height_m),p.terrain_height_m*.98)
-            return 'terrain_retreat_core'
-
-        if unified:
-            # One slowly wandering step-height target. Practice across 30-100%
-            # of the target stays broad; only actual near-target supported
-            # crossings can nudge it higher. A HARD failure is not a retreat
-            # signal; repeated difficulty on easier steps is. Up and down
-            # each earn their own evidence; no down-only graduation.
-            evidence=self.terrain_evidence
-            for direction in ('up','down'):
-                for band in ('near','easy'):
-                    for outcome in ('attempts','successes'):
-                        key=f'terrain_{band}_{outcome}_{direction}'
-                        value=float(row.get(key,0.))
-                        if not math.isfinite(value) or value<0.:
-                            raise ValueError(f'invalid step severity evidence {key}')
-                        evidence[f'{direction}_{band}_{outcome}']+=value
-                    if (evidence[f'{direction}_{band}_successes'] >
-                        evidence[f'{direction}_{band}_attempts']):
-                        raise ValueError(f'step successes exceed attempts {direction}/{band}')
-            evidence['updates']+=1.
-            min_attempts=4
-            easy_bad=any(
-                evidence[f'{d}_easy_attempts']>=min_attempts and
-                evidence[f'{d}_easy_successes']/evidence[f'{d}_easy_attempts']<.30
-                for d in ('up','down'))
-            if easy_bad:
-                p.terrain_height_m=max(min(.0015,max_height_m),p.terrain_height_m*.82)
-                self.terrain_evidence=self._empty_terrain_evidence()
-                return 'terrain_retreat_easy_failure'
-            for direction in ('up','down'):
-                key=f'{direction}_easy_attempts'
-                if evidence[key]>=min_attempts:
-                    evidence[key]=evidence[f'{direction}_easy_successes']=0.
-            ready=all(evidence[f'{d}_near_attempts']>=min_attempts
-                      for d in ('up','down'))
-            if ready:
-                good=all(
-                    evidence[f'{d}_near_successes']/
-                    evidence[f'{d}_near_attempts']>=.55
-                    for d in ('up','down'))
-                for direction in ('up','down'):
-                    evidence[f'{direction}_near_attempts']=0.
-                    evidence[f'{direction}_near_successes']=0.
-                evidence['updates']=0.
-                if not kl_ok:
-                    return 'terrain_hold_ppo_health'
-                if good:
-                    p.terrain_height_m=min(max_height_m,p.terrain_height_m+max(.0010,.18*p.terrain_height_m))
-                    self.terrain_evidence=self._empty_terrain_evidence()
-                    return 'terrain_height_expand_real_cross'
-                return 'terrain_hold_probe_learning'
-            if evidence['updates']>=self.TERRAIN_MAX_WINDOW_UPDATES:
-                self.terrain_evidence=self._empty_terrain_evidence()
-                return 'terrain_window_insufficient_attempts'
-            return 'terrain_collect_real_step'
-
-        required = tuple(f'terrain_{outcome}_{direction}'
-                         for direction in ('up','down')
-                         for outcome in ('attempts','successes','falls'))
-        if not all(key in row for key in required):
-            return 'await_directional_terrain_evidence'
-        window = self.terrain_evidence
+        if not enabled:
+            return 'academy_disabled'
+        if not (math.isfinite(max_height_m) and
+                self.ACADEMY_SEED_LIP_M<=max_height_m<=.25):
+            raise ValueError('Academy aspiration must be in [3mm,25cm]')
+        if float(row.get('academy_active_fraction',0.))<=0.:
+            return 'academy_await_births'
+        evidence=self.academy_evidence
+        events=[]
         for direction in ('up','down'):
-            attempts = float(row[f'terrain_attempts_{direction}'])
-            successes = float(row[f'terrain_successes_{direction}'])
-            falls = float(row[f'terrain_falls_{direction}'])
-            if (not all(math.isfinite(v) for v in (attempts,successes,falls)) or
-                    min(attempts,successes,falls)<0. or
-                    successes>attempts or falls>attempts):
-                raise ValueError('invalid direction-conditioned terrain outcomes')
-            window[f'{direction}_attempts'] += attempts
-            window[f'{direction}_successes'] += successes
-            window[f'{direction}_falls'] += falls
-        window['updates'] += 1.
+            for band in ('near','easy'):
+                for kind in ('attempts','successes'):
+                    key=f'academy_{band}_{kind}_{direction}'
+                    amount=float(row.get(key,0.))
+                    if not math.isfinite(amount) or amount<0.:
+                        raise ValueError(f'invalid Academy physical evidence {key}')
+                    evidence[f'{direction}_{band}_{kind}']+=amount
+                if (evidence[f'{direction}_{band}_successes'] >
+                    evidence[f'{direction}_{band}_attempts']+1e-6):
+                    raise ValueError('Academy successes exceed encounters')
+            evidence[f'{direction}_updates']+=1.
+            frontier=f'academy_height_{direction}_m'
+            nmin=self.ACADEMY_MIN_ATTEMPTS_PER_DIRECTION
+            easy_n=evidence[f'{direction}_easy_attempts']
+            near_n=evidence[f'{direction}_near_attempts']
+            if (easy_n>=nmin and evidence[f'{direction}_easy_successes']/easy_n<.25):
+                setattr(self.params,frontier,max(self.ACADEMY_MIN_LIP_M,
+                    getattr(self.params,frontier)-self.ACADEMY_HEIGHT_GROWTH_M))
+                event='retreat'
+            elif near_n>=nmin:
+                good=(evidence[f'{direction}_near_successes']/near_n)>=.55
+                if good and kl_ok:
+                    previous=getattr(self.params,frontier)
+                    setattr(self.params,frontier,min(
+                        max_height_m,previous+self.ACADEMY_HEIGHT_GROWTH_M))
+                    event='expand' if getattr(self.params,frontier)>previous else 'cap'
+                else:
+                    event='kl_hold' if good else 'learning'
+            elif evidence[f'{direction}_updates']>=self.ACADEMY_MAX_WINDOW_UPDATES:
+                event='insufficient_approaches'
+            else:
+                if easy_n>=nmin:
+                    for kind in ('attempts','successes'):
+                        evidence[f'{direction}_easy_{kind}']=0.
+                events.append(direction+':collect')
+                continue
+            for band in ('near','easy'):
+                for kind in ('attempts','successes'):
+                    evidence[f'{direction}_{band}_{kind}']=0.
+            evidence[f'{direction}_updates']=0.
+            events.append(direction+':'+event)
+        return ','.join(events)
 
-        up_n = window['up_attempts']
-        down_n = window['down_attempts']
-        if min(up_n,down_n) < self.TERRAIN_MIN_ATTEMPTS_PER_DIRECTION:
-            if window['updates'] >= self.TERRAIN_MAX_WINDOW_UPDATES:
-                self.terrain_evidence = self._empty_terrain_evidence()
-                return 'terrain_window_insufficient_attempts'
-            return 'terrain_collect_directional_evidence'
+    def advance_terrain(self, row: dict[str, float], *,
+                        max_height_m: float, kl_ok: bool = True) -> str:
+        """Grow real signed step height from closed, near-severity evidence.
 
-        up_rate = window['up_successes'] / up_n
-        down_rate = window['down_successes'] / down_n
-        # No evidence can be recycled after a decision, including holds.
-        self.terrain_evidence = self._empty_terrain_evidence()
-        if unified and not kl_ok:
-            return 'terrain_hold_ppo_health'
-        if min(up_rate,down_rate) >= .50:
-            if p.terrain_exposure < expansion_max:
-                p.terrain_exposure = min(expansion_max,p.terrain_exposure+.005)
-                return 'terrain_exposure_expand_real_cross'
-            p.terrain_height_m = min(max_height_m,p.terrain_height_m+height_increment)
-            return 'terrain_height_expand_real_cross'
-
-        # Practice dose != earned obstacle height. A small genuine ascent
-        # foothold and strong descent may justify at most 10% terrain births
-        # while preserving >=90% normal flat lessons.
-        if (up_rate >= self.TERRAIN_ASCENT_PRACTICE_MIN and
-                down_rate >= self.TERRAIN_DESCENT_PRACTICE_MIN and
-                p.terrain_exposure < practice_max):
-            p.terrain_exposure = min(practice_max,
-                                     p.terrain_exposure+.005)
-            return 'terrain_exposure_practice_ascent'
-
-        if min(up_rate,down_rate) < .12:
-            p.terrain_height_m = max(min(.004 if unified else .010,max_height_m),
-                                     p.terrain_height_m*.985)
-            p.terrain_exposure = max(exposure_min,p.terrain_exposure*.975)
-            return ('terrain_retreat_failed_ascent' if up_rate < .12
-                    else 'terrain_retreat_failed_descent')
-        return 'terrain_hold_directional_learning'
+        The one v5045 curriculum uses physical UP and DOWN proof cohorts.
+        Neither merely reaching a tile nor a pooled legacy success can
+        certify its frontier. The foundation gate lives in advance_curriculum.
+        """
+        if not self.unified_capability_focus:
+            raise ValueError('current prism terrain requires unified specialists')
+        if max_height_m <= 0.:
+            return 'foundation_flat'
+        p = self.params
+        if p.terrain_exposure <= 0.:
+            self.terrain_evidence = self._empty_terrain_evidence()
+            p.terrain_exposure = .15
+            p.terrain_height_m = min(.004,max_height_m)
+            return 'terrain_unified_seed_4mm'
+        # One slowly wandering step-height target. Practice across 30-100%
+        # of the target stays broad; only actual near-target supported
+        # crossings can nudge it higher. A HARD failure is not a retreat
+        # signal; repeated difficulty on easier steps is. Up and down
+        # each earn their own evidence; no down-only graduation.
+        evidence=self.terrain_evidence
+        for direction in ('up','down'):
+            for band in ('near','easy'):
+                for outcome in ('attempts','successes'):
+                    key=f'terrain_{band}_{outcome}_{direction}'
+                    value=float(row.get(key,0.))
+                    if not math.isfinite(value) or value<0.:
+                        raise ValueError(f'invalid step severity evidence {key}')
+                    evidence[f'{direction}_{band}_{outcome}']+=value
+                if (evidence[f'{direction}_{band}_successes'] >
+                    evidence[f'{direction}_{band}_attempts']):
+                    raise ValueError(f'step successes exceed attempts {direction}/{band}')
+        evidence['updates']+=1.
+        min_attempts=self.science_step_min_attempts
+        easy_bad=any(
+            evidence[f'{d}_easy_attempts']>=min_attempts and
+            evidence[f'{d}_easy_successes']/evidence[f'{d}_easy_attempts']<.30
+            for d in ('up','down'))
+        if easy_bad:
+            p.terrain_height_m=max(
+                min(.0015,max_height_m),
+                (p.terrain_height_m-self.science_step_retreat_mm*.001
+                 if self.science_step_retreat_mm>0.
+                 else p.terrain_height_m*.82))
+            self.terrain_evidence=self._empty_terrain_evidence()
+            return 'terrain_retreat_easy_failure'
+        for direction in ('up','down'):
+            key=f'{direction}_easy_attempts'
+            if evidence[key]>=min_attempts:
+                evidence[key]=evidence[f'{direction}_easy_successes']=0.
+        ready=all(evidence[f'{d}_near_attempts']>=min_attempts
+                  for d in ('up','down'))
+        if ready:
+            good=all(
+                evidence[f'{d}_near_successes']/
+                evidence[f'{d}_near_attempts']>=.55
+                for d in ('up','down'))
+            for direction in ('up','down'):
+                evidence[f'{direction}_near_attempts']=0.
+                evidence[f'{direction}_near_successes']=0.
+            evidence['updates']=0.
+            if not kl_ok:
+                return 'terrain_hold_ppo_health'
+            if good:
+                increment = (self.science_step_promotion_mm*.001
+                             if self.science_step_promotion_mm>0.
+                             else max(.0010,.18*p.terrain_height_m))
+                p.terrain_height_m=min(max_height_m,p.terrain_height_m+increment)
+                self.terrain_evidence=self._empty_terrain_evidence()
+                return 'terrain_height_expand_real_cross'
+            return 'terrain_hold_probe_learning'
+        if evidence['updates']>=self.TERRAIN_MAX_WINDOW_UPDATES:
+            self.terrain_evidence=self._empty_terrain_evidence()
+            return 'terrain_window_insufficient_attempts'
+        return 'terrain_collect_real_step'
 
     def _advance_specialist_commands(self, row, *, global_retreat: bool,
                                       kl_ok: bool) -> dict[str,str]:
@@ -868,13 +826,13 @@ class RegimeGovernor:
 
     def advance_curriculum(self, row: dict[str, float], *, step: int,
                            max_height_m: float, foundation_steps: int,
-                           kl_ok_to_expand: bool = True) -> dict[str, float | str]:
+                           kl_ok_to_expand: bool = True,
+                           academy_max_height_m: float = 0.0) -> dict[str, float | str]:
         """One path for the ordinary and final rollout's curriculum decisions.
 
         Reuse the original regime logic and existing per-skill closed evidence.
         Each specialist already nudges its own target by a bounded small step,
         so there is no redundant second post-decision growth budget.
-        Legacy training stays on its historical regime controller.
         """
         # Only lesson share (not competence) fades in after 20M. The
         # controller cannot seed specialist limits during cold foundation.
@@ -884,11 +842,17 @@ class RegimeGovernor:
             specialist_growth_enabled=growth_enabled)
         report['terrain_event'] = (
             self.advance_terrain(
-                row, step=step, max_height_m=max_height_m,
-                foundation_steps=foundation_steps,
-                unified=self.unified_capability_focus, kl_ok=kl_ok_to_expand)
-            if growth_enabled or not self.unified_capability_focus
-            else 'foundation_flat')
+                row, max_height_m=max_height_m, kl_ok=kl_ok_to_expand)
+            if growth_enabled else 'foundation_flat')
+        report['academy_event']=self.advance_academy(
+            row,max_height_m=academy_max_height_m,
+            enabled=(self.unified_capability_focus and
+                     academy_max_height_m>0. and growth_enabled),
+            kl_ok=kl_ok_to_expand)
+        report['academy_height_up_m']=self.params.academy_height_up_m
+        report['academy_height_down_m']=self.params.academy_height_down_m
+        report.update({f'academy_window_{key}':value
+                       for key,value in self.academy_evidence.items()})
         if self.unified_capability_focus:
             report['slope_event'] = (
                 self.advance_slope(row, kl_ok=kl_ok_to_expand)
@@ -1158,151 +1122,3 @@ class RegimeGovernor:
                     f'slope_near_stability_successes_{direction}',0.)
             report['control_episode_quality']=row.get('control_episode_quality',-1.)
         return report
-
-# PPO health, KL stress and source-compatible recovery snapshot state.
-class TrainingHealth:
-    KL_STRESS_EXPAND_FLOOR = 0.10
-    KL_STRESS_CHRONIC_WINDOW = 50
-    KL_STRESS_CHRONIC_FRACTION = 0.90
-
-    COLLAPSE_FALL_THRESHOLD = 0.65
-    COLLAPSE_STREAK_LIMIT = 100
-
-    RECOVERY_GOOD_FLOOR = 0.60
-    RECOVERY_EFFORT_FLOOR = 0.20
-    RECOVERY_SEEN_FLOOR = 0.10
-    RECOVERY_WINDOW = 8
-
-    def __init__(self) -> None:
-        self.kl_stress_history: list[float] = []
-        self.kl_stress_chronic = False
-        self.stepping_collapse_streak = 0
-
-    def state_dict(self) -> dict[str, Any]:
-        return {
-            'kl_stress_history': list(self.kl_stress_history),
-            'kl_stress_chronic': bool(self.kl_stress_chronic),
-            'stepping_collapse_streak': int(self.stepping_collapse_streak),
-        }
-
-    def load_state_dict(self, state: dict[str, Any]) -> None:
-        expected = {'kl_stress_history', 'kl_stress_chronic', 'stepping_collapse_streak'}
-        if not isinstance(state, dict) or set(state) != expected:
-            raise ValueError(f"training-health state keys mismatch: expected={sorted(expected)} got={sorted(state) if isinstance(state, dict) else type(state).__name__}")
-        hist = state['kl_stress_history']
-        if not isinstance(hist, list):
-            raise ValueError('training-health kl_stress_history must be a list')
-        self.kl_stress_history = [float(v) for v in hist][-self.KL_STRESS_CHRONIC_WINDOW:]
-        self.kl_stress_chronic = bool(state['kl_stress_chronic'])
-        self.stepping_collapse_streak = int(state['stepping_collapse_streak'])
-
-    def observe_ppo(self, row: dict[str, float]) -> dict[str, float | bool]:
-        """Update the KL-stress gate for this rollout before curriculum moves."""
-        kl_stopped_frac = float(row.get('ppo_kl_stopped_frac', 0.0))
-        was_chronic = self.kl_stress_chronic
-        self.kl_stress_history.append(kl_stopped_frac)
-        self.kl_stress_history = self.kl_stress_history[-self.KL_STRESS_CHRONIC_WINDOW:]
-        engaged = sum(v > self.KL_STRESS_EXPAND_FLOOR for v in self.kl_stress_history)
-        self.kl_stress_chronic = (
-            len(self.kl_stress_history) >= self.KL_STRESS_CHRONIC_WINDOW
-            and engaged >= self.KL_STRESS_CHRONIC_FRACTION * self.KL_STRESS_CHRONIC_WINDOW
-        )
-        stress_now = kl_stopped_frac > self.KL_STRESS_EXPAND_FLOOR
-        return {
-            'kl_stopped_frac_seen': kl_stopped_frac,
-            'kl_stress_chronic': float(self.kl_stress_chronic),
-            'kl_ok_to_expand': (not stress_now) or self.kl_stress_chronic,
-            'kl_became_chronic': self.kl_stress_chronic and not was_chronic,
-        }
-
-    def observe_collapse(self, smoothed_global_fall_rate: float) -> dict[str, float | bool]:
-        """Update global collapse evidence after the curriculum's pooled fall EMA."""
-        collapsed = float(smoothed_global_fall_rate) > self.COLLAPSE_FALL_THRESHOLD
-        self.stepping_collapse_streak = self.stepping_collapse_streak + 1 if collapsed else 0
-        return {
-            'stepping_collapse_streak': float(self.stepping_collapse_streak),
-            'needs_recovery': self.stepping_collapse_streak >= self.COLLAPSE_STREAK_LIMIT,
-        }
-
-
-    @classmethod
-    def recovery_candidate(cls, competence: float, core_competence: float) -> tuple[tuple[int, float], str]:
-        """Rank one sustained-competence window for the canonical rollback snapshot."""
-        if competence >= cls.RECOVERY_GOOD_FLOOR and core_competence >= cls.RECOVERY_GOOD_FLOOR:
-            return (2, competence), 'confirmed-good'
-        if competence >= cls.RECOVERY_EFFORT_FLOOR and core_competence >= cls.RECOVERY_EFFORT_FLOOR:
-            return (1, competence), 'best-effort'
-        if competence >= cls.RECOVERY_SEEN_FLOOR:
-            return (0, competence), 'high-water-mark'
-        return (-1, -1.0), 'none'
-
-    @staticmethod
-    def adjust_learning_rate(
-        scale: float, *, approx_kl: float, target_kl: float,
-        factor: float, min_scale: float, max_scale: float,
-    ) -> float:
-        """Soft PPO KL controller, distinct from the hard minibatch KL stop.
-
-        Use only the KL of the collected TRAINING rollout, never held-out
-        exam scores. Non-finite KL preserves the prior scale; an in-band
-        update also leaves it alone. The clamp applies only to finite KL,
-        matching the established controller's timing and arithmetic.
-        """
-        if math.isfinite(approx_kl):
-            if approx_kl > 2.0 * target_kl:
-                scale /= factor
-            elif approx_kl < 0.5 * target_kl:
-                scale *= factor
-            scale = float(min(max_scale, max(min_scale, scale)))
-        return scale
-
-    def note_recovery_performed(self) -> None:
-        self.stepping_collapse_streak = 0
-
-# Public compatibility imports: existing training, exams and archived
-# checkpoint loader code may still import these names from emu.curriculum.
-# Canonical implementation owners are dedicated modules; historical imports remain valid.
-from .capability_field import (
-    FIELD_VERSION,
-    FIELD_BOUNDS,
-    RECOVERY_BINS,
-    DEFAULT_HALF_LIFE_STEPS,
-    RECOVERY_MIN_AGE_S,
-    SLOW_ALPHA,
-    MIN_EFFECTIVE_EVIDENCE,
-    STRONG_EFFECTIVE_EVIDENCE,
-    NODE_MASTER_LOWER,
-    RECOVERY_MASTER_LOWER,
-    EDGE_MASTER_LOWER,
-    STALE_HALF_LIVES,
-    NODE_ANCHORS,
-    EDGE_ANCHORS,
-    EDGE_DIRS,
-    EDGE_SCALES,
-    CapabilityField,
-    _posterior_mean,
-    _wilson_lower,
-)
-from .capability_cloud import (
-    FAMILIES,
-    CMD_SCALE,
-    halton,
-    pnorm,
-    _direction,
-    command_from_normalized,
-    command_sector,
-    make_probe,
-    make_panel,
-    make_calibration_panel,
-    make_common_recovery_panel,
-    disturbance_overrides,
-    physical_descriptor,
-    base_episode,
-    _not_before_for_spec,
-    _row_from_times,
-    evaluate_specs_batch,
-    annotate_matched_controls,
-    _bin,
-    summarize_rows,
-    record_capability_cloud_exam,
-)

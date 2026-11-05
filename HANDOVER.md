@@ -1,127 +1,135 @@
-# EMU — active engineering handover
+# EMU handover — preparing the next `main` milestone
 
-**31 October 2026 · New baseline: v5032 Pinnacle 260M**
+**5 November 2026.** This checkout is the **future-main
+release-preparation branch**, not the original completed GPU training
+source. The v5048 research bundle has been reviewed; no neural actor
+has been promoted to the public `main` release.
 
-The owner elected to promote the completed v5032 360-input
-Pinnacle as the new `main` model, **with its known weaknesses
-documented** rather than starting another experimental branch.
-The 24-arm v5033 science work is **paused** and not released.
+## What is approved, and what remains under research?
 
-## What is the robot?
-
-One six-servo dynamically unstable MJX biped, 360-input
-4×4 forward ToF + IMU/optical-flow / proprioception observations,
-one shared PPO actor. No programmed walk cycles. Real signed
-slope and sharp step contacts, six independently growing
-teacher focus groups. The actor does not receive privileged
-teacher terrain truth. See [ARCHITECTURE](docs/ARCHITECTURE.md).
-
-## The frozen trained baseline
-
-| Fact | Value |
+| Layer | Status |
 |---|---|
-| Completed world steps | **260,046,848** |
-| Training source SHA | `9b11bbe596aea7201d29a6beb2d192922f8e2e9a` |
-| Source branch at training | `release/v5032-pinnacle-candidate` |
-| Environments and seed | 2048, 761 |
-| Observation / action | 360 / 6 |
-| Policy artifact SHA-256 | `ef929c0220c38e5519391320e5f0629a200e1ef37a5808086f6383cfb63f7ec8` |
-| Checkpoint SHA-256 | `238b49134a055c70e483fe993acdd86b2d1b5994cc14ef186fd6b05329e94f0b` (report; full file is on WSL) |
-| Local run directory | `~/robot_lab/emu_runs/v5032_pinnacle_s761_v2/` |
-| Published policy location | `showcase/champion.emupolicy` |
+| Public baseline | v5032 **260,046,848**-step 360-input Pinnacle; immutable `showcase/champion.emupolicy` and `showcase/release_approval.json` on `main` |
+| Existing public `main` commit (audit reference) | `4e3e1f45b98945c9729aab4d5c68d9ee122a6876` |
+| Completed GPU experiment | v5048 **550M unique steps** in 50M shared parent → 8 matched 100M actors → 200M temporal_speed finalist; 148 real frozen exam panels, [measured findings](docs/V5048_SHARED_PARENT_RESULTS_20261105.md) |
+| Training-source identity | `088a29be47f624be9e2c322c504ec98049b3f9bf`, seed 735; same-parent checkpoint SHA256 `8047f4bd4d75894c627e8689e0c645a6bde23496caf6a807f408fa8c88a4085f` |
+| Release-prep code | `release/v5049-main-promotion-prep`: remove temporary experiment machinery, keep the one public CLI and the permanent exam/provenance contracts |
+| Main code merge | **Not yet approved; `main` untouched** |
+| New public policy | **200,015,872-step** temporal_speed export exists, source/actor hash recorded; actual ≥3cm climbing, stillness, heading-controlled mission and matched main parity **not demonstrated**. Actor unchanged |
+| GitHub Pages deployment | Independent protected/manual approval; not triggered by this cleanup |
 
-`main` may have later documentation/release commits; the
-actor's **training source stays frozen at its original SHA**.
-Do not relabel those weights as a different training recipe.
-Keep the whole `final.pkl` separately backed up outside Git.
+The completed v5048 training and all `~/emu-data/runs/`
+artefacts belong to **the original training SHA**, not this later
+cleanup commit. Do not reinterpret or attempt to resume the finished
+model on the release-prep branch. The historical
+[v5048 experiment source](https://github.com/mdt733/emu/tree/experiment/v5048-shared-parent-pinnacle)
+retains its original temporary launcher for source-pinned reproduction.
 
-**Important recipe discrepancy:** the launch manifest requested
-verified-ascent reward reallocation 3.0, but the actual saved
-`TrainingConfig` had **0.0** because the trainer's CLI
-forwarding was missing. The released actor did not learn that
-treatment. Recheck **resolved training config**, not CLI printouts,
-before any future PPO campaign.
+This release-prep branch deliberately removes that launcher,
+the old 140M and 20M launchers, and the v5045-only duplicate CI.
+Their measured findings and source-pinned historical implementations
+remain accessible in Git; the maintained runtime does not depend on
+any of them.
 
-## What does the measured robot do?
+## What the present live robot-training system contains
 
-Independent 16-world CPU MJX physical exams on real collision
-surfaces (seed1701, 7s terrain, 14s speed):
+- **One** six-servo dynamically unstable robot, **one** PPO actor/critic,
+  six specialist teaching cohorts, and a **360-input** deployable
+  policy based on IMU, optical flow, 4×4 ToF, proprioception and
+  command history.
+- **Four 75cm** recyclable terrain tiles, each with two real convex
+  triangular-prism collision solids — **eight colliders** total.
+  One generator and one actual MJX contact world across all cohorts.
+- Same-source checkpoint and optimiser recovery, strict sensor
+  semantics, source SHA/actor export verification and independent
+  raw-supported foot-contact step examination.
+- Standalone CPU terrain-physics acceptance, full 2048-world GPU PPO
+  smoke, Python and browser contracts, and deliberately protected
+  public deployment.
+- The source owners and files are described in the slim
+  [CORE_SKELETON](docs/CORE_SKELETON.md). Future runs use
+  [one clean WSL installation](docs/INSTALL.md), one checkout,
+  one `.venv`, `~/emu-data/runs/` for permanent run artifacts,
+  and `~/emu-data/scratch/` for throwaway study output.
 
-- **Step-up:** 1–2cm 8/8; 2.5cm 4/8; 3cm 0/8.
-- **Step-down:** 3cm 8/8; 3.5cm 1/8.
-- **Slopes:** uphill12° 15/16, both cross-slopes12° 16/16;
-  downhill12° survival 16/16 but heading-controlled 4/16.
-- **Speed:** at requested 0.6m/s, 16/16 survived but 0/16
-  passed full heading-controlled mission; at 0.8m/s survival
-  was 12/16 and strict mission 0/16.
-- **Frozen overall score:** 0.8296 at 260M.
+## Measured engineering gains — do not confuse with stair capability
 
-Do not turn these into a claim of 1.0 m/s or 3cm mastery.
-In particular, downhill 12° at 0.15m/s was NOT a sprint or
-balance failure: mean signed yaw drift disqualified the
-heading-control mission.
+The completed 34-arm v5046 solver investigation, two seeds on the
+RTX 4060 Ti, measured about **31,974** steady full-PPO world-steps/s
+using the reference solver, and **119,662** with experimental 2/4.
+The one 20.054M continuous 2/4 cold-start reached ~**0.094m/s**
+achieved mean forward speed, final training rollout fall 2.1%,
+and +0.530 held-out broad score, but **zero supported signed lips**
+in its independent procedures. [Full measured results and caveats](docs/V5046_OVERNIGHT_RESULTS_20261105.md).
 
-See [full release measurements](docs/V5032_PINNACLE_RELEASE.md)
-and the [research backlog](https://github.com/mdt733/emu/issues/17).
+Solver 2/4 is still a **research physics choice**: foot penetration,
+virtual torso/leg strikes and a measured CUDA packed/full reset
+`.qacc` disagreement have not been cleared for hardware fidelity.
+The frozen policy examiner had a **9×4 retired-tile reshape** that
+prevented a v5047 GPU exam; v5048 fixed it to the physical four-tile
+75cm geometry before launching the replacement tournament.
 
-## Publication and rollback
+## The 550M experiment's scientific decision
 
-The intended release changes the *code branch and the portable
-policy together*, using the exact policy SHA and approved
-`showcase/release_approval.json`. The frontend is validated
-by `scripts/verify_showcase_release.py` and GitHub Actions.
-The GitHub Pages workflow uses explicit manual release
-dispatch; merging source alone does not deploy it.
+[The independently audited results](docs/V5048_SHARED_PARENT_RESULTS_20261105.md)
+show real five-frame **supported signed lip crossings**, with stronger
+harder-step outcomes from the early Academy and finer 1mm frontier.
+On the 3cm-*requested* panel (actual lips ~1.8–2.9cm), worlds
+with at least one actual ≥2cm supported uphill transition increased
+from **2/32 without Academy** to **19/32 early Academy** or **21/32
+precise frontier**. None demonstrated full actual 3cm ascent.
 
-**Previous main rollback:** `2ec9e9db0a816c658131311129ef89ec7a595a12`
-(the old 232-input champion, approval file, viewer and code).
-Retain this immutable Git SHA, not a casually renamed ZIP.
+The auto-selected 200M temporal-speed actor had **16/32** worlds
+with ≥2cm uphill support (unchanged from its 100M predecessor),
+**31/32** survival at requested 0.7m/s and **0.595m/s** achieved.
+Its fast yaw bias improved but it still drifted ~**12cm** and
+made rapid footfalls under zero command. Do not claim it learned
+stillness, verified full 3cm steps or equivalent main missions.
+The tournament's step count contribution saturated at 12 total
+crossings for every branch; this composite rank did **not**
+select a uniquely best stair climber. Record this as experiment
+design feedback before another GPU campaign.
 
-The original long handover was preserved as
-[Handover v5032 before release](docs/history/HANDOVER_V5032_PRE_RELEASE.md).
-The new README and [architecture map](docs/ARCHITECTURE.md)
-are the entry points for somebody new to the project.
+## The next release decision (two independent gates)
 
-## What to work on next (not yet)
+**Gate A: approve better engineering for `main`.** The 550M
+study is complete and measured. Inspect its physical implications,
+then inspect the complete
+new-source versus `main` diff. Re-run Python, browser, actual
+four-world CPU MJX contacts and a **new same-SHA 2048-world CUDA
+PPO/checkpoint/export/frozen-exam** acceptance after the cleanup.
+Verify the published 260M policy and release metadata are still
+byte-identical. Only then ask for an explicit code merge decision.
+This can proceed even if the new learned gait is merely comparable.
 
-**Read-only diagnostics first.** In order:
+**Gate B: replace the public Pinnacle policy.** A 200M frozen
+candidate has been exported from the original v5048 training SHA,
+but publication **remains on hold** until we obtain
+independently measured supported step ascent/descent with post-lip
+progress, zero-/low-speed stability, achieved faster strides, heading
+and lateral control, slopes, recovery, energy proxy and two or more
+held-out seeds. Compare *equivalent missions* against the 260M
+baseline, not absolute scores from different terrain engines.
+Record policy/checkpoint/source hashes and prove the browser can
+replay the exact 360-input sensor contract. The owner must separately
+approve a new public policy and Pages deployment.
 
-1. Separate downhill signed yaw-rate bias, alternating gait
-   jitter and **world-frame heading/path drift**; use a 5-speed
-   × 4-grade frozen test before changing rewards.
-2. Trace real supported 2.5–3cm step-up crossings: knee/hip
-   extension, upper-contact duration, lower-foot stance,
-   torso dip/rebound and spring energy *release*.
-3. Investigate the persistent height reward after foundation.
-   A 5cm pre-step crouch is heavily discouraged even though
-   springs can physically load; test a temporary near-lip
-   allowance only in a future **single controlled experiment**.
-4. Study 1mm step-frontier adjustment versus historical
-   +18%/-18% jumps, with more completed evidence per direction.
-5. Diagnose high-speed heading/turn authority, damping and
-   meaningful shaft J/m without rewarding stationary behaviour.
-6. Only afterwards revisit organic hills, traversability
-   refusal and a future from-scratch Pinnacle.
+[Complete release gates and current evidence intake](docs/RELEASE_READINESS.md) ·
+[260M independent physical baseline](docs/PHYSICAL_BASELINE_260M.md) ·
+[Old champion release card](docs/V5032_PINNACLE_RELEASE.md) ·
+[Open gait/step hypotheses](https://github.com/mdt733/emu/issues/17).
 
-The complete categorised backlog is
-[GitHub issue #17](https://github.com/mdt733/emu/issues/17).
-It includes negative tests and acceptance criteria. No new
-PPO science arms have been launched in this promotion.
+## Project hygiene contract
 
-## Guardrails
-
-- `main` is the new **reference**, not a scratchpad for training
-  variations. Work on one explicitly justified change at a time.
-- The abandoned `research/v5033-24-arm-science` branch
-  contains **unvalidated experimental code**. Do not execute
-  its 24-arm launcher or mistake its changes for released EMU.
-- Keep the old 232 policy recoverable from rollback SHA.
-- Published actor `.emupolicy` is inference-only; full
-  checkpoint `final.pkl` has optimizer/teacher/normaliser state.
-- Use common independent exams with actual supported step
-  crossing and achieved velocity, not curriculum headlines.
-
-[README](README.md) ·
-[Release measurements](docs/V5032_PINNACLE_RELEASE.md) ·
-[Architecture](docs/ARCHITECTURE.md) ·
-[Documentation index](docs/README.md).
+1. No merge to `main`, actor swap or Pages release without explicit
+   permission.
+2. The active research source and `final.pkl` are never rewritten by
+   cleanup; no checkpoint is magically reproducible from Git.
+3. **Experiments are temporary. Findings are permanent. Working
+   architecture earns its place.** Put conclusions in the issue and
+   measured results; delete completed one-off launchers.
+4. Keep the stable CLI, physical tests and truly needed browser assets;
+   don't delete a meaningful regression guard just to reduce test count.
+5. Before code promotion, verify the new runtime installs cleanly from
+   scratch, remains explainable from one skeleton document and handles
+   errors without old paths or alternate trainer branches.

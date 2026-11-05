@@ -119,7 +119,7 @@ bias and crouch/spring traces), then 2.5–3cm actual support,
 downhill braking/steering, fast gait, active recovery and efficiency.
 Organic hills are deliberately deferred.
 
-The previous `research/v5033-24-arm-science` branch is
+The previous `feature/v5033-260m-plateau-science` branch is
 **paused and not a validated training recipe**. It contains
 exploratory changes; none of its new rewards, sensor/teacher
 variants or candidate weights are included in this release.
@@ -129,7 +129,7 @@ Train a future replacement only when a small set of research
 questions has produced reproducible physical evidence. Keep the
 current 260M policy as the comparison baseline.
 
-[Architecture](ARCHITECTURE.md) ·
+[Architecture](CORE_SKELETON.md) ·
 [Handover](../HANDOVER.md) ·
-[Source-pinned historical runbook](PINNACLE_CANDIDATE.md) ·
+[Source-pinned historical runbook](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/PINNACLE_CANDIDATE.md) ·
 [Public release validator](../scripts/verify_showcase_release.py).

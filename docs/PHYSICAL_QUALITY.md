@@ -123,59 +123,25 @@ repeated seeds; (4) identify important regressions and weak tails;
 successful work**. Only then consider an explicit, reviewable
 aggregate—not one that can erase a catastrophic weakness.
 
-## Operational implementation and limits
+## Current implementation: real prisms, frozen actor
 
-- The existing independent `emu/physical_exam.py` retains its
-  original `case_pass` and `mission_pass` for comparison.
-  Add world-frame path and useful-progress metrics **without**
-  silently changing what an old examination meant.
-- `emu/physical_quality.py` reads one or more existing
-  `unified_exam.json` outputs and writes a transparent scorecard.
-  No JAX/MuJoCo/optimizer required; no actor weights modified.
-- Expose `emu physical-quality --exam FOLDER_OR_JSON
-  [--exam ...] --output NEW_DIRECTORY`.
-- Later: calibrate world-route eligibility, formalise recovery
-  latency and spring/crouch diagnostics and add fresh 2-seed
-  downhill and step trials. Those are *new* independently
-  versioned physics tests, not retrospectively changed scores.
+The historical `emu capability-exam` and `emu physical-quality` commands
+belonged to a two-slab physical examiner and are **not executable in
+v5045**. Their original scoring protocols, reports and exact command
+recipes remain in the [pinned pre-cleanup source](https://github.com/mdt733/emu/tree/a2f59bb31bec049204b60a3eb86500b100db039f).
 
-## First actual baseline measurement (read-only, on CPU)
+The maintained `emu prism-exam` instead evaluates a frozen, true-prism
+360-input actor with raw MJX contact and observed triangle evidence.
+It measures actual grade, supported signed up/down crossings,
+command-following velocity, survival and positive mechanical shaft
+work per directed progress. **A requested frontier is not a guaranteed
+fixture**, and these procedural results must not be compared to old
+two-slab fixed-angle pass rates as though they were identical exams.
 
-From a clean checkout of this feature branch with EMU installed,
-use **new output paths** and keep `main` policy bytes unchanged:
-
-```bash
-# Signed real 5/8/12/14.9° grades and 1–3.5cm supported step pairs
-emu capability-exam \
-  --policy showcase/champion.emupolicy \
-  --output ~/robot_lab/emu_exams/quality_terrain_s1701 \
-  --device cpu --seed 1701 --worlds 16 --horizon 350 --speed .15 \
-  --terrain-matrix --matrix-grades-deg 5 8 12 14.9 \
-  --matrix-heights-cm 1 2 2.5 3 3.5
-
-# Long sustained forward-speed ladder; same frozen actor and source
-emu capability-exam \
-  --policy showcase/champion.emupolicy \
-  --output ~/robot_lab/emu_exams/quality_speed_s1701 \
-  --device cpu --seed 1701 --worlds 16 --horizon 700 \
-  --speed-ladder --ladder-speeds .1 .2 .3 .4 .5 .6 .8 1.0
-
-# No simulation or GPU required to summarise existing JSON files
-emu physical-quality \
-  --exam ~/robot_lab/emu_exams/quality_terrain_s1701 \
-  --exam ~/robot_lab/emu_exams/quality_speed_s1701 \
-  --output ~/robot_lab/emu_exams/quality_pinnacle_260m
-```
-
-Every physical exam is independent and creates its own immutable
-results directory; the reporting command refuses to overwrite it.
-Repeat with **seed 1702** and fresh directories before claiming
-confidence in any frontier. These tests take CPU simulation time,
-but never modify the model, reward, curriculum or optimizer.
-Use the original signed units and report both new route metrics
-and the historical mission scores. Cases that the panel does
-not cover (notably recovery and transitions) remain explicitly
-`not tested` in the quality report.
+For installation, the frozen-actor validation gate and new v5045
+usage, see [the current physical release gates](RELEASE_READINESS.md).
+The shipped 260M public champion must retain its original,
+source-specific physical baseline; do not fabricate matched prism results.
 
 See [issue #17](https://github.com/mdt733/emu/issues/17) for proposed
 diagnostics and the [released 260M profile](V5032_PINNACLE_RELEASE.md).

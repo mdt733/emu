@@ -8,7 +8,7 @@ learns six servo commands using PPO reinforcement learning in
 thousands of parallel MuJoCo/MJX physics worlds.
 
 [**Open the EMU playground**](https://mdt733.github.io/emu/) ·
-[**How the code works**](docs/ARCHITECTURE.md) ·
+[**Run-to-viewer core skeleton**](docs/CORE_SKELETON.md) ·
 [**260M Pinnacle measurements**](docs/V5032_PINNACLE_RELEASE.md) ·
 [**Fresh installation**](docs/INSTALL.md) ·
 [**Current handover**](HANDOVER.md)
@@ -58,6 +58,29 @@ forward ToF range/validity signals. The teacher can inspect
 precise simulator contacts to decide whether a skill succeeded,
 but those privileged facts are **not actor inputs**.
 
+## Cold-start learning curve — don't mistake age for competence
+
+EMU starts with **random policy weights**; it is a dynamically unstable
+six-servo biped, not a pre-programmed standing or walking controller.
+The following is the owner's **historical, approximate observation**,
+not a source-pinned, controlled learning-curve measurement:
+
+| Total world steps | What is reasonable to expect |
+|---|---|
+| **~0–5M** | Discovery period: generally falls; even standing on flat ground is not yet reliably learned. |
+| **~5M** | First signs of learning to **stand on boring, flat ground**; not proof of reliable balance, gait or terrain skills. |
+| **~20M** | The v5046 source-pinned 20M trial now shows reliable **low-speed** held-out survival and ~0.094 m/s achieved mean forward speed; this is not yet champion-equivalent or verified step-climbing. Earlier generations learned more slowly. |
+| **~40M** | Early, **infant-like gait development** rather than mature controlled walking. |
+| **Later** | Meaningful speed, directional control, slopes and supported step crossing must be verified on **frozen physical exams** at the same source, sensor contract and seed. |
+
+Timing varies with seed, architecture and curriculum. **No global
+mastery gate** should block all six specialist populations until
+another specialty succeeds. Conversely, do not call a 131k-step
+smoke policy broken because it falls: those tests validate physics,
+PPO, memory and checkpoints, **not learned locomotion**.
+See the [foundation / six-specialist curriculum](docs/UNIFIED_CAPABILITY_GROWTH.md)
+and [active engineering handover](HANDOVER.md).
+
 ## Current baseline — v5032 Pinnacle 260M
 
 <small>First released 360-input generation · 31 October 2026</small>
@@ -94,20 +117,24 @@ the old one on **every** test.
 |---|---|
 | What's the robot physically made of? | `emu/robot.xml` |
 | What does it see? | `emu/contracts.py` |
-| How do terrain, springs, physics and sensor noise work? | `emu/environment.py` |
+| How do terrain, springs, physics and sensor noise work? | `emu/environment.py`, `emu/domain_randomization.py` |
 | What does PPO pay for? | `emu/rewards.py` |
 | Who selects the next lesson/difficulty? | `emu/curriculum.py`, `emu/capability_focus.py` |
+| Who monitors PPO health and recovery? | `emu/training_health.py` |
 | What keeps physical competence evidence? | `emu/capability_field.py` |
 | Where is the actor, critic and update? | `emu/ppo.py`, `emu/training.py` |
 | Who validates checkpoints and source lineage? | `emu/run.py`, `emu/checkpoint_io.py` |
-| Who runs independent physical exams? | `emu/physical_exam.py`, `emu/evaluation.py` |
+| Where are install diagnostics? | `emu/doctor.py` |
+| Who runs independent physical exams? | `emu/prism_exam.py` (raw physical prism contacts), `emu/evaluation.py` (training's fixed held-out panels) |
 | Who serves the trained bird and browser MuJoCo? | `emu/viewer_server.py`, `emu/viewer_src/` |
 | What makes a public policy release safe to publish? | `scripts/verify_showcase_release.py` |
-| Where are the old experiments and next questions? | `docs/history/`, [issue #17](https://github.com/mdt733/emu/issues/17) |
+| Where are the old experiments and next questions? | Pinned Git history, [issue #17](https://github.com/mdt733/emu/issues/17) |
 
-[**The end-to-end architecture map**](docs/ARCHITECTURE.md)
-explains each boundary: actor vs teacher, teaching vs independent
-exam, saved learner vs exported actor, and local viewer vs Pages.
+[**The five-stage core skeleton and cleanup plan**](docs/CORE_SKELETON.md)
+is the current entry point from source-pinned `emu train` through
+procedural MJX physics, PPO, physical exams, export and local viewer.
+The [original architecture in Git](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/ARCHITECTURE.md) remains
+available for preserved legacy interfaces.
 
 ## Three useful things to run
 
@@ -123,11 +150,9 @@ python -m emu.cli viewer-build
 python -m emu.cli viewer showcase/champion.emupolicy \
   --no-open --port 8765
 
-# Independent frozen physics challenge, no PPO training.
-python -m emu.cli capability-exam \
-  --policy showcase/champion.emupolicy \
-  --output ~/robot_lab/emu_exams/pinnacle_260m \
-  --device cpu --quick
+# The shipped champion uses historical training physics. Its original
+# physical exams live in the pinned v5044/pre-cleanup Git history;
+# never substitute modern prism contacts and call it a matched baseline.
 ```
 
 The viewer offers live-checkpoint following and eight graduated,
@@ -136,9 +161,10 @@ diagnostic, **not** a held-out MJX physical certification.
 
 ### Want to train a new robot?
 
-The completed v5032 cold-start launcher is preserved as
-`scripts/train_pinnacle.py` and its [historical runbook](docs/PINNACLE_CANDIDATE.md).
-**It is not the next automatically recommended experiment.**
+The completed v5032 launcher is preserved at its original source SHA
+`9b11bbe596aea7201d29a6beb2d192922f8e2e9a`, together with its
+[historical runbook in Git](https://github.com/mdt733/emu/blob/a2f59bb31bec049204b60a3eb86500b100db039f/docs/PINNACLE_CANDIDATE.md). It no longer lives
+in active `scripts/`. New source-pinned robots begin with `emu train`.
 To reproduce the exact released training source, use its original
 frozen Git SHA and independently backed-up full `final.pkl`
 checkpoint. Don't rerun a 260M campaign or transplant an
@@ -148,19 +174,51 @@ A `.pkl` holds optimizer, normalizer and curriculum state;
 an `.emupolicy` is an inference-only actor with a sensor
 contract. Full checkpoints are not in Git; keep external backups.
 
-## What's next?
+## Current development — engineering promotion preparation
 
-We are **not** immediately running 24 new science arms.
-The abandoned experiment sketch remains available at
-`research/v5033-24-arm-science`, but its reward changes
-were not validated or incorporated into this released robot.
+The **v5048 GPU experiment has completed 550M unique steps**,
+pinned to original training SHA
+`088a29be47f624be9e2c322c504ec98049b3f9bf` on
+[research PR #38](https://github.com/mdt733/emu/pull/38).
+It trained one shared 50M foundation, eight matched 50M forks and
+continued the automatic temporal-speed finalist to **200,015,872
+steps**, with **148 independent GPU prism-exam panels**.
+[Measured v5048 findings](docs/V5048_SHARED_PARENT_RESULTS_20261105.md).
 
-Our [research backlog](https://github.com/mdt733/emu/issues/17)
-starts with better downhill/path steering measurements, real
-2.5–3 cm support transfer, torso crouch and stored spring
-energy, fast controllable gait and meaningful J/m. Organic
-terrain comes later. Future work gets one clear hypothesis
-and a comparable physical exam before another full training.
+Early dedicated step training increased distinct worlds with actual
+≥2cm *supported uphill contact* on nominal 3cm procedural terrain:
+**2/32** without Academy versus **19/32** early-lips or **21/32**
+fine-frontier. But full actual 3cm ascent and sustained controlled
+post-step travel are **not yet demonstrated**. The 200M finalist
+achieved **0.595m/s** at a requested 0.70m/s, with **31/32**
+fast-survival worlds, but retained ~12cm zero-command drift
+over ~10 seconds and no gain in ≥2cm uphill incidence after 100M.
+
+The new runtime has four recycled **75cm** squares, each with two
+actual convex triangular-prism colliders (**eight** in all),
+six specialist teaching cohorts and one 360-input neural policy.
+A v5046 34-arm solver investigation measured steady throughput
+of **31,974 world-steps/s** at reference solver settings versus
+**119,662 world-steps/s** with experimental Newton/linesearch 2/4
+on an RTX 4060 Ti. The 2/4 physics fidelity still requires
+contact/penetration and CUDA reset-parity assessment.
+[Measured engineering results](docs/V5046_OVERNIGHT_RESULTS_20261105.md).
+
+The separate
+[future-main release-prep branch](https://github.com/mdt733/emu/tree/release/v5049-main-promotion-prep)
+retains the production CLI and tests while removing disposable
+v5045/46/48 experiment launchers, stale historical runbooks and
+duplicate workflow code. **It does not rewrite v5048's original
+source or training checkpoint**, and its cleanup is not an actor
+training continuation.
+
+We plan **two explicit approvals**: upgrade the engineering
+architecture after fresh CI/CUDA verification, and *separately*
+consider replacing the published 260M champion after independent
+cross-seed physical gait exams and browser proof. Until both
+have been evaluated, `main` and the approved public actor
+remain unchanged. [Promotion gates and rollback](docs/RELEASE_READINESS.md).
 
 [Documentation index](docs/README.md) ·
-[Maintenance principles](docs/MAINTENANCE.md).
+[Maintenance principles](docs/MAINTENANCE.md) ·
+[Research backlog](https://github.com/mdt733/emu/issues/17).

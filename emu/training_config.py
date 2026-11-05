@@ -1,13 +1,10 @@
-"""Modern EMU training configuration.
+"""One source-pinned, 360-input prism training configuration.
 
-The public CLI deliberately exposes only experiment-level choices. Trainer internals
-receive one serialized TrainingConfig, never a reconstructed forest of CLI flags.
-
-The mature profile intentionally freezes observation-normalizer statistics at 25M
-absolute environment steps. That is roughly 5M steps after the 20M foundation target:
-the hypothesis is that the actor's coordinate system should stop drifting before the
-mature curriculum substantially expands its command envelope. The freeze is therefore
-a deliberate profile choice, not a hidden fixed default.
+The public CLI exposes experiment-level teaching choices. Trainer internals
+receive one complete serialized TrainingConfig, and the modern cold foundation
+is a 20M-step teaching stage rather than a separate older network/profile.
+The current run recipe uses continuously updated observation normalization;
+historical frozen-normalizer experiments remain in their original Git commits.
 """
 from __future__ import annotations
 
@@ -52,10 +49,6 @@ EVAL_HORIZON = 350
 EVAL_SEED = 1701
 EVAL_COHORTS = 1
 FINAL_EVAL_COHORTS = 2
-CLOUD_EVAL_EVERY_STEPS = 40_000_000
-CLOUD_ENVS = 256
-CLOUD_HORIZON = 250
-CLOUD_BATCH_POINTS = 4
 FIELD_HALF_LIFE_STEPS = 20_000_000
 SENSOR_NOISE_SCALE = 1.5
 
@@ -88,10 +81,6 @@ DOCTRINE = {
     "EVAL_SEED": EVAL_SEED,
     "EVAL_COHORTS": EVAL_COHORTS,
     "FINAL_EVAL_COHORTS": FINAL_EVAL_COHORTS,
-    "CLOUD_EVAL_EVERY_STEPS": CLOUD_EVAL_EVERY_STEPS,
-    "CLOUD_ENVS": CLOUD_ENVS,
-    "CLOUD_HORIZON": CLOUD_HORIZON,
-    "CLOUD_BATCH_POINTS": CLOUD_BATCH_POINTS,
     # Fixed curriculum / field doctrine.
     "FRONTIER_GROWTH_FRAC": FRONTIER_GROWTH_FRAC,
     "FRONTIER_RETREAT_FRAC": FRONTIER_RETREAT_FRAC,
@@ -137,6 +126,9 @@ class TrainingConfig:
     run_dir: str = ""
     resume: str = ""
     observation_schema: str = OBS_SCHEMA_LEGACY  # opt in to 232 or G5 360 actor
+    # Source-pinned experimental physics: None keeps robot.xml defaults.
+    solver_iterations: int | None = None
+    solver_ls_iterations: int | None = None
 
     # Tunable PPO economics. Original doctrine values are the defaults;
     # only an explicitly versioned experiment changes them. Rollout length,
@@ -155,14 +147,10 @@ class TrainingConfig:
     combo_mix_frac: float = 0.0
     combo_probe_frac: float = 0.08
 
-    # v5014 hidden domain envelope.  All defaults are OFF so every existing
-    # v5013 profile remains mechanically identical unless a new experiment
-    # explicitly enables domain randomisation.  The actor never observes these
-    # radii; they only control the distribution of physical models/worlds.
+    # Optional robot/hardware manufacturing variation. Real prisms, not a
+    # tilted plane or synthesized gravity, always own terrain geometry.
     domain_randomization: bool = False
     domain_robot_radius: float = 0.0
-    domain_terrain_radius: float = 0.0
-    domain_terrain_mode: str = 'gravity'  # opt-in 'contact' for genuine varied floor normals
     domain_hardware_radius: float = 0.0
 
     # v5016 opt-in motor-effort teaching hypothesis (NOT hardware truth).
@@ -170,10 +158,6 @@ class TrainingConfig:
     # less for repeated nominal overload and gross shaft-motion effort.
     # Compare only against a matched no-guidance branch after physics exams.
     motor_guidance_weight: float = 0.0
-
-    # Opt-in real contact incline, uniform across all training worlds.
-    # The historical tilted-gravity terrain randomizer remains separate.
-    contact_slope_deg: float = 0.0
 
     # G4 opt-in: allocate a fixed-topology finite platform from episode zero,
     # but keep it physically buried throughout the flat foundation. Exposure
@@ -194,11 +178,29 @@ class TrainingConfig:
     retention_share: float = 0.0  # dynamic core rehearsal, NOT static survival
     terrain_lesson: str = 'mixed'  # coherent STEP/SLOPE tasks are an isolated treatment
     temporal_vx_reward_share: float = 0.0  # v5030 B, 0=bitwise original tracking
-    verified_ascent_reallocation: float = 0.0  # v5031 C: transfer 0..4 from existing ascent shaping
+    # v5047 one isolated slow-balance teaching hypothesis; 0 keeps old sampler.
+    stillness_birth_frac: float = 0.0
     force_program: str = 'aggressive'  # matched gentle vs high-push experiments
+    # Post-Pinnacle science switches: default values reproduce the released 260M source.
+    science_step_promotion_mm: float = 0.0  # zero = max(1mm, 18%) rule
+    science_step_retreat_mm: float = 0.0    # zero = 0.82 multiplier
+    science_step_min_attempts: int = 4     # per direction / near or easy
+    science_reset_step_evidence_on_fork: bool = False
+    # Streaming three-platform teaching from scratch; share ramps through births.
+    terrain_carpet: bool = False  # v5041 opt-in: 3x3 real two-triangle MJX terrain
+    terrain_carpet_prisms: bool = False  # v5043 research-only 18 true convex dynamic prisms
+    carpet_transition_cap_deg: float = 3.0  # degree-bound for smoothly changing local gradients
+    academy_stream: bool = False  # opt-in: three recyclable real platforms
+    academy_intro_steps: int = 60_000_000
+    academy_intro_share: float = 0.10
+    academy_start_steps: int = 80_000_000
+    academy_ramp_steps: int = 20_000_000
+    academy_max_share: float = 0.50
+    academy_height_cap_m: float = 0.150
+    academy_course_episode_frames: int = 1200  # 24s streaming lessons; other roles 14s
 
-    # v5015 is explicitly opt-in; v5014 defaults remain reproducible.
-    attitude_profile: str = "v5014"
+    # One executable 360-input prism trainer. Old attitude profiles live in Git.
+    attitude_profile: str = "v5015"
     pitch_command_max_deg: float = 8.0214
 
     # Curriculum / physical frontier.
@@ -219,8 +221,8 @@ class TrainingConfig:
     allow_rollback: bool = True
 
     # Held-out evaluation.
-    cloud_probes_per_eval: int = 10
-    cloud_final_probes: int = 50
+    cloud_probes_per_eval: int = 0
+    cloud_final_probes: int = 0
 
     # Capability-field teaching.  These are the deliberately narrow experiment
     # surface for v5013: dose, family, evidence feedback, and schedule.  They
@@ -244,21 +246,13 @@ class TrainingConfig:
     def load(cls, path: Path) -> "TrainingConfig":
         data = json.loads(path.read_text(encoding="utf-8"))
         expected = {f.name for f in dataclass_fields(cls)}
-        # Historical v5014 configs may omit ONLY these new optional fields.
-        optional = {'attitude_profile', 'pitch_command_max_deg',
-                    'ppo_lr', 'ppo_entropy_cost', 'ppo_value_cost',
-                    'motor_guidance_weight', 'contact_slope_deg',
-                    'domain_terrain_mode', 'observation_schema',
-                    'terrain_step_max_m', 'unified_capability_focus',
-                    'foundation_steps', 'foundation_mix', 'teaching_schedule',
-                    'fixed_eval_every_steps',
-                    'velocity_i_ramp_s', 'velocity_i_multiplier',
-                    'growth_recipe', 'retention_share', 'terrain_lesson',
-                    'force_program', 'temporal_vx_reward_share',
-                     'verified_ascent_reallocation'}
         missing, extra = expected - set(data), set(data) - expected
-        if extra or (missing - optional):
-            raise ValueError(f"training config keys mismatch: missing={sorted(missing)} extra={sorted(extra)}")
+        # No source-pinned v5045 run can accept an incomplete historical
+        # config: re-creating defaults would change teacher and sensor meaning.
+        if missing or extra:
+            raise ValueError(
+                f"training config keys mismatch: missing={sorted(missing)} "
+                f"extra={sorted(extra)}")
         return cls(**data)
 
 
@@ -273,23 +267,9 @@ def _runtime(*, run_dir: Path, steps: int, seed: int, device: str, envs: int, re
     )
 
 
-def foundation_config(*, run_dir: Path, seed: int, device: str, envs: int, resume: Path | None = None) -> TrainingConfig:
-    return replace(
-        TrainingConfig(), **_runtime(run_dir=run_dir, steps=FOUNDATION_STEPS, seed=seed, device=device, envs=envs, resume=resume),
-        difficulty_base_step=0.0014,
-        vx_hi_max=0.40, vx_lo_min=-0.12, vy_max_mps=0.14, yaw_max_rad_s=0.90,
-        phase_speed_gain=0.75, regime_command_frac=0.60,
-        push_max_force_n=0.70,
-        cloud_probes_per_eval=0, cloud_final_probes=0,
-        capability_field_mode="shadow", allow_rollback=False,
-        field_influence_start_steps=10_000_000, field_influence_full_steps=FOUNDATION_STEPS,
-    )
-
-
-def mature_config(mode: str, *, run_dir: Path, steps: int, seed: int, device: str, envs: int,
-                  resume: Path | None) -> TrainingConfig:
-    if mode not in {"shadow", "graph"}:
-        raise ValueError(f"unsupported trainer mode: {mode}")
+def prism_base_config(*, run_dir: Path, steps: int, seed: int, device: str, envs: int,
+                      resume: Path | None) -> TrainingConfig:
+    """Shared physical/curriculum defaults before the user's experiment knobs."""
     return replace(
         TrainingConfig(), **_runtime(run_dir=run_dir, steps=steps, seed=seed, device=device, envs=envs, resume=resume),
         freeze_obs_norm_after_steps=25_000_000,
@@ -303,7 +283,7 @@ def mature_config(mode: str, *, run_dir: Path, steps: int, seed: int, device: st
         frontier_vy_safety=0.60, frontier_yaw_safety=4.50,
         frontier_combo_safety=2.00, frontier_push_safety_n=3.2,
         fall_target=0.34,
-        capability_field_mode=mode,
+        capability_field_mode='shadow',
         field_influence_start_steps=FOUNDATION_STEPS, field_influence_full_steps=30_000_000,
     )
 
