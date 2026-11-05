@@ -784,6 +784,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             out=env.step(staged,jnp.clip(mean,-1.,1.),curriculum_params)
             sample=dict(
                 position_xy=xy,heading_rad=yaw,
+                policy_phase_rad=es.phase,
                 foot_xyz=foot_xyz,floor_contact=contacts,
                 actor_action=jnp.clip(mean,-1.,1.),
                 stance_slip_proxy=out.metrics['exam_stance_slip_proxy'],
