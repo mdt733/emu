@@ -63,23 +63,32 @@ def panels(profile):
     # Flat panels test stillness, drift, speed, stride and survival.
     for seed in seeds:
         for speed in speeds:
-            yield dict(seed=seed,mode="flat",speed=speed,lip_cm=0.)
+            yield dict(seed=seed,mode="flat",speed=speed,lip_cm=0.,phase_probe="normal",tof_probe="normal")
         # Stair panels use two approach velocities and signed physical lips.
         for lip in lips:
             for speed in (.10,.20):
-                yield dict(seed=seed,mode="step",speed=speed,lip_cm=lip)
+                yield dict(seed=seed,mode="step",speed=speed,lip_cm=lip,phase_probe="normal",tof_probe="normal")
+
+        # Same frozen checkpoint, initial-state seed and operator command.
+        for mode,speed,lip in (("flat",0.,0.),("flat",.70,0.),("step",.10,3.)):
+            for phase in ("hold","invert","random"):
+                yield dict(seed=seed,mode=mode,speed=speed,lip_cm=lip,
+                           phase_probe=phase,tof_probe="normal")
+            yield dict(seed=seed,mode=mode,speed=speed,lip_cm=lip,
+                       phase_probe="normal",tof_probe="mask")
 
 
 def panel_name(spec):
     return (f"s{spec['seed']}-{spec['mode']}-"
             f"v{round(spec['speed']*1000):04d}mmps-"
-            f"lip{round(spec['lip_cm']*10):03d}mm")
+            f"lip{round(spec['lip_cm']*10):03d}mm-"
+            f"ph{spec['phase_probe']}-tof{spec['tof_probe']}")
 
 
 def aggregate(rows):
     out=[]
-    for key in sorted(set((x["mode"],x["speed"],x["lip_cm"]) for x in rows)):
-        selected=[x for x in rows if (x["mode"],x["speed"],x["lip_cm"])==key]
+    for key in sorted(set((x["mode"],x["speed"],x["lip_cm"],x["phase_probe"],x["tof_probe"]) for x in rows)):
+        selected=[x for x in rows if (x["mode"],x["speed"],x["lip_cm"],x["phase_probe"],x["tof_probe"])==key]
         worlds=[w for item in selected for w in item["worlds"]]
         missions=[item["mission_autopsy"] for item in selected]
         n=len(worlds)
@@ -90,7 +99,7 @@ def aggregate(rows):
             values=[float(w[name]) for w in worlds if w.get(name) is not None
                     and math.isfinite(float(w[name]))]
             return round(mean(values),5) if values else None
-        out.append(dict(mode=key[0],requested_vx_mps=key[1],
+        out.append(dict(mode=key[0],phase_probe=key[3],tof_probe=key[4],requested_vx_mps=key[1],
                         requested_lip_frontier_cm=key[2],
                         panels=len(selected),worlds=n,
                         survived=survived,survival_fraction=round(survived/n,4),
@@ -161,7 +170,7 @@ def main():
             policy=policy, output=target,worlds=args.worlds,
             horizon=args.horizon,speed=spec["speed"],seed=spec["seed"],
             device=args.device,mode=spec["mode"],grade_deg=0.,
-            lip_cm=spec["lip_cm"])
+            lip_cm=spec["lip_cm"],phase_probe=spec["phase_probe"],tof_probe=spec["tof_probe"])
         if not report.is_file():
             raise RuntimeError(f"Exam did not produce {report}")
     rows=[]
@@ -170,6 +179,9 @@ def main():
         if not path.exists():
             continue
         data=json.loads(path.read_text())
+        if (data.get("protocol",{}).get("phase_probe")!=spec["phase_probe"] or
+                data.get("protocol",{}).get("tof_probe")!=spec["tof_probe"]):
+            raise RuntimeError(f"Observation probe mismatch: {path}")
         if data.get("source_actor_sha256")!=identity["actor_sha256"]:
             raise RuntimeError(f"Actor identity mismatch: {path}")
         autopsy=data.get("mission_autopsy")
@@ -190,19 +202,21 @@ def main():
            "not imposed measured wall heights. The post-contact mission "
            "denominator is verified supported crossings, not eligible "
            "approaches; no fixed-height or eight-stage certification.",
+           "Frozen phase and ToF probes alter policy observations only, not simulated source sensors, clock or reward. Dependence does not prove necessity.",
            "These intervals assume independent events and **do not** "
            "represent uncertainty across independently trained PPO seeds.",
            "Zero counted contacts means no mission rate can be estimated.",
            "10-second follow-up certification may be truncated by the "
            "650-frame original examiner horizon.","",
-           "| Mode | Requested speed | Lip frontier | Survival | Footfalls/s | "
+           "| Mode | Probe | Requested speed | Lip frontier | Survival | Footfalls/s | "
            "Stride m | Drift m | Supported contacts | Completed follow-ups |",
-           "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+           "|---|---|---:|---:|---:|---:|---:|---:|---:|"]
     for row in agg:
         def fmt(v):
             return "—" if v is None else str(v)
         lines.append(
-            f"| {row['mode']} | {row['requested_vx_mps']:.2f} | "
+            f"| {row['mode']} | phase={row['phase_probe']},ToF={row['tof_probe']} | "
+            f"{row['requested_vx_mps']:.2f} | "
             f"{row['requested_lip_frontier_cm']:.2f} | "
             f"{row['survived']}/{row['worlds']} | "
             f"{fmt(row['mean_footfall_hz'])} | {fmt(row['mean_stride_m'])} | "
