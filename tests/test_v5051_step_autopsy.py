@@ -65,6 +65,34 @@ class ExamTests(unittest.TestCase):
         result=inspect_missions(trace(heading=np.pi/2),max_followup_s=4.)
         self.assertEqual(result["completed_missions"],0)
 
+    def test_fixed_wall_has_exact_physical_height_and_front(self):
+        from scripts.v5051_fixed_wall_screen import make_wall_model
+        model, geom = make_wall_model(.03)
+        self.assertAlmostEqual(float(model.geom_pos[geom,2] +
+                                     model.geom_size[geom,2]), .03, places=7)
+        self.assertAlmostEqual(float(model.geom_pos[geom,0] -
+                                     model.geom_size[geom,0]), .24, places=7)
+
+    def test_fixed_wall_mujoco_short_rollout(self):
+        from scripts.v5051_fixed_wall_screen import (
+            make_wall_model, test_swing as wall_trial)
+        model, geom = make_wall_model(.02)
+        result=wall_trial(model,geom,.02,"left",.2,.4,settle=2,frames=12)
+        self.assertEqual(result["actual_height_cm"],2.)
+        self.assertLessEqual(result["max_servo_torque_nm"],1.914)
+        self.assertLessEqual(result["completed_frames"],12)
+
+    def test_bounded_standing_short_cpu_integration(self):
+        import mujoco
+        from emu.contracts import ROBOT_XML
+        from scripts.v5051_balance_screen import run_case
+        model=mujoco.MjModel.from_xml_path(str(ROBOT_XML))
+        result=run_case(model,gain=.5,damping=.1,
+                        delay_frames=1,noise_rad=.005,seed=735,
+                        horizon_s=.20)
+        self.assertLessEqual(result["duration_s"],.20)
+        self.assertLessEqual(result["max_torque_nm"],1.914)
+
     def test_wilson_limits_and_empty(self):
         self.assertIsNone(wilson(0,0))
         self.assertEqual(wilson(0,32)[0],0.)
