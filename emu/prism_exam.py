@@ -10,6 +10,11 @@ import numpy as np
 from .terrain_carpet_mjx import TILE_M, TILE_COUNT
 from .carpet_prism_mjx import PRISM_COUNT
 
+# Last actor+seed MJX frozen examiner. One in-memory JAX compilation is reused
+# for six task-vector scenarios. Source SHA256 and seed are in the key; never
+# reuse a different actor, physics setting or teacher RNG. Bounded to one.
+_EXAM_SESSIONS = {}
+
 
 def first_episode_mask(done):
     """Count the terminal frame, never a reset-policy frame after death.
@@ -224,49 +229,64 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
 
     if phase_probe not in ("normal","hold","invert","random") or tof_probe not in ("normal","mask"):
         raise ValueError("Invalid frozen-policy observation intervention")
-    params, norm, actor = load_exported_actor_for_exam(policy)
-    if (actor["observation_schema"] != OBS_SCHEMA_TERRAIN or
-            not actor["array_only"] or
-            actor["training"].get("terrain_carpet_prisms") is not True):
-        raise ValueError("prism exam requires a true-prism 360-input source actor")
-    configure_jax(device)
-    import jax
-    import jax.numpy as jnp
-    require_backend(device == "cpu")
-
-    train = actor["training"]
-    control = actor["control"]
-    sensor = actor["sensor_settings"]
-    vi = control.get("velocity_i") or {}
-    env = EmuMJXEnv(
-        str(ROBOT_XML), num_envs=worlds, seed=seed,
-        max_episode_steps=700, push_max_force_n=0.7,
-        observation_schema=OBS_SCHEMA_TERRAIN,
-        terrain_step_max_m=.08, unified_capability_focus=True,
-        terrain_carpet=True, terrain_carpet_prisms=True,
-        solver_iterations=train.get("solver_iterations"),
-        solver_ls_iterations=train.get("solver_ls_iterations"),
-        academy_stream=True, academy_height_cap_m=.15,
-        terrain_lesson="coherent-careful",
-        attitude_profile=train["attitude_profile"],
-        pitch_command_max_deg=float(train["pitch_command_max_deg"]),
-        phase_speed_gain=float(control["phase_speed_gain"]),
-        science_phase_lowcmd_scale=float(train.get("science_phase_lowcmd_scale",1.)),
-        velocity_i_ramp_s=float(vi.get("ramp_s", .4)),
-        velocity_i_multiplier=float(vi.get("multiplier", 1.)),
-        sensor_noise_scale=float(sensor.get("sensor_noise_scale", 0.)),
-        **{k: v for k, v in sensor.items() if k != "sensor_noise_scale"},
-    )
-    from .contracts import sensor_observation_contract
-    expected = sensor_observation_contract(
-        sensor, schema=OBS_SCHEMA_TERRAIN, array_only=True)
-    if env.sensor_contract != expected:
-        raise RuntimeError("frozen prism examiner changed actor sensor semantics")
-    trainer = make_trainer(
-        env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
-        epochs=1, minibatches=1,
-        entropy_cost=PPO_ENTROPY_COST, value_cost=PPO_VALUE_COST,
-    )
+    # The *same* actor/seed/environment can examine six differently
+    # instructed physical worlds. Reusing its JAX-compiled evaluator removes
+    # five needless model/trainer reconstructions per campaign arm.
+    # Different seeds keep their own physics/PRNG identity. A changed
+    # .emupolicy is never silently admitted to a previous exam.
+    cache_key=(str(policy),hashlib.sha256(policy.read_bytes()).hexdigest(),
+               worlds,seed,device)
+    cached=_EXAM_SESSIONS.get(cache_key)
+    if cached is None:
+        params, norm, actor = load_exported_actor_for_exam(policy)
+        if (actor["observation_schema"] != OBS_SCHEMA_TERRAIN or
+                not actor["array_only"] or
+                actor["training"].get("terrain_carpet_prisms") is not True):
+            raise ValueError("prism exam requires a true-prism 360-input source actor")
+        configure_jax(device)
+        import jax
+        import jax.numpy as jnp
+        require_backend(device == "cpu")
+    
+        train = actor["training"]
+        control = actor["control"]
+        sensor = actor["sensor_settings"]
+        vi = control.get("velocity_i") or {}
+        env = EmuMJXEnv(
+            str(ROBOT_XML), num_envs=worlds, seed=seed,
+            max_episode_steps=700, push_max_force_n=0.7,
+            observation_schema=OBS_SCHEMA_TERRAIN,
+            terrain_step_max_m=.08, unified_capability_focus=True,
+            terrain_carpet=True, terrain_carpet_prisms=True,
+            solver_iterations=train.get("solver_iterations"),
+            solver_ls_iterations=train.get("solver_ls_iterations"),
+            academy_stream=True, academy_height_cap_m=.15,
+            terrain_lesson="coherent-careful",
+            attitude_profile=train["attitude_profile"],
+            pitch_command_max_deg=float(train["pitch_command_max_deg"]),
+            phase_speed_gain=float(control["phase_speed_gain"]),
+            science_phase_lowcmd_scale=float(train.get("science_phase_lowcmd_scale",1.)),
+            velocity_i_ramp_s=float(vi.get("ramp_s", .4)),
+            velocity_i_multiplier=float(vi.get("multiplier", 1.)),
+            sensor_noise_scale=float(sensor.get("sensor_noise_scale", 0.)),
+            **{k: v for k, v in sensor.items() if k != "sensor_noise_scale"},
+        )
+        from .contracts import sensor_observation_contract
+        expected = sensor_observation_contract(
+            sensor, schema=OBS_SCHEMA_TERRAIN, array_only=True)
+        if env.sensor_contract != expected:
+            raise RuntimeError("frozen prism examiner changed actor sensor semantics")
+        trainer = make_trainer(
+            env, seed=seed, lr=PPO_LR, rollout=ROLLOUT_STEPS,
+            epochs=1, minibatches=1,
+            entropy_cost=PPO_ENTROPY_COST, value_cost=PPO_VALUE_COST,
+        )
+        _EXAM_SESSIONS.clear()
+        _EXAM_SESSIONS[cache_key]=(params,norm,actor,env,trainer)
+    else:
+        params,norm,actor,env,trainer=cached
+        import jax
+        import jax.numpy as jnp
     has_grade = mode in ("slope", "mixed")
     has_step = mode in ("step", "mixed")
     lip_m = lip_cm / 100.
