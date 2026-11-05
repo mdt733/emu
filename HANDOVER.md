@@ -1,9 +1,11 @@
-# EMU handover — preparing the next `main` milestone
+# EMU handover — v5048 200M software milestone
 
-**5 November 2026.** This checkout is the **future-main
-release-preparation branch**, not the original completed GPU training
-source. The v5048 research bundle has been reviewed; no neural actor
-has been promoted to the public `main` release.
+**5 November 2026.** The cleaner four-tile engineering source
+was merged to `main` at `6bbcdd1` (PR #39). The operator has
+reviewed the v5048 200M exported actor in the viewer and approved
+its **public software-playground release** in PR #40. This is a
+source-verified inference release, not a claim of physical hardware
+readiness or a fully mastered fixed 3cm stair.
 
 ## What is approved, and what remains under research?
 
@@ -14,9 +16,9 @@ has been promoted to the public `main` release.
 | Completed GPU experiment | v5048 **550M unique steps** in 50M shared parent → 8 matched 100M actors → 200M temporal_speed finalist; 148 real frozen exam panels, [measured findings](docs/V5048_SHARED_PARENT_RESULTS_20261105.md) |
 | Training-source identity | `088a29be47f624be9e2c322c504ec98049b3f9bf`, seed 735; same-parent checkpoint SHA256 `8047f4bd4d75894c627e8689e0c645a6bde23496caf6a807f408fa8c88a4085f` |
 | Release-prep code | `release/v5049-main-promotion-prep`: remove temporary experiment machinery, keep the one public CLI and the permanent exam/provenance contracts |
-| Main code merge | **Not yet approved; `main` untouched** |
-| New public policy | **200,015,872-step** temporal_speed export exists, source/actor hash recorded; actual ≥3cm climbing, stillness, heading-controlled mission and matched main parity **not demonstrated**. Actor unchanged |
-| GitHub Pages deployment | Independent protected/manual approval; not triggered by this cleanup |
+| Main code merge | **Completed:** PR #39, `6bbcdd1`; old published actor preserved until separate PR #40 |
+| New public policy | **Owner-approved v5048 200,015,872-step temporal_speed software release:** exact actor SHA256 `36508ecca685cb7f113f62502541594f8f9da345dda3025dbb4c9e7fac6668c6`. Strict 3cm, zero-drift, controlled path and physics parity **not demonstrated** |
+| GitHub Pages deployment | Explicit owner-approved PR #40 changes the pinned deployment request; GitHub Pages remains gated by policy+viewer hashes and workflow checks |
 
 The completed v5048 training and all `~/emu-data/runs/`
 artefacts belong to **the original training SHA**, not this later
@@ -92,9 +94,12 @@ design feedback before another GPU campaign.
 
 ## The next release decision (two independent gates)
 
-**Gate A: approve better engineering for `main`.** The 550M
-study is complete and measured. Inspect its physical implications,
-then inspect the complete
+**Gate A: improve engineering in `main`.** PR #39 is merged;
+the 550M study is complete and measured. Continue examining
+physics fidelity and new GPU smoke results independently of
+the public actor decision.
+
+The original gate requested review of the complete
 new-source versus `main` diff. Re-run Python, browser, actual
 four-world CPU MJX contacts and a **new same-SHA 2048-world CUDA
 PPO/checkpoint/export/frozen-exam** acceptance after the cleanup.
@@ -102,9 +107,9 @@ Verify the published 260M policy and release metadata are still
 byte-identical. Only then ask for an explicit code merge decision.
 This can proceed even if the new learned gait is merely comparable.
 
-**Gate B: replace the public Pinnacle policy.** A 200M frozen
-candidate has been exported from the original v5048 training SHA,
-but publication **remains on hold** until we obtain
+**Gate B: owner-approved software demo.** The exported 200M
+candidate is approved for the browser milestone; deeper
+real-world and scientific capability claims **remain on hold** until we obtain
 independently measured supported step ascent/descent with post-lip
 progress, zero-/low-speed stability, achieved faster strides, heading
 and lateral control, slopes, recovery, energy proxy and two or more
