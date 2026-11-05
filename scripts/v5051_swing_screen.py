@@ -65,7 +65,7 @@ def trial(model, *, foot, pitch, knee, seed):
                 max_clear=h
                 forward_at_max=float(data.geom_xpos[swing_geom,0]-initial[0])
         if (not np.isfinite(data.qpos).all() or data.qpos[2]<.145 or
-            abs(float(data.qpos[0]-data.qpos[0]))>5.):
+            np.linalg.norm(data.qpos[:2]) > .50):
             fell=True
             break
     return dict(foot=foot,hip_pitch_rad=pitch,knee_rad=knee,
