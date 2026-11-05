@@ -12,7 +12,9 @@ from emu.cli import main as emu_cli
 from emu.step_autopsy import inspect_missions
 from emu.rewards import _gait_maturity, _physical_qualities
 from scripts.v5051_train_campaign import (
-    ARMS, PARENT_STEPS, FINAL_STEPS, cli_command, select_arms)
+    ARMS, PARENT_STEPS, FINAL_STEPS, PHYSICAL_PANELS,
+    cli_command, exam_protocol, select_arms)
+from emu.evaluation import PANELS, broad_score
 
 
 def trace(*, second_foot=True, continued=True, heading=0.):
@@ -57,6 +59,24 @@ class ScienceTrainingTests(unittest.TestCase):
         self.assertEqual(FINAL_STEPS,120_000_000)
         for arm in ARMS:
             self.assertEqual(len(arm.overrides)%2,0)
+
+    def test_compact_retention_and_physical_protocol(self):
+        self.assertEqual(set(PANELS),
+                         {"core","dynamic80","combo70","resilience75"})
+        self.assertEqual({v[0] for v in PANELS.values()},{"fixed","combo"})
+        # Four retention guards cannot silently include an old/gone panel
+        # in best-policy scoring, or claim to certify stairs.
+        baseline={f"eval_{name}_survival":1. for name in PANELS}
+        self.assertAlmostEqual(broad_score(baseline),1.)
+        self.assertEqual([x[0] for x in PHYSICAL_PANELS],[
+            "standing","slow_walk","fast_walk","slope","step_3cm","step_4cm"])
+        with TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            first=exam_protocol(root,8)
+            self.assertEqual(first["worlds"],8)
+            self.assertEqual(exam_protocol(root,8),first)
+            with self.assertRaisesRegex(RuntimeError,"Physical exam"):
+                exam_protocol(root,16)
 
     def test_all_arms_parse_to_real_trainer_without_training(self):
         with TemporaryDirectory() as tmp:
