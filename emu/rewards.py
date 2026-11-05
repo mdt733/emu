@@ -38,7 +38,7 @@ MOTOR_PAYMENT_NAME = "motor_cost"  # opt-in; old eight-payment contract stays fi
 REWARD_ONLY_METRICS = frozenset({
     'target_height', 'stance_slip', 'target_step_height', 'action_delta_norm',
     'joint_limit_pressure', 'scissor_pressure', 'stepping_activity_so_far',
-    'ramp_frac',
+    'ramp_frac', 'science_step_focus',
 })
 
 # Preserved eight-term reward baseline; modifications are explicit opt-in teaching terms.
