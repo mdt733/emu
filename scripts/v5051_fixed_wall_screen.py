@@ -90,10 +90,10 @@ def test_swing(model,wall_id,height,side,pitch,knee,*,settle=15,frames=150):
                 on_floor=True
             if ({c.geom1,c.geom2}=={wall_id,swing_geom}):
                 # Contact on vertical side doesn't count as upper support.
-                face=np.zeros(3)
-                mujoco.mju_rotVecMat(face,np.array([0.,0.,1.]),
-                                    c.frame.reshape((3,3)))
-                if abs(float(face[2]))>=.7:
+                # MuJoCo's contact frame stores the contact normal
+                # in its first three world-space components.
+                normal=np.asarray(c.frame)[:3]
+                if abs(float(normal[2]))>=.7:
                     on_wall=True
                 else:
                     riser_contact_frames+=1
