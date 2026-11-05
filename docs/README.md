@@ -12,24 +12,24 @@ Start with [README](../README.md) for the robot,
 | Which research knob and curriculum owns real steps / speed / balance | [Unified capability growth](UNIFIED_CAPABILITY_GROWTH.md) · [Capability dimensions](CAPABILITY_DIMENSIONS.md) |
 | How to judge commanded movement and signed contacts | [Physical quality](PHYSICAL_QUALITY.md) · [Independent 260M baseline](PHYSICAL_BASELINE_260M.md) |
 | Release approvals, rollback and promotion into main | [Release readiness](RELEASE_READINESS.md) · [260M Pinnacle release](V5032_PINNACLE_RELEASE.md) |
-| GPU contact and speed tradeoffs already measured | [v5046 solver study](V5046_OVERNIGHT_RESULTS_20261105.md) · [Solver and foot contact](V5046_FOOT_CONTACT_OPTIMIZATION.md) · [GPU audit](JAX_GPU_WORKLOAD_AUDIT.md) |
+| GPU contact, speed and teaching experiments | [v5046 solver study](V5046_OVERNIGHT_RESULTS_20261105.md) · [v5048 550M shared-parent results](V5048_SHARED_PARENT_RESULTS_20261105.md) · [GPU audit](JAX_GPU_WORKLOAD_AUDIT.md) |
 | Browser/WASM, park and protected publishing | [Playground](PLAYGROUND.md) · [Graduated park](VIEWER_GRADUATED_PARK.md) |
 | Engineering and experiment clean-up policy | [Maintenance](MAINTENANCE.md) · [Issue #17](https://github.com/mdt733/emu/issues/17) |
 
-## Current 50M → eight forks → 200M research
+## Completed 50M → eight forks → 200M research
 
-The v5048 campaign is source-pinned to
-[its original experimental branch](https://github.com/mdt733/emu/tree/experiment/v5048-shared-parent-pinnacle).
-Its shared 50M ancestor, eight matched 50M child continuations, physical
-exams and final 100M winner extension are **research**, not evidence of
-a successor until measured. The future-main release-prep branch
-intentionally **omits** its temporary launcher so the final architecture
-doesn't retain another experimental harness. To examine or resume that
-run, use the **original experiment SHA and run directory**.
+The v5048 experiment has completed **550M unique steps** and **148
+independent physical GPU panels** on
+[the original frozen experimental source](https://github.com/mdt733/emu/tree/experiment/v5048-shared-parent-pinnacle).
+The [measured v5048 result card](V5048_SHARED_PARENT_RESULTS_20261105.md)
+documents the real physical step-height caveat, matched 100M
+comparisons, the 200M temporal-speed policy and the unproven main
+promotion gates. The future-main branch intentionally **omits its
+temporary launcher** so the final architecture remains lean;
+only the original experiment SHA should be used for reproduction.
 
-The frozen published 260M policy is unchanged while research runs.
-Do not assume a CPU code check proves an 8GB CUDA training/exam pass,
-and do not publish or merge a new actor without explicit release review.
+The approved v5032 260M public policy remains unchanged.
+A completed CUDA training tournament is not a released Pinnacle.
 
 ## Historical files
 
