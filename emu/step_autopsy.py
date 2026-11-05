@@ -104,7 +104,7 @@ def inspect_missions(frames, *, minimum_progress_m=.50, heading_limit_rad=.35,
             if recovered is not None:
                 bearing = np.array([np.cos(yaw[t0,w]), np.sin(yaw[t0,w])])
                 for t in range(recovered,stop):
-                    forward = float((xy[t,w]-xy[t0,w]) @ bearing)
+                    forward = float((xy[t,w]-xy[recovered,w]) @ bearing)
                     heading_error = abs(float(np.arctan2(
                         np.sin(yaw[t,w]-yaw[t0,w]),
                         np.cos(yaw[t,w]-yaw[t0,w]))))
