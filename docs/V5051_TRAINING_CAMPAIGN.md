@@ -65,7 +65,6 @@ git rev-parse HEAD
 
 # CPU contracts + true PPO argument parsing for all 15 arms.
 python -m pytest -q tests/test_v5051_training_science.py
-python -m pytest -q tests/test_v5051_step_autopsy.py
 
 # Prints 60M parent and 15 actual PPO arm commands. Trains nothing.
 python -m scripts.v5051_train_campaign --stage plan
