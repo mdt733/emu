@@ -19,9 +19,9 @@ Status: **investigation in progress; no PPO or physical capability claim**. Rese
 
 | Priority | Suspected obstacle | Smallest meaningful falsifier |
 |---|---|---|
-| 1 | Episode-activity gate makes prolonged static support unattractive | Counterfactual reward accounting on identical recorded zero-command traces, followed by matched control vs exception-only PPO and quiet-standing exam |
+| 1 | Quiet supported balance may be mechanically/controller infeasible | First try realistic bounded PD/LQR or optimisation-backed standing and single-foot support with actual latency and contacts; failed simple feedback is **not** proof of impossibility |
 | 2 | The phase-conditioned policy is entrained to a narrow footfall rhythm | Frozen-policy phase shift/speed perturbation (same physical state, identical actions up to intervention); measured return, footfall timing and falls; separate retrain only if causal |
-| 3 | Reinforcement of short repeated lifts dominates actual support transfer | Log separate clearance constituents for successful/failed ledge attempts; isolate phase-sync shaping on a matched continuation |
+| 3 | Episode-activity gate and rhythmic clearance shaping make repeated lifts attractive | Counterfactual accounting of gate and clearance on identical physical traces, then only justified controlled reward interventions |
 | 4 | Examiner's supported-contact count is too weak for selecting stair learners | Freeze actual signed-height, exposure-normalised eight-stage ascent/descent mission measurements before intervention |
 | 5 | Upright-height reward suppresses needed supported crouch | Measure joint/servo capacity and supported-foot CoM motion, then compare bounded height-tolerance reward only if feasible |
 | 6 | Sensor data arrives too late / is ignored | Frozen actor ToF neutralisation with matched trajectories and recorded rays; measured sensor-age vs approach time |
@@ -42,3 +42,43 @@ Status: **investigation in progress; no PPO or physical capability claim**. Rese
 **Added:** `scripts/v5051_reward_economics.py`, a small CPU-only deterministic numerical probe checking weighted gate arithmetic and the zero-command exception boundary. It changes no production reward or policy behavior.
 
 **Not yet done:** a physical single-wall fixture, eight-stage mission classifier, actuator/spring feasibility probe, real ToF ablations, full effective-command histogram, source-pinned WSL runner, full repo CI and CUDA smoke. These require implementation and execution, not reinterpretation of old results. GitHub file access alone does not execute a GPU or run acceptance tests. No claim of a complete v5051 campaign is made.
+
+## 6 November review — critique integrated before training
+
+**Decision: hard gate after investigations 1–4.** Do not launch a multi-arm PPO campaign until a written evidence review establishes: (a) supported balance and swing feasibility with unchanged physics, (b) actual frozen-policy phase dependence, (c) trajectory-level reward economics and real sensory age, and (d) an independently reliable signed-height step autopsy. Prespecify exam rules and keep the small, general-purpose physical diagnostic after the research runner is deleted.
+
+### Mechanical balance feasibility comes first
+
+Use realistic model actuation, contact, passive springs, geometry, noise and delay to attempt 10 s supported standing under a bounded feedback controller (PD/LQR as starting baselines, with a nonlinear/constrained controller or optimisation feasibility probe if necessary). Compare with and without ideal state information, then realistic sensing and delay. Measure CoM/support region, foot contacts, drift, servo torque/rate, spring use and recovery impulses. Allow corrective steps as a separate condition. A **successful** nonstepping hold shows the simulator has a reachable balance behaviour; a **failed** PD/LQR controller does **not** prove stationary control physically impossible. For stairs, also use open-loop/IK swing and optimised pose/transfer trajectories under real collisions and load-bearing support. Those are *capability probes*, not scripted training or evidence that the actor can learn them.
+
+### Phase dependence: frozen-policy, same-shape ablation
+
+Preserve the existing 360-input schema and observation normaliser. At a controlled point in matched physical rollouts, compare normal phase with constant **valid** sin/cos pair (e.g. sin=0,cos=1), fixed phase offset, random valid phase and altered phase speed, including all four history frames. Do not zero both sine and cosine and treat that impossible unit-circle pair as equivalent to pausing the clock; an all-zero pair is useful only as an explicitly out-of-distribution stress control. Keep source phase in the environment unchanged for clean input-only ablation because other simulated sensor-noise terms also depend on it. Examine footfall rate, lift amplitude, same-foot stride, phase coherence, measured command tracking, fall rate, and path. This identifies dependency/sensitivity, **not necessity**: a retrained phase-free or paused-phase policy could behave differently.
+
+### Define tippy-tap before testing
+
+Report per **first-life** world, with minimum episode-duration and exposure rules fixed before collecting experiments:
+
+- Stationary commands: footfalls/s **across both feet**, foot lift height distribution, time with both feet supported, net XY drift over 10 s, yaw drift, falls, and mechanical drive proxy. Baseline reference from v5048 is ~8.5 footfalls/s and 11.7 cm mean drift over ~10 s; new exams need comparable exact protocols.
+- Walking/running at 0.03, 0.06, 0.10, 0.30, 0.50, 0.70 and 1.0 m/s: same-foot stride length, footfalls/s, clearance, forward metres per footfall, achieved commanded velocity, heading bias, falls and shaft J/useful m.
+- Stair panels: count *eligible approaches* at each **measured** height, attempts, each of the eight diagnostic stages, true completed missions with >=50 cm sustained controlled progress, and per-stage failure reasons. Do not use worlds-with-one-contact as mission percentage.
+
+Pre-register explicit quantitative criteria for quiet standing, step mission success, retention and acceptable regressions before any training intervention. Historical numbers are reference values, not automatically universal success thresholds.
+
+### Noise floor and experimental economy
+
+The v5048 16/32 versus 19/32 numbers are insufficient for a confident ranking; even simple independent-binomial 95% intervals will be wide, and attempts within shared PPO seeds/world configurations are not necessarily independent. Report Wilson binomial intervals for genuine independent trials, paired contrasts where trials are matched, and uncertainty across **training seeds**. At least 2–3 training seeds on an *unchanged* control should estimate learning variance before confident selection; expand selected arms across seeds rather than creating many single-seed variants. Avoid treating 32 worlds from one checkpoint as 32 independent trained policies.
+
+115,000 world-steps/s is **414M world-steps per hour of steady rollout/updates**, so 700M is ~1.69 hours at that steady rate. That is an arithmetic *lower bound* for wall clock: compilation, source setup, repeated exam rollouts, checkpoint writes, arm restarts and the observed prior 550M / ~5h40m campaign mean actual elapsed can be substantially longer. Budget with observed end-to-end numbers, not ideal throughput alone.
+
+### Bundled freedom-economy screen: conditional, not conclusive
+
+After physical and frozen-policy exams, it may be economical to screen one **clearly labelled non-isolated** combination of activity-gate relaxation, near-zero phase pausing, explicit zero-command exposure and bounded crouch permission against the unchanged control. **A positive result** supports subsequent one-variable ablations to identify necessary ingredients. **A negative result** does *not* rule out single-variable benefits: interactions, unstable checkpoint ancestry, insufficient exploration and 30–50M adaptation can hide an effect. Keep any bundles out of causal claims and do not displace properly matched single-change studies with an uninterpretable tournament.
+
+### Checkpoint compatibility
+
+- **Potentially same architecture:** reward-only changes, valid phase pausing/attenuation with unchanged input size/order, masked sensor data with unchanged channels and preprocessing. Still verify actual saved normalisation, optimiser/curriculum state and source manifest; inherited behaviour/path dependence may bias continuation.
+- **Architectural change:** deleting the phase features changes the observation schema and requires separate matched cold-start **control and treatment**. Neither a 358-dimension actor nor its normaliser can be treated as a 360-channel continuation.
+- **Asymmetric privileged critic:** conceptually possible while keeping the 360-input deployable actor unchanged, but existing PPO/critic wiring and checkpoint compatibility have **not been audited**; do not call this a compatible continuation without inspecting and validating critic parameters and optimiser state.
+
+**Keep permanently:** compact, pure physical mission classifier and essential feasibility/regression tests. **Dispose after research:** temporary sweep/tournament runner and redundant probes. The eight-stage autopsy earns a place as a stable examiner if it demonstrates reproducible distinctions.
