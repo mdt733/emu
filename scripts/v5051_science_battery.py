@@ -110,6 +110,7 @@ def aggregate(rows):
                         completion_wilson_95=wilson(completed,contacts),
                         mean_achieved_vx_mps=avg("achieved_vx_mps"),
                         mean_footfall_hz=avg("footfall_rate_hz"),
+                        mean_phase_locking=avg("phase_locking_strength"),
                         mean_stride_m=avg("same_foot_stride_mean_m"),
                         mean_xy_drift_m=avg("net_xy_drift_m"),
                         mean_shaft_j_per_progress_m=avg("shaft_drive_j_per_progress_m")))
@@ -208,9 +209,9 @@ def main():
            "Zero counted contacts means no mission rate can be estimated.",
            "10-second follow-up certification may be truncated by the "
            "650-frame original examiner horizon.","",
-           "| Mode | Probe | Requested speed | Lip frontier | Survival | Footfalls/s | "
+           "| Mode | Probe | Requested speed | Lip frontier | Survival | Footfalls/s | Phase lock | "
            "Stride m | Drift m | Supported contacts | Completed follow-ups |",
-           "|---|---|---:|---:|---:|---:|---:|---:|---:|"]
+           "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for row in agg:
         def fmt(v):
             return "—" if v is None else str(v)
@@ -219,7 +220,8 @@ def main():
             f"{row['requested_vx_mps']:.2f} | "
             f"{row['requested_lip_frontier_cm']:.2f} | "
             f"{row['survived']}/{row['worlds']} | "
-            f"{fmt(row['mean_footfall_hz'])} | {fmt(row['mean_stride_m'])} | "
+            f"{fmt(row['mean_footfall_hz'])} | {fmt(row['mean_phase_locking'])} | "
+            f"{fmt(row['mean_stride_m'])} | "
             f"{fmt(row['mean_xy_drift_m'])} | "
             f"{row['supported_contact_events']} | "
             f"{row['completed_post_contact_missions']} |")
