@@ -202,6 +202,9 @@ class EnvState(NamedTuple):
     academy_up_crossings: Any
     academy_down_crossings: Any
     academy_foothold_seen: Any
+    # v5051 five-frame simultaneous bilateral real-top support after a lip.
+    academy_transfer_streak: Any
+    academy_transfer_seen: Any
     # One physical attempt verdict per lip. No repeated near-edge farming.
     academy_approach_seen: Any
     # v5041 physics-only rolling tile state. All four mutable tiles
@@ -947,6 +950,15 @@ class EmuMJXEnv(TaskSampler):
                  terrain_lesson: str = 'mixed',
                  temporal_vx_reward_share: float = 0.0,
                  stillness_birth_frac: float = 0.0,
+                 science_gate_mode: str = "legacy",
+                 science_phase_lowcmd_scale: float = 1.0,
+                 science_phase_sync_strength: float = 1.0,
+                 science_crouch_allowance_m: float = 0.0,
+                 science_stride_efficiency_weight: float = 0.0,
+                 science_supported_cross_bonus: float = 0.0,
+                 science_foothold_bonus: float = 0.0,
+                 science_bilateral_support_bonus: float = 0.0,
+                 science_sensor_teacher_bonus: float = 0.0,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
                  carpet_transition_cap_deg: float = 3.0,
@@ -982,6 +994,23 @@ class EmuMJXEnv(TaskSampler):
         if not np.isfinite(stillness_birth_frac) or not 0. <= stillness_birth_frac <= .25:
             raise ValueError("stillness_birth_frac must be in [0,0.25]")
         self.stillness_birth_frac = float(stillness_birth_frac)
+        if science_gate_mode not in ("legacy","zero-only","off"):
+            raise ValueError("Invalid v5051 gate mode")
+        limits=dict(science_phase_lowcmd_scale=(0.,1.),
+                    science_phase_sync_strength=(0.,1.),
+                    science_crouch_allowance_m=(0.,.05),
+                    science_stride_efficiency_weight=(0.,.12),
+                    science_supported_cross_bonus=(0.,15.),
+                    science_foothold_bonus=(0.,8.),
+                    science_bilateral_support_bonus=(0.,10.),
+                    science_sensor_teacher_bonus=(0.,8.))
+        candidate=locals()
+        for name,(lo,hi) in limits.items():
+            value=float(candidate[name])
+            if not np.isfinite(value) or not lo<=value<=hi:
+                raise ValueError(f"Invalid v5051 treatment {name}")
+            setattr(self,name,value)
+        self.science_gate_mode=science_gate_mode
         self.observation_schema = observation_schema
         self.base_obs_fields = actor_observation_fields(observation_schema)
         self.base_obs_dim = len(self.base_obs_fields)
@@ -1440,7 +1469,20 @@ class EmuMJXEnv(TaskSampler):
         raw_target = physics.raw_target
 
         step_i = state.step_i + 1
-        phase = (state.phase + CONTROL_DT * state.task[:, T.phase_rate] * 2.0 * jnp.pi) % (2.0 * jnp.pi)
+        # v5051 causal experiment: preserve valid unit-circle phase
+        # channels and policy architecture while slowing the *clock* only
+        # for genuine near-zero requests. Commanded walking is unchanged.
+        phase_rate=state.task[:, T.phase_rate]
+        if self.science_phase_lowcmd_scale < 1.:
+            raw_cmd=state.raw_velocity_command
+            low_speed=jnp.linalg.norm(raw_cmd,axis=1)
+            fraction=jnp.clip(low_speed/.10,0.,1.)
+            factor=(self.science_phase_lowcmd_scale +
+                    (1.-self.science_phase_lowcmd_scale)*fraction)
+            factor=jnp.where(jnp.abs(state.task[:,T.yaw])<=.10,
+                             factor,1.)
+            phase_rate=phase_rate*factor
+        phase = (state.phase + CONTROL_DT * phase_rate * 2.0 * jnp.pi) % (2.0 * jnp.pi)
 
         # 2. The teacher advances the NEXT request; it cannot rewrite the
         # instruction the actor already saw when choosing this action.
@@ -1465,6 +1507,10 @@ class EmuMJXEnv(TaskSampler):
         reward_task = source_task
         metrics = self._metrics(data, reward_task, action, state.prev_action, phase,
                                 state.prev_foot_pos,carpet_heights=state.carpet_hfields)
+        # Reward-only true cohort identity: crouch tolerance cannot become
+        # a free survival advantage for all flat/command/resilience worlds.
+        metrics={**metrics,'science_step_focus':(
+            state.specialist_active & (state.focus_id == STEP)).astype(jnp.float32)}
         # Gate freezing against previous activity, not this one stance frame.
         stepping_activity_so_far = state.ep_step_evidence_sum / jnp.maximum(1.0, state.ep_len)
         # ramp_frac tracks command-change difficulty. Real episode age is
@@ -1499,6 +1545,10 @@ class EmuMJXEnv(TaskSampler):
             temporal_vx=(temporal if self.temporal_vx_reward_share>0. else None),
             motor_guidance_weight=self.motor_guidance_weight,
             allow_zero_command_balance=self.stillness_birth_frac > 0.,
+            science_gate_mode=self.science_gate_mode,
+            science_phase_sync_strength=self.science_phase_sync_strength,
+            science_crouch_allowance_m=self.science_crouch_allowance_m,
+            science_stride_efficiency_weight=self.science_stride_efficiency_weight,
             motor_guidance_per_world=(jnp.where(
                     state.academy_active,0.,
                     control_effort_weights(jnp,
@@ -1545,6 +1595,30 @@ class EmuMJXEnv(TaskSampler):
         ep_return=ep_return+10.0*terrain_cross_new.astype(jnp.float32)
         reward=reward+academy['reward']
         ep_return=ep_return+academy['reward']
+        # v5051: sparse event payments only; actual contact/top geometry
+        # is evaluated before each event and duplicate tiles are guarded.
+        # The bilateral event is *top support*, not measured CoM load.
+        if (self.science_supported_cross_bonus > 0. or
+                self.science_foothold_bonus > 0. or
+                self.science_bilateral_support_bonus > 0. or
+                self.science_sensor_teacher_bonus > 0.):
+            true_lip=(academy['ordinary_step_new'] | academy['cross_new'])
+            extra=(self.science_supported_cross_bonus*
+                   true_lip.astype(jnp.float32) +
+                   self.science_foothold_bonus*
+                   academy['foothold_new'].astype(jnp.float32) +
+                   self.science_bilateral_support_bonus*
+                   academy['transfer_new'].astype(jnp.float32))
+            if self.science_sensor_teacher_bonus > 0.:
+                sensor_now=self._sensor_readout(state.sensor_state,
+                                               self._body_packets(data)[0])
+                valid=jnp.asarray(sensor_now['terrain_valid'],dtype=jnp.bool_)
+                ranges=sensor_now['terrain_ranges_m']
+                visible=jnp.any(valid & (ranges>.045) & (ranges<.70),axis=1)
+                extra=extra+self.science_sensor_teacher_bonus*(
+                    visible & academy['foothold_new']).astype(jnp.float32)
+            reward=reward+extra
+            ep_return=ep_return+extra
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
@@ -1621,6 +1695,8 @@ class EmuMJXEnv(TaskSampler):
             academy_up_crossings=academy['up_count'],
             academy_down_crossings=academy['down_count'],
             academy_foothold_seen=academy['foothold_seen'],
+            academy_transfer_streak=academy['transfer_streak'],
+            academy_transfer_seen=academy['transfer_seen'],
             academy_approach_seen=academy['approach_seen'],
             carpet_hfields=carpet_hfields,
             carpet_center=carpet_center,
@@ -2584,6 +2660,8 @@ class EmuMJXEnv(TaskSampler):
             academy_up_crossings=izeros,
             academy_down_crossings=izeros,
             academy_foothold_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_transfer_streak=izeros,
+            academy_transfer_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_approach_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             carpet_hfields=carpet['carpet_hfields'],
             carpet_center=carpet['carpet_center'],
@@ -2889,6 +2967,22 @@ class EmuMJXEnv(TaskSampler):
         approached=moved&near&shared_lip&lip&step_focus&fresh
         seen=state.academy_approach_seen|approached
         new_foothold=(approached&eligible&~state.academy_foothold_seen)
+        # For TRUE two-foot support, each foot must occupy the confirmed
+        # new tile, have an authentic upward-facing prism contact, and
+        # stay there together for five uninterrupted frames. A single
+        # leading-foot contact is not a trailing-foot recovery.
+        both_top=jnp.all(jnp.all(foot_cell==root[:,None,:],axis=2) &
+                         target_pairs,axis=1)
+        same_confirmed=jnp.all(root==previous,axis=1)
+        transfer_ok=(academy_focus & (state.academy_lip_index>0) &
+                     same_confirmed & both_top & healthy)
+        transfer_streak=jnp.where(transfer_ok,
+                                   state.academy_transfer_streak+1,0)
+        new_transfer=(transfer_ok & (transfer_streak>=5) &
+                      ~state.academy_transfer_seen)
+        transfer_seen=jnp.where(confirmed,False,
+                                state.academy_transfer_seen|new_transfer)
+        transfer_streak=jnp.where(confirmed,0,transfer_streak)
         # No repeated foothold farm after 5-frame verification.
         reward=(3.*new_foothold.astype(jnp.float32)+
                 10.*(paid&academy_focus&lip).astype(jnp.float32))
@@ -2915,7 +3009,9 @@ class EmuMJXEnv(TaskSampler):
             foothold_seen=jnp.where(confirmed,False,
                 state.academy_foothold_seen|new_foothold),
             clearance_new=false,foothold_new=new_foothold,
-            transfer_new=false,
+            transfer_new=new_transfer,
+            transfer_streak=transfer_streak,
+            transfer_seen=transfer_seen,
             reward=reward,height_m=jnp.where(
                 moved&fresh&shared_lip,rise,zero),
             completed=false)
