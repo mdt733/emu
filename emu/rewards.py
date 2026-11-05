@@ -54,7 +54,10 @@ RESILIENCE_TRACKING_RELIEF = 0.5
 
 def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
                     motor_guidance_per_world=None, temporal_vx=None,
-                    allow_zero_command_balance=False):
+                    allow_zero_command_balance=False,
+                    science_gate_mode="legacy", science_phase_sync_strength=1.0,
+                    science_crouch_allowance_m=0.0,
+                    science_stride_efficiency_weight=0.0):
     """Score one frame: commands → body/feet → gait maturity → payments.
 
     m contains physical truths measured by environment._metrics plus the
@@ -69,9 +72,12 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
     command_tracking = _command_tracking(m, is_transition, is_resilience, jnp,
         temporal_vx=temporal_vx)
     (upright_height, feet_only_contact, stance_anti_slip,
-     swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(m, jnp)
+     swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(
+        m, jnp, phase_sync_strength=science_phase_sync_strength,
+        crouch_allowance_m=science_crouch_allowance_m)
     locomotion_maturity, stepping_gate = _gait_maturity(
-        m, jnp, allow_zero_command_balance=allow_zero_command_balance)
+        m, jnp, allow_zero_command_balance=allow_zero_command_balance,
+        gate_mode=science_gate_mode)
 
     # Keep only the five unweighted shaping diagnostics used off-device.
     terms = {
@@ -84,7 +90,9 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
     # Locomotion depends on real movement, body support and maturity.
     locomotion_quality = locomotion_maturity * command_tracking * upright_height * (0.35 + 0.65 * feet_only_contact) * (0.30 + 0.70 * m['foot_mid_cone'])
     remaining = jnp.maximum(0.0, -m['height_error'] - 0.012 -
-                            0.018*jnp.clip(jnp.abs(m['cmd_pitch'])/0.7853982,0.0,1.0))
+                            0.018*jnp.clip(jnp.abs(m['cmd_pitch'])/0.7853982,0.0,1.0) -
+                            (science_crouch_allowance_m * m['science_step_focus']
+                             if science_crouch_allowance_m > 0. else 0.))
     locomotion_quality *= jnp.exp(-1200.0 * remaining * remaining)
     # Simulated actuator output is not verified motor current or electrical
     # power. This is a bounded teaching *hypothesis*, opt-in per study arm.
@@ -118,6 +126,21 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
                              feet_only_contact*valid_alive)
         reward=reward+control_smoothness
         payments['control_smoothness']=control_smoothness
+    # Opt-in forward useful-distance-per-step *proxy*, bounded and restricted
+    # to commanded forward walking with valid support/low slip. Not an event-
+    # detected stride reward, nor an electrical-energy claim.
+    if science_stride_efficiency_weight > 0.:
+        commanded = jnp.clip((m['cmd_vx']-.12)/.20,0.,1.)
+        progress_per_lift = jnp.clip(
+            0.8*jnp.maximum(0.,m['vx'])/(.10+jnp.clip(m['step_evidence'],0.,1.)),
+            0.,1.)
+        stride_pay = (science_stride_efficiency_weight*commanded*
+                      command_tracking*progress_per_lift*valid_alive*
+                      (1.-jnp.clip(m['bad_contact'],0.,1.))*
+                      jnp.clip(m['support'],0.,1.)*
+                      jnp.exp(-6.*m['stance_slip']))
+        reward = reward + stride_pay
+        payments['stride_efficiency'] = stride_pay
     motor_payment = payments.get('motor_cost', jnp.zeros_like(valid_alive))
     return reward, {**terms, **{f'weighted_{name}': value for name, value in payments.items()},
                     'weighted_motor_cost': motor_payment}
@@ -189,26 +212,37 @@ def _command_tracking(m, is_transition, is_resilience, jnp, *, temporal_vx=None)
     return command_tracking
 
 
-def _physical_qualities(m, jnp):
+def _physical_qualities(m, jnp, *, phase_sync_strength=1.0,
+                        crouch_allowance_m=0.0):
     """Measure posture, supported feet, slip, movement shape and joint safety."""
     # Requested chassis pitch and healthy gait height, not a nominally
     # level-body gravity proxy; use the single active v5015 reward.
     pitch_allowance = 0.018 * jnp.clip(jnp.abs(m['cmd_pitch']) / 0.7853982, 0.0, 1.0)
-    height_shortfall = jnp.maximum(0.0, -m['height_error'] - 0.012 - pitch_allowance)
+    height_shortfall = jnp.maximum(
+        0.0, -m['height_error'] - 0.012 - pitch_allowance -
+        (crouch_allowance_m * m['science_step_focus']
+         if crouch_allowance_m > 0. else 0.))
     height = jnp.exp(-1000.0 * height_shortfall * height_shortfall)
     upright_height = 0.32 * m['attitude_quality'] + 0.48 * height + 0.20 * m['foot_mid_cone']
     feet_only_contact = (1.0 - m['bad_contact']) * (0.35 + 0.65 * m['support'])
     stance_anti_slip = jnp.exp(-6.0 * m['stance_slip'])
     raw_swing = jnp.clip(m['swing_clearance'] / jnp.maximum(0.006, m['target_step_height']), 0.0, 1.0)
     # Reward emerging alternating foot lift, without prescribing foot timing.
-    swing_clearance = jnp.clip(0.55 * raw_swing + 0.45 * m['organic_step_shape'], 0.0, 1.0)
+    # Preserve the original expression and compilation when strength=1.
+    organic = m['organic_step_shape']
+    if phase_sync_strength != 1.0:
+        organic = jnp.clip(
+            organic - (1.0-phase_sync_strength)*.30*m['phase_sync']*
+            m['step_evidence'],0.,1.)
+    swing_clearance = jnp.clip(0.55 * raw_swing + 0.45 * organic, 0.0, 1.0)
     servo_smoothness = jnp.exp(-0.22 * m['action_delta_norm'])
     joint_safety = jnp.exp(-(5.0 * m['joint_limit_pressure'] + 2.0 * m['scissor_pressure']))
     return (upright_height, feet_only_contact, stance_anti_slip,
             swing_clearance, servo_smoothness, joint_safety)
 
 
-def _gait_maturity(m, jnp, *, allow_zero_command_balance=False):
+def _gait_maturity(m, jnp, *, allow_zero_command_balance=False,
+                   gate_mode="legacy"):
     """Reduce free rewards for long periods without observable foot activity."""
     # Every regime practises moving; don't reward endless balancing.
     locomotion_maturity = jnp.clip((m['age_s'] - 0.20) / 0.45, 0.0, 1.0)
@@ -217,7 +251,11 @@ def _gait_maturity(m, jnp, *, allow_zero_command_balance=False):
     stepping_factor = jnp.clip(m['stepping_activity_so_far'] / STEPPING_ACTIVITY_TARGET, 0.0, 1.0)
     # A 30% floor avoids a hard failure cliff once the grace period expires.
     stepping_gate = jnp.where(m['age_s'] > STEPPING_GATE_GRACE_S, 0.30 + 0.70 * stepping_factor, 1.0)
-    if allow_zero_command_balance:
+    if gate_mode not in ("legacy","zero-only","off"):
+        raise ValueError("unknown v5051 stepping-activity payment gate")
+    if gate_mode == "off":
+        stepping_gate = jnp.ones_like(stepping_gate)
+    if allow_zero_command_balance or gate_mode == "zero-only":
         # This is NOT a bonus for standing still while told to walk.
         # Only near-zero command on ALL three axes lifts the arbitrary
         # episode-long stepping-activity payment gate. Fall, contact,
