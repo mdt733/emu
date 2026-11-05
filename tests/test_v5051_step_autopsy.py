@@ -102,6 +102,7 @@ class ExamTests(unittest.TestCase):
 
     def test_aggregate_never_calls_no_contacts_success(self):
         sample=dict(mode="step",speed=.1,lip_cm=3.,
+                    phase_probe="normal",tof_probe="normal",
                     worlds=[dict(survived=True,footfall_rate_hz=3.,
                                  same_foot_stride_mean_m=None,
                                  net_xy_drift_m=0.,
