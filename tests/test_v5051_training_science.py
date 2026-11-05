@@ -67,6 +67,8 @@ class ScienceTrainingTests(unittest.TestCase):
         # Four retention guards cannot silently include an old/gone panel
         # in best-policy scoring, or claim to certify stairs.
         baseline={f"eval_{name}_survival":1. for name in PANELS}
+        baseline.update(eval_dynamic80_vx_mae=0.,eval_dynamic80_yaw_mae=0.,
+                        eval_combo70_vy_mae=0.,eval_combo70_yaw_mae=0.)
         self.assertAlmostEqual(broad_score(baseline),1.)
         self.assertEqual([x[0] for x in PHYSICAL_PANELS],[
             "standing","slow_walk","fast_walk","slope","step_3cm","step_4cm"])
