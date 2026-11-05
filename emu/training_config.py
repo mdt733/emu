@@ -190,6 +190,7 @@ class TrainingConfig:
     science_supported_cross_bonus: float = 0.0  # one-time authentic lip crossing
     science_foothold_bonus: float = 0.0  # authentic first upper foothold
     science_bilateral_support_bonus: float = 0.0  # 5-frame both-feet top support
+    science_followthrough_bonus: float = 0.0  # 50cm post-transfer heading-controlled travel
     science_sensor_teacher_bonus: float = 0.0  # sensor-visible upper foothold
     force_program: str = 'aggressive'  # matched gentle vs high-push experiments
     # Post-Pinnacle science switches: default values reproduce the released 260M source.
