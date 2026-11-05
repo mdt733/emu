@@ -255,6 +255,52 @@ def verify_approved_release(policy_path: Path, approval_path: Path) -> dict:
     return approval
 
 
+
+def verify_showcase_dist(dist: Path, *, expected_source_commit: str = '') -> dict:
+    """Verify the built static site contains the EXACT approved public actor.
+
+    Used by both the ordinary browser CI and the protected Pages release.
+    It does not need JAX or a training checkpoint.
+    """
+    dist = dist.resolve()
+    approved = verify_approved_release(
+        ROOT / 'showcase' / 'champion.emupolicy',
+        ROOT / 'showcase' / 'release_approval.json')
+    index = dist / 'index.html'
+    policy = dist / 'policies' / 'champion.emupolicy'
+    meta = dist / 'showcase.json'
+    if not all(x.is_file() for x in (index, policy, meta)):
+        raise ValueError('built site missing index, showcase manifest or policy')
+    source_bytes = (ROOT / 'showcase' / 'champion.emupolicy').read_bytes()
+    if policy.read_bytes() != source_bytes:
+        raise ValueError('bundled actor is not byte-identical to approved asset')
+    manifest = json.loads(meta.read_text(encoding='utf-8'))
+    if (manifest.get('schema') != 1 or
+            manifest.get('policy') != 'policies/champion.emupolicy' or
+            manifest.get('trained') is not True or
+            manifest.get('mode') != 'showcase'):
+        raise ValueError('built manifest does not identify approved trained actor')
+    if expected_source_commit and (
+            not HEX40.fullmatch(expected_source_commit) or
+            manifest.get('source_commit') != expected_source_commit):
+        raise ValueError('built source commit does not match approved checkout')
+    if manifest.get('label') != json.loads(source_bytes)['source']['run_name']:
+        raise ValueError('built label does not identify the released actor')
+    html = index.read_text(encoding='utf-8')
+    assets = dist / 'assets'
+    if '<html' not in html or '<script' not in html or not list(assets.rglob('*.js')):
+        raise ValueError('missing built browser entry point / JavaScript assets')
+    # MuJoCo packages may emit WASM as a standalone asset or inline it
+    # in the JS bundle; the static dist must at least contain the
+    # source-reviewed JS and matching playable policy. The actual
+    # wasm runtime is also checked in browser CI / user viewer.
+    if not approved['policy_sha256'] == hashlib.sha256(policy.read_bytes()).hexdigest():
+        raise ValueError('built actor SHA differs from reviewed release')
+    return {'label': manifest['label'], 'trained': True,
+            'sha256': approved['policy_sha256']}
+
+
+
 def main() -> None:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--policy', type=Path, default=ROOT / 'showcase' / 'champion.emupolicy')
