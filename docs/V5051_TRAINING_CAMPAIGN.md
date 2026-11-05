@@ -1,123 +1,146 @@
-# EMU v5051 — real PPO gait and step experiment (60M shared parent → 120M forks)
+# EMU v5051 — 960M PPO training / compact capability standard v2
 
-**This is a training experiment.** Unlike the frozen-policy 44-panel diagnostic suite, `scripts/v5051_train_campaign.py` launches the existing full PPO trainer and creates **15 different learnable policies**. Each arm receives 60 million *additional* world-steps, not merely more examinations.
+**REAL PPO training, not 44 frozen diagnostic panels.** A clean 0→60M
+cold foundation is saved as a complete checkpoint (actor, critic, optimizer,
+normalizer and curriculum). Fifteen arms independently resume precisely that
+parent and train to **120M** each. Total **60 + 15×60 = 960M world-steps**,
+with standard 2048 CUDA MJX worlds and six physical servos. Nothing in this
+branch changes released `main`.
 
-All 15 arms load the exact same source-pinned **60M `final.pkl`** with actor, critic, optimizer, observation normaliser, curriculum, learning-health and capability-field state. Fresh physical episode state/RNG is the normal restart contract. No branch replaces `main`. No rollout, critic or actuator dimensions change.
+## Why the capability exam was rebuilt before restarting
 
-## Actual GPU budget
+The previous fixed evaluator had **ten overlapping locomotion panels and five
+different 32-world JAX environments**. Compilation often dominated the
+training interruption. The source now has **FOUR fixed retention panels on
+TWO worlds**, with exactly the same 350-frame summary procedure and only
+one recurring exam at the configured 60M interval. The four are:
 
-| Block | Distinct PPO policies | Newly trained world-steps |
-|---|---:|---:|
-| Cold shared foundation (0 → 60M) | 1 | 60M |
-| Unchanged 60 → 120M continuation | 1 | 60M |
-| 12 individually targeted treatment continuations | 12 | 720M |
-| Two interaction/bundle continuations | 2 | 120M |
-| **Total** | **16** | **960M** |
-
-These are **world-steps across 2048 batched worlds**, not time steps for one robot. All arm targets are absolute steps (`--steps 120000000`) and the runner rejects a parent checkpoint that is not exactly at the 60M update boundary.
-
-### Frozen common training conditions
-
-- Same **360 history inputs**, **six outputs**, PPO hyperparameters, real 8-prism MJX world, underlying servo/spring XML, source SHA, fixed 2048 CUDA worlds and training seed 735.
-- 20M gentle foundation then capability growth, `main-mature` growth recipe, Newton/LS **2/4**, coherent-careful terrain lessons, athletic rehearsal 15%, dynamic skill retention 15%, temporal velocity reward share 25%.
-- Academy starts introducing lessons at **60M**, grows from 10% at 75M toward 50% by 90M in baseline/single-treatment arms. Academy height progress remains *evidence-driven*, never increased simply because more time elapsed.
-- Existing true-contact supported-crossing rewards remain in every treatment. New positive rewards are opt-in; all default knobs preserve released reward economics.
-
-## Explicit registered treatment arms
-
-| Arm | Independent 60–120M training treatment |
+| Guard | Question and real outcome |
 |---|---|
-| `00_control` | Unchanged continuation from same 60M parent |
-| `01_gate_zero` | Remove activity gate only at near-zero vx/vy/yaw requests |
-| `02_gate_off` | Remove stepping-activity gate entirely |
-| `03_phase_slow` | Phase advances at 25% speed near zero command; ramps to normal by 0.1 m/s |
-| `04_phase_pause` | Phase stops at zero command; runs normally at commanded gait speeds |
-| `05_phase_reward_off` | No phase-synchronisation component in organic lift reward |
-| `06_stillness` | Reserve 15% true zero-command births, with zero-command gate exemption |
-| `07_crouch` | Add 3cm safe crouch margin in STEP-role posture/locomotion *rewards* only |
-| `08_supported_transfer` | Real foothold + supported crossing + 5-frame bilateral top support, then **50cm** more heading-controlled progress |
-| `09_sensor_teacher` | Additional sparse real-foot placement reward only when 4x4 ToF has a valid close-range return |
-| `10_frontier_1mm` | Fixed 1mm ordinary step growth, .5mm retreat, 12 qualifying attempts. **Academy remains 0.5mm**, so this tests the ordinary frontier only |
-| `11_academy_heavy` | Bring 65% Academy birth allocation in sooner, retaining non-Academy specialists |
-| `12_long_stride` | Bounded successful forward-progress-per-lift reward, with command/support/slip gates. This is a proxy, not a physically counted stride |
-| `13_freedom_combo` | Near-zero gate relaxation + slower phase + no phase-sync pay + stillness births + crouch margin |
-| `14_step_combo` | Verified foothold, bilateral upper support **and 50cm follow-through** + ToF-conditioned teacher + denser Academy + precise ordinary frontier |
+| `core` | Does basic supported walking still function? Survival, velocity errors, posture and foot support |
+| `dynamic80` | Can EMU track changing commands? Survival and velocity/yaw error |
+| `combo70` | Can it steer laterally while moving? Simultaneous command errors and survival in combo task world |
+| `resilience75` | Does it survive and recover from disturbances? Survival and support/attitude measures |
 
-The follow-through reward is **one-time per confirmed lip**; it cannot pay for tippy-taps in place, backtracking or repeatedly touching the same foot. A positive training reward still is not a held-out physics examination.\n\nThe combination arms are **exploratory**, not causal attributions. No phase-input deletion is attempted from this parent because removing phase dimensions would violate the 360-input checkpoint and require a separate cold-start matched control/treatment pair. The phase clock itself is changed only through the environment's training and frozen-exam configuration; exported deployment/viewer parity must be checked before release.
+These checks **do not test actual stairs**. Their weighted score chooses
+`best.pkl` as a *general locomotion retention* convenience, not an
+autonomous stair-champion ranking. The final complete `final.pkl` is retained
+independently. No hidden slope or step success is imputed from flat-world
+survival.
 
-The ToF-conditioned `09_sensor_teacher` arm is a **reward-side teacher hypothesis**, not an implementation of asymmetric-critic PPO or a new hardware sensor. It only pays when an authentic foothold is seen *and* the delayed actor-visible 4x4 sensor supplies a valid close return. Success would warrant more detailed sensor causal studies.
+After PPO training, every actor undergoes the **same SIX frozen physical
+scenarios**, defined once in `PHYSICAL_PANELS` in the campaign runner:
 
-## One Windows/WSL machine — real foreground launcher
+| Scenario | Command | Physical question |
+|---|---|---|
+| `standing` | vx=0 | Real footfall rate, support, 10–13s drift and survival |
+| `slow_walk` | vx=0.10m/s | Slow gait and non-prescribed cadence |
+| `fast_walk` | vx=0.70m/s | Fast gait, stride and survival retention |
+| `slope` | vx=0.12m/s, 8° requested sampling envelope | Actual encountered grade, forward travel and survival |
+| `step_3cm` | vx=0.10m/s, 3cm nominal lip envelope | Measured signed foot-supported rise; complete both-feet plus 50cm controlled progress |
+| `step_4cm` | vx=0.10m/s, 4cm nominal lip envelope | Harder contact exposure, exact same real mission rules |
 
-Run after this branch's source checks pass and when the GPU is available. Keep the same checkout SHA once the 60M parent exists; a new source commit requires a new cold source lineage or explicit validated cross-source fork.
+**Never confuse a requested 3/4cm generator envelope with an actual 3/4cm
+wall!** The report counts measured signed heights, upper-foot support, and
+controlled post-contact missions separately. A two-foot contact is not a
+measured support wrench and step collision does not prove toe-over-riser
+clearance. Exact-height actor wall certification is not yet included.
+
+### Exam time and scientific tradeoff
+
+- Old physical screen: **4 conditions × 2 held-out seeds × 16 worlds =
+  128 evaluator worlds per arm** (8 costly independent exam executions).
+- New initial screen: **6 conditions × 1 held-out seed × 8 worlds =
+  48 evaluator worlds per arm** (6 exam executions).
+- All 15 trained arms: **90 frozen exam calls** versus 120 previously,
+  using 62.5% fewer exam world-rollouts; fixed recurrent exam compilation
+  is reduced from five world setups to two.
+- `--exam-seeds 1701,1702` adds a second matched held-out seed to
+  **selected finalists and the unchanged control**, without retraining.
+  That is 12 calls per selected arm including previously completed ones.
+  The study's exam world count and scenario definitions are locked once
+  exams begin, so comparisons cannot silently switch protocols.
+- This rapid screen is **one PPO training seed** and **one held-out
+  physics seed**, not a confidence interval or reliable champion result.
+  Repeat finalists with independent PPO seeds before promotion.
+
+### Training arms (each 60→120M)
+
+| Arm | Intervention |
+|---|---|
+| `00_control` | Unchanged continuation |
+| `01_gate_zero` | Relax stepping-activity gate only near zero request |
+| `02_gate_off` | Remove activity gate everywhere |
+| `03_phase_slow` | Clock 25% near stationary command |
+| `04_phase_pause` | Clock fully paused at zero command |
+| `05_phase_reward_off` | Remove phase synchronisation reward component |
+| `06_stillness` | 15% real zero-command episode births |
+| `07_crouch` | Add 3cm STEP-only bounded crouch reward allowance |
+| `08_supported_transfer` | Reward real foothold, supported crossing, bilateral top support and 50cm heading-controlled follow-through |
+| `09_sensor_teacher` | Extra authentic foothold bonus conditioned on valid nearby ToF return |
+| `10_frontier_1mm` | 1mm ordinary frontier expansion and .5mm retreat (Academy retains existing .5mm increment) |
+| `11_academy_heavy` | Increase Academy exposure to 65% |
+| `12_long_stride` | Small reward for useful distance per lift with tracking/slip gates |
+| `13_freedom_combo` | Gate + slower phase + phase shaping off + stillness + crouch |
+| `14_step_combo` | Verified step/progress + sensing reward + Academy exposure + precise frontier |
+
+The interaction arms cannot identify causality without independent single
+factor results. The 360-input actor/6-output network and 4×4 ToF sensory
+meaning remain unchanged. This is not teacher-student privileged-critic PPO.
+
+## WSL foreground commands — restart from a FRESH source lineage
+
+**Do not resume the pre-cleanup 960M parent or runs with this new source SHA.**
+The code intentionally refuses cross-source resumes; the new default study
+path avoids reusing the old partial `v5051-science-s735` parent. Existing
+files remain untouched for later diagnostics. Once the 60M foundation starts,
+keep the checkout pinned to its exact commit throughout the campaign.
 
 ```bash
 cd ~/emu
 git fetch origin
 git switch research/v5051-gait-autopsy
 git pull --ff-only origin research/v5051-gait-autopsy
-source .venv/bin/activate
+source ~/emu-graduation/.venv/bin/activate
 export PYTHONPATH="$PWD"
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
-
-git status --short  # must be EMPTY
-git rev-parse HEAD
-
-# CPU contracts + true PPO argument parsing for all 15 arms.
+git status --short                    # MUST be empty
+git rev-parse HEAD                     # record exact SHA
 python -m pytest -q tests/test_v5051_training_science.py
-
-# Prints 60M parent and 15 actual PPO arm commands. Trains nothing.
 python -m scripts.v5051_train_campaign --stage plan
-
-# Step A: 60M real cold-start PPO; saves final.pkl.
-python -m scripts.v5051_train_campaign --stage foundation
-
-# Step B: 15 genuine independent 60M PPO continuations, sequentially.
-python -m scripts.v5051_train_campaign --stage arms
-
-# Step C: independent 16-world frozen physical exams per trained actor.
-python -m scripts.v5051_train_campaign --stage exams
-
-# Step D: tabulated study findings, not a saturated scalar rank.
-python -m scripts.v5051_train_campaign --stage report
 ```
 
-For a single foreground 960M campaign *with exams at the end*:
+Start the **complete 960M PPO campaign with fast physical screening**:
 
 ```bash
 python -m scripts.v5051_train_campaign --stage all
 ```
 
-For staged selection, `--only 00_control,01_gate_zero,08_supported_transfer` trains or examines only these three arms, always using the same immutable parent. Re-running a completed stage verifies the final checkpoint and skips redundant updates; an interrupted training arm resumes its own `latest.pkl`, not the shared parent. A corrupted or mismatched study contract, dirty checkout, different source SHA or missing complete 60M checkpoint **halts safely**.
+Or stage individually for manual intervention:
+`--stage foundation`, `--stage arms`, `--stage exams`,
+`--stage report`. The experiment runs **in the foreground, no tmux**;
+completed runs are verified/skipped and partial arms resume their own
+`latest.pkl` with immutable source and parent identity.
 
-Results are under `~/emu-data/runs/v5051-science-s735/`:
+To add a second held-out environment seed to finalists without changing
+training or rerunning seed 1701:
 
-```text
-science_contract.json
-parent_identity.json         # verified full SHA256, source and age
-foundation/
-    training_config.json
-    run_meta.json
-    checkpoints/final.pkl
-arms/
-    00_control/
-        training_config.json
-        run_meta.json
-        metrics.csv
-        checkpoints/final.pkl
-    01_gate_zero/ ...
-exports/
-    00_control.emupolicy ...
-exams/
-    00_control/<held-out panel>/prism_exam.json ...
-SCIENCE_RESULTS.md
-SCIENCE_RESULTS.json
+```bash
+python -m scripts.v5051_train_campaign --stage exams \
+  --only 00_control,08_supported_transfer,14_step_combo \
+  --exam-seeds 1701,1702
+python -m scripts.v5051_train_campaign --stage report
 ```
 
-## Promotion criteria — genuine locomotion, not a reward-tournament winner
+Study data are now under
+`~/emu-data/runs/v5051-capability-v2-s735/`, with the independent
+`science_contract.json`, `parent_identity.json`,
+`physical_exam_protocol.json`, per-arm complete checkpoints, frozen
+`exams/`, and `SCIENCE_RESULTS.md`/`SCIENCE_RESULTS.json`.
 
-The independent exams use held-out procedural prism terrain, and report the **signed measured contact height** rather than treating a nominal 3cm frontier as an actual 3cm wall. The permanent post-lip autopsy separately checks simultaneous bilateral actual top contact and 50cm extra heading-controlled progress. Results also compare zero-command footfalls/drift, 0.70m/s achieved forward speed and first-life survival.
-
-A candidate must improve physically supported uphill difficulty and *completed post-lip mission rate* while retaining a controllable fast gait, commanded heading, resilience, and sane mechanical drive work. An arm with impressive training return or a single upper-foot touch does not automatically win. The 15-way stage is **one PPO seed per arm**: retest finalists and the control with 2–3 independent PPO seeds for reliable evidence, not just two held-out *evaluation* seeds.
-
-**Limits:** This tournament does not implement a cold-start phase-deletion pair, exact-height *frozen-policy* wall missions, true support-wrench/CoM load-transfer proof, or privileged-critic teacher/student. Its mechanical fixed-height CPU riser screens remain a separate diagnostic. An absence of completed missions after 120M is a real negative result requiring redesigned teaching; it should not be relabelled progress.
+**Release rule:** sustained real step capability is evaluated independently
+of PPO reward and broad survival retention. No arm earns promotion solely
+from surviving a nominal 3cm procedural panel, touching a higher tile, or
+improving the four-panel retention score. Keep the compact physical
+examiner; remove this one-off tournament runner after the study's artifacts
+are securely archived.
