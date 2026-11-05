@@ -437,6 +437,8 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
                 run_cfg, "science_bilateral_support_bonus",0.),
             "science_sensor_teacher_bonus": _scalar(
                 run_cfg, "science_sensor_teacher_bonus",0.),
+            "science_followthrough_bonus": _scalar(
+                run_cfg, "science_followthrough_bonus",0.),
             "carpet_transition_cap_deg": _scalar(
                 run_cfg, 'carpet_transition_cap_deg', 3.0),
             "academy_stream": bool(run_cfg.get('academy_stream', False)),
