@@ -1,8 +1,9 @@
 # EMU handover — preparing the next `main` milestone
 
 **5 November 2026.** This checkout is the **future-main
-release-preparation branch**, not the running GPU experiment source.
-No candidate neural policy has been promoted by these changes.
+release-preparation branch**, not the original completed GPU training
+source. The v5048 research bundle has been reviewed; no neural actor
+has been promoted to the public `main` release.
 
 ## What is approved, and what remains under research?
 
@@ -10,19 +11,19 @@ No candidate neural policy has been promoted by these changes.
 |---|---|
 | Public baseline | v5032 **260,046,848**-step 360-input Pinnacle; immutable `showcase/champion.emupolicy` and `showcase/release_approval.json` on `main` |
 | Existing public `main` commit (audit reference) | `4e3e1f45b98945c9729aab4d5c68d9ee122a6876` |
-| Actual running GPU experiment | v5048, original source SHA `088a29be47f624be9e2c322c504ec98049b3f9bf`, [draft PR #38](https://github.com/mdt733/emu/pull/38) |
-| Experiment design | **50M** shared foundation → **eight 50M continuation forks** from one exact saved parent → **+100M** in the physically best fork, up to 550M unique world-steps |
+| Completed GPU experiment | v5048 **550M unique steps** in 50M shared parent → 8 matched 100M actors → 200M temporal_speed finalist; 148 real frozen exam panels, [measured findings](docs/V5048_SHARED_PARENT_RESULTS_20261105.md) |
+| Training-source identity | `088a29be47f624be9e2c322c504ec98049b3f9bf`, seed 735; same-parent checkpoint SHA256 `8047f4bd4d75894c627e8689e0c645a6bde23496caf6a807f408fa8c88a4085f` |
 | Release-prep code | `release/v5049-main-promotion-prep`: remove temporary experiment machinery, keep the one public CLI and the permanent exam/provenance contracts |
 | Main code merge | **Not yet approved; `main` untouched** |
-| New public policy | **No 200M result or physics exam reviewed yet; actor not replaced** |
+| New public policy | **200,015,872-step** temporal_speed export exists, source/actor hash recorded; actual ≥3cm climbing, stillness, heading-controlled mission and matched main parity **not demonstrated**. Actor unchanged |
 | GitHub Pages deployment | Independent protected/manual approval; not triggered by this cleanup |
 
-The v5048 GPU run and its `~/emu-data/runs/` directories belong to
-the original training commit. **Do not pull or switch branches in the
-worktree while it trains.** This independent GitHub branch cannot
-rewrite its checkpoints or interrupt the running process. The
-v5048 [original experiment source](https://github.com/mdt733/emu/tree/experiment/v5048-shared-parent-pinnacle)
-retains its one-off launcher for resuming that specific run.
+The completed v5048 training and all `~/emu-data/runs/`
+artefacts belong to **the original training SHA**, not this later
+cleanup commit. Do not reinterpret or attempt to resume the finished
+model on the release-prep branch. The historical
+[v5048 experiment source](https://github.com/mdt733/emu/tree/experiment/v5048-shared-parent-pinnacle)
+retains its original temporary launcher for source-pinned reproduction.
 
 This release-prep branch deliberately removes that launcher,
 the old 140M and 20M launchers, and the v5045-only duplicate CI.
@@ -68,10 +69,32 @@ The frozen policy examiner had a **9×4 retired-tile reshape** that
 prevented a v5047 GPU exam; v5048 fixed it to the physical four-tile
 75cm geometry before launching the replacement tournament.
 
+## The 550M experiment's scientific decision
+
+[The independently audited results](docs/V5048_SHARED_PARENT_RESULTS_20261105.md)
+show real five-frame **supported signed lip crossings**, with stronger
+harder-step outcomes from the early Academy and finer 1mm frontier.
+On the 3cm-*requested* panel (actual lips ~1.8–2.9cm), worlds
+with at least one actual ≥2cm supported uphill transition increased
+from **2/32 without Academy** to **19/32 early Academy** or **21/32
+precise frontier**. None demonstrated full actual 3cm ascent.
+
+The auto-selected 200M temporal-speed actor had **16/32** worlds
+with ≥2cm uphill support (unchanged from its 100M predecessor),
+**31/32** survival at requested 0.7m/s and **0.595m/s** achieved.
+Its fast yaw bias improved but it still drifted ~**12cm** and
+made rapid footfalls under zero command. Do not claim it learned
+stillness, verified full 3cm steps or equivalent main missions.
+The tournament's step count contribution saturated at 12 total
+crossings for every branch; this composite rank did **not**
+select a uniquely best stair climber. Record this as experiment
+design feedback before another GPU campaign.
+
 ## The next release decision (two independent gates)
 
-**Gate A: approve better engineering for `main`.** Complete the
-current study, inspect its actual evidence, then inspect the complete
+**Gate A: approve better engineering for `main`.** The 550M
+study is complete and measured. Inspect its physical implications,
+then inspect the complete
 new-source versus `main` diff. Re-run Python, browser, actual
 four-world CPU MJX contacts and a **new same-SHA 2048-world CUDA
 PPO/checkpoint/export/frozen-exam** acceptance after the cleanup.
@@ -79,8 +102,9 @@ Verify the published 260M policy and release metadata are still
 byte-identical. Only then ask for an explicit code merge decision.
 This can proceed even if the new learned gait is merely comparable.
 
-**Gate B: replace the public Pinnacle policy.** Requires a real frozen
-candidate exported from the original v5048 training SHA,
+**Gate B: replace the public Pinnacle policy.** A 200M frozen
+candidate has been exported from the original v5048 training SHA,
+but publication **remains on hold** until we obtain
 independently measured supported step ascent/descent with post-lip
 progress, zero-/low-speed stability, achieved faster strides, heading
 and lateral control, slopes, recovery, energy proxy and two or more
