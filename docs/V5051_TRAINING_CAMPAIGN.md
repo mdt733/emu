@@ -35,15 +35,15 @@ These are **world-steps across 2048 batched worlds**, not time steps for one rob
 | `05_phase_reward_off` | No phase-synchronisation component in organic lift reward |
 | `06_stillness` | Reserve 15% true zero-command births, with zero-command gate exemption |
 | `07_crouch` | Add 3cm safe crouch margin in STEP-role posture/locomotion *rewards* only |
-| `08_supported_transfer` | Real foothold bonus + real 5-frame crossing bonus + 5-frame two-foot top support bonus |
+| `08_supported_transfer` | Real foothold + supported crossing + 5-frame bilateral top support, then **50cm** more heading-controlled progress |
 | `09_sensor_teacher` | Additional sparse real-foot placement reward only when 4x4 ToF has a valid close-range return |
 | `10_frontier_1mm` | Fixed 1mm ordinary step growth, .5mm retreat, 12 qualifying attempts. **Academy remains 0.5mm**, so this tests the ordinary frontier only |
 | `11_academy_heavy` | Bring 65% Academy birth allocation in sooner, retaining non-Academy specialists |
 | `12_long_stride` | Bounded successful forward-progress-per-lift reward, with command/support/slip gates. This is a proxy, not a physically counted stride |
 | `13_freedom_combo` | Near-zero gate relaxation + slower phase + no phase-sync pay + stillness births + crouch margin |
-| `14_step_combo` | Verified foothold and bilateral bonuses + ToF-conditioned teacher + denser Academy + precise ordinary frontier |
+| `14_step_combo` | Verified foothold, bilateral upper support **and 50cm follow-through** + ToF-conditioned teacher + denser Academy + precise ordinary frontier |
 
-The combination arms are **exploratory**, not causal attributions. No phase-input deletion is attempted from this parent because removing phase dimensions would violate the 360-input checkpoint and require a separate cold-start matched control/treatment pair. The phase clock itself is changed only through the environment's training and frozen-exam configuration; exported deployment/viewer parity must be checked before release.
+The follow-through reward is **one-time per confirmed lip**; it cannot pay for tippy-taps in place, backtracking or repeatedly touching the same foot. A positive training reward still is not a held-out physics examination.\n\nThe combination arms are **exploratory**, not causal attributions. No phase-input deletion is attempted from this parent because removing phase dimensions would violate the 360-input checkpoint and require a separate cold-start matched control/treatment pair. The phase clock itself is changed only through the environment's training and frozen-exam configuration; exported deployment/viewer parity must be checked before release.
 
 The ToF-conditioned `09_sensor_teacher` arm is a **reward-side teacher hypothesis**, not an implementation of asymmetric-critic PPO or a new hardware sensor. It only pays when an authentic foothold is seen *and* the delayed actor-visible 4x4 sensor supplies a valid close return. Success would warrant more detailed sensor causal studies.
 
