@@ -3,8 +3,8 @@
 **Date:** 5 November 2026 (Sydney). **Experiment source:** `088a29be47f624be9e2c322c504ec98049b3f9bf`.
 **Evidence:** operator-supplied `results_bundle(20261105-070042).zip`:
 `state.json`, `SUMMARY.md`, 148 independently frozen `prism_exam.json` panels,
-training metrics, source manifests, and nine trained-policy exports
-(50M parent, eight 100M branches, plus one 200M export).
+training metrics, source manifests, and ten trained-policy exports
+(one 50M parent, eight 100M branches, plus one 200M export).
 
 **Research parent:** 50,003,968 steps, seed 735, 2048 CUDA MJX worlds,
 same-source final.pkl SHA256
