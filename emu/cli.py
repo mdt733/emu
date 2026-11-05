@@ -97,6 +97,8 @@ def main(argv=None) -> int:
                    help='additional first real upper foothold payment')
     q.add_argument('--science-bilateral-support-bonus',type=float,default=0.,
                    help='additional verified 5-frame two-foot upper-tile support payment')
+    q.add_argument('--science-followthrough-bonus',type=float,default=0.,
+                   help='one-time reward for 50cm after bilateral lip support with heading bound')
     q.add_argument('--science-sensor-teacher-bonus',type=float,default=0.,
                    help='privileged sensor-visible foothold teaching bonus; actor input unchanged')
     q.add_argument('--science-step-promotion-mm',type=float,default=0.,
