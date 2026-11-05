@@ -39,6 +39,45 @@ class ScienceTrainingTests(unittest.TestCase):
                     rc=emu_cli([*cmd[3:],"--plan"])
                 self.assertEqual(rc,0,arm.name if arm else "foundation")
 
+    def test_four_world_actual_mjx_science_update(self):
+        # Compile the *real physics step* including new transfer event
+        # memory and all reward-side research branches, not a toy reward
+        # calculation. Four worlds are deliberately CPU-bounded.
+        from emu.contracts import ROBOT_XML, OBS_SCHEMA_TERRAIN
+        from emu.environment import EmuMJXEnv
+        import jax.numpy as jnp
+        import jax
+        env=EmuMJXEnv(
+            str(ROBOT_XML),num_envs=4,seed=735,
+            terrain_step_max_m=.08,observation_schema=OBS_SCHEMA_TERRAIN,
+            unified_capability_focus=True,terrain_carpet=True,
+            terrain_carpet_prisms=True,academy_stream=True,
+            terrain_lesson="coherent-careful",
+            solver_iterations=2,solver_ls_iterations=4,
+            science_gate_mode="zero-only",
+            science_phase_lowcmd_scale=.25,
+            science_phase_sync_strength=0.,
+            science_crouch_allowance_m=.03,
+            science_stride_efficiency_weight=.08,
+            science_supported_cross_bonus=6.,
+            science_foothold_bonus=3.,
+            science_bilateral_support_bonus=4.,
+            science_followthrough_bonus=10.,
+            science_sensor_teacher_bonus=3.,
+        )
+        packet=env.params_array(dict(specialist_mix=1.,
+                                     focus_weight_step=1.,
+                                     academy_episode_probability=1.,
+                                     terrain_height_m=.02,
+                                     academy_height_up_m=.02,
+                                     academy_height_down_m=.02))
+        state,obs=env.reset(packet)
+        out=env.step(state,jnp.zeros((4,6),jnp.float32),packet)
+        self.assertEqual(out.obs.shape,(4,360))
+        self.assertTrue(np.isfinite(np.asarray(jax.device_get(out.reward))).all())
+        self.assertEqual(out.state.academy_progress_origin_xy.shape,(4,2))
+        self.assertIn("academy_followthrough_new",out.metrics)
+
     def test_no_duplicate_arm_selection(self):
         self.assertEqual(select_arms("00_control")[0].name,"00_control")
         with self.assertRaises(ValueError):
