@@ -27,6 +27,19 @@ SOURCE = Path(__file__).resolve().parents[1]
 PARENT_STEPS = 60_000_000
 FINAL_STEPS = 120_000_000
 DEFAULT_ENVS = 2048
+# One compact physical exam after training: six meaningful motion/terrain
+# scenarios, not tens of overlapping diagnostic intervention panels.
+# Steering and push recovery remain the fixed training retention guards.
+# Grade/lip settings are SAMPLING frontiers, never measured wall heights.
+PHYSICAL_PANELS = (
+    ("standing",  "flat",  0.00, 0.0, 0.0),
+    ("slow_walk", "flat",  0.10, 0.0, 0.0),
+    ("fast_walk", "flat",  0.70, 0.0, 0.0),
+    ("slope",     "slope", 0.12, 0.0, 8.0),
+    ("step_3cm",  "step",  0.10, 3.0, 0.0),
+    ("step_4cm",  "step",  0.10, 4.0, 0.0),
+)
+
 COMMON = (
     "--profile","sim2real", "--terrain-actor", "--unified-capabilities",
     "--terrain-carpet","--carpet-prisms","--academy-stream",
@@ -209,7 +222,24 @@ def save_contract(root,seed,envs,sha,parent=None):
             lock.write_text(json.dumps(expected,indent=2)+"\n")
 
 
-def export_and_examine(root,arm,seed,device,worlds):
+def exam_protocol(root, worlds, horizon=650):
+    """Immutable per-study physical exam geometry/sampling protocol."""
+    protocol=dict(version="v5051_capability_screen_v2",
+                  worlds=worlds,horizon=horizon,
+                  panels=[dict(label=label,mode=mode,vx_mps=speed,
+                               lip_frontier_cm=lip,grade_frontier_deg=grade)
+                          for label,mode,speed,lip,grade in PHYSICAL_PANELS])
+    path=root/"physical_exam_protocol.json"
+    if path.exists():
+        if json.loads(path.read_text())!=protocol:
+            raise RuntimeError("Physical exam world count or panel definition changed. "
+                               "Use a separate study directory to compare like with like.")
+    else:
+        path.write_text(json.dumps(protocol,indent=2)+"\n")
+    return protocol
+
+
+def export_and_examine(root,arm,seeds,device,worlds):
     run_dir=root/"arms"/arm.name
     final=run_dir/"checkpoints"/"final.pkl"
     if not final.is_file():
@@ -221,29 +251,34 @@ def export_and_examine(root,arm,seed,device,worlds):
         run([sys.executable,"-m","emu.cli","export-policy",
              str(final),str(exported)])
     from emu.prism_exam import evaluate_prism_policy
-    # Identical, predeclared held-out conditions for EVERY arm.
-    # Each panel is interpreted by measured height, NEVER nominal label.
-    panel_protocol=(("flat",0.,0.),("flat",.70,0.),
-                    ("step",.10,3.),("step",.10,4.))
-    for key in (1701,1702):
-        for mode,speed,lip in panel_protocol:
-            name=f"s{key}-{mode}-vx{int(round(speed*100)):03d}-lip{int(round(lip*10)):03d}"
-            directory=root/"exams"/arm.name/name
+    protocol=exam_protocol(root,worlds)
+    for key in seeds:
+        for label,mode,speed,lip,grade in PHYSICAL_PANELS:
+            directory=root/"exams"/arm.name/f"s{key}-{label}"
             report=directory/"prism_exam.json"
             if report.is_file():
                 found=json.loads(report.read_text())
-                # Prism examiner records the whole exported artifact
-                # SHA256, not the separately embedded network-weights hash.
-                if found.get("source_actor_sha256")!=digest(exported):
-                    raise RuntimeError(f"Frozen exam actor changed: {report}")
+                p=found.get("protocol") or {}
+                if (found.get("source_actor_sha256")!=digest(exported) or
+                        p.get("worlds")!=worlds or
+                        p.get("horizon")!=protocol["horizon"] or
+                        p.get("seed")!=key or
+                        found.get("mode")!=mode or
+                        abs(float(p.get("requested_vx_mps",-1))-speed)>1e-7 or
+                        abs(float(p.get("requested_lip_frontier_cm",-1))-
+                            (lip if mode=="step" else 0))>1e-7 or
+                        abs(float(p.get("requested_grade_frontier_deg",-1))-
+                            (grade if mode=="slope" else 0))>1e-7):
+                    raise RuntimeError(f"Frozen exam identity changed: {report}")
                 continue
             if directory.exists():
                 raise RuntimeError(f"Incomplete frozen examination; move aside {directory}")
-            print(f"v5051 independent exam: {arm.name} {name}",flush=True)
+            print(f"v5051 physical screen: {arm.name} {label} seed={key} "
+                  f"({worlds} worlds, {protocol['horizon']} frames)",flush=True)
             evaluate_prism_policy(
                 policy=exported,output=directory,worlds=worlds,
-                horizon=650,speed=speed,seed=key,device=device,
-                mode=mode,lip_cm=lip,grade_deg=0.)
+                horizon=protocol["horizon"],speed=speed,seed=key,
+                device=device,mode=mode,lip_cm=lip,grade_deg=grade)
 
 
 def compile_report(root,only):
@@ -331,11 +366,14 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--stage",choices=("plan","foundation","arms","exams","report","all"),
                    required=True)
-    p.add_argument("--root",type=Path,default=Path.home()/"emu-data/runs/v5051-science-s735")
+    p.add_argument("--root",type=Path,default=Path.home()/"emu-data/runs/v5051-capability-v2-s735")
     p.add_argument("--seed",type=int,default=735)
     p.add_argument("--envs",type=int,default=DEFAULT_ENVS)
     p.add_argument("--only",default="all",help="comma-separated arm IDs, default all")
-    p.add_argument("--exam-worlds",type=int,default=16)
+    p.add_argument("--exam-worlds",type=int,default=8,
+                   help="physical screening worlds per panel (default 8)")
+    p.add_argument("--exam-seeds",default="1701",
+                   help="comma-separated held-out seeds; use 1701,1702 for finalist verification")
     p.add_argument("--exam-device",choices=("cpu","cuda"),default="cuda")
     a=p.parse_args()
     if not 0<=a.seed<2**31 or not 8<=a.envs<=4096:
@@ -343,6 +381,14 @@ def main():
     if not 2<=a.exam_worlds<=32:
         p.error("exam worlds must be 2..32")
     selected=select_arms(a.only)
+    try:
+        exam_seeds=tuple(int(x) for x in a.exam_seeds.split(","))
+    except ValueError as exc:
+        p.error(f"invalid --exam-seeds: {exc}")
+    if (not exam_seeds or len(exam_seeds)>5 or
+            len(set(exam_seeds))!=len(exam_seeds) or
+            any(x<0 or x>=2**31 for x in exam_seeds)):
+        p.error("--exam-seeds must contain 1-5 distinct nonnegative integers")
     root=a.root.expanduser().resolve()
     if root==SOURCE or SOURCE in root.parents or root==Path.home():
         p.error("Study results must be outside checkout and home root")
@@ -356,6 +402,11 @@ def main():
             print("Child command:",arm.name,
                   " ".join(cli_command(root,seed=a.seed,envs=a.envs,
                                        arm=arm,resume=root/"foundation/checkpoints/final.pkl")))
+        print(f"Independent physical screen: {len(PHYSICAL_PANELS)} panels "
+              f"x {len(exam_seeds)} seed(s) x {len(selected)} arm(s), "
+              f"{a.exam_worlds} worlds per panel")
+        print("Extra seeds: re-run --stage exams --only 00_control,... "
+              "--exam-seeds 1701,1702 after screening.")
         print("No GPU or filesystem work performed.")
         return
     validate_checkout()
@@ -394,7 +445,7 @@ def main():
             run(command)
     if a.stage in ("exams","all"):
         for arm in selected:
-            export_and_examine(root,arm,a.seed,a.exam_device,a.exam_worlds)
+            export_and_examine(root,arm,exam_seeds,a.exam_device,a.exam_worlds)
     if a.stage in ("report","exams","all"):
         compile_report(root,selected)
 
