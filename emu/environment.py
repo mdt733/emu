@@ -205,6 +205,7 @@ class EnvState(NamedTuple):
     # v5051 five-frame simultaneous bilateral real-top support after a lip.
     academy_transfer_streak: Any
     academy_transfer_seen: Any
+    academy_transfer_armed: Any  # true only after verified novel signed lip
     # One-time 50cm post-transfer progress check in original heading.
     academy_progress_origin_xy: Any
     academy_progress_heading_rad: Any
@@ -1707,6 +1708,7 @@ class EmuMJXEnv(TaskSampler):
             academy_foothold_seen=academy['foothold_seen'],
             academy_transfer_streak=academy['transfer_streak'],
             academy_transfer_seen=academy['transfer_seen'],
+            academy_transfer_armed=academy['transfer_armed'],
             academy_progress_origin_xy=academy['progress_origin_xy'],
             academy_progress_heading_rad=academy['progress_heading_rad'],
             academy_progress_active=academy['progress_active'],
@@ -2677,6 +2679,7 @@ class EmuMJXEnv(TaskSampler):
             academy_foothold_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_transfer_streak=izeros,
             academy_transfer_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_transfer_armed=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_progress_origin_xy=jnp.zeros((self.num_envs,2),dtype=jnp.float32),
             academy_progress_heading_rad=zeros,
             academy_progress_active=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
@@ -2993,7 +2996,10 @@ class EmuMJXEnv(TaskSampler):
         both_top=jnp.all(jnp.all(foot_cell==root[:,None,:],axis=2) &
                          target_pairs,axis=1)
         same_confirmed=jnp.all(root==previous,axis=1)
-        transfer_ok=(academy_focus & (state.academy_lip_index>0) &
+        # A prior crossing somewhere in the episode is NOT sufficient.
+        # Arm the transfer exam only after an authentically supported
+        # *new signed lip*, never after a smooth tile or later flat stance.
+        transfer_ok=(academy_focus & state.academy_transfer_armed &
                      same_confirmed & both_top & healthy)
         transfer_streak=jnp.where(transfer_ok,
                                    state.academy_transfer_streak+1,0)
@@ -3002,6 +3008,9 @@ class EmuMJXEnv(TaskSampler):
         transfer_seen=jnp.where(confirmed,False,
                                 state.academy_transfer_seen|new_transfer)
         transfer_streak=jnp.where(confirmed,0,transfer_streak)
+        transfer_armed=jnp.where(
+            confirmed,paid & academy_focus & lip,
+            state.academy_transfer_armed & ~new_transfer)
         # Newly confirmed bilateral support creates a single rewardable
         # continuation episode. Heading is latched at transfer, not
         # silently redefined as the robot walks or turns around.
@@ -3057,6 +3066,7 @@ class EmuMJXEnv(TaskSampler):
             transfer_new=new_transfer,
             transfer_streak=transfer_streak,
             transfer_seen=transfer_seen,
+            transfer_armed=transfer_armed,
             progress_new=new_progress,
             progress_origin_xy=progress_origin,
             progress_heading_rad=progress_heading,
