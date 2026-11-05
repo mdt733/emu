@@ -9,6 +9,7 @@
 | Reward economics | Exact deterministic PPO gate payments and zero-request exception | Counterfactual arithmetic, no policy |
 | CPU standing screen | 10s bounded servo PD across gains, noise and delays, ball-foot support and fall | Flat plane, not full deployment controller; failed PD does not prove impossibility |
 | CPU supported swing | Left/right open-loop commanded hip/knee sweeps, real ball-foot contact, supported vertical lift, forward reach, torque | Real MuJoCo flat plane, but no riser and no proof of weight transfer |
+| CPU fixed wall screen | Real colliding risers at actual 1/2/2.5/3/3.5/4cm, opposite foot support, foot clearance, upper top-contact streak and collision diagnostics | Open-loop probe, not frozen actor or completed climb; base robot rods remain non-contacting |
 | Frozen-policy flat panels | Survival, actual velocity, drift, footfall Hz, same-foot stride, phase coherence and shaft-work proxy | Same saved actor; no learning-variance estimate |
 | Frozen-policy prism panels | Actual signed prism-top support, separate post-contact recovery and 50cm commanded continuation | Procedural heights, not fixed 3cm fixtures; detection, riser clearance and CoM load transfer not instrumented |
 | Phase/ToF intervention | Same held-out seeds and command: valid phase clock hold/invert/random; 4x4 ToF range+validity masked | Input-only frozen-policy *sensitivity*, not proof an alternative-trained actor could do without inputs |
@@ -43,8 +44,10 @@ ROOT="$HOME/emu-data/runs/v5051-audit-s735"
 mkdir -p "$ROOT"
 python -m scripts.v5051_balance_screen --quick --output "$ROOT/mechanics-quick"
 python -m scripts.v5051_swing_screen --quick --output "$ROOT/mechanics-quick"
+python -m scripts.v5051_fixed_wall_screen --quick --output "$ROOT/mechanics-quick"
 python -m scripts.v5051_balance_screen --output "$ROOT/mechanics"
 python -m scripts.v5051_swing_screen --output "$ROOT/mechanics"
+python -m scripts.v5051_fixed_wall_screen --output "$ROOT/mechanics"
 ```
 
 **Acceptance smoke:** requires a valid frozen 360-input `.emupolicy`; the public viewer export is suitable for *inference*, not resuming PPO. Check source/export identity in the manifest. The first one-panel CPU test compiles the same MJX prism world; a larger CUDA test uses the RTX 4060 Ti.
@@ -83,4 +86,4 @@ Use `--max-panels N` in a new output directory for bounded integration testing. 
 4. Run source-pinned GPU smoke and existing CI on the PR before additional work. No claim of full wall-scale climb without a **fixed actual-height**, controlled-approach examiner that records riser collision and body/foot loading.
 5. **Do not launch the multiseed PPO campaign yet.** Phase dependence, rewards, physical feasibility, effective task distribution and fixed-height mission protocol first need a written go/no-go review. With reusable optimiser checkpoints confirmed, select few compatible matched arms plus 2–3 PPO seeds, rather than spending hundreds of millions on uninterpretable mixtures.
 
-**Known unfinished work:** fixed-height 1/2/2.5/3/3.5/4cm physical riser fixture, support-wrench/CoM load-transfer examiner, true acquisition-age/ToF geometry probe, a nonlinear standing-controller feasibility follow-up, independent PPO seed variance, and eventual temporary train-arm runner. This initial diagnostic battery alone does **not** solve stairs or authorize a champion replacement. All physical science on this PR remains unverified by the owner's GPU until the commands above are run and logged.
+**Known unfinished work:** fixed-height 1/2/2.5/3/3.5/4cm **frozen-actor** riser fixture (the CPU mechanical riser probe is now implemented), support-wrench/CoM load-transfer examiner, true acquisition-age/ToF geometry probe, a nonlinear standing-controller feasibility follow-up, independent PPO seed variance, and eventual temporary train-arm runner. This initial diagnostic battery alone does **not** solve stairs or authorize a champion replacement. All physical science on this PR remains unverified by the owner's GPU until the commands above are run and logged.
