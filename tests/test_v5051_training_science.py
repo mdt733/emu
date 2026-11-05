@@ -71,7 +71,12 @@ class ScienceTrainingTests(unittest.TestCase):
                                      terrain_height_m=.02,
                                      academy_height_up_m=.02,
                                      academy_height_down_m=.02))
-        state,obs=env.reset(packet)
+        state,obs=env.reset(dict(specialist_mix=1.,
+                                 focus_weight_step=1.,
+                                 academy_episode_probability=1.,
+                                 terrain_height_m=.02,
+                                 academy_height_up_m=.02,
+                                 academy_height_down_m=.02))
         out=env.step(state,jnp.zeros((4,6),jnp.float32),packet)
         self.assertEqual(out.obs.shape,(4,360))
         self.assertTrue(np.isfinite(np.asarray(jax.device_get(out.reward))).all())
