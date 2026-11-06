@@ -262,6 +262,7 @@ def forensic(root,arms,source=None):
         for e in events:
             by_verdict[e["verdict"]]+=1
         up=[e for e in events if e["signed_actual_height_cm"]>=.15]
+        uphill_ge_1=[e for e in up if e["signed_actual_height_cm"]>=1.]
         def at_least(values,threshold):
             return sum(v>=threshold for v in values)
         result.append(dict(
@@ -272,6 +273,14 @@ def forensic(root,arms,source=None):
             up_contact_ge_2cm=sum(e["signed_actual_height_cm"]>=2 for e in events),
             up_contact_ge_3cm=sum(e["signed_actual_height_cm"]>=3 for e in events),
             bilateral=sum(bool(e["both_feet_upper_support"]) for e in events),
+            # PRIMARY capability: UPHILL stage success only.
+            uphill_ge_1cm_bilateral=sum(bool(e["both_feet_upper_support"])
+                                       for e in uphill_ge_1),
+            uphill_ge_1cm_progress_15cm=at_least(
+                [e["post_contact_progress_m"] for e in uphill_ge_1],.15),
+            uphill_ge_1cm_progress_30cm=at_least(
+                [e["post_contact_progress_m"] for e in uphill_ge_1],.30),
+            uphill_ge_1cm_complete=sum(bool(e["complete"]) for e in uphill_ge_1),
             progress_ge_15cm=at_least([e["post_contact_progress_m"] for e in events],.15),
             progress_ge_30cm=at_least([e["post_contact_progress_m"] for e in events],.30),
             progress_ge_50cm=at_least([e["post_contact_progress_m"] for e in events],.50),
@@ -287,9 +296,9 @@ def forensic(root,arms,source=None):
     else:
         out=root/"STEP_FAILURE_ANALYSIS.json"
         out.write_text(json.dumps(dict(arms=result),indent=2)+"\n")
-        cols=["Arm","Top contacts","UP ≥1cm","UP ≥2cm",
-              "Bilateral","Progress ≥15cm","Progress ≥30cm",
-              "Complete","Fast vx","Fast survival","Zero-cmd footfalls/s"]
+        cols=["Arm","All signed contacts","UP ≥1cm","UP ≥2cm",
+              "UP ≥1cm bilateral","UP ≥1cm +15cm","UP ≥1cm +30cm",
+              "UP ≥1cm complete","Fast vx","Fast survival","Zero-cmd footfalls/s"]
         md=["# v5052: physical climb failure-stage autopsy","",
             "A completed mission needs five-frame bilateral top support and "
             "50cm heading-controlled follow-through. Positive foothold "
@@ -301,9 +310,10 @@ def forensic(root,arms,source=None):
         for x in result:
             md.append("| "+" | ".join(map(str,[
                 x["arm"],x["eligible_contacts"],x["up_contact_ge_1cm"],
-                x["up_contact_ge_2cm"],x["bilateral"],
-                x["progress_ge_15cm"],x["progress_ge_30cm"],
-                x["complete"],x["fast_vx"],x["fast_survival"],
+                x["up_contact_ge_2cm"],x["uphill_ge_1cm_bilateral"],
+                x["uphill_ge_1cm_progress_15cm"],
+                x["uphill_ge_1cm_progress_30cm"],
+                x["uphill_ge_1cm_complete"],x["fast_vx"],x["fast_survival"],
                 x["still_footfalls_hz"]]))+" |")
         md+=["","## Failure verdict counts",""]
         for x in result:
