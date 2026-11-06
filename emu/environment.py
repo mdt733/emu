@@ -968,6 +968,7 @@ class EmuMJXEnv(TaskSampler):
                  science_sensor_teacher_bonus: float = 0.0,
                  science_step_goal_weight: float = 0.0,
                  science_step_velocity_relief: float = 0.0,
+                 science_step_approach_m: float = 0.0,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
                  carpet_transition_cap_deg: float = 3.0,
@@ -1015,13 +1016,16 @@ class EmuMJXEnv(TaskSampler):
                     science_followthrough_bonus=(0.,15.),
                     science_sensor_teacher_bonus=(0.,8.),
                     science_step_goal_weight=(0.,.50),
-                    science_step_velocity_relief=(0.,1.))
+                    science_step_velocity_relief=(0.,1.),
+                    science_step_approach_m=(0.,.35))
         candidate=locals()
         for name,(lo,hi) in limits.items():
             value=float(candidate[name])
             if not np.isfinite(value) or not lo<=value<=hi:
                 raise ValueError(f"Invalid v5051 treatment {name}")
             setattr(self,name,value)
+        if 0. < self.science_step_approach_m < .15:
+            raise ValueError('near-lip Academy birth requires safe 0.15..0.35m or 0=off')
         self.science_gate_mode=science_gate_mode
         self.observation_schema = observation_schema
         self.base_obs_fields = actor_observation_fields(observation_schema)
@@ -2623,10 +2627,22 @@ class EmuMJXEnv(TaskSampler):
         )
         # One episode-local collision course. The standard flat path above
         # is bitwise untouched whenever terrain_step_max_m is zero.
-        birth_root_z=data.qpos[:,2]
         academy_active=self._academy_birth(
             keys,params,focus_id,specialist_active,
             task[:,T.athletic_rehearsal])
+        if self.science_step_approach_m > 0.:
+            # Academic stair nursery: Academy-only births land a fixed safe
+            # distance BEFORE the next authentic 75cm prism seam. The
+            # physical profile (including its signed up/down lip), ToF and
+            # foot contacts are then recomputed from the new birth position
+            # by the ordinary _carpet_birth + MJX forward path.
+            # Other roles and the reset RNG are strictly unchanged.
+            from .terrain_carpet_mjx import academy_near_lip_spawn_x
+            near_x=academy_near_lip_spawn_x(
+                jnp,data.qpos[:,0],self.science_step_approach_m)
+            data=data.replace(qpos=data.qpos.at[:,0].set(
+                jnp.where(academy_active,near_x,data.qpos[:,0])))
+        birth_root_z=data.qpos[:,2]
         data,carpet=self._carpet_birth(
             data,keys,params,focus_id,specialist_active,task,
             birth_root_z,academy_active)
