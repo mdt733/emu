@@ -1658,6 +1658,42 @@ class EmuMJXEnv(TaskSampler):
             reward=reward+extra
             ep_return=ep_return+extra
 
+        # v5052: an ACTUAL goal task ends only at the fixed position
+        # 60cm beyond the original lip, after true two-foot support transfer
+        # plus five stable arrival frames. No instantaneous teleport or
+        # physical-goal bonus from coordinate changes alone.
+        # Destination coordinates are reward-only, never actor inputs.
+        goal_transfer_ready=state.academy_goal_transfer_ready
+        goal_stable_streak=state.academy_goal_stable_streak
+        goal_completed=state.academy_goal_completed
+        if self.science_step_goal_weight > 0.:
+            from .step_goal import arrival_quality, stable_arrival
+            rot=self._rotation_body_to_world(data)
+            heading=jnp.arctan2(rot[:,1,0],rot[:,0,0])
+            goal_transfer_ready=(goal_transfer_ready |
+                                 academy['transfer_new'])
+            qualified=arrival_quality(
+                jnp,state.academy_goal_xy,data.qpos[:,:2],heading,
+                metrics['gravity_z'],metrics['support'],
+                metrics['bad_contact'],metrics['stance_slip'],
+                goal_transfer_ready)
+            qualified=(qualified & state.academy_active & step_focus &
+                       ~terminal_fail & ~timeout)
+            goal_stable_streak,goal_new=stable_arrival(
+                jnp,qualified,goal_stable_streak,goal_completed)
+            goal_completed=goal_completed|goal_new
+            # One completed manoeuvre earns ~6 reward at weight .30.
+            # This is a sparse terminal event, NOT an arbitrary "high Z"
+            # reward or the existing per-contact training credit.
+            bonus=(20.*self.science_step_goal_weight *
+                   goal_new.astype(jnp.float32))
+            reward=reward+bonus
+            ep_return=ep_return+bonus
+            done=done|goal_new
+        else:
+            goal_new=jnp.zeros_like(done)
+        academy={**academy,'completed':goal_new}
+
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
         sensors = self._advance_sensor_state(
@@ -1741,6 +1777,10 @@ class EmuMJXEnv(TaskSampler):
             academy_progress_active=academy['progress_active'],
             academy_progress_paid=academy['progress_paid'],
             academy_approach_seen=academy['approach_seen'],
+            academy_goal_xy=state.academy_goal_xy,
+            academy_goal_transfer_ready=goal_transfer_ready,
+            academy_goal_stable_streak=goal_stable_streak,
+            academy_goal_completed=goal_completed,
             carpet_hfields=carpet_hfields,
             carpet_center=carpet_center,
             carpet_confirmed=academy['confirmed_tile'],
@@ -1956,6 +1996,15 @@ class EmuMJXEnv(TaskSampler):
             'academy_transfer_new':academy['transfer_new'].astype(jnp.float32),
             'academy_followthrough_new':academy['progress_new'].astype(jnp.float32),
             'academy_reward':academy['reward'],
+            # v5052 actual destination completion is separate from legacy
+            # Academy "any supported lip before timeout" summaries.
+            'academy_goal_complete_new':(
+                stepped.academy_goal_completed &
+                ~state.academy_goal_completed).astype(jnp.float32),
+            'academy_goal_remaining_m':jnp.linalg.norm(
+                state.academy_goal_xy-data.qpos[:,:2],axis=1),
+            'academy_goal_bilateral_ready':(
+                stepped.academy_goal_transfer_ready).astype(jnp.float32),
             'academy_episode_attempt':(done & state.academy_active).astype(jnp.float32),
             'academy_episode_complete':(done & ~terminal_fail &
                                          state.academy_active &
