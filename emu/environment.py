@@ -966,6 +966,8 @@ class EmuMJXEnv(TaskSampler):
                  science_bilateral_support_bonus: float = 0.0,
                  science_followthrough_bonus: float = 0.0,
                  science_sensor_teacher_bonus: float = 0.0,
+                 science_step_goal_weight: float = 0.0,
+                 science_step_velocity_relief: float = 0.0,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
                  carpet_transition_cap_deg: float = 3.0,
@@ -1011,7 +1013,9 @@ class EmuMJXEnv(TaskSampler):
                     science_foothold_bonus=(0.,8.),
                     science_bilateral_support_bonus=(0.,10.),
                     science_followthrough_bonus=(0.,15.),
-                    science_sensor_teacher_bonus=(0.,8.))
+                    science_sensor_teacher_bonus=(0.,8.),
+                    science_step_goal_weight=(0.,.50),
+                    science_step_velocity_relief=(0.,1.))
         candidate=locals()
         for name,(lo,hi) in limits.items():
             value=float(candidate[name])
@@ -1517,8 +1521,13 @@ class EmuMJXEnv(TaskSampler):
                                 state.prev_foot_pos,carpet_heights=state.carpet_hfields)
         # Reward-only true cohort identity: crouch tolerance cannot become
         # a free survival advantage for all flat/command/resilience worlds.
-        metrics={**metrics,'science_step_focus':(
-            state.specialist_active & (state.focus_id == STEP)).astype(jnp.float32)}
+        step_focus=(state.specialist_active & (state.focus_id==STEP))
+        metrics={**metrics,
+                 'science_step_focus':step_focus.astype(jnp.float32),
+                 # This flag is reward-only privileged *assignment*.
+                 # The 360-input actor sees neither it nor the true prism height.
+                 'science_step_goal_active':(
+                     step_focus & state.academy_active).astype(jnp.float32)}
         # Gate freezing against previous activity, not this one stance frame.
         stepping_activity_so_far = state.ep_step_evidence_sum / jnp.maximum(1.0, state.ep_len)
         # ramp_frac tracks command-change difficulty. Real episode age is
@@ -1557,6 +1566,8 @@ class EmuMJXEnv(TaskSampler):
             science_phase_sync_strength=self.science_phase_sync_strength,
             science_crouch_allowance_m=self.science_crouch_allowance_m,
             science_stride_efficiency_weight=self.science_stride_efficiency_weight,
+            science_step_goal_weight=self.science_step_goal_weight,
+            science_step_velocity_relief=self.science_step_velocity_relief,
             motor_guidance_per_world=(jnp.where(
                     state.academy_active,0.,
                     control_effort_weights(jnp,
