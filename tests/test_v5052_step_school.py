@@ -13,6 +13,8 @@ import numpy as np
 
 from emu.rewards import REWARD_ONLY_METRICS, training_reward
 from emu.terrain_carpet_mjx import TILE_M, academy_near_lip_spawn_x
+from emu.step_goal import (destination_from_birth, signed_distance_progress,
+                           arrival_quality, stable_arrival, GOAL_STABLE_FRAMES)
 from emu.cli import main as emu_cli
 from scripts.v5052_step_school import (
     PARENT_STEPS, TARGET_STEPS, ARMS, EXAMS, command,
@@ -107,6 +109,43 @@ class StepSchoolTests(unittest.TestCase):
         np.testing.assert_array_equal(
             academy_near_lip_spawn_x(np,starts,0.),starts)
 
+    def test_fixed_destination_never_chases_next_tile(self):
+        start=np.array([[.53,.10],[-.22,-.06]],dtype=np.float32)
+        goal=destination_from_birth(np,start)
+        np.testing.assert_allclose(goal,[[1.35,.10],[.60,-.06]],atol=1e-6)
+        # Crossing a tile boundary does not redefine the goal.
+        pre=np.array([[.70,.10],[-.10,-.06]],dtype=np.float32)
+        post=np.array([[.78,.10],[.02,-.06]],dtype=np.float32)
+        delta=signed_distance_progress(np,goal,pre,post)
+        np.testing.assert_allclose(delta,[.02,.02],atol=1e-6)
+        backwards=signed_distance_progress(np,goal,post,pre)
+        np.testing.assert_allclose(backwards,[-.02,-.02],atol=1e-6)
+        np.testing.assert_allclose(goal,destination_from_birth(np,start))
+
+    def test_goal_requires_actual_bilateral_transfer_and_stable_arrival(self):
+        goal=np.array([[1.35,0.]])
+        point=np.array([[1.35,0.]])
+        q=lambda transfer,slip=0.,yaw=0.:arrival_quality(
+            np,goal,point,np.array([yaw]),np.ones(1),
+            np.ones(1),np.zeros(1),np.full(1,slip),
+            np.array([transfer]))
+        self.assertFalse(q(False)[0])
+        self.assertFalse(q(True,slip=.2)[0])
+        self.assertFalse(q(True,yaw=.5)[0])
+        streak=np.zeros(1,dtype=np.int32)
+        completed=np.array([False])
+        for i in range(GOAL_STABLE_FRAMES-1):
+            streak,new=stable_arrival(np,q(True),streak,completed)
+            self.assertFalse(new[0])
+        streak,new=stable_arrival(np,q(True),streak,completed)
+        self.assertTrue(new[0])
+        completed=completed|new
+        streak,replayed=stable_arrival(np,q(True),streak,completed)
+        self.assertFalse(replayed[0])
+        # One frame of unsafe/unsupported contact resets the streak.
+        reset,_=stable_arrival(np,q(False),streak,completed)
+        self.assertEqual(int(reset[0]),0)
+
     def test_protocol_is_immutable(self):
         with TemporaryDirectory() as temp:
             root=Path(temp)
@@ -134,6 +173,8 @@ class StepSchoolTests(unittest.TestCase):
             self.assertEqual(results[0]["up_contact_ge_2cm"],1)
             self.assertEqual(results[0]["bilateral"],0)
             self.assertEqual(results[0]["complete"],0)
+            self.assertEqual(results[0]["destination_complete"],0)
+            self.assertEqual(results[0]["destination_worlds"],0)
 
 
 if __name__=="__main__":
