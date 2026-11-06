@@ -70,6 +70,10 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert cfg.capability_field_mode=="shadow"
     assert cfg.freeze_obs_norm_after_steps==0
     assert cfg.stillness_birth_frac==0.
+    assert cfg.science_step_finish_on_transfer is False
+    with patch("emu.run.train_one",side_effect=capture):
+        assert emu_cli_main(cli_args+["--science-step-finish-on-transfer"])==0
+    assert seen[-1].science_step_finish_on_transfer is True
     # Real research forks may change teacher and solver, but not the
     # 360-input actor geometry, physical robot or sensor history.
     from emu.run import verify_experiment_fork
@@ -155,6 +159,11 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     first.save(cfg_path)
     assert TrainingConfig.load(cfg_path) == first
     partial = json.loads(cfg_path.read_text(encoding="utf-8"))
+    # Historical v5052 source could never enable the new v5054 finish
+    # flag. Only that one missing default-off flag may be migrated.
+    partial.pop("science_step_finish_on_transfer")
+    cfg_path.write_text(json.dumps(partial), encoding="utf-8")
+    assert TrainingConfig.load(cfg_path) == first
     partial.pop("terrain_carpet_prisms")
     cfg_path.write_text(json.dumps(partial), encoding="utf-8")
     with pytest.raises(ValueError,match="training config keys mismatch"):
@@ -185,6 +194,20 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     restored = RegimeGovernor(unified_capability_focus=True)
     restored.load_state_dict(original)
     assert restored.state_dict() == original
+    # A successful instant stair finish is NOT a 40-frame fall. The
+    # 350-frame equivalent is used solely for governor competence, while
+    # truthful episode lengths remain available in the report.
+    succeeded = RegimeGovernor(unified_capability_focus=True)
+    corrected=succeeded.update(dict(
+        fall_rate=0.,episodes=1.,ep_len_mean=40.,
+        core_fall_rate=0.,core_ep_len_mean=40.,
+        core_ep_len_competence_mean=350.))
+    assert corrected["core_competence"]==pytest.approx(1.)
+    uncorrected=RegimeGovernor(unified_capability_focus=True)
+    old=uncorrected.update(dict(
+        fall_rate=0.,episodes=1.,ep_len_mean=40.,
+        core_fall_rate=0.,core_ep_len_mean=40.))
+    assert old["core_competence"]<.12
     for remove in ('academy_evidence', 'terrain_evidence', 'command_evidence'):
         corrupt = deepcopy(original)
         del corrupt[remove]

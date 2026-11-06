@@ -307,6 +307,9 @@ def format_line(version: str, step: int, reward: float, row: dict[str, float], r
                     f"/{int(row.get('academy_episodes',0))}"
                     f" foothold={int(row.get('academy_footholds',0))}"
                     f" transfer={int(row.get('academy_transfers',0))}"
+                    f" climbs={int(row.get('academy_short_climb_successes',0))}"
+                    f" frontier_up/down={100*report.get('academy_height_up_m',0):.1f}/"
+                    f"{100*report.get('academy_height_down_m',0):.1f}cm"
                     f" actual/asked={100*row.get('academy_active_fraction',0):.0f}%/"
                     f"{100*row.get('academy_expected_birth_fraction',0):.0f}%")
         return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5 + "\n" + line6
@@ -875,6 +878,8 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         # any top contact or mere forward travel "destination reached".
         'academy_goal_completions': float(np.asarray(
             metrics.get('academy_goal_complete_new',0.)).sum()),
+        'academy_short_climb_successes': float(np.asarray(
+            metrics.get('academy_finish_new',0.)).sum()),
         'academy_goal_remaining_m_mean': mean_metric(
             metrics,'academy_goal_remaining_m'),
         'academy_goal_sequential_feet_ready_frac': mean_metric(
@@ -894,6 +899,9 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'terrain_verified_transfer_reward_events': float(
             (np.asarray(metrics.get('terrain_verified_transfer_credit',0.))>1e-6).sum()),
         'ep_len_mean': done_mean(metrics, 'episode_length', default=0.0),
+        # Governor-only success-adjusted age; actual episode age stays real.
+        'ep_len_competence_mean': done_mean(
+            metrics, 'episode_competence_length', default=0.0),
         'ep_rew_mean': done_mean(metrics, 'episode_return', default=0.0),
         'fall_rate': done_mean(metrics, 'episode_fell', default=mean_metric(metrics, 'terminal')),
         'timeout_rate': done_mean(metrics, 'episode_timeout', default=0.0),
@@ -949,6 +957,9 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
                                                SEED_VX_LO, SEED_VX_HI, default=-1.0),
         'core_ep_len_mean': masked_mean_in_band(metrics, 'episode_length', 'episode_done', 'episode_cmd_vx_mean',
                                                  SEED_VX_LO, SEED_VX_HI, default=-1.0),
+        'core_ep_len_competence_mean': masked_mean_in_band(
+            metrics,'episode_competence_length','episode_done',
+            'episode_cmd_vx_mean',SEED_VX_LO,SEED_VX_HI,default=-1.0),
         # Precision fields are attached below by
         # frontier_tracking_metrics(), which scores settled physical tracking
         # and separately measures the actual frontier edge.
@@ -1055,6 +1066,8 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         rmask = f'regime_{regime}_frontier'
         row[f'fall_rate_{regime}'] = masked_mean_regime(metrics, 'episode_fell', rmask, default=-1.0)
         row[f'ep_len_mean_{regime}'] = masked_mean_regime(metrics, 'episode_length', rmask, default=-1.0)
+        row[f'ep_len_competence_mean_{regime}'] = masked_mean_regime(
+            metrics, 'episode_competence_length', rmask, default=-1.0)
         row[f'vx_mean_{regime}'] = masked_mean_regime(metrics, 'episode_vx_mean', rmask, default=-1.0)
         row[f'cmd_vx_mean_{regime}'] = masked_mean_regime(metrics, 'episode_cmd_vx_mean', rmask, default=-1.0)
         row[f'foot_mid_cone_{regime}'] = masked_mean(metrics, 'foot_mid_cone', rmask, default=0.0)

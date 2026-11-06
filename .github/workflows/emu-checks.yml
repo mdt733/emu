@@ -45,6 +45,10 @@ jobs:
           test ! -e scripts/run_prism_140m.py
           test ! -e scripts/run_v5046_20m.py
           test ! -e scripts/v5048_shared_parent_tournament.py
+          # Finished experiments belong in Git history, not active code.
+          test ! -e scripts/v5051_fixed_wall_screen.py
+          test ! -e scripts/v5051_train_campaign.py
+          test ! -e scripts/v5052_step_school.py
           python -m pytest -q tests
       - name: Actual eight-prism CPU MJX contacts, sidewalls, mesh and robot
         run: timeout 540s python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2

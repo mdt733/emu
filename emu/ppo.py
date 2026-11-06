@@ -308,7 +308,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 # remains a truncation, retaining exact value bootstrap.
                 'terminal': jnp.maximum(
                     out.metrics['episode_fell'],
-                    out.metrics['academy_goal_complete_new']),
+                    jnp.maximum(out.metrics['academy_goal_complete_new'],
+                                out.metrics['academy_finish_new'])),
                 'bootstrap_obs': out.bootstrap_obs,
                 'metrics': out.metrics,
             }
@@ -887,6 +888,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     "academy_active":out.metrics['academy_active'],
                     "academy_lip_index":out.metrics['academy_lip_index'],
                     "academy_cross_new":out.metrics['academy_cross_new'],
+                    "academy_finish_new":out.metrics['academy_finish_new'],
+                    "academy_verdict_lip_height_m":out.metrics['academy_verdict_lip_height_m'],
                     "academy_lip_attempt_new":out.metrics['academy_lip_attempt_new'],
                     "academy_course_new":out.metrics['academy_course_new'],
                     "academy_cross_up":out.metrics['academy_cross_up'],

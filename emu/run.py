@@ -171,6 +171,9 @@ def one_run_config(args) -> TrainingConfig:
         if not math.isfinite(value) or not lo<=value<=hi:
             raise ValueError(f'{key} must be finite and in [{lo},{hi}]')
         science_args[key]=value
+    finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
+    if finish_on_transfer and not academy_stream:
+        raise ValueError('--science-step-finish-on-transfer requires Academy stream')
     approach=science_args['science_step_approach_m']
     if 0. < approach < .15:
         raise ValueError('science-step-approach-m must be zero or >=0.15m')
@@ -195,7 +198,9 @@ def one_run_config(args) -> TrainingConfig:
                    academy_course_episode_frames=course_frames,
                    terrain_lesson=terrain_lesson, force_program=force_program,
                    temporal_vx_reward_share=temporal_share,
-                   science_gate_mode=science_gate, **science_args,
+                   science_gate_mode=science_gate,
+                   science_step_finish_on_transfer=finish_on_transfer,
+                   **science_args,
                    stillness_birth_frac=stillness_birth_frac,
                    science_step_promotion_mm=science_promotion,
                    science_step_retreat_mm=science_retreat,

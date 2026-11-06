@@ -7,7 +7,24 @@ The previous 232-input public policy remains recoverable at
 Future work is prioritised in [issue #17](https://github.com/mdt733/emu/issues/17);
 the 24-arm v5033 branch is **paused**. The v5046 34-arm benchmark
 campaign completed, and its temporary runner is removed on PR #36;
-the 21 actual core pytest cases remain.
+**24 maintained core pytest cases** are enforced in CI.
+
+## Research scaffolding expires
+
+- A/B flags are temporary, with **one controlled comparison only**. The
+  `science_step_finish_on_transfer` switch and the superseded 60cm strict
+  *training* arrival should not remain as competing teaching paths after
+  v5054 acceptance. Remove the losing/default-obsolete branch, its flags,
+  dead imports, tests and historical command examples in the same follow-up PR.
+- Keep **one** production path for step teaching. Retain the independent
+  v5053 frozen-policy evaluator because it measures capability rather than
+  shaping PPO.
+- The completed v5051 fixed-wall screen, v5051 campaign runner and v5052
+  campaign runner are retired from active `scripts/` on PR #45. Their
+  immutable Git history preserves reproducibility; only lasting findings
+  remain in the historical documents.
+- The maintained test ceiling remains **24 individual tests**, not files.
+  Replace a test when a better physical contract supersedes it.
 
 ## One owner per concept
 

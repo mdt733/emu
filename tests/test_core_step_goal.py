@@ -6,7 +6,8 @@ import numpy as np
 from emu.rewards import REWARD_ONLY_METRICS, training_reward
 from emu.terrain_carpet_mjx import TILE_M, academy_near_lip_spawn_x
 from emu.step_goal import (destination_from_birth, signed_distance_progress,
-                           arrival_quality, stable_arrival, GOAL_STABLE_FRAMES)
+                           arrival_quality, stable_arrival, GOAL_STABLE_FRAMES,
+                           short_climb_quality, CLIMB_AFTER_LIP_M, CLIMB_STABLE_FRAMES)
 from emu.step_autopsy import inspect_destinations
 
 
@@ -109,6 +110,27 @@ class CoreAcademyTests(unittest.TestCase):
         # One frame of unsafe/unsupported contact resets the streak.
         reset,_=stable_arrival(np,q(False),streak,completed)
         self.assertEqual(int(reset[0]),0)
+
+        # The nursery succeeds early, but never on one foot, flat ground,
+        # a fall, a side escape, a U-turn or an unconfirmed real prism.
+        seam=goal[0,0]-.60
+        xyz=np.array([[seam+CLIMB_AFTER_LIP_M+.02,0.]],dtype=np.float32)
+        def climb(*,feet=True,rise=.02,grav=1.,yaw=0.,bad=0.,side=0.):
+            pos=xyz.copy()
+            pos[:,1]=side
+            return short_climb_quality(
+                np,goal,pos,np.asarray([yaw]),np.asarray([grav]),
+                np.ones(1),np.asarray([bad]),np.asarray([feet]),
+                np.asarray([rise]))
+        self.assertTrue(climb()[0])
+        self.assertTrue(climb(rise=-.02)[0])
+        self.assertFalse(climb(feet=False)[0])
+        self.assertFalse(climb(rise=0.)[0])
+        self.assertFalse(climb(grav=.4)[0])
+        self.assertFalse(climb(bad=1.)[0])
+        self.assertFalse(climb(yaw=1.)[0])
+        self.assertFalse(climb(side=.30)[0])
+        self.assertEqual(CLIMB_STABLE_FRAMES,3)
 
     def test_independent_real_prism_trace_proves_first_lip_destination(self):
         # No teacher success, no reward fields, and no nominal height!

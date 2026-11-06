@@ -1,4 +1,11 @@
-# EMU v5052 — learn a complete stair manoeuvre (research plan + runnable campaign)
+# EMU v5052 — historical complete stair manoeuvre study
+
+> **Archived experiment, not a runnable current-source campaign.** The v5052
+> launcher and its v5051 helper have been retired from active `scripts/`,
+> preserving the original files at their [immutable research snapshot](https://github.com/mdt733/emu/blob/6a3c9cc971936d12f95822a6561cc244abf896e7/scripts/v5052_step_school.py).
+> The old `python -m scripts.v5052_step_school` commands below require that
+> historical checkout. Today’s source uses `emu train`; v5054’s
+> short-completion research is documented in [V5054](V5054_STAIR_SUCCESS_RESET.md).
 
 ## Question
 
@@ -172,85 +179,15 @@ promising arms and control, then independently repeat PPO seeds before any
 promotion. Do not merge this exploratory branch into `main` simply because
 a training reward improved.
 
-## WSL launch
+## Reproduction (historical source only)
 
-**This is a fresh source lineage**, not a resume of v5051. The experiment
-refuses parent checkpoints from any different Git source commit. The old
-results remain untouched.
-
-```bash
-cd ~/emu
-git fetch origin
-git switch research/v5052-step-learning 2>/dev/null || \
-  git switch --track origin/research/v5052-step-learning
-git pull --ff-only origin research/v5052-step-learning
-source ~/emu-graduation/.venv/bin/activate
-export PYTHONPATH="$PWD"
-export XLA_PYTHON_CLIENT_PREALLOCATE=false
-git status --short      # MUST be blank
-git rev-parse HEAD
-
-# No training or file writes: inspect the exact proposed operations
-python -m scripts.v5052_step_school --stage plan
-
-# Small contract tests before the GPU training campaign
-python -m pytest -q tests/test_core_step_goal.py
-
-# Stage 1: 40M cold/common parent (watch balance by ~5M)
-python -m scripts.v5052_step_school --stage parent
-
-# Stage 2: 7×40M real PPO forks, all use the immutable parent
-python -m scripts.v5052_step_school --stage arms
-
-# Stage 3: independent physical exam of all 7 complete actors
-python -m scripts.v5052_step_school --stage exams
-
-# Stage 4: report the *failure stage*, not a composite reward
-python -m scripts.v5052_step_school --stage report
-```
-
-Or single foreground run (320M PPO updates plus exams/report):
-
-```bash
-python -m scripts.v5052_step_school --stage all
-```
-
-All results are under
-`~/emu-data/runs/v5052-fixed-destination-v2-s735/`. Stages resume or skip verified
-completed checkpoints; a partial arm always resumes its **own** checkpoint
-rather than restarting from the parent. Do not change Git SHA once training
-starts.
-
-For fast pilot research, use one matched pair first, without changing the
-shared source or parent:
-
-```bash
-python -m scripts.v5052_step_school --stage arms \
-  --only 00_control,03_goal_relief
-python -m scripts.v5052_step_school --stage exams \
-  --only 00_control,03_goal_relief
-```
-
-Then expand to the other arms if these show meaningful physical progress.
-
-For a second held-out **environment** seed on finalists and unchanged
-control (does not retrain PPO):
-
-```bash
-python -m scripts.v5052_step_school --stage exams \
-  --only 00_control,03_goal_relief,04_contact_teacher \
-  --exam-seeds 1701,1702
-```
-
-Forensics against old v5051 raw exams:
-
-```bash
-python -m scripts.v5052_step_school --stage forensic \
-  --source-exams ~/emu-data/runs/v5051-science-s735
-```
-
-The terminal prints the old per-event verdict breakdown without modifying
-the original study.
+The 40M parent and seven 40M continuation arms are finished historical
+research. Their launcher commands (including obsolete virtualenv paths and
+campaign-specific stage selection) are no longer part of the working checkout.
+The original [v5052 step-school runner](https://github.com/mdt733/emu/blob/6a3c9cc971936d12f95822a6561cc244abf896e7/scripts/v5052_step_school.py)
+and its helper are preserved at an immutable Git commit. Result data remain
+under `~/emu-data/runs/v5052-fixed-destination-v2-s735/`.
+All new training uses the single `emu train` entry point.
 
 ## Not built in this first research stage
 
