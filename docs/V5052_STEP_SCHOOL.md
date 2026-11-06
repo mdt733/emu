@@ -1,4 +1,11 @@
-# EMU v5052 — learn a complete stair manoeuvre (research plan + runnable campaign)
+# EMU v5052 — historical complete stair manoeuvre study
+
+> **Archived experiment, not a runnable current-source campaign.** The v5052
+> launcher and its v5051 helper have been retired from active `scripts/`,
+> preserving the original files at their [immutable research snapshot](https://github.com/mdt733/emu/blob/6a3c9cc971936d12f95822a6561cc244abf896e7/scripts/v5052_step_school.py).
+> The old `python -m scripts.v5052_step_school` commands below require that
+> historical checkout. Today’s source uses `emu train`; v5054’s
+> short-completion research is documented in [V5054](V5054_STAIR_SUCCESS_RESET.md).
 
 ## Question
 
