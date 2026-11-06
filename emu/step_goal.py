@@ -28,6 +28,33 @@ def signed_distance_progress(xp, goal_xy, before_xy, after_xy):
     return xp.clip(before-after,-.02,.02)
 
 
+
+# Short nursery mission: prove the first real lip, then move on to the next
+# birth. A strict 60cm park-and-hold is a separate (harder) capability.
+CLIMB_AFTER_LIP_M = 0.10
+CLIMB_Y_TOL_M = 0.25
+CLIMB_HEADING_TOL_RAD = 0.55
+CLIMB_STABLE_FRAMES = 3
+
+
+def short_climb_quality(xp, goal_xy, xy, heading_rad, gravity_z, support,
+                        bad_contact, transfer_verified, birth_lip_m):
+    """First signed prism lip: BOTH feet verified, upright beyond the edge.
+
+    `transfer_verified` is established by five independent real-top contact
+    frames PER FOOT on the first target tile; a single lead foot cannot pass.
+    The birth lip is measured from the actual two prism surfaces, never an
+    operator-requested height. No stationary low-slip requirement.
+    """
+    edge_x=goal_xy[:,0]-DESTINATION_AFTER_LIP_M
+    heading=xp.abs(xp.arctan2(xp.sin(heading_rad),xp.cos(heading_rad)))
+    return (transfer_verified & (xp.abs(birth_lip_m)>.0015) &
+            (xy[:,0]>=edge_x+CLIMB_AFTER_LIP_M) &
+            (xy[:,0]<edge_x+TILE_M) &
+            (xp.abs(xy[:,1]-goal_xy[:,1])<=CLIMB_Y_TOL_M) &
+            (heading<=CLIMB_HEADING_TOL_RAD) &
+            (gravity_z>=.80) & (support>=.5) & (bad_contact<.5))
+
 def arrival_quality(xp, goal_xy, xy, heading_rad, gravity_z, support,
                     bad_contact, slip, transfer_verified):
     """Cannot certify success from position alone; require safe top transfer.
