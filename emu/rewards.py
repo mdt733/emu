@@ -38,7 +38,7 @@ MOTOR_PAYMENT_NAME = "motor_cost"  # opt-in; old eight-payment contract stays fi
 REWARD_ONLY_METRICS = frozenset({
     'target_height', 'stance_slip', 'target_step_height', 'action_delta_norm',
     'joint_limit_pressure', 'scissor_pressure', 'stepping_activity_so_far',
-    'ramp_frac', 'science_step_focus',
+    'ramp_frac', 'science_step_focus', 'science_step_goal_active',
 })
 
 # Preserved eight-term reward baseline; modifications are explicit opt-in teaching terms.
@@ -57,7 +57,9 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
                     allow_zero_command_balance=False,
                     science_gate_mode="legacy", science_phase_sync_strength=1.0,
                     science_crouch_allowance_m=0.0,
-                    science_stride_efficiency_weight=0.0):
+                    science_stride_efficiency_weight=0.0,
+                    science_step_goal_weight=0.0,
+                    science_step_velocity_relief=0.0):
     """Score one frame: commands → body/feet → gait maturity → payments.
 
     m contains physical truths measured by environment._metrics plus the
@@ -71,6 +73,20 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
     valid_alive = 1.0 - m['terminal']
     command_tracking = _command_tracking(m, is_transition, is_resilience, jnp,
         temporal_vx=temporal_vx)
+    if science_step_velocity_relief > 0.:
+        # One teacher-only concession to stair negotiation: the Academy
+        # policy may temporarily slow down to load/swing the leading foot.
+        # Never excuse lateral/yaw/pitch error or ballistic forward escape.
+        vy_err=m['vy']-m['cmd_vy']
+        yaw_err=m['yaw_rate']-m['cmd_yaw']
+        pitch_err=m['body_pitch']-m['cmd_pitch']
+        runaway=jnp.maximum(0.,m['vx']-m['cmd_vx']-.25)
+        target=jnp.exp(-(14.*vy_err*vy_err+4.5*yaw_err*yaw_err+
+                         18.*pitch_err*pitch_err+45.*runaway*runaway))
+        relaxed=(1.-science_step_velocity_relief)*command_tracking+(
+            science_step_velocity_relief*target)
+        command_tracking=jnp.where(m['science_step_goal_active']>.5,
+                                   relaxed,command_tracking)
     (upright_height, feet_only_contact, stance_anti_slip,
      swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(
         m, jnp, phase_sync_strength=science_phase_sync_strength,
@@ -141,6 +157,24 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
                       jnp.exp(-6.*m['stance_slip']))
         reward = reward + stride_pay
         payments['stride_efficiency'] = stride_pay
+    # Destination-style stepping nursery: pay bounded *actual* forward
+    # movement while supported on real Academy terrain. This is NOT a
+    # positional waypoint / fixed-height stair success signal; the sparse
+    # signed-lip, foothold and followthrough rewards still define transfer.
+    # A paused gait earns zero; moving backwards earns zero; running sideways
+    # or slipping gets little. Outside the Academy this is exactly absent.
+    if science_step_goal_weight > 0.:
+        useful_vx=jnp.clip(m['vx'],0.,.20)/.20
+        yaw_error=m['yaw_rate']-m['cmd_yaw']
+        upright=jnp.clip(m['gravity_z'],0.,1.)
+        goal_progress=(science_step_goal_weight*
+                       m['science_step_goal_active']*valid_alive*
+                       useful_vx*jnp.clip(m['support'],0.,1.)*
+                       (1.-jnp.clip(m['bad_contact'],0.,1.))*
+                       jnp.exp(-6.*jnp.maximum(0.,m['stance_slip']))*
+                       jnp.exp(-4.*yaw_error*yaw_error)*upright)
+        reward=reward+goal_progress
+        payments['goal_progress']=goal_progress
     motor_payment = payments.get('motor_cost', jnp.zeros_like(valid_alive))
     return reward, {**terms, **{f'weighted_{name}': value for name, value in payments.items()},
                     'weighted_motor_cost': motor_payment}
