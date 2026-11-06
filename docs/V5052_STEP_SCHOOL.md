@@ -41,8 +41,9 @@ or height fields: it still receives ordinary forward commands and real
   conditions for **positive** credit. Backtracking is penalised even
   when unsupported, preventing bounce/retreat payment farming.
 - **Arrival success** is NOT just reaching the coordinate. The trainee
-  must (1) earn five-frame verified real-prism top support after crossing
-  the **first target tile**, (2) arrive within 7cm longitudinally and
+  must (1) establish genuine top support with each foot on the
+  **first target tile** for five uninterrupted frames per foot
+  (sequential landings are allowed), (2) arrive within 7cm longitudinally and
   12cm laterally, (3) remain heading-aligned within 0.35rad, and
   (4) maintain upright supported low-slip balance for five consecutive
   frames. It gets one terminal bonus and a clean goal-completion episode,
@@ -126,7 +127,7 @@ These are **procedural physical sampling frontiers, NOT exact risers**.
 Two *different* physical outcomes are always distinguished:
 (1) historical 50cm of additional travel after two-foot recovery, and
 (2) NEW fixed-goal arrival 60cm beyond the initial seam, including five
-stable frames and first-lip bilateral recovery. The latter is the direct
+stable frames and separate verified first-lip landing of EACH foot. The latter is the direct
 v5052 stair objective and is independently re-scored without teacher
 reward flags; the former is useful as a tougher post-contact retention
 test. Uphill and downhill v5052 arrivals are counted separately.
@@ -150,8 +151,9 @@ is **not enough** to recover stages: supply the original `exams/` tree.
 
 - No >=1cm supported uphill contacts? First diagnose approach, swing
   clearance, ToF range and course geometry before adding more rewards.
-- Upper contacts but no **bilateral upper support**? Teach trailing-foot
-  recovery; consider foothold guidance and phase/stance freedom.
+- Upper contacts but no **independent trailing-foot upper support**?
+  Teach trailing-foot recovery; consider foothold guidance and phase freedom.
+  Simultaneous double stance is recorded separately, not mandatory.
 - Bilateral support but <15cm continuing motion? Focus on a genuine
   endpoint-based task, controlled post-support progress and survival.
 - 15cm/30cm progress but not 50cm? Investigate unrealistic grade horizon:
