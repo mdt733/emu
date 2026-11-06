@@ -188,7 +188,11 @@ def inspect_destinations(frames):
         streak=0
         completed=False
         arrived_frame=None
-        closest=float(np.min(np.linalg.norm(xy[:,w]-target[w],axis=1)))
+        # Only the first life is valid: a later reset could reach this
+        # position while the original stair attempt already failed.
+        life=np.flatnonzero(alive[:,w])
+        closest=float(np.min(np.linalg.norm(
+            xy[life,w]-target[w],axis=1))) if len(life) else None
         for t in range(start,len(xy)):
             if not alive[t,w] or fell[t,w]:
                 break
@@ -212,7 +216,8 @@ def inspect_destinations(frames):
             first_lip_actual_height_cm=(
                 float(verified["signed_actual_height_cm"])
                 if verified is not None else None),
-            closest_to_goal_m=round(closest,4),
+            closest_to_goal_m=(
+                round(closest,4) if closest is not None else None),
             stable_arrival=completed,
             arrival_frame=arrived_frame,
         ))
@@ -223,6 +228,14 @@ def inspect_destinations(frames):
                       contact="independent first-life real-prism upper-top contact",
                       note="Not a guaranteed-height stair; true geometry measured."),
         completed_missions=sum(row["stable_arrival"] for row in rows),
+        uphill_completed=sum(row["stable_arrival"] and
+                             row["first_lip_actual_height_cm"] is not None and
+                             row["first_lip_actual_height_cm"]>=.15
+                             for row in rows),
+        downhill_completed=sum(row["stable_arrival"] and
+                               row["first_lip_actual_height_cm"] is not None and
+                               row["first_lip_actual_height_cm"]<=-.15
+                               for row in rows),
         physically_verified_bilateral=sum(
             row["first_lip_bilateral_verified"] for row in rows),
         worlds=rows,
