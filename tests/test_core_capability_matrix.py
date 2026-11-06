@@ -31,6 +31,14 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(sum(t.kind=="flat_control" for t in flat),100)
         self.assertTrue(all(t.exact_step_m==0. for t in flat))
         self.assertTrue(all(t.vx==.25 for t in flat if t.kind=="flat_control"))
+        paired=assignments(2048,mode="flat",trials_per_level=2000)
+        stairs=assignments(2048,mode="stairs")
+        self.assertEqual(len([t for t in paired if t.kind=="flat_control"]),2000)
+        self.assertEqual([t.world for t in paired],[t.world for t in stairs])
+        self.assertTrue(all(t.vx==stairs[i].vx and t.vy==stairs[i].vy
+                            and t.yaw==stairs[i].yaw for i,t in enumerate(paired)))
+        with self.assertRaises(ValueError):
+            assignments(2048,mode="flat",trials_per_level=2001)
         with self.assertRaisesRegex(ValueError,"Need at least"):
             assignments(128)
         with self.assertRaises(ValueError):
@@ -45,6 +53,12 @@ class MatrixExamTests(unittest.TestCase):
             both_feet_top_five=np.array([True,False,False,False]),
             goal_line_crossed=np.array([True,True,False,False]),
             goal_line_after_both=np.array([True,False,False,False]),
+            goal_x_window_seen=np.array([True,True,False,False]),
+            goal_x_window_after_both=np.array([True,False,False,False]),
+            first_both_foot_frame=np.array([8,-1,-1,-1]),
+            first_both_foot_body_x_m=np.array([1.30,0,0,0]),
+            traversed_upright_5frame=np.array([True,True,False,False]),
+            traversed_in_lane_5frame=np.array([True,False,False,False]),
             goal_window_after_both=np.array([True,False,False,False]),
             goal_window_aligned=np.array([True,False,False,False]),
             goal_window_safe_except_slip=np.array([True,False,False,False]),
@@ -63,6 +77,11 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(row["completed_destinations"],1)
         self.assertEqual(row["goal_line_crossed"],2)
         self.assertEqual(row["goal_line_after_both"],1)
+        self.assertEqual(row["goal_x_window_seen"],2)
+        self.assertEqual(row["goal_x_window_after_both"],1)
+        self.assertEqual(row["traversed_upright_5frame"],2)
+        self.assertEqual(row["traversed_in_lane_5frame"],1)
+        self.assertAlmostEqual(row["first_both_foot_x_mean_m"],1.3)
         self.assertEqual(row["traversed_5frame"],1)
         self.assertAlmostEqual(row["traversal_rate"],1/3,places=4)
         self.assertAlmostEqual(row["completion_rate"],1/3,places=4)
@@ -155,6 +174,10 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(out["traversed_5frame"].shape,(4,))
         self.assertEqual(out["goal_window_safe_except_slip"].shape,(4,))
         self.assertEqual(out["goal_line_after_both"].shape,(4,))
+        self.assertEqual(out["goal_x_window_after_both"].shape,(4,))
+        self.assertEqual(out["first_both_foot_frame"].shape,(4,))
+        self.assertEqual(out["traversed_upright_5frame"].shape,(4,))
+        self.assertEqual(out["traversed_in_lane_5frame"].shape,(4,))
 
 
 if __name__=="__main__":
