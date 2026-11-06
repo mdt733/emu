@@ -160,6 +160,7 @@ def one_run_config(args) -> TrainingConfig:
         'science_followthrough_bonus':(0.,15.),
         'science_step_goal_weight':(0.,.50),
         'science_step_velocity_relief':(0.,1.),
+        'science_step_approach_m':(0.,.35),
     }
     if science_gate not in ('legacy','zero-only','off'):
         raise ValueError('Invalid science-gate-mode')
