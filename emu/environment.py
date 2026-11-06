@@ -1709,8 +1709,10 @@ class EmuMJXEnv(TaskSampler):
         goal_foot_seen=state.academy_goal_foot_seen
         goal_stable_streak=state.academy_goal_stable_streak
         goal_completed=state.academy_goal_completed
-        if self.science_step_goal_weight > 0.:
-            from .step_goal import arrival_quality, stable_arrival
+        if self.science_step_goal_weight > 0. or self.science_step_finish_on_transfer:
+            from .step_goal import (
+                arrival_quality, stable_arrival, short_climb_quality,
+                CLIMB_STABLE_FRAMES)
             rot=self._rotation_body_to_world(data)
             heading=jnp.arctan2(rot[:,1,0],rot[:,0,0])
             # The recovered feet must belong to the FIRST assigned
@@ -1734,27 +1736,46 @@ class EmuMJXEnv(TaskSampler):
                             (goal_foot_streak>=5))
             goal_transfer_ready=(goal_transfer_ready |
                                  jnp.all(goal_foot_seen,axis=1))
-            qualified=arrival_quality(
+            strict=arrival_quality(
                 jnp,state.academy_goal_xy,data.qpos[:,:2],heading,
                 metrics['gravity_z'],metrics['support'],
                 metrics['bad_contact'],metrics['stance_slip'],
                 goal_transfer_ready)
-            qualified=(qualified & state.academy_active & step_focus &
-                       ~terminal_fail & ~timeout)
+            strict=(strict & state.academy_active & step_focus &
+                    ~terminal_fail & ~timeout)
+            strict=strict & (self.science_step_goal_weight>0.)
             goal_stable_streak,goal_new=stable_arrival(
-                jnp,qualified,goal_stable_streak,goal_completed)
+                jnp,strict,goal_stable_streak,goal_completed)
             goal_completed=goal_completed|goal_new
-            # One completed manoeuvre earns ~6 reward at weight .30.
-            # This is a sparse terminal event, NOT an arbitrary "high Z"
-            # reward or the existing per-contact training credit.
-            bonus=(20.*self.science_step_goal_weight *
-                   goal_new.astype(jnp.float32))
+            # v5054: end the nursery lesson as soon as both feet have
+            # independently held true first-tile top contact and the body
+            # is safely 10cm past the *real* lip for three frames. Not a
+            # one-foot touchdown, not a 60cm parking maneuver.
+            short=short_climb_quality(
+                jnp,state.academy_goal_xy,data.qpos[:,:2],heading,
+                metrics['gravity_z'],metrics['support'],metrics['bad_contact'],
+                goal_transfer_ready,state.academy_birth_lip_m)
+            short=(short & goal_lip_armed & in_goal_tile &
+                   state.academy_active & step_focus &
+                   ~terminal_fail & ~timeout &
+                   self.science_step_finish_on_transfer)
+            finish_streak=jnp.where(
+                short,state.academy_finish_streak+1,0)
+            finish_new=finish_streak>=CLIMB_STABLE_FRAMES
+            # Success is a TRUE absorbing PPO terminal, not a timeout.
+            # A separate sparse payment distinguishes partial foothold
+            # shaping from the completed whole-foot transfer lesson.
+            bonus=(20.*self.science_step_goal_weight*
+                   goal_new.astype(jnp.float32) +
+                   8.*finish_new.astype(jnp.float32))
             reward=reward+bonus
             ep_return=ep_return+bonus
-            done=done|goal_new
+            done=done | goal_new | finish_new
         else:
             goal_new=jnp.zeros_like(done)
-        academy={**academy,'completed':goal_new}
+            finish_new=jnp.zeros_like(done)
+            finish_streak=state.academy_finish_streak
+        academy={**academy,'completed':goal_new,'finish_new':finish_new}
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
