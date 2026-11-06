@@ -213,6 +213,12 @@ class EnvState(NamedTuple):
     academy_progress_paid: Any
     # One physical attempt verdict per lip. No repeated near-edge farming.
     academy_approach_seen: Any
+    # v5052 fixed world-frame target beyond FIRST upcoming real tile lip.
+    # Teacher-only episode state: never present in the 360 actor packet.
+    academy_goal_xy: Any
+    academy_goal_transfer_ready: Any
+    academy_goal_stable_streak: Any
+    academy_goal_completed: Any
     # v5041 physics-only rolling tile state. All four mutable tiles
     # belong to this same PPO world batch, not a second simulator.
     carpet_hfields: Any
@@ -1526,15 +1532,12 @@ class EmuMJXEnv(TaskSampler):
         # Reward-only true cohort identity: crouch tolerance cannot become
         # a free survival advantage for all flat/command/resilience worlds.
         step_focus=(state.specialist_active & (state.focus_id==STEP))
-        # Distance-to-destination task: target the centre of the NEXT
-        # physical tile in the global +X direction. The signed change of
-        # absolute distance is a bounded positional reward, not a speed
-        # tracking term or a self-reported crossing. Confirmed-cell changes
-        # only after independent true-prism top contact verification.
-        goal_x=(state.carpet_confirmed[:,0].astype(jnp.float32)+1.5)*CARPET_TILE_M
-        goal_delta=jnp.clip(
-            jnp.abs(goal_x-state.data.qpos[:,0])-
-            jnp.abs(goal_x-data.qpos[:,0]),-.02,.02)
+        # Fixed birth-to-destination goal: 60cm beyond first +X prism
+        # boundary. No moving carrot, reset on every episode birth only.
+        from .step_goal import signed_distance_progress
+        goal_delta=signed_distance_progress(
+            jnp,state.academy_goal_xy,
+            state.data.qpos[:,:2],data.qpos[:,:2])
         metrics={**metrics,
                  'science_step_focus':step_focus.astype(jnp.float32),
                  # These TWO teacher-only fields never reach the actor.
@@ -2670,6 +2673,8 @@ class EmuMJXEnv(TaskSampler):
         hist = jnp.repeat(base[:, None, :], HISTORY_LEN, axis=1)
         zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
         izeros = jnp.zeros((self.num_envs,), dtype=jnp.int32)
+        from .step_goal import destination_from_birth
+        goal_xy=destination_from_birth(jnp,data.qpos[:,:2])
         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left = self._init_transition_state(task, params, hold_keys)
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
         return EnvState(
@@ -2721,6 +2726,10 @@ class EmuMJXEnv(TaskSampler):
             academy_progress_active=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_progress_paid=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_approach_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_goal_xy=goal_xy,
+            academy_goal_transfer_ready=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_goal_stable_streak=izeros,
+            academy_goal_completed=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             carpet_hfields=carpet['carpet_hfields'],
             carpet_center=carpet['carpet_center'],
             carpet_seed=carpet['carpet_seed'],
