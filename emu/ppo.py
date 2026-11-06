@@ -1082,7 +1082,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         finished=jax.lax.fori_loop(0,horizon,frame_step,(
             es0,jnp.ones((n,),dtype=jnp.bool_),
             jnp.full((n,),-1,jnp.int32),false,zeros_feet,false_feet,
-            zero_i,false,zero,zero_i,zero,zero,zero,zero,zero))
+            zero_i,false,zero,zero_i,zero,zero,zero,zero,zero,zero))
         (_,live,fall,lead,streak,seen,arrival,complete,progress,
          frames,speed_err,yaw_err,support,gravity,lateral,still)=finished
         denom=jnp.maximum(frames,1).astype(jnp.float32)
