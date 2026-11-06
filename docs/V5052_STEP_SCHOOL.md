@@ -29,8 +29,13 @@ The papers that motivate these hypotheses are:
 **Important scope:** this is our deliberately *small first falsification
 study*, not a claim of implementing those papers in full. We retain the
 360-input current actor, 4×4 ToF and existing critic. The v5052
-`--science-step-goal-weight` is bounded supported forward motion in actual
-Academy episodes, **NOT a navigational destination or exact-height target**.
+`--science-step-goal-weight` rewards **signed reduction in distance to the
+centre of the next real 75cm physical tile**, not instantaneous forward
+speed. The teacher-only target advances when a new tile has true-prism
+verified support. The actor gets no privileged target coordinate or new
+observation fields; it still sees only its 360 inputs and ordinary motion
+command. This is a geometrically defined Academy subgoal, not an external
+operator waypoint or a guaranteed exact-height riser.
 Likewise `--science-step-velocity-relief` reduces **forward** speed pressure
 only during Academy; it preserves yaw/lateral/pitch/large-overspeed penalties.
 Neither is an asymmetric critic or privileged policy input. A true
