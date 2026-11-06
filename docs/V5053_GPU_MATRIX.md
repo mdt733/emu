@@ -188,3 +188,79 @@ If both scores fail even on zero lip, investigate the goal geometry,
 heading/pose or sensor/command pipeline before starting further training.
 If traversal degrades smoothly with height, the physical height frontier
 and post-contact recovery are genuinely limiting.
+
+
+## Second diagnostic — separate physical crossing from the strict goal
+
+The v5053 GPU results (frozen 80,019,456-step `01_goal`, seed 1701):
+- 2,000 uphill attempts: 1,348 both feet top for five independent frames,
+  1,247 body crossings after that, 531 controlled five-frame traversals,
+  and 13 strict stable destinations.
+- 100 zero-lip attempts in a **different batch width**: 100 body
+  crossings, 41 controlled traversals, 0 strict stable destinations.
+- At 20mm: 91 verified both feet, 89 body crossings, 31 controlled
+  traversals. At 30mm: 60 both feet, 54 crossings, 19 controlled
+  traversals. The strict stable score rejects ordinary flat walking
+  too; it must NOT be presented alone as ability to climb.
+- IMPORTANT: the 128-world flat and 2048-world stairs runs use
+  `jax.random.split(eval_key, num_envs)` and **do not have matched
+  per-world reset keys**, despite using the same numeric seed.
+
+The missing distinction is whether a low arrival percentage comes from
+the second foot being verified too late to fit within the goal's narrow
+X window, from lateral drift, or from heading / posture.
+
+The newest examiner adds **read-only** per-world:
+- `goal_x_window_seen` — first-life X-only window reached at all;
+- `goal_x_window_after_both` — X-only window reached *after* both feet;
+- `first_both_foot_frame` and `first_both_foot_body_x_m` — first
+  verified body position/timing when the second independent five-frame
+  contact is completed;
+- `traversed_upright_5frame` — five consecutive downstream
+  frames upright with clean contact after both feet, ignoring lane,
+  heading and slip;
+- `traversed_in_lane_5frame` — same five frames also within lateral
+  ±12cm corridor;
+- `traversed_5frame` — **unchanged** original diagnostic: add
+  heading control ±0.35rad.
+
+These are nested gates, so their differences isolate *which kind of
+control* is limiting. The old strict completed_destination and its
+five-frame condition remain unchanged.
+
+### Paired GPU diagnostic commands
+
+Keep the original report folders untouched and reuse the exported actor.
+If the separate worktree exists, update its detached HEAD from GitHub
+only after verifying it has no uncommitted changes.
+
+```bash
+cd ~/emu
+git fetch origin +refs/heads/research/v5053-capability-matrix:refs/remotes/origin/research/v5053-capability-matrix
+cd ~/emu-v5053-matrix
+git status --short
+git switch --detach refs/remotes/origin/research/v5053-capability-matrix
+source ~/emu/.venv/bin/activate
+export PYTHONPATH="$PWD"
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+
+# Real same-batch-size zero-lip control, first 2,000 worlds populated.
+# Same world indexes and PRNG splitting as the stair screen.
+python -m scripts.v5053_matrix_exam \
+  --policy ~/emu-data/actors/v5052_01_goal.emupolicy \
+  --output ~/emu-data/exams/v5053-goal-flat-paired-2k-s1701 \
+  --device cuda --mode flat --worlds 2048 \
+  --trials-per-level 2000 --horizon 350 --seed 1701
+
+python -m scripts.v5053_matrix_exam \
+  --policy ~/emu-data/actors/v5052_01_goal.emupolicy \
+  --output ~/emu-data/exams/v5053-goal-stairs-stages-2k-s1701 \
+  --device cuda --mode stairs --worlds 2048 \
+  --horizon 350 --seed 1701
+```
+
+The first run isolates geometry relative to all twenty stair
+assignments under the same random key schedule; compare the
+`matrix_worlds.csv` files by world index. Stop before training a new
+policy until the high-granularity stage gates explain the loss.
+
