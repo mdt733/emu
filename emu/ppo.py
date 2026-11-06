@@ -996,11 +996,16 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             # Maintain *different* operator instructions in the same
             # JAX program; bypass random command resampling without
             # changing the actual deployable observation format.
-            task=(es.task.at[:,T.vx].set(commands[:,0])
-                         .at[:,T.vy].set(commands[:,1])
+            # Preserve the source actor's optional velocity-I control:
+            # operator commands stay fixed, while the actor sees the
+            # effective I-corrected demand from the previous MJX step.
+            xy_policy=(es.task[:,[T.vx,T.vy]]
+                       if env.velocity_i_multiplier>1. else commands[:,:2])
+            task=(es.task.at[:,T.vx].set(xy_policy[:,0])
+                         .at[:,T.vy].set(xy_policy[:,1])
                          .at[:,T.yaw].set(commands[:,2]))
-            hist=(es.hist.at[:,-1,cmd_idx[0]].set(commands[:,0])
-                         .at[:,-1,cmd_idx[1]].set(commands[:,1])
+            hist=(es.hist.at[:,-1,cmd_idx[0]].set(xy_policy[:,0])
+                         .at[:,-1,cmd_idx[1]].set(xy_policy[:,1])
                          .at[:,-1,cmd_idx[2]].set(commands[:,2]))
             current=es._replace(
                 task=task,hist=hist,
