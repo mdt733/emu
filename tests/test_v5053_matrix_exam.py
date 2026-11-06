@@ -2,12 +2,10 @@
 from __future__ import annotations
 
 import unittest
-from tempfile import TemporaryDirectory
-from pathlib import Path
 import numpy as np
 
 from scripts.v5053_matrix_exam import (
-    assignments,trial_spec,reduce_results,wilson_95)
+    assignments,reduce_results,wilson_95)
 from emu.terrain_carpet_mjx import (
     TILE_M,exact_exam_lip_profiles,tile_geometry)
 
@@ -25,8 +23,7 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(len(steps),200)
         self.assertAlmostEqual(min(x.exact_step_m for x in steps),.0025)
         self.assertAlmostEqual(max(x.exact_step_m for x in steps),.05)
-
-    def test_stair_dedicated_batch_100_trials_per_height(self):
+        # Dedicated exact-height allocation: same world, different challenge.
         a=assignments(2048,mode="stairs")
         self.assertEqual(sum(x.kind=="step_up" for x in a),2000)
         self.assertEqual(len({x.level for x in a if x.kind=="step_up"}),20)
@@ -34,6 +31,30 @@ class MatrixExamTests(unittest.TestCase):
             assignments(128)
         with self.assertRaises(ValueError):
             assignments(2048,mode="unknown")
+        # Grouped numerators must never average away labels or padding.
+        a=assignments(4,mode="stairs",levels=1,trials_per_level=3)
+        result=dict(
+            actual_lip_m=np.array([.05,.05,.05,0.]),
+            actual_grade_deg=np.zeros(4),
+            survived=np.array([True,True,False,True]),
+            lead_foot_top=np.array([True,True,False,False]),
+            both_feet_top_five=np.array([True,False,False,False]),
+            completed_destination=np.array([True,False,False,False]),
+            best_forward_progress_m=np.array([.82,.4,.1,0.]),
+            speed_mae_mps=np.zeros(4),
+            yaw_mae_rad_s=np.zeros(4))
+        detail,curve=reduce_results(a,result)
+        self.assertEqual(len(detail),3)
+        self.assertEqual(len(curve),1)
+        row=curve[0]
+        self.assertEqual(row["leading_top"],2)
+        self.assertEqual(row["each_foot_top_five"],1)
+        self.assertEqual(row["completed_destinations"],1)
+        self.assertAlmostEqual(row["completion_rate"],1/3,places=4)
+        self.assertLess(row["completion_wilson95_lo"],1/3)
+        self.assertGreater(row["completion_wilson95_hi"],1/3)
+        self.assertEqual(wilson_95(0,0),(0.,0.))
+
 
     def test_signed_exact_step_and_continuous_grade_geometry(self):
         heights=np.array([.0025,.05,-.0375,0.],np.float32)
@@ -65,29 +86,6 @@ class MatrixExamTests(unittest.TestCase):
         self.assertAlmostEqual(float(np.rad2deg(np.arctan(grad[-1]))),
                                12.,places=4)
 
-    def test_success_reducer_does_not_average_classes_or_padding(self):
-        a=assignments(4,mode="stairs",levels=1,trials_per_level=3)
-        result=dict(
-            actual_lip_m=np.array([.05,.05,.05,0.]),
-            actual_grade_deg=np.zeros(4),
-            survived=np.array([True,True,False,True]),
-            lead_foot_top=np.array([True,True,False,False]),
-            both_feet_top_five=np.array([True,False,False,False]),
-            completed_destination=np.array([True,False,False,False]),
-            best_forward_progress_m=np.array([.82,.4,.1,0.]),
-            speed_mae_mps=np.zeros(4),
-            yaw_mae_rad_s=np.zeros(4))
-        detail,curve=reduce_results(a,result)
-        self.assertEqual(len(detail),3)
-        self.assertEqual(len(curve),1)
-        row=curve[0]
-        self.assertEqual(row["leading_top"],2)
-        self.assertEqual(row["each_foot_top_five"],1)
-        self.assertEqual(row["completed_destinations"],1)
-        self.assertAlmostEqual(row["completion_rate"],1/3,places=4)
-        self.assertLess(row["completion_wilson95_lo"],1/3)
-        self.assertGreater(row["completion_wilson95_hi"],1/3)
-        self.assertEqual(wilson_95(0,0),(0.,0.))
 
     def test_true_eight_prism_matrix_compiles_and_measures_exacts(self):
         # On CI: only 4 worlds x 3 frames (no PPO updates), preventing
