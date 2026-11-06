@@ -80,8 +80,11 @@ def assignments(worlds: int, *, mode: str="balanced", levels: int=20,
         levels=1  # A zero-height seam, exactly matched to the stair commands.
     trials=10 if trials_per_level is None and mode=="balanced" else (
         100 if trials_per_level is None else trials_per_level)
-    if not 1<=trials<=1000:
-        raise ValueError("trials_per_level must be 1..1000")
+    # Matched flat-vs-stair evaluation needs all 2,000 *same indexed*
+    # reset keys in a 2,048-world JAX batch. Other modes keep their cap.
+    cap=2000 if mode=="flat" else 1000
+    if not 1<=trials<=cap:
+        raise ValueError(f"trials_per_level must be 1..{cap} for {mode}")
     kinds=KINDS if mode=="balanced" else (
         ("flat_control",) if mode=="flat" else ("step_up",))
     count=len(kinds)*levels*trials
@@ -134,8 +137,10 @@ def reduce_results(trials:list[Trial],result:dict[str,np.ndarray]):
         n=len(records)
         target=kind.startswith("step_") or kind=="flat_control"
         gates=("goal_line_crossed","goal_line_after_both",
+               "goal_x_window_seen","goal_x_window_after_both",
                "goal_window_after_both","goal_window_aligned",
                "goal_window_safe_except_slip","goal_window_all_gates",
+               "traversed_upright_5frame","traversed_in_lane_5frame",
                "traversed_5frame")
         counts={k:sum(bool(x[k]) for x in records) if target else 0
                 for k in gates}
@@ -145,6 +150,10 @@ def reduce_results(trials:list[Trial],result:dict[str,np.ndarray]):
         survived=sum(bool(x["survived"]) for x in records)
         low,high=wilson_95(finished,n)
         traverse_lo,traverse_hi=wilson_95(counts["traversed_5frame"],n)
+        first_contact_x=[x["first_both_foot_body_x_m"] for x in records
+                         if x["first_both_foot_frame"]>=0]
+        first_contact_frames=[x["first_both_foot_frame"] for x in records
+                              if x["first_both_foot_frame"]>=0]
         rows.append(dict(
             kind=kind,level=level,worlds=n,
             requested_step_mm=round(records[0]["exact_step_m"]*1000.,4),
@@ -155,6 +164,10 @@ def reduce_results(trials:list[Trial],result:dict[str,np.ndarray]):
                 [x["actual_grade_deg"] for x in records])),4),
             leading_top=leading,each_foot_top_five=arrived,
             **counts,
+            first_both_foot_x_mean_m=round(float(np.mean(first_contact_x)),4)
+                if first_contact_x else None,
+            first_both_foot_frame_mean=round(float(np.mean(first_contact_frames)),1)
+                if first_contact_frames else None,
             completed_destinations=finished,
             completion_rate=round(finished/n,5) if target else None,
             completion_wilson95_lo=round(low,5) if target else None,
@@ -286,7 +299,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     save_csv(output/"matrix_worlds.csv",detail)
     save_csv(output/"matrix_curve.csv",curves)
     manifest=dict(
-        schema="v5053_true_prism_heterogeneous_matrix_v2",
+        schema="v5053_true_prism_heterogeneous_matrix_v3",
         actor_sha256=hashlib.sha256(policy.read_bytes()).hexdigest(),
         actor_training_source=actor["source"],
         seed=seed,worlds=worlds,assigned_worlds=len(detail),
@@ -314,7 +327,11 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
            "Both-feet contact, continuous traversal and strict stable arrival",
            "are three DIFFERENT physical outcomes. Original strict score is",
            "preserved; traversal does not require a stop or low stance slip.",
-           "The flat control is a real zero-height seam at 0.25m/s.","",
+           "The flat control is a real zero-height seam at 0.25m/s.",
+           "For a truly paired random-reset comparison, use the same 2,048",
+           "world batch and seed in BOTH modes (2,000 active flat trials).",
+           "A 128-world flat batch does not share the same per-world JAX",
+           "random reset keys as a 2,048-world stair batch.","",
            "## Upright stair traversal versus strict arrival","",
            "| Height | Trials | Lead top | Both feet >=5 | Cross after feet | Traversed 5f | Strict stable |",
            "|---:|---:|---:|---:|---:|---:|---:|"]
@@ -325,7 +342,24 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
             f"{x['goal_line_after_both']} | {x['traversed_5frame']} "
             f"({x['traversal_rate']:.1%}) | "
             f"{x['completed_destinations']} ({x['completion_rate']:.1%}) |")
-    lines+=["","## Ordered strict-arrival gates (ever reached within first life)","",
+    lines+=["","## Why didn't the robot traverse or arrive?","",
+            "| Height | Cross (after feet) | 5f upright crossing | 5f also within Y lane | 5f also aligned | X window after feet | X+Y after feet | Mean X at both-feet proof |",
+            "|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    for x in up:
+        first=(f"{x['first_both_foot_x_mean_m']:.3f}m"
+               if x["first_both_foot_x_mean_m"] is not None else "—")
+        lines.append(
+            f"| {x['requested_step_mm']:.1f}mm | {x['goal_line_after_both']} | "
+            f"{x['traversed_upright_5frame']} | "
+            f"{x['traversed_in_lane_5frame']} | "
+            f"{x['traversed_5frame']} | "
+            f"{x['goal_x_window_after_both']} | "
+            f"{x['goal_window_after_both']} | {first} |")
+    lines+=["","The X-only goal window separates **trailing-foot timing**",
+            "from lateral drift. The 5-frame crossing gates separate",
+            "upright physical crossing from lane and heading control.",
+            "Each gate is counted per world in its first life.","",
+            "## Ordered strict-arrival gates (ever reached within first life)","",
             "| Height | Goal line | After both feet | Inside goal window | Heading | Upright/support/contact | Also low slip | Five stable frames |",
             "|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for x in up:
