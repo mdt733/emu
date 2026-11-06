@@ -264,7 +264,7 @@ def forensic(root,arms,source=None):
                     destination_downhill+=int(destination.get("downhill_completed",0))
                     destination_worlds+=len(destination["worlds"])
                     destination_bilateral+=int(
-                        destination["physically_verified_bilateral"])
+                        destination["physically_verified_sequential_feet"])
             elif mode=="flat" and speed>.5:
                 fast_vx += [float(w["achieved_vx_mps"]) for w in d["worlds"]
                             if w.get("achieved_vx_mps") is not None]
