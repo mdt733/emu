@@ -118,3 +118,27 @@ Set `--steps` above the actual parent step (80,019,456), e.g. a small
 acceptance continuation first. Supply a complete, matching set of
 v5052 task/sensor/solver settings. Prefer `--plan` and
 `--check-resume-only` before spending GPU time.
+
+## One comparison, then retire the fork
+
+The `science_step_finish_on_transfer` switch is a **temporary A/B gate**,
+not an entitlement to keep every historical behaviour alive forever.
+After one matched frozen-`01_goal` fork continuation (new early-finish
+teacher vs original strict park-and-hold, same parent, seed and PPO budget):
+
+1. Keep the approach that demonstrably improves **independent** v5053
+   step-through success without unacceptable falls or regression on flat
+   walking. A higher in-training success counter by itself is insufficient.
+2. Remove the losing branch from `environment.py`, its CLI/TrainingConfig
+   switch, unused teacher state and reward logic, obsolete `step_goal.py`
+   helpers and any now-redundant test assertions. The maintained suite
+   remains at **24**, preferably smaller as contracts consolidate.
+3. Keep exactly one active `emu train` path. Preserve the immutable
+   comparison SHA, final results and the evaluator; delete experimental
+   launchers rather than accumulating `v5055` wrappers.
+4. If early-finish loses, remove *its* feature entirely and retain the
+   existing successful/strict task unchanged.
+
+No second broad tournament is required to decide whether the early
+success-reset mechanism itself works.
+
