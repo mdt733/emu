@@ -2061,6 +2061,12 @@ class EmuMJXEnv(TaskSampler):
                                            state.focus_id,-1).astype(jnp.float32),
             'episode_command_quality': ep_command_quality_sum/jnp.maximum(ep_len,1.),
             'episode_length': ep_len,
+            # A genuinely completed early stair task is an absorbing
+            # SUCCESS, not an early survival failure. Keep actual episode
+            # length honest; only the governor's competence denominator
+            # receives the equivalent successful 350-frame credit.
+            'episode_competence_length':jnp.where(
+                academy['finish_new'],jnp.maximum(ep_len,350.),ep_len),
             'episode_return': ep_return,
             'episode_fell': terminal_fail.astype(jnp.float32),
             'episode_timeout': timeout.astype(jnp.float32),
