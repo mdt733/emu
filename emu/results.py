@@ -877,8 +877,8 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             metrics.get('academy_goal_complete_new',0.)).sum()),
         'academy_goal_remaining_m_mean': mean_metric(
             metrics,'academy_goal_remaining_m'),
-        'academy_goal_transfer_ready_frac': mean_metric(
-            metrics,'academy_goal_bilateral_ready'),
+        'academy_goal_sequential_feet_ready_frac': mean_metric(
+            metrics,'academy_goal_sequential_feet_ready'),
         'academy_goal_progress_reward_per_frame': mean_metric(
             metrics,'reward_weighted_goal_progress'),
         'academy_clearances': float(np.asarray(
