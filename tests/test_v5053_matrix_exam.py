@@ -108,17 +108,18 @@ class MatrixExamTests(unittest.TestCase):
             solver_iterations=2,solver_ls_iterations=4,
             exam_fixture_steps_m=np.array([0.,.0025,.02,-.05]),
             exam_fixture_grades_deg=np.array([0.,0.,0.,0.]))
-        task=env.params_array(dict(specialist_mix=0.,
+        teacher=dict(specialist_mix=0.,
             regime_frac_steady=1.,regime_frac_transition=0.,
             regime_frac_resilience=0.,
             probe_cmd_vx=0.,probe_cmd_vy=0.,probe_cmd_yaw=0.,
             probe_push_n=0.,probe_tilt_rad=0.,
             probe_linvel_mps=0.,probe_angvel_rad_s=0.,
-            probe_joint_rad=0.,academy_episode_probability=0.))
+            probe_joint_rad=0.,academy_episode_probability=0.)
+        task=env.params_array(teacher)
         trainer=make_trainer(env,seed=1701,lr=PPO_LR,rollout=ROLLOUT_STEPS,
             epochs=1,minibatches=1,
             entropy_cost=PPO_ENTROPY_COST,value_cost=PPO_VALUE_COST)
-        init=trainer["make_initial_state"](task)
+        init=trainer["make_initial_state"](teacher)
         out=trainer["evaluate_matrix"](
             init.params,task,jnp.zeros((360,),dtype=jnp.float32),
             jnp.ones((360,),dtype=jnp.float32),
