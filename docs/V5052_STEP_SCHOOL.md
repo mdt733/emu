@@ -12,9 +12,11 @@ ever supplied a particular exact-height wall.
 
 The working hypothesis is that teaching a *velocity-tracking general walker*
 across occasional signed height changes is not sufficiently focused to learn
-the support transfer and continuation sequence. This study tests **goal-like
-progress shaping, step-specific speed-tracking relief, reward-side physical
-contact guidance, low-speed phase freedom and higher stair exposure**.
+the support transfer and continuation sequence. This study now tests a
+**fixed goal 60cm beyond the first physical step**, separate control of
+stair-speed tracking, genuine foothold/transfer guidance, gait-phase freedom,
+and increased Academy exposure. Success is a one-time physical goal event,
+not merely reaching a new tile or collecting velocity reward.
 
 The papers that motivate these hypotheses are:
 - [Siekmann et al., 2021, Cassie blind stair traversal](https://roboticsproceedings.org/rss17/p061.html):
@@ -26,21 +28,51 @@ The papers that motivate these hypotheses are:
 - [van Marum et al., IROS 2024, robust standing/walking](https://arxiv.org/abs/2404.19173):
   minimally constrained reward design and explicit physical comparison.
 
-**Important scope:** this is our deliberately *small first falsification
-study*, not a claim of implementing those papers in full. We retain the
-360-input current actor, 4×4 ToF and existing critic. The v5052
-`--science-step-goal-weight` rewards **signed reduction in distance to the
-centre of the next real 75cm physical tile**, not instantaneous forward
-speed. The teacher-only target advances when a new tile has true-prism
-verified support. The actor gets no privileged target coordinate or new
-observation fields; it still sees only its 360 inputs and ordinary motion
-command. This is a geometrically defined Academy subgoal, not an external
-operator waypoint or a guaranteed exact-height riser.
-Likewise `--science-step-velocity-relief` reduces **forward** speed pressure
-only during Academy; it preserves yaw/lateral/pitch/large-overspeed penalties.
-Neither is an asymmetric critic or privileged policy input. A true
-fixed-distance single-riser destination episode and privileged-critic
-teacher/student are separate larger experiments.
+**New actual destination task (v2):** at every Academy episode birth,
+the teacher calculates a fixed target **0.60m after the next +X 75cm
+physical tile seam**, keeping the birth Y coordinate. With the shared
+near-lip spawn 0.22m before the seam, the robot has to cover roughly
+0.82m to arrive. The 360-input actor sees no privileged world coordinates
+or height fields: it still receives ordinary forward commands and real
+4×4 ToF/flow observations.
+
+- Every frame earns a **signed change in actual Euclidean distance**
+  to that same target, with bounded amplitude, upright/contact/low-slip
+  conditions for **positive** credit. Backtracking is penalised even
+  when unsupported, preventing bounce/retreat payment farming.
+- **Arrival success** is NOT just reaching the coordinate. The trainee
+  must (1) earn five-frame verified real-prism top support after crossing
+  the **first target tile**, (2) arrive within 7cm longitudinally and
+  12cm laterally, (3) remain heading-aligned within 0.35rad, and
+  (4) maintain upright supported low-slip balance for five consecutive
+  frames. It gets one terminal bonus and a clean goal-completion episode,
+  never a second bonus from the same birth.
+- Academy goals at normal configured `--science-step-goal-weight 0`
+  are **disabled**, so the unchanged control and velocity-relief-only
+  treatment cannot secretly obtain new success rewards.
+- The combined goal+relief arms use **100% Academy-only forward velocity
+  tracking relief**: they can stop, lean, transfer and climb without
+  having to maintain a fixed metres/second target. Yaw, lateral and
+  pitch tracking, safety and large overspeed constraints remain.
+  The 02 relief-only arm deliberately retains its 80% relief ablation.
+- PPO differentiates **successful absorbing termination**, genuine
+  physical falls and ordinary time-limit truncation. Success has
+  zero terminal-value bootstrap; timeout still bootstraps. Source
+  provenance and checkpoint schema prevent mixing prior versions.
+- Only true FIRST tile bilateral transfer counts toward goal credit;
+  contact with a later unrelated lip cannot unlock the first target.
+  Training geometry is still the actual dynamic eight-prism world,
+  not a guaranteed exact-height riser.
+
+**Scientific limitation:** the goal is fixed relative to the first physical
+seam in the world-frame +X direction, but does not introduce operator
+waypoint commands or an asymmetric critic. This is an explicit
+destination-based **Academy lesson**, not arbitrary field navigation.
+Some procedurally encountered lips are downhill; the independent
+exam reports signed rise and separates uphill from downhill completion.
+No matter what the terminal reward says, the independent examiner
+must reproduce destination arrival from raw first-life prism contacts
+and motion rather than trusting the teacher's completion flag.
 
 ## Registered 320M PPO study
 
@@ -63,9 +95,9 @@ at 80M absolute age (40 + 7×40 = **320M newly trained** world steps):
 | Arm | Independent question |
 |---|---|
 | `00_control` | Does earlier consistent stair exposure alone improve outcomes? |
-| `01_goal` | Will modest supported forward-progress shaping (0.30/frame cap) help? |
+| `01_goal` | Can a fixed 60cm destination and signed distance reduction improve first-step recovery? |
 | `02_relief` | Can temporarily relaxing Academy-only vx matching allow leg transfer? |
-| `03_goal_relief` | Is the combination necessary? Both single factors have controls |
+| `03_goal_relief` | Does fixed destination + removal of stair vx-pressure work better than either alone? |
 | `04_contact_teacher` | Does true-prism reward-side foothold/transfer guidance help beyond the combination? |
 | `05_phase_freedom` | Does slowing low-command phase and removing phase-sync *reward* improve the combination? The phase input still exists |
 | `06_dense_school` | Does denser Academy allocation improve the combination? No new physics |
@@ -91,6 +123,13 @@ by default:
   **+0.12m/s and +0.30m/s** commanded approach.
 
 These are **procedural physical sampling frontiers, NOT exact risers**.
+Two *different* physical outcomes are always distinguished:
+(1) historical 50cm of additional travel after two-foot recovery, and
+(2) NEW fixed-goal arrival 60cm beyond the initial seam, including five
+stable frames and first-lip bilateral recovery. The latter is the direct
+v5052 stair objective and is independently re-scored without teacher
+reward flags; the former is useful as a tougher post-contact retention
+test. Uphill and downhill v5052 arrivals are counted separately.
 For every verified signed prism top contact, the report separately counts:
 1. Actual uphill contact height >= 1cm, 2cm and 3cm;
 2. Confirmed five-frame simultaneous top support by both feet;
@@ -173,7 +212,7 @@ python -m scripts.v5052_step_school --stage all
 ```
 
 All results are under
-`~/emu-data/runs/v5052-step-school-s735/`. Stages resume or skip verified
+`~/emu-data/runs/v5052-fixed-destination-v2-s735/`. Stages resume or skip verified
 completed checkpoints; a partial arm always resumes its **own** checkpoint
 rather than restarting from the parent. Do not change Git SHA once training
 starts.
