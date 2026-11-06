@@ -439,6 +439,13 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
                 run_cfg, "science_sensor_teacher_bonus",0.),
             "science_followthrough_bonus": _scalar(
                 run_cfg, "science_followthrough_bonus",0.),
+            # v5052 deployment provenance; 360 actor remains unchanged.
+            "science_step_goal_weight": _scalar(
+                run_cfg, "science_step_goal_weight",0.),
+            "science_step_velocity_relief": _scalar(
+                run_cfg, "science_step_velocity_relief",0.),
+            "science_step_approach_m": _scalar(
+                run_cfg, "science_step_approach_m",0.),
             "carpet_transition_cap_deg": _scalar(
                 run_cfg, 'carpet_transition_cap_deg', 3.0),
             "academy_stream": bool(run_cfg.get('academy_stream', False)),
