@@ -2079,7 +2079,11 @@ class EmuMJXEnv(TaskSampler):
                 (jnp.mod(academy['lip_index'],4)==0)
             ).astype(jnp.float32),
             'academy_cross_up':academy['up_new'].astype(jnp.float32),
-            'academy_lip_attempt_new':academy['attempt_new'].astype(jnp.float32),
+            'academy_lip_attempt_new':jnp.where(
+                self.science_step_finish_on_transfer,
+                done & state.academy_active &
+                (jnp.abs(state.academy_birth_lip_m)>.0015),
+                academy['attempt_new']).astype(jnp.float32),
             **{f'academy_{band}_{outcome}_{direction}':
                 (band_mask & verdict &
                  direction_mask).astype(jnp.float32)
@@ -2121,9 +2125,11 @@ class EmuMJXEnv(TaskSampler):
             'academy_goal_sequential_feet_ready':(
                 stepped.academy_goal_transfer_ready).astype(jnp.float32),
             'academy_episode_attempt':(done & state.academy_active).astype(jnp.float32),
-            'academy_episode_complete':(done & ~terminal_fail &
-                                         state.academy_active &
-                                         (academy['crossings']>0)).astype(jnp.float32),
+            'academy_episode_complete':jnp.where(
+                self.science_step_finish_on_transfer,
+                academy['finish_new'],
+                done & ~terminal_fail & state.academy_active &
+                (academy['crossings']>0)).astype(jnp.float32),
             'academy_episode_crossings':jnp.where(done,
                  academy['crossings'].astype(jnp.float32),0.),
             'academy_episode_up_crossings':jnp.where(done,
