@@ -238,7 +238,6 @@ def inspect_destinations(frames):
             first_lip_actual_height_cm=signed,
             first_lip_each_foot_verified=all(seen),
             independent_foot_contact_frames=5,
-            first_lip_simultaneous_bilateral_verified=False,
             first_lip_sequential_ready_frame=ready_frame,
             closest_to_goal_m=(round(closest,4) if closest is not None else None),
             stable_arrival=arrived_frame is not None,
