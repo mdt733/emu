@@ -111,3 +111,80 @@ then examine their immutable exported `.emupolicy` bundles here.
 The goal is a fair, source-grounded physics screen. It is not yet
 integrated into the four-panel periodic training evaluator: that change
 requires on-GPU throughput, physical agreement, and memory benchmarks.
+
+
+## v5053 follow-up — what does the stair screen actually prove?
+
+The 80M-step `01_goal` actor's first full GPU screen (2,000 trials,
+2.5–50mm uphill) recorded **1,358/2,000 independently verified both-foot
+top contacts** but only **8/2,000 strict stable destinations**. The original
+report cannot tell whether those robots traversed the step then walked
+past a narrow arrival window, or never reached the destination in a safe
+state.
+
+This revision preserves the **original** strict score and adds independent
+first-life physical stages to the SAME JIT GPU rollout:
+
+- `goal_line_crossed`: upright first-life robot's centre passes the
+  downstream X=1.35m line, **before** requiring both-feet proof;
+- `goal_line_after_both`: passes it after each foot has independently
+  sustained 5 frames of actual top-prism contact;
+- `traversed_5frame`: after both contacts, remains upright, clean-contact,
+  aligned (|heading| <=0.35 rad) and in the lateral corridor for five
+  *consecutive* frames **beyond the downstream line**, without requiring
+  a stop or low stance-slip proxy. This is an intentional
+  *walk-through* criterion, not the original strict stable arrival;
+- `goal_window_after_both`, `goal_window_aligned`,
+  `goal_window_safe_except_slip`, `goal_window_all_gates`:
+  ordered *same-frame* strict arrival gate funnel, before the original
+  5-frame stable-completion requirement.
+
+The per-world CSV contains every stage; the Markdown result includes both
+curves and ordered gate totals. `traversed_5frame` is not a claim of fully
+robust multi-step locomotion, and sequential top contacts are not
+simultaneous double stance.
+
+### Matched flat-terrain control
+
+`--mode flat` is an actual **0.0mm** signed lip at the same X seam, with
+the same constant **+0.25m/s** command, goal and test gates as
+`--mode stairs`. It runs one difficulty level by definition (100 default
+trials; unused worlds are labelled padding). It is deliberately NOT an
+extra 11th family in the balanced capability matrix.
+
+Using the **existing worktree** and frozen v5052 policy:
+
+```bash
+cd ~/emu
+git fetch origin +refs/heads/research/v5053-capability-matrix:refs/remotes/origin/research/v5053-capability-matrix
+cd ~/emu-v5053-matrix
+git status --short
+git switch --detach refs/remotes/origin/research/v5053-capability-matrix
+
+source ~/emu/.venv/bin/activate
+export PYTHONPATH="$PWD"
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+
+# Paired 0mm control (same first 100 world seeds as the stair run)
+python -m scripts.v5053_matrix_exam \
+  --policy ~/emu-data/actors/v5052_01_goal.emupolicy \
+  --output ~/emu-data/exams/v5053-goal-flat-diagnostic-s1701 \
+  --device cuda --mode flat --worlds 128 --horizon 350 --seed 1701
+
+# Twenty exact heights x 100 attempts, no PPO steps
+python -m scripts.v5053_matrix_exam \
+  --policy ~/emu-data/actors/v5052_01_goal.emupolicy \
+  --output ~/emu-data/exams/v5053-goal-stairs-diagnostic-s1701 \
+  --device cuda --mode stairs --worlds 2048 --horizon 350 --seed 1701
+```
+
+**Do not merge to main or resume a v5052 PPO checkpoint against this exam
+branch.** The original exporter, original strict definition and training
+source are unchanged. Do not overwrite previous output folders.
+
+If the flat control almost never passes the strict score but frequently
+passes the traversal score, focus on arrival scoring / idle motion.
+If both scores fail even on zero lip, investigate the goal geometry,
+heading/pose or sensor/command pipeline before starting further training.
+If traversal degrades smoothly with height, the physical height frontier
+and post-contact recovery are genuinely limiting.
