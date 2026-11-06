@@ -307,6 +307,9 @@ def format_line(version: str, step: int, reward: float, row: dict[str, float], r
                     f"/{int(row.get('academy_episodes',0))}"
                     f" foothold={int(row.get('academy_footholds',0))}"
                     f" transfer={int(row.get('academy_transfers',0))}"
+                    f" climbs={int(row.get('academy_short_climb_successes',0))}"
+                    f" frontier_up/down={100*report.get('academy_height_up_m',0):.1f}/"
+                    f"{100*report.get('academy_height_down_m',0):.1f}cm"
                     f" actual/asked={100*row.get('academy_active_fraction',0):.0f}%/"
                     f"{100*row.get('academy_expected_birth_fraction',0):.0f}%")
         return line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5 + "\n" + line6
