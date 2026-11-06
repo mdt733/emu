@@ -15,6 +15,9 @@ from urllib.parse import unquote
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+# Two dozen core test cases maximum. Keep high-value physical acceptance
+# independent rather than growing a permanent test-per-experiment archive.
+CORE_TEST_LIMIT = 24
 MARKDOWN_LINK = re.compile(r'!?\[[^\]]*\]\(([^)]+)\)')
 
 # Keep this short on purpose: one explicit owner for each Python runtime
@@ -141,9 +144,21 @@ def inventory(root: Path = REPO_ROOT) -> dict:
         lines[name] = len(source.splitlines())
 
     script_users: dict[str, list[str]] = {name: [] for name in local}
+    test_cases: list[str] = []
+    expanded_test_operators: list[str] = []
     for directory in ("scripts", "tests"):
         for path in (root / directory).glob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            if directory == "tests":
+                for node in ast.walk(tree):
+                    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name.startswith("test_"):
+                        test_cases.append(f"{path.name}::{node.name}")
+                    # A parametrized test or implicit unittest subTest
+                    # would evade the plain test-method count. Fail closed
+                    # until its generated cases are accounted explicitly.
+                    if isinstance(node, ast.Attribute) and node.attr in ("parametrize", "subTest"):
+                        expanded_test_operators.append(
+                            f"{path.name}:{node.lineno}:{node.attr}")
             broken = missing_emu_modules(tree, owner=directory, available=local)
             if broken:
                 broken_imports[path.relative_to(root).as_posix()] = broken
@@ -157,6 +172,14 @@ def inventory(root: Path = REPO_ROOT) -> dict:
     # IMPORTANT: these are *review candidates*, NOT proven dead modules.
     review_only = sorted(local - source_used - test_or_script_used)
     return {
+        "core_test_budget": {
+            "limit": CORE_TEST_LIMIT,
+            "cases": len(test_cases),
+            "files": len(tuple((root / "tests").glob("test_*.py"))),
+            "within_budget": len(test_cases) <= CORE_TEST_LIMIT and not expanded_test_operators,
+            "untracked_expansions": sorted(expanded_test_operators),
+            "names": sorted(test_cases),
+        },
         "backend_module_count": len(modules),
         "backend_python_lines": sum(lines.values()),
         "browser_javascript_files": sum(
@@ -219,6 +242,11 @@ def markdown(data: dict) -> str:
         f"browser JS/TS files: {data['browser_javascript_files']}; "
         f"docs pages: {data['documentation_pages']}.",
         "",
+        "Test budget: "
+        f"{data['core_test_budget']['cases']}/{data['core_test_budget']['limit']} "
+        f"cases in {data['core_test_budget']['files']} files; "
+        f"untracked expanded cases: {len(data['core_test_budget']['untracked_expansions'])}.",
+        "",
         "## Stages", "",
     ]
     for name, modules in data["stage_reachable"].items():
@@ -252,7 +280,8 @@ def main(argv: list[str] | None = None) -> int:
           else markdown(data), end="")
     return int(bool(data["missing_emu_module_imports"]) or
                bool(data["broken_markdown_links"]) or
-               any(data["ownership_errors"].values()))
+               any(data["ownership_errors"].values()) or
+               not data["core_test_budget"]["within_budget"])
 
 
 if __name__ == "__main__":
