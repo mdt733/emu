@@ -197,13 +197,13 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     # A successful instant stair finish is NOT a 40-frame fall. The
     # 350-frame equivalent is used solely for governor competence, while
     # truthful episode lengths remain available in the report.
-    succeeded = RegimeGovernor()
+    succeeded = RegimeGovernor(unified_capability_focus=True)
     corrected=succeeded.update(dict(
         fall_rate=0.,episodes=1.,ep_len_mean=40.,
         core_fall_rate=0.,core_ep_len_mean=40.,
         core_ep_len_competence_mean=350.))
     assert corrected["core_competence"]==pytest.approx(1.)
-    uncorrected=RegimeGovernor()
+    uncorrected=RegimeGovernor(unified_capability_focus=True)
     old=uncorrected.update(dict(
         fall_rate=0.,episodes=1.,ep_len_mean=40.,
         core_fall_rate=0.,core_ep_len_mean=40.))
