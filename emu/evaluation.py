@@ -125,6 +125,8 @@ def _world(config: TrainingConfig, *, seed_offset: int, limits: tuple[float, flo
         science_bilateral_support_bonus=config.science_bilateral_support_bonus,
         science_sensor_teacher_bonus=config.science_sensor_teacher_bonus,
         science_followthrough_bonus=config.science_followthrough_bonus,
+        science_step_goal_weight=config.science_step_goal_weight,
+        science_step_velocity_relief=config.science_step_velocity_relief,
         combo_mix_frac=combo_mix, combo_probe_frac=0.0,
     )
     from .training_config import training_sensor_contract
