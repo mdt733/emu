@@ -943,7 +943,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
 
     def evaluate_matrix(params, curriculum_params, obs_mean, obs_std,
-                        world_commands, eval_key, horizon):
+                        world_commands, target_mask, eval_key, horizon):
         """Read-only heterogeneous 2048-world physical capability screen.
 
         One shared REAL eight-prism MJX batch / frozen actor. Each world
@@ -958,6 +958,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         commands=jnp.asarray(world_commands,dtype=jnp.float32)
         if commands.shape!=(env.num_envs,3):
             raise ValueError("matrix commands require [worlds,3]")
+        target_mask=jnp.asarray(target_mask,dtype=jnp.bool_)
+        if target_mask.shape!=(env.num_envs,):
+            raise ValueError("matrix target mask requires [worlds]")
         if env.exam_fixture_steps is None:
             raise ValueError("matrix evaluator requires an exact physical fixture")
 
@@ -992,7 +995,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             (es,live,fall_frame,lead_seen,foot_streak,feet_seen,
              stable_streak,complete,best_progress,valid_frames,
              speed_error,yaw_error,support_sum,gravity_sum,
-             lateral_sum,still_motion)=carry
+             lateral_sum,still_motion,traverse_streak,traversed,
+             goal_line,goal_line_both,goal_window_both,
+             goal_window_heading,goal_window_safe,goal_window_all)=carry
             # Maintain *different* operator instructions in the same
             # JAX program; bypass random command resampling without
             # changing the actual deployable observation format.
@@ -1045,25 +1050,45 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                        (feet[:,:,0] < 2.*TILE_M) &
                        (feet[:,:,1]>=0.) & (feet[:,:,1]<TILE_M))
             valid_feet=top_feet & in_target & healthy[:,None]
-            step_world=jnp.abs(env.exam_fixture_steps)>.0001
-            lead_seen=lead_seen | (step_world & jnp.any(
+            lead_seen=lead_seen | (target_mask & jnp.any(
                 valid_feet,axis=1))
             foot_streak=jnp.where(valid_feet,foot_streak+1,0)
             feet_seen=feet_seen | (
-                (foot_streak>=5) & step_world[:,None])
+                (foot_streak>=5) & target_mask[:,None])
             # Two feet must EACH be independently confirmed; no requirement
             # that a tippy-tap biped ever achieves simultaneous double stance.
             aligned=jnp.abs(jnp.arctan2(
                 jnp.sin(m['physical_heading_rad_after_step']),
                 jnp.cos(m['physical_heading_rad_after_step'])))<=.35
-            near_goal=(jnp.abs(xy[:,0]-(TILE_M+.60))<=.07) & (
-                jnp.abs(xy[:,1]-.375)<=.12)
-            safe=(m['gravity_z']>=.80)&(m['support']>=.5)&(
-                m['bad_contact']<.5)&(m['exam_stance_slip_proxy']<=.08)
-            qualified=healthy & step_world & jnp.all(feet_seen,axis=1)&(
-                aligned & near_goal & safe)
+            y_near=jnp.abs(xy[:,1]-.375)<=.12
+            beyond=xy[:,0]>=(TILE_M+.60)
+            near_goal=(jnp.abs(xy[:,0]-(TILE_M+.60))<=.07)&y_near
+            upright=(m['gravity_z']>=.80)
+            clean_contact=(m['bad_contact']<.5)
+            supported=(m['support']>=.5)
+            low_slip=(m['exam_stance_slip_proxy']<=.08)
+            feet_ready=healthy & target_mask & jnp.all(feet_seen,axis=1)
+            # Ordered same-frame gates; an ongoing gait need not stop
+            # within the narrow strict destination window.
+            goal_line=goal_line | (healthy & target_mask & beyond)
+            goal_line_both=goal_line_both | (feet_ready & beyond)
+            window=feet_ready & near_goal
+            goal_window_both=goal_window_both | window
+            headed=window & aligned
+            goal_window_heading=goal_window_heading | headed
+            safe_without_slip=headed & upright & supported & clean_contact
+            goal_window_safe=goal_window_safe | safe_without_slip
+            qualified=safe_without_slip & low_slip
+            goal_window_all=goal_window_all | qualified
             stable_streak=jnp.where(qualified,stable_streak+1,0)
             complete=complete | (stable_streak>=5)
+            # Traversal: genuine sustained top contact on EACH foot,
+            # followed by 5 frames beyond +60cm, upright and aligned.
+            # Dynamic stance slip is allowed; this is not a stop test.
+            traverse_ok=feet_ready & beyond & y_near & aligned & (
+                upright & clean_contact)
+            traverse_streak=jnp.where(traverse_ok,traverse_streak+1,0)
+            traversed=traversed | (traverse_streak>=5)
             live_next=live & ~(out.done>.5)
             valid_frames=valid_frames+live.astype(jnp.int32)
             w=live.astype(jnp.float32)
@@ -1077,14 +1102,21 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             return (out.state,live_next,fall_frame,lead_seen,
                     foot_streak,feet_seen,stable_streak,complete,
                     best_progress,valid_frames,speed_error,yaw_error,
-                    support_sum,gravity_sum,lateral_sum,still_motion)
+                    support_sum,gravity_sum,lateral_sum,still_motion,
+                    traverse_streak,traversed,goal_line,goal_line_both,
+                    goal_window_both,goal_window_heading,
+                    goal_window_safe,goal_window_all)
 
         finished=jax.lax.fori_loop(0,horizon,frame_step,(
             es0,jnp.ones((n,),dtype=jnp.bool_),
             jnp.full((n,),-1,jnp.int32),false,zeros_feet,false_feet,
-            zero_i,false,zero,zero_i,zero,zero,zero,zero,zero,zero))
+            zero_i,false,zero,zero_i,zero,zero,zero,zero,zero,zero,
+            zero_i,false,false,false,false,false,false,false))
         (_,live,fall,lead,streak,seen,arrival,complete,progress,
-         frames,speed_err,yaw_err,support,gravity,lateral,still)=finished
+         frames,speed_err,yaw_err,support,gravity,lateral,still,
+         traverse_streak,traversed,goal_line,goal_line_both,
+         goal_window_both,goal_window_heading,
+         goal_window_safe,goal_window_all)=finished
         denom=jnp.maximum(frames,1).astype(jnp.float32)
         return dict(
             actual_lip_m=measured_lip,actual_grade_deg=measured_grade,
@@ -1093,6 +1125,13 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             foot0_top_five=seen[:,0],foot1_top_five=seen[:,1],
             both_feet_top_five=jnp.all(seen,axis=1),
             completed_destination=complete,
+            traversed_5frame=traversed,
+            goal_line_crossed=goal_line,
+            goal_line_after_both=goal_line_both,
+            goal_window_after_both=goal_window_both,
+            goal_window_aligned=goal_window_heading,
+            goal_window_safe_except_slip=goal_window_safe,
+            goal_window_all_gates=goal_window_all,
             best_forward_progress_m=progress,
             speed_mae_mps=speed_err/denom,
             lateral_mae_mps=lateral/denom,
@@ -1102,7 +1141,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             still_motion_mps=still/denom,
         )
 
-    evaluate_matrix=jax.jit(evaluate_matrix,static_argnums=(6,))
+    evaluate_matrix=jax.jit(evaluate_matrix,static_argnums=(7,))
 
     # Trace length, heading gain and sensor-delay queue have fixed JAX
     # specializations. Bias/noise are dynamic data and cannot stale-cache.
