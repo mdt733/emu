@@ -239,6 +239,8 @@ def forensic(root,arms,source=None):
             continue
         events=[]
         destination_count=0
+        destination_uphill=0
+        destination_downhill=0
         destination_worlds=0
         destination_bilateral=0
         by_verdict=Counter()
@@ -258,6 +260,8 @@ def forensic(root,arms,source=None):
                 destination=d.get("destination_autopsy")
                 if destination is not None:
                     destination_count+=int(destination["completed_missions"])
+                    destination_uphill+=int(destination.get("uphill_completed",0))
+                    destination_downhill+=int(destination.get("downhill_completed",0))
                     destination_worlds+=len(destination["worlds"])
                     destination_bilateral+=int(
                         destination["physically_verified_bilateral"])
@@ -295,6 +299,8 @@ def forensic(root,arms,source=None):
             progress_ge_50cm=at_least([e["post_contact_progress_m"] for e in events],.50),
             complete=sum(bool(e["complete"]) for e in events),
             destination_complete=destination_count,
+            destination_uphill=destination_uphill,
+            destination_downhill=destination_downhill,
             destination_worlds=destination_worlds,
             destination_bilateral=destination_bilateral,
             failure_breakdown=dict(by_verdict),
@@ -310,8 +316,9 @@ def forensic(root,arms,source=None):
         out.write_text(json.dumps(dict(arms=result),indent=2)+"\n")
         cols=["Arm","All signed contacts","UP ≥1cm","UP ≥2cm",
               "UP ≥1cm bilateral","UP ≥1cm +15cm","UP ≥1cm +30cm",
-              "UP ≥1cm complete","Fixed-goal / worlds",
-              "Fast vx","Fast survival","Zero-cmd footfalls/s"]
+              "UP ≥1cm complete","Goal UP","Goal DOWN",
+              "Fixed-goal / worlds","Fast vx","Fast survival",
+              "Zero-cmd footfalls/s"]
         md=["# v5052: physical climb failure-stage autopsy","",
             "A completed mission needs five-frame bilateral top support and "
             "50cm heading-controlled follow-through. Positive foothold "
@@ -327,6 +334,7 @@ def forensic(root,arms,source=None):
                 x["uphill_ge_1cm_progress_15cm"],
                 x["uphill_ge_1cm_progress_30cm"],
                 x["uphill_ge_1cm_complete"],
+                x["destination_uphill"],x["destination_downhill"],
                 f'{x["destination_complete"]}/{x["destination_worlds"]}',
                 x["fast_vx"],x["fast_survival"],
                 x["still_footfalls_hz"]]))+" |")
