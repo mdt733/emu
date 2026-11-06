@@ -1915,29 +1915,38 @@ class EmuMJXEnv(TaskSampler):
         ep_command_quality_sum = stepped.ep_command_quality_sum
         terrain_crossed = stepped.terrain_crossed
         terrain_cross_new = academy['ordinary_step_new']
+        # Preserve the signed first encounter until the episode closes:
+        # a success at frame 200 must not vanish at frame 700 timeout.
+        ordinary_lip=stepped.terrain_attempt_lip_m
         terrain_active=(state.specialist_active &
             (state.focus_id==STEP) & ~state.academy_active &
-            (jnp.abs(academy['height_m'])>.0015))
+            (jnp.abs(ordinary_lip)>.0015))
         # Near/easy support evidence uses the actual signed step size.
         # Ascents and descents are independently measured against their OWN
         # learned frontier. Late 150%-challenge lips cannot fake promotion.
         academy_up_ref=params[P.academy_height_up_m]
         academy_down_ref=params[P.academy_height_down_m]
-        academy_ref=jnp.where(academy['height_m']>0.,academy_up_ref,academy_down_ref)
+        # Early-finish Academy: one measured first-seam challenge per birth.
+        # Legacy Academy: retain the exact lip at success or failed approach.
+        academy_verdict_height=jnp.where(
+            self.science_step_finish_on_transfer,
+            state.academy_birth_lip_m,academy['verdict_height_m'])
+        academy_ref=jnp.where(
+            academy_verdict_height>0.,academy_up_ref,academy_down_ref)
         academy_ref=jnp.where(
             jnp.isfinite(params[P.terrain_fixed_height_m]),
             jnp.abs(params[P.terrain_fixed_height_m]),academy_ref)
-        academy_relative_height=(jnp.abs(academy['height_m']) /
+        academy_relative_height=(jnp.abs(academy_verdict_height) /
                                  jnp.maximum(academy_ref,.001))
         academy_near=((academy_relative_height>=.78) &
                       (academy_relative_height<=1.05))
         academy_easy=((academy_relative_height>=.36) &
                       (academy_relative_height<.68))
-        terrain_up=terrain_active & (academy['height_m']>0.)
-        terrain_down=terrain_active & (academy['height_m']<0.)
+        terrain_up=terrain_active & (ordinary_lip>0.)
+        terrain_down=terrain_active & (ordinary_lip<0.)
         # Step severity is measured from physical shared-edge contacts,
         # never the teacher's requested lip height or a retired slab.
-        physical_height=jnp.abs(academy['height_m'])
+        physical_height=jnp.abs(ordinary_lip)
         ratio=physical_height/jnp.maximum(params[P.terrain_height_m],.0001)
         step_near=terrain_active & (ratio>=.78) & (ratio<=1.05)
         step_easy=terrain_active & (ratio>=.36) & (ratio<.68)
@@ -2061,6 +2070,8 @@ class EmuMJXEnv(TaskSampler):
             'academy_active':state.academy_active.astype(jnp.float32),
             'academy_lip_index':academy['lip_index'].astype(jnp.float32),
             'academy_lip_height_m':academy['height_m'],
+            'academy_verdict_lip_height_m':academy_verdict_height,
+            'academy_finish_new':academy['finish_new'].astype(jnp.float32),
             'academy_cross_new':academy['cross_new'].astype(jnp.float32),
             # A four-crossing milestone, not a terminal course completion.
             'academy_course_new':(
@@ -2075,11 +2086,17 @@ class EmuMJXEnv(TaskSampler):
                 for band,band_mask in (('near',academy_near),
                                        ('easy',academy_easy))
                 for outcome,verdict in (
-                    ('attempts',academy['attempt_new']),
-                    ('successes',academy['cross_new']))
+                    ('attempts',jnp.where(
+                        self.science_step_finish_on_transfer,
+                        done & state.academy_active &
+                        (jnp.abs(state.academy_birth_lip_m)>.0015),
+                        academy['attempt_new'])),
+                    ('successes',jnp.where(
+                        self.science_step_finish_on_transfer,
+                        academy['finish_new'],academy['cross_new'])))
                 for direction,direction_mask in (
-                    ('up',academy['height_m']>.001),
-                    ('down',academy['height_m']<-.001))},
+                    ('up',academy_verdict_height>.0015),
+                    ('down',academy_verdict_height<-.0015))},
             'academy_cross_down':academy['down_new'].astype(jnp.float32),
             'academy_clearance_new':academy['clearance_new'].astype(jnp.float32),
             'academy_foothold_new':academy['foothold_new'].astype(jnp.float32),
