@@ -194,7 +194,7 @@ git rev-parse HEAD
 python -m scripts.v5052_step_school --stage plan
 
 # Small contract tests before the GPU training campaign
-python -m pytest -q tests/test_v5052_step_school.py
+python -m pytest -q tests/test_core_step_goal.py
 
 # Stage 1: 40M cold/common parent (watch balance by ~5M)
 python -m scripts.v5052_step_school --stage parent
