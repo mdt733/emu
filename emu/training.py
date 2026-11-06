@@ -324,6 +324,17 @@ def train(args: TrainingConfig) -> int:
             # erase evidence on later same-source crash recovery.
             ancestor_sha = ((resumed_payload.get('meta', {}).get('source_provenance') or {})
                             .get('git_commit'))
+            # v5054 redefines an Academy success from a single supported
+            # lip to a verified two-foot short climb. Historical near/easy
+            # success windows must NOT survive this new-source fork. Preserve
+            # the learned heights but rebuild evidence; do not clear during
+            # same-source interruption/resume.
+            if (args.science_step_finish_on_transfer and
+                    ancestor_sha != source_provenance_from_env().get('git_commit')):
+                governor.academy_evidence = governor._empty_academy_evidence()
+                governor.terrain_evidence = governor._empty_terrain_evidence()
+                print(f"{LOG_PREFIX} v5054: reset inherited step/Academy evidence "
+                      "(earned height frontiers preserved)",flush=True)
             if (args.science_reset_step_evidence_on_fork and
                     ancestor_sha != source_provenance_from_env().get('git_commit')):
                 governor.terrain_evidence = governor._empty_terrain_evidence()
