@@ -1755,7 +1755,10 @@ class EmuMJXEnv(TaskSampler):
                 jnp,state.academy_goal_xy,data.qpos[:,:2],heading,
                 metrics['gravity_z'],metrics['support'],metrics['bad_contact'],
                 goal_transfer_ready,state.academy_birth_lip_m)
-            short=(short & goal_lip_armed & in_goal_tile &
+            # At least one foot must STILL be physically supported
+            # on the verified upper tile when we declare completion.
+            short=(short & jnp.any(academy['goal_top_feet'],axis=1) &
+                   goal_lip_armed & in_goal_tile &
                    state.academy_active & step_focus &
                    ~terminal_fail & ~timeout &
                    self.science_step_finish_on_transfer)
