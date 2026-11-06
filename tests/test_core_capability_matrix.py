@@ -27,6 +27,10 @@ class MatrixExamTests(unittest.TestCase):
         a=assignments(2048,mode="stairs")
         self.assertEqual(sum(x.kind=="step_up" for x in a),2000)
         self.assertEqual(len({x.level for x in a if x.kind=="step_up"}),20)
+        flat=assignments(128,mode="flat")
+        self.assertEqual(sum(t.kind=="flat_control" for t in flat),100)
+        self.assertTrue(all(t.exact_step_m==0. for t in flat))
+        self.assertTrue(all(t.vx==.25 for t in flat if t.kind=="flat_control"))
         with self.assertRaisesRegex(ValueError,"Need at least"):
             assignments(128)
         with self.assertRaises(ValueError):
@@ -39,6 +43,13 @@ class MatrixExamTests(unittest.TestCase):
             survived=np.array([True,True,False,True]),
             lead_foot_top=np.array([True,True,False,False]),
             both_feet_top_five=np.array([True,False,False,False]),
+            goal_line_crossed=np.array([True,True,False,False]),
+            goal_line_after_both=np.array([True,False,False,False]),
+            goal_window_after_both=np.array([True,False,False,False]),
+            goal_window_aligned=np.array([True,False,False,False]),
+            goal_window_safe_except_slip=np.array([True,False,False,False]),
+            goal_window_all_gates=np.array([True,False,False,False]),
+            traversed_5frame=np.array([True,False,False,False]),
             completed_destination=np.array([True,False,False,False]),
             best_forward_progress_m=np.array([.82,.4,.1,0.]),
             speed_mae_mps=np.zeros(4),
@@ -50,10 +61,21 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(row["leading_top"],2)
         self.assertEqual(row["each_foot_top_five"],1)
         self.assertEqual(row["completed_destinations"],1)
+        self.assertEqual(row["goal_line_crossed"],2)
+        self.assertEqual(row["goal_line_after_both"],1)
+        self.assertEqual(row["traversed_5frame"],1)
+        self.assertAlmostEqual(row["traversal_rate"],1/3,places=4)
         self.assertAlmostEqual(row["completion_rate"],1/3,places=4)
         self.assertLess(row["completion_wilson95_lo"],1/3)
         self.assertGreater(row["completion_wilson95_hi"],1/3)
         self.assertEqual(wilson_95(0,0),(0.,0.))
+        flat_records=assignments(4,mode="flat",trials_per_level=3)
+        flat_result={k:np.array(v,copy=True) for k,v in result.items()}
+        flat_result["actual_lip_m"]=np.zeros(4)
+        _,flat_curve=reduce_results(flat_records,flat_result)
+        self.assertEqual(flat_curve[0]["kind"],"flat_control")
+        self.assertEqual(flat_curve[0]["completed_destinations"],1)
+        self.assertEqual(flat_curve[0]["traversed_5frame"],1)
 
 
     def test_signed_exact_step_and_continuous_grade_geometry(self):
@@ -123,12 +145,16 @@ class MatrixExamTests(unittest.TestCase):
             jnp.ones((360,),dtype=jnp.float32),
             jnp.array([[0.,0.,0.],[.15,0.,0.],[.25,0.,0.],
                        [.25,0.,0.]],dtype=jnp.float32),
+            jnp.asarray([False,True,True,True]),
             jax.random.PRNGKey(1701),3)
         actual=np.asarray(jax.device_get(out["actual_lip_m"]))
         np.testing.assert_allclose(
             actual,[0.,.0025,.02,-.05],atol=.0005)
         self.assertEqual(out["lead_foot_top"].shape,(4,))
         self.assertEqual(out["completed_destination"].shape,(4,))
+        self.assertEqual(out["traversed_5frame"].shape,(4,))
+        self.assertEqual(out["goal_window_safe_except_slip"].shape,(4,))
+        self.assertEqual(out["goal_line_after_both"].shape,(4,))
 
 
 if __name__=="__main__":
