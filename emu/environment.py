@@ -218,6 +218,8 @@ class EnvState(NamedTuple):
     academy_approach_frontier_m: Any  # its difficulty reference at approach time
     terrain_attempt_lip_m: Any  # first ordinary STEP encounter retained to episode end
     terrain_attempt_frontier_m: Any  # frozen severity denominator for that attempt
+    terrain_attempt_tile_xy: Any  # exact first approached target tile ID
+    terrain_first_cross_verified: Any  # success is tied to THAT first tile
     academy_birth_lip_m: Any  # actual FIRST +X seam signed height, sampled at reset
     academy_birth_frontier_m: Any  # earned up/down height WHEN the lip was generated
     academy_finish_streak: Any  # three safe frames after BOTH verified upper feet
@@ -1870,6 +1872,8 @@ class EmuMJXEnv(TaskSampler):
             academy_approach_frontier_m=academy['approach_frontier_m'],
             terrain_attempt_lip_m=academy['terrain_attempt_lip_m'],
             terrain_attempt_frontier_m=academy['terrain_attempt_frontier_m'],
+            terrain_attempt_tile_xy=academy['terrain_attempt_tile_xy'],
+            terrain_first_cross_verified=academy['terrain_first_cross_verified'],
             academy_birth_lip_m=state.academy_birth_lip_m,
             academy_birth_frontier_m=state.academy_birth_frontier_m,
             academy_finish_streak=finish_streak,
@@ -1922,7 +1926,9 @@ class EmuMJXEnv(TaskSampler):
         ep_bad_sum = stepped.ep_bad_sum
         ep_support_sum = stepped.ep_support_sum
         ep_command_quality_sum = stepped.ep_command_quality_sum
-        terrain_crossed = stepped.terrain_crossed
+        # Historical 'any lip crossed' remains a separate contact diagnostic.
+        # Promotion success requires the stored FIRST attempted target tile.
+        terrain_crossed = stepped.terrain_first_cross_verified
         terrain_cross_new = academy['ordinary_step_new']
         # Preserve the signed first encounter until the episode closes:
         # a success at frame 200 must not vanish at frame 700 timeout.
@@ -2951,6 +2957,8 @@ class EmuMJXEnv(TaskSampler):
             academy_approach_frontier_m=zeros,
             terrain_attempt_lip_m=zeros,
             terrain_attempt_frontier_m=zeros,
+            terrain_attempt_tile_xy=jnp.full((self.num_envs,2),-(2**30),dtype=jnp.int32),
+            terrain_first_cross_verified=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_birth_lip_m=birth_lip,
             academy_birth_frontier_m=jnp.where(
                 birth_lip>0.,params[P.academy_height_up_m],
@@ -3285,6 +3293,8 @@ class EmuMJXEnv(TaskSampler):
         terrain_attempt_frontier=jnp.where(
             ordinary_first,params[P.terrain_height_m],
             state.terrain_attempt_frontier_m)
+        attempted_target=jnp.where(
+            ordinary_first[:,None],root,state.terrain_attempt_tile_xy)
         new_foothold=(approached&eligible&~state.academy_foothold_seen)
         # For TRUE two-foot support, each foot must occupy the confirmed
         # new tile, have an authentic upward-facing prism contact, and
@@ -3339,6 +3349,12 @@ class EmuMJXEnv(TaskSampler):
                 10.*(paid&academy_focus&lip).astype(jnp.float32))
         up_new=paid&academy_focus&raised
         down_new=paid&academy_focus&lowered
+        # A later DIFFERENT lip must never certify the first attempted
+        # near-frontier step as successful, even if the episode survives.
+        first_target_paid=(paid & step_focus & ~state.academy_active &
+                           lip & jnp.all(root==attempted_target,axis=1))
+        first_cross_verified=(state.terrain_first_cross_verified |
+                              first_target_paid)
         return dict(
             confirmed_tile=jnp.where(confirmed[:,None],root,previous),
             seen_cells=seen_cells,seen_write=seen_write,
@@ -3361,6 +3377,8 @@ class EmuMJXEnv(TaskSampler):
             approach_frontier_m=jnp.where(confirmed,0.,approach_frontier),
             terrain_attempt_lip_m=terrain_attempt_lip,
             terrain_attempt_frontier_m=terrain_attempt_frontier,
+            terrain_attempt_tile_xy=attempted_target,
+            terrain_first_cross_verified=first_cross_verified,
             verdict_height_m=jnp.where(
                 paid & academy_focus & lip,rise,
                 jnp.where(done & academy_focus & seen,approach_lip,0.)),
