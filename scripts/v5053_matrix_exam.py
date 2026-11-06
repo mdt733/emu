@@ -36,7 +36,7 @@ class Trial:
 
 
 def trial_spec(kind: str, level: int, levels: int, replicate: int, world: int) -> Trial:
-    if kind not in KINDS or not 1<=level<=levels:
+    if kind not in (*KINDS,"flat_control") or not 1<=level<=levels:
         raise ValueError("unknown trial kind/level")
     f=level/levels
     sign=1. if replicate%2==0 else -1.
@@ -64,6 +64,8 @@ def trial_spec(kind: str, level: int, levels: int, replicate: int, world: int) -
     elif kind=="step_up":
         vx=.25
         step=.05*f
+    elif kind=="flat_control":
+        vx=.25
     elif kind=="step_down":
         vx=.25
         step=-.05*f
@@ -72,13 +74,16 @@ def trial_spec(kind: str, level: int, levels: int, replicate: int, world: int) -
 
 def assignments(worlds: int, *, mode: str="balanced", levels: int=20,
                 trials_per_level: int|None=None) -> list[Trial]:
-    if mode not in ("balanced","stairs") or not 1<=levels<=40 or worlds<2:
+    if mode not in ("balanced","stairs","flat") or not 1<=levels<=40 or worlds<2:
         raise ValueError("invalid matrix mode/geometry")
+    if mode=="flat":
+        levels=1  # A zero-height seam, exactly matched to the stair commands.
     trials=10 if trials_per_level is None and mode=="balanced" else (
         100 if trials_per_level is None else trials_per_level)
     if not 1<=trials<=1000:
         raise ValueError("trials_per_level must be 1..1000")
-    kinds=KINDS if mode=="balanced" else ("step_up",)
+    kinds=KINDS if mode=="balanced" else (
+        ("flat_control",) if mode=="flat" else ("step_up",))
     count=len(kinds)*levels*trials
     if count>worlds:
         raise ValueError(
@@ -127,12 +132,19 @@ def reduce_results(trials:list[Trial],result:dict[str,np.ndarray]):
     rows=[]
     for (kind,level),records in sorted(grouped.items()):
         n=len(records)
-        step=kind.startswith("step_")
-        finished=sum(bool(x["completed_destination"]) for x in records) if step else 0
-        arrived=sum(bool(x["both_feet_top_five"]) for x in records) if step else 0
-        leading=sum(bool(x["lead_foot_top"]) for x in records) if step else 0
+        target=kind.startswith("step_") or kind=="flat_control"
+        gates=("goal_line_crossed","goal_line_after_both",
+               "goal_window_after_both","goal_window_aligned",
+               "goal_window_safe_except_slip","goal_window_all_gates",
+               "traversed_5frame")
+        counts={k:sum(bool(x[k]) for x in records) if target else 0
+                for k in gates}
+        finished=sum(bool(x["completed_destination"]) for x in records) if target else 0
+        arrived=sum(bool(x["both_feet_top_five"]) for x in records) if target else 0
+        leading=sum(bool(x["lead_foot_top"]) for x in records) if target else 0
         survived=sum(bool(x["survived"]) for x in records)
         low,high=wilson_95(finished,n)
+        traverse_lo,traverse_hi=wilson_95(counts["traversed_5frame"],n)
         rows.append(dict(
             kind=kind,level=level,worlds=n,
             requested_step_mm=round(records[0]["exact_step_m"]*1000.,4),
@@ -142,10 +154,14 @@ def reduce_results(trials:list[Trial],result:dict[str,np.ndarray]):
             measured_grade_deg_mean=round(float(np.mean(
                 [x["actual_grade_deg"] for x in records])),4),
             leading_top=leading,each_foot_top_five=arrived,
+            **counts,
             completed_destinations=finished,
-            completion_rate=round(finished/n,5) if step else None,
-            completion_wilson95_lo=round(low,5) if step else None,
-            completion_wilson95_hi=round(high,5) if step else None,
+            completion_rate=round(finished/n,5) if target else None,
+            completion_wilson95_lo=round(low,5) if target else None,
+            completion_wilson95_hi=round(high,5) if target else None,
+            traversal_rate=round(counts["traversed_5frame"]/n,5) if target else None,
+            traversal_wilson95_lo=round(traverse_lo,5) if target else None,
+            traversal_wilson95_hi=round(traverse_hi,5) if target else None,
             survival_rate=round(survived/n,5),
             speed_mae_mps=round(float(np.mean(
                 [x["speed_mae_mps"] for x in records])),5),
@@ -177,6 +193,8 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     from emu.contracts import sensor_observation_contract
     if not 2<=worlds<=4096 or not 80<=horizon<=700 or seed<0:
         raise ValueError("Invalid matrix worlds/horizon/seed")
+    if mode=="flat":
+        levels=1
     trials=assignments(worlds,mode=mode,levels=levels,
                        trials_per_level=trials_per_level)
     policy=policy.expanduser().resolve()
@@ -240,6 +258,9 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
         probe_joint_rad=0.,terrain_exposure=0.,slope_exposure=0.,
         academy_episode_probability=0.)
     cmd=np.stack((col("vx"),col("vy"),col("yaw")),axis=1)
+    score_mask=np.asarray(
+        [t.kind in ("step_up","step_down","flat_control") for t in trials],
+        dtype=np.bool_)
     print(f"v5053 MATRIX {worlds} real-prism MJX worlds, "
           f"{sum(x.kind!='padding' for x in trials)} assigned, "
           f"{horizon} frames, {mode} — compiling and measuring",flush=True)
@@ -247,7 +268,8 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     measured=jax.device_get(trainer["evaluate_matrix"](
         params,env.params_array(teacher),
         jnp.asarray(norm["mean"]),jnp.asarray(norm["std"]),
-        jnp.asarray(cmd),jax.random.PRNGKey(seed),horizon))
+        jnp.asarray(cmd),jnp.asarray(score_mask),
+        jax.random.PRNGKey(seed),horizon))
     wall=time.perf_counter()-started
     # HARD acceptance: no matrix may silently label a random ±lip as an
     # exact 2.5mm/5mm/.. step. Measure the physical mesh-backed surfaces.
@@ -264,59 +286,74 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     save_csv(output/"matrix_worlds.csv",detail)
     save_csv(output/"matrix_curve.csv",curves)
     manifest=dict(
-        schema="v5053_true_prism_heterogeneous_matrix_v1",
+        schema="v5053_true_prism_heterogeneous_matrix_v2",
         actor_sha256=hashlib.sha256(policy.read_bytes()).hexdigest(),
         actor_training_source=actor["source"],
         seed=seed,worlds=worlds,assigned_worlds=len(detail),
         horizon=horizon,mode=mode,levels=levels,
         trials_per_level=trials_per_level if trials_per_level is not None
-                           else (100 if mode=="stairs" else 10),
+                           else (10 if mode=="balanced" else 100),
         device=jax.default_backend(),wall_seconds=round(wall,3),
         world_steps_per_second=round(worlds*horizon/max(wall,.001),1),
         collision="8 real convex-triangle prisms, 4 source tiles, exact signed exam-only X seam",
         zero_optimizer_updates=True,
         first_life_only=True,
-        completion="actual top contact each foot >=5 frames, then 5 stable destination frames",
+        completion="strict: independent 5-frame top contact per foot, then 5 stable goal frames",
+        traversal="independent 5-frame top contact per foot, then 5 upright/aligned frames >=60cm beyond seam",
         confidence="Wilson 95% conditional on trial sampling, not independent PPO seeds",
         measured_source="actual physical hfield/prism tile surface; actor never sees privileged goal",
         worlds_csv="matrix_worlds.csv",curve_csv="matrix_curve.csv")
     (output/"matrix_summary.json").write_text(
         json.dumps(dict(manifest=manifest,curves=curves),indent=2)+"\n")
-    up=[x for x in curves if x["kind"]=="step_up"]
+    up=[x for x in curves if x["kind"] in ("step_up","flat_control")]
     lines=["# v5053 heterogeneous GPU physical capability matrix","",
            f"Actor SHA256: `{manifest['actor_sha256']}`",
            f"Hardware backend: {manifest['device']}; "
            f"worlds={worlds}, physical frames={horizon}, "
            f"one GPU rollout; wall={wall:.1f}s","",
-           "Exact-height **real** prism topology, independent per-world commands.",
-           "A leading contact is not a completed ascent. All completion",
-           "numerators require verified **both** feet + stable arrival.",
-           "Wilson intervals quantify trial sampling only; multiple PPO seeds",
-           "would be required to establish training-method improvement.","",
-           "## Uphill step completion curve","",
-           "| Height | Attempts | Lead top | Each foot >=5 | Stable completed | Rate (95% Wilson) |",
-           "|---:|---:|---:|---:|---:|---:|"]
+           "Both-feet contact, continuous traversal and strict stable arrival",
+           "are three DIFFERENT physical outcomes. Original strict score is",
+           "preserved; traversal does not require a stop or low stance slip.",
+           "The flat control is a real zero-height seam at 0.25m/s.","",
+           "## Upright stair traversal versus strict arrival","",
+           "| Height | Trials | Lead top | Both feet >=5 | Cross after feet | Traversed 5f | Strict stable |",
+           "|---:|---:|---:|---:|---:|---:|---:|"]
     for x in up:
         lines.append(
             f"| {x['requested_step_mm']:.1f}mm | {x['worlds']} | "
             f"{x['leading_top']} | {x['each_foot_top_five']} | "
-            f"{x['completed_destinations']} | "
-            f"{x['completion_rate']:.1%} "
-            f"({x['completion_wilson95_lo']:.1%}–"
-            f"{x['completion_wilson95_hi']:.1%}) |")
-    lines+=["","## All groups","",
-            "| Type | Level | Tested | Survival | Speed MAE | Goal completions |",
-            "|---|---:|---:|---:|---:|---:|"]
+            f"{x['goal_line_after_both']} | {x['traversed_5frame']} "
+            f"({x['traversal_rate']:.1%}) | "
+            f"{x['completed_destinations']} ({x['completion_rate']:.1%}) |")
+    lines+=["","## Ordered strict-arrival gates (ever reached within first life)","",
+            "| Height | Goal line | After both feet | Inside goal window | Heading | Upright/support/contact | Also low slip | Five stable frames |",
+            "|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    for x in up:
+        lines.append(
+            f"| {x['requested_step_mm']:.1f}mm | {x['goal_line_crossed']} | "
+            f"{x['goal_line_after_both']} | {x['goal_window_after_both']} | "
+            f"{x['goal_window_aligned']} | "
+            f"{x['goal_window_safe_except_slip']} | "
+            f"{x['goal_window_all_gates']} | "
+            f"{x['completed_destinations']} |")
+    lines+=["","The gates are cumulative AND same-frame, not independent",
+            "flags mixed from different moments. Five-frame strict arrival",
+            "can still fail when all gates hold momentarily.",
+            "The downstream traversal needs five consecutive upright/",
+            "aligned, clean-contact frames after crossing, but does NOT",
+            "require stopping inside the strict X window or low slip.","",
+            "## All groups","",
+            "| Type | Level | Tested | Survival | Speed MAE | Traversals | Stable arrivals |",
+            "|---|---:|---:|---:|---:|---:|---:|"]
     for x in curves:
         lines.append(
             f"| {x['kind']} | {x['level']} | {x['worlds']} | "
             f"{x['survival_rate']:.0%} | "
             f"{x['speed_mae_mps']:.3f}m/s | "
-            f"{x['completed_destinations']} |")
-    lines+=["","Exact step/grade error is logged per world.",
-            "A frozen exam does NOT expand/retreat the learning curriculum.",
-            "No claim of a winning policy until physical comparison against",
-            "unchanged control on multiple independent seeds."]
+            f"{x['traversed_5frame']} | {x['completed_destinations']} |")
+    lines+=["","Full per-trial gates and exact geometry errors: `matrix_worlds.csv`.",
+            "No neural weight or curriculum updates; confidence intervals",
+            "reflect repeated trials, not PPO training-seed uncertainty."]
     (output/"matrix_summary.md").write_text("\n".join(lines)+"\n")
     print(f"v5053 complete: {len(detail)} independent trials, "
           f"{worlds*horizon/max(wall,.001):,.0f} world-steps/s including "
@@ -328,7 +365,7 @@ def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--policy",type=Path,required=True)
     p.add_argument("--output",type=Path,required=True)
-    p.add_argument("--mode",choices=("balanced","stairs"),default="balanced")
+    p.add_argument("--mode",choices=("balanced","stairs","flat"),default="balanced")
     p.add_argument("--worlds",type=int,default=2048)
     p.add_argument("--horizon",type=int,default=350)
     p.add_argument("--seed",type=int,default=1701)
