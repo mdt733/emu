@@ -329,8 +329,11 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
     measured = jax.device_get(trace)
     independent = score_prism_crossings(measured)
     # v5051: independent physical post-contact mission, not a reward counter.
-    from .step_autopsy import inspect_missions
+    from .step_autopsy import inspect_missions, inspect_destinations
     autopsy = inspect_missions(measured)
+    # New independent v5052 destination criterion. Deliberately separate
+    # from the old 50cm-after-recovery mission (which is stricter).
+    destination = inspect_destinations(measured) if mode in ("step","mixed") else None
     xy = np.asarray(measured["position_xy"], dtype=float)
     yaw = np.unwrap(np.asarray(measured["heading_rad"], dtype=float), axis=0)
     phase = np.asarray(measured["policy_phase_rad"], dtype=float)
@@ -450,6 +453,7 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         elapsed_wall_seconds=round(time.perf_counter()-begun, 2),
         worlds=rows,
         mission_autopsy=autopsy,
+        destination_autopsy=destination,
     )
     output.mkdir(parents=True, exist_ok=True)
     json_path = output / "prism_exam.json"
@@ -471,6 +475,9 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         f"Survived: **{manifest['measured']['survived']}/{worlds}**",
         f"Independently supported up/down: **{independent['up']}/{independent['down']}**", "",
         f"v5051 post-contact completed missions: **{autopsy['completed_missions']}/{autopsy['eligible_supported_contacts']}** eligible supported contacts",
+        (f"v5052 fixed 60cm destination missions: "
+         f"**{destination['completed_missions']}/{worlds}** examined worlds"
+         if destination is not None else "Destination task not applicable"),
         "Not a fixed-height obstacle or full eight-stage climb certification; detection, riser clearance and load transfer remain unmeasured.", "",
         "| World | Survived | Mean vx | vx MAE | Actual mean grade | Up | Down | Shaft J/m* |",
         "|---:|:---:|---:|---:|---:|---:|---:|---:|",
