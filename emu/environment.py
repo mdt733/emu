@@ -1670,8 +1670,16 @@ class EmuMJXEnv(TaskSampler):
             from .step_goal import arrival_quality, stable_arrival
             rot=self._rotation_body_to_world(data)
             heading=jnp.arctan2(rot[:,1,0],rot[:,0,0])
+            # The recovered feet must belong to the FIRST assigned
+            # destination tile, not an arbitrary later lip in the carpet.
+            destination_cell=jnp.floor(
+                state.academy_goal_xy/CARPET_TILE_M).astype(jnp.int32)
+            observed_cell=jnp.floor(
+                data.qpos[:,:2]/CARPET_TILE_M).astype(jnp.int32)
+            first_tile_transfer=(academy['transfer_new'] &
+                jnp.all(observed_cell==destination_cell,axis=1))
             goal_transfer_ready=(goal_transfer_ready |
-                                 academy['transfer_new'])
+                                 first_tile_transfer)
             qualified=arrival_quality(
                 jnp,state.academy_goal_xy,data.qpos[:,:2],heading,
                 metrics['gravity_z'],metrics['support'],
