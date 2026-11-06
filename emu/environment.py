@@ -1933,15 +1933,16 @@ class EmuMJXEnv(TaskSampler):
         # Near/easy support evidence uses the actual signed step size.
         # Ascents and descents are independently measured against their OWN
         # learned frontier. Late 150%-challenge lips cannot fake promotion.
-        academy_up_ref=params[P.academy_height_up_m]
-        academy_down_ref=params[P.academy_height_down_m]
-        # Early-finish Academy: one measured first-seam challenge per birth.
-        # Legacy Academy: retain the exact lip at success or failed approach.
+        # A lip's height and severity *reference* must come from the same
+        # encounter. Reclassifying an old 3mm attempt against a newly-grown
+        # 4mm frontier biases the promotion denominator.
         academy_verdict_height=jnp.where(
             self.science_step_finish_on_transfer,
             state.academy_birth_lip_m,academy['verdict_height_m'])
         academy_ref=jnp.where(
-            academy_verdict_height>0.,academy_up_ref,academy_down_ref)
+            self.science_step_finish_on_transfer,
+            state.academy_birth_frontier_m,
+            academy['verdict_frontier_m'])
         academy_ref=jnp.where(
             jnp.isfinite(params[P.terrain_fixed_height_m]),
             jnp.abs(params[P.terrain_fixed_height_m]),academy_ref)
@@ -1956,7 +1957,7 @@ class EmuMJXEnv(TaskSampler):
         # Step severity is measured from physical shared-edge contacts,
         # never the teacher's requested lip height or a retired slab.
         physical_height=jnp.abs(ordinary_lip)
-        ratio=physical_height/jnp.maximum(params[P.terrain_height_m],.0001)
+        ratio=physical_height/jnp.maximum(stepped.terrain_attempt_frontier_m,.0001)
         step_near=terrain_active & (ratio>=.78) & (ratio<=1.05)
         step_easy=terrain_active & (ratio>=.36) & (ratio<.68)
         denom = jnp.maximum(ep_len, 1.0)
@@ -2086,6 +2087,8 @@ class EmuMJXEnv(TaskSampler):
             'academy_lip_index':academy['lip_index'].astype(jnp.float32),
             'academy_lip_height_m':academy['height_m'],
             'academy_verdict_lip_height_m':academy_verdict_height,
+            'academy_verdict_frontier_m':academy_ref,
+            'terrain_encounter_frontier_m':stepped.terrain_attempt_frontier_m,
             'academy_finish_new':academy['finish_new'].astype(jnp.float32),
             'academy_cross_new':academy['cross_new'].astype(jnp.float32),
             # A four-crossing milestone, not a terminal course completion.
