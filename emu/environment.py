@@ -2011,6 +2011,14 @@ class EmuMJXEnv(TaskSampler):
                 ~state.academy_goal_completed).astype(jnp.float32),
             'academy_goal_remaining_m':jnp.linalg.norm(
                 state.academy_goal_xy-data.qpos[:,:2],axis=1),
+            # Raw post-step physical pose, BEFORE any automatic reset.
+            # Frozen actor exams need this fifth stable arrival frame:
+            # their ordinary position_xy sample is PRE-step and misses
+            # the last frame when goal completion ends the episode.
+            'physical_position_xy_after_step':data.qpos[:,:2],
+            'physical_heading_rad_after_step':jnp.arctan2(
+                self._rotation_body_to_world(data)[:,1,0],
+                self._rotation_body_to_world(data)[:,0,0]),
             'academy_goal_bilateral_ready':(
                 stepped.academy_goal_transfer_ready).astype(jnp.float32),
             'academy_episode_attempt':(done & state.academy_active).astype(jnp.float32),
