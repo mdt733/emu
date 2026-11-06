@@ -216,6 +216,9 @@ class EnvState(NamedTuple):
     # v5052 fixed world-frame target beyond FIRST upcoming real tile lip.
     # Teacher-only episode state: never present in the 360 actor packet.
     academy_goal_xy: Any
+    academy_goal_lip_armed: Any
+    academy_goal_foot_streak: Any
+    academy_goal_foot_seen: Any
     academy_goal_transfer_ready: Any
     academy_goal_stable_streak: Any
     academy_goal_completed: Any
@@ -1664,6 +1667,9 @@ class EmuMJXEnv(TaskSampler):
         # physical-goal bonus from coordinate changes alone.
         # Destination coordinates are reward-only, never actor inputs.
         goal_transfer_ready=state.academy_goal_transfer_ready
+        goal_lip_armed=state.academy_goal_lip_armed
+        goal_foot_streak=state.academy_goal_foot_streak
+        goal_foot_seen=state.academy_goal_foot_seen
         goal_stable_streak=state.academy_goal_stable_streak
         goal_completed=state.academy_goal_completed
         if self.science_step_goal_weight > 0.:
@@ -1676,10 +1682,21 @@ class EmuMJXEnv(TaskSampler):
                 state.academy_goal_xy/CARPET_TILE_M).astype(jnp.int32)
             observed_cell=jnp.floor(
                 data.qpos[:,:2]/CARPET_TILE_M).astype(jnp.int32)
-            first_tile_transfer=(academy['transfer_new'] &
-                jnp.all(observed_cell==destination_cell,axis=1))
+            # A dynamic gait may never hold BOTH feet together for
+            # five frames. Verify each independently after the SAME
+            # authentically supported first lip. Neither a coordinate
+            # crossing nor an unrelated later tile can arm this.
+            in_goal_tile=jnp.all(observed_cell==destination_cell,axis=1)
+            goal_lip_armed=(goal_lip_armed |
+                            (academy['cross_new'] & in_goal_tile))
+            foot_ok=(academy['goal_top_feet'] &
+                     goal_lip_armed[:,None] & in_goal_tile[:,None])
+            goal_foot_streak=jnp.where(
+                foot_ok,goal_foot_streak+1,0)
+            goal_foot_seen=(goal_foot_seen |
+                            (goal_foot_streak>=5))
             goal_transfer_ready=(goal_transfer_ready |
-                                 first_tile_transfer)
+                                 jnp.all(goal_foot_seen,axis=1))
             qualified=arrival_quality(
                 jnp,state.academy_goal_xy,data.qpos[:,:2],heading,
                 metrics['gravity_z'],metrics['support'],
@@ -1786,6 +1803,9 @@ class EmuMJXEnv(TaskSampler):
             academy_progress_paid=academy['progress_paid'],
             academy_approach_seen=academy['approach_seen'],
             academy_goal_xy=state.academy_goal_xy,
+            academy_goal_lip_armed=goal_lip_armed,
+            academy_goal_foot_streak=goal_foot_streak,
+            academy_goal_foot_seen=goal_foot_seen,
             academy_goal_transfer_ready=goal_transfer_ready,
             academy_goal_stable_streak=goal_stable_streak,
             academy_goal_completed=goal_completed,
@@ -2792,6 +2812,9 @@ class EmuMJXEnv(TaskSampler):
             academy_progress_paid=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_approach_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_goal_xy=goal_xy,
+            academy_goal_lip_armed=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_goal_foot_streak=jnp.zeros((self.num_envs,2),dtype=jnp.int32),
+            academy_goal_foot_seen=jnp.zeros((self.num_envs,2),dtype=jnp.bool_),
             academy_goal_transfer_ready=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_goal_stable_streak=izeros,
             academy_goal_completed=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
@@ -3174,6 +3197,11 @@ class EmuMJXEnv(TaskSampler):
                 state.academy_foothold_seen|new_foothold),
             clearance_new=false,foothold_new=new_foothold,
             transfer_new=new_transfer,
+            # Separate v5052 stage: each foot's independently real top
+            # contact on this root tile (never a sidewall or virtual hfield).
+            # Teacher goal code additionally checks the ASSIGNED first tile.
+            goal_top_feet=(jnp.all(foot_cell==root[:,None,:],axis=2)
+                           & target_pairs & healthy[:,None]),
             transfer_streak=transfer_streak,
             transfer_seen=transfer_seen,
             transfer_armed=transfer_armed,
