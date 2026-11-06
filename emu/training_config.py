@@ -192,6 +192,9 @@ class TrainingConfig:
     science_bilateral_support_bonus: float = 0.0  # 5-frame both-feet top support
     science_followthrough_bonus: float = 0.0  # 50cm post-transfer heading-controlled travel
     science_sensor_teacher_bonus: float = 0.0  # sensor-visible upper foothold
+    # v5052 stair task: separate destination-style progress from velocity tracking.
+    science_step_goal_weight: float = 0.0  # bounded real forward motion, Academy only
+    science_step_velocity_relief: float = 0.0  # Academy-only speed-tracking relief [0,1]
     force_program: str = 'aggressive'  # matched gentle vs high-push experiments
     # Post-Pinnacle science switches: default values reproduce the released 260M source.
     science_step_promotion_mm: float = 0.0  # zero = max(1mm, 18%) rule
