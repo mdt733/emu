@@ -171,6 +171,9 @@ def one_run_config(args) -> TrainingConfig:
         if not math.isfinite(value) or not lo<=value<=hi:
             raise ValueError(f'{key} must be finite and in [{lo},{hi}]')
         science_args[key]=value
+    approach=science_args['science_step_approach_m']
+    if 0. < approach < .15:
+        raise ValueError('science-step-approach-m must be zero or >=0.15m')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
                    solver_iterations=solver_iterations,
                    solver_ls_iterations=solver_ls_iterations,
