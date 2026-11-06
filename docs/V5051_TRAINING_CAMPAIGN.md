@@ -94,55 +94,14 @@ The interaction arms cannot identify causality without independent single
 factor results. The 360-input actor/6-output network and 4×4 ToF sensory
 meaning remain unchanged. This is not teacher-student privileged-critic PPO.
 
-## WSL foreground commands — restart from a FRESH source lineage
+## Reproduction (historical source only)
 
-**Do not resume the pre-cleanup 960M parent or runs with this new source SHA.**
-The code intentionally refuses cross-source resumes; the new default study
-path avoids reusing the old partial `v5051-science-s735` parent. Existing
-files remain untouched for later diagnostics. Once the 60M foundation starts,
-keep the checkout pinned to its exact commit throughout the campaign.
-
-```bash
-cd ~/emu
-git fetch origin
-git switch research/v5051-gait-autopsy
-git pull --ff-only origin research/v5051-gait-autopsy
-source ~/emu-graduation/.venv/bin/activate
-export PYTHONPATH="$PWD"
-export XLA_PYTHON_CLIENT_PREALLOCATE=false
-git status --short                    # MUST be empty
-git rev-parse HEAD                     # record exact SHA
-python -m pytest -q tests/test_v5051_training_science.py
-python -m scripts.v5051_train_campaign --stage plan
-```
-
-Start the **complete 960M PPO campaign with fast physical screening**:
-
-```bash
-python -m scripts.v5051_train_campaign --stage all
-```
-
-Or stage individually for manual intervention:
-`--stage foundation`, `--stage arms`, `--stage exams`,
-`--stage report`. The experiment runs **in the foreground, no tmux**;
-completed runs are verified/skipped and partial arms resume their own
-`latest.pkl` with immutable source and parent identity.
-
-To add a second held-out environment seed to finalists without changing
-training or rerunning seed 1701:
-
-```bash
-python -m scripts.v5051_train_campaign --stage exams \
-  --only 00_control,08_supported_transfer,14_step_combo \
-  --exam-seeds 1701,1702
-python -m scripts.v5051_train_campaign --stage report
-```
-
-Study data are now under
-`~/emu-data/runs/v5051-capability-v2-s735/`, with the independent
-`science_contract.json`, `parent_identity.json`,
-`physical_exam_protocol.json`, per-arm complete checkpoints, frozen
-`exams/`, and `SCIENCE_RESULTS.md`/`SCIENCE_RESULTS.json`.
+The 960M campaign is complete; its one-off launch commands and obsolete
+virtualenv paths have been removed from current documentation. The original
+[study runner](https://github.com/mdt733/emu/blob/6a3c9cc971936d12f95822a6561cc244abf896e7/scripts/v5051_train_campaign.py)
+remains available at its immutable Git commit for forensic reproduction.
+Recorded data live at `~/emu-data/runs/v5051-capability-v2-s735/`,
+including exam protocols and independent result artifacts.
 
 **Release rule:** sustained real step capability is evaluated independently
 of PPO reward and broad survival retention. No arm earns promotion solely
