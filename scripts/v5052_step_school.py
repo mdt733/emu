@@ -25,7 +25,7 @@ PARENT_STEPS = 40_000_000
 TARGET_STEPS = 80_000_000
 DEFAULT_ENVS = 2048
 SOURCE = Path(__file__).resolve().parents[1]
-DEFAULT_ROOT = Path.home() / "emu-data/runs/v5052-step-school-s735"
+DEFAULT_ROOT = Path.home() / "emu-data/runs/v5052-fixed-destination-v2-s735"
 
 # Physically identical baseline until 40M; Academy begins just after the
 # established 20M balance/walking nursery so every arm inherits some attempts.
@@ -58,23 +58,23 @@ ARMS = (
         ("--science-step-goal-weight",".30")),
     Arm("02_relief","Relax Academy-only forward velocity matching; no added progress reward",
         ("--science-step-velocity-relief",".80")),
-    Arm("03_goal_relief","Goal progress plus temporary velocity relief during step manoeuvre",
+    Arm("03_goal_relief","Fixed 60cm goal, with no forward-speed tracking requirement",
         ("--science-step-goal-weight",".30",
-         "--science-step-velocity-relief",".80")),
+         "--science-step-velocity-relief","1.0")),
     Arm("04_contact_teacher","Goal/relief plus privileged *reward-side* true prism foothold teaching",
         ("--science-step-goal-weight",".30",
-         "--science-step-velocity-relief",".80",
+         "--science-step-velocity-relief","1.0",
          "--science-foothold-bonus","3",
          "--science-supported-cross-bonus","5",
          "--science-bilateral-support-bonus","3")),
     Arm("05_phase_freedom","Goal/relief plus slow low-command phase and NO phase-sync lift payment",
         ("--science-step-goal-weight",".30",
-         "--science-step-velocity-relief",".80",
+         "--science-step-velocity-relief","1.0",
          "--science-phase-lowcmd-scale",".25",
          "--science-phase-sync-strength","0")),
     Arm("06_dense_school","Goal/relief plus denser real step births (tests exposure interactions)",
         ("--science-step-goal-weight",".30",
-         "--science-step-velocity-relief",".80",
+         "--science-step-velocity-relief","1.0",
          "--academy-max-share",".75",
          "--academy-ramp-steps","10000000")),
 )
@@ -120,7 +120,7 @@ def command(root, *, seed, envs, arm=None, resume=None, check=False):
 
 
 def contract(root, seed, envs, sha, parent=None):
-    expected=dict(schema="v5052_stair_learning_v1",
+    expected=dict(schema="v5052_fixed_60cm_destination_v2",
                   source_sha=sha,seed=seed,envs=envs,
                   parent_steps=PARENT_STEPS,target_steps=TARGET_STEPS,
                   common=list(COMMON),
@@ -238,6 +238,9 @@ def forensic(root,arms,source=None):
         if not files:
             continue
         events=[]
+        destination_count=0
+        destination_worlds=0
+        destination_bilateral=0
         by_verdict=Counter()
         worlds=0
         fast_vx=[]
@@ -252,6 +255,12 @@ def forensic(root,arms,source=None):
             if mode=="step":
                 events+=list(d.get("mission_autopsy",{}).get("events",[]))
                 worlds+=len(d["worlds"])
+                destination=d.get("destination_autopsy")
+                if destination is not None:
+                    destination_count+=int(destination["completed_missions"])
+                    destination_worlds+=len(destination["worlds"])
+                    destination_bilateral+=int(
+                        destination["physically_verified_bilateral"])
             elif mode=="flat" and speed>.5:
                 fast_vx += [float(w["achieved_vx_mps"]) for w in d["worlds"]
                             if w.get("achieved_vx_mps") is not None]
@@ -285,6 +294,9 @@ def forensic(root,arms,source=None):
             progress_ge_30cm=at_least([e["post_contact_progress_m"] for e in events],.30),
             progress_ge_50cm=at_least([e["post_contact_progress_m"] for e in events],.50),
             complete=sum(bool(e["complete"]) for e in events),
+            destination_complete=destination_count,
+            destination_worlds=destination_worlds,
+            destination_bilateral=destination_bilateral,
             failure_breakdown=dict(by_verdict),
             fast_vx=round(sum(fast_vx)/len(fast_vx),4) if fast_vx else None,
             fast_survival=round(sum(fast_alive)/len(fast_alive),4) if fast_alive else None,
@@ -298,7 +310,8 @@ def forensic(root,arms,source=None):
         out.write_text(json.dumps(dict(arms=result),indent=2)+"\n")
         cols=["Arm","All signed contacts","UP ≥1cm","UP ≥2cm",
               "UP ≥1cm bilateral","UP ≥1cm +15cm","UP ≥1cm +30cm",
-              "UP ≥1cm complete","Fast vx","Fast survival","Zero-cmd footfalls/s"]
+              "UP ≥1cm complete","Fixed-goal / worlds",
+              "Fast vx","Fast survival","Zero-cmd footfalls/s"]
         md=["# v5052: physical climb failure-stage autopsy","",
             "A completed mission needs five-frame bilateral top support and "
             "50cm heading-controlled follow-through. Positive foothold "
@@ -313,7 +326,9 @@ def forensic(root,arms,source=None):
                 x["up_contact_ge_2cm"],x["uphill_ge_1cm_bilateral"],
                 x["uphill_ge_1cm_progress_15cm"],
                 x["uphill_ge_1cm_progress_30cm"],
-                x["uphill_ge_1cm_complete"],x["fast_vx"],x["fast_survival"],
+                x["uphill_ge_1cm_complete"],
+                f'{x["destination_complete"]}/{x["destination_worlds"]}',
+                x["fast_vx"],x["fast_survival"],
                 x["still_footfalls_hz"]]))+" |")
         md+=["","## Failure verdict counts",""]
         for x in result:
