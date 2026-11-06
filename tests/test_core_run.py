@@ -70,6 +70,10 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert cfg.capability_field_mode=="shadow"
     assert cfg.freeze_obs_norm_after_steps==0
     assert cfg.stillness_birth_frac==0.
+    assert cfg.science_step_finish_on_transfer is False
+    with patch("emu.run.train_one",side_effect=capture):
+        assert emu_cli_main(cli_args+["--science-step-finish-on-transfer"])==0
+    assert seen[-1].science_step_finish_on_transfer is True
     # Real research forks may change teacher and solver, but not the
     # 360-input actor geometry, physical robot or sensor history.
     from emu.run import verify_experiment_fork
