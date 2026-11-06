@@ -215,8 +215,11 @@ class EnvState(NamedTuple):
     # One physical attempt verdict per lip. No repeated near-edge farming.
     academy_approach_seen: Any
     academy_approach_lip_m: Any  # signed physical lip retained until failure verdict
+    academy_approach_frontier_m: Any  # its difficulty reference at approach time
     terrain_attempt_lip_m: Any  # first ordinary STEP encounter retained to episode end
+    terrain_attempt_frontier_m: Any  # frozen severity denominator for that attempt
     academy_birth_lip_m: Any  # actual FIRST +X seam signed height, sampled at reset
+    academy_birth_frontier_m: Any  # earned up/down height WHEN the lip was generated
     academy_finish_streak: Any  # three safe frames after BOTH verified upper feet
     # v5052 fixed world-frame target beyond FIRST upcoming real tile lip.
     # Teacher-only episode state: never present in the 360 actor packet.
@@ -1636,7 +1639,7 @@ class EmuMJXEnv(TaskSampler):
             step_i>=self.max_episode_steps)
         terminal_fail=jnp.logical_or(metrics['terminal']>.5,physics_diverged)
         terminal_or_timeout=jnp.logical_or(terminal_fail,timeout)
-        academy=self._carpet_events(state,data,metrics,terminal_or_timeout)
+        academy=self._carpet_events(state,data,metrics,terminal_or_timeout,params)
         done=terminal_or_timeout
         episode_age_steps=state.ep_len+1.
         # Extending course TIME must not silently add +30 early-fall
@@ -1864,8 +1867,11 @@ class EmuMJXEnv(TaskSampler):
             academy_progress_paid=academy['progress_paid'],
             academy_approach_seen=academy['approach_seen'],
             academy_approach_lip_m=academy['approach_lip_m'],
+            academy_approach_frontier_m=academy['approach_frontier_m'],
             terrain_attempt_lip_m=academy['terrain_attempt_lip_m'],
+            terrain_attempt_frontier_m=academy['terrain_attempt_frontier_m'],
             academy_birth_lip_m=state.academy_birth_lip_m,
+            academy_birth_frontier_m=state.academy_birth_frontier_m,
             academy_finish_streak=finish_streak,
             academy_goal_xy=state.academy_goal_xy,
             academy_goal_lip_armed=goal_lip_armed,
@@ -2939,8 +2945,13 @@ class EmuMJXEnv(TaskSampler):
             academy_progress_paid=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_approach_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_approach_lip_m=zeros,
+            academy_approach_frontier_m=zeros,
             terrain_attempt_lip_m=zeros,
+            terrain_attempt_frontier_m=zeros,
             academy_birth_lip_m=birth_lip,
+            academy_birth_frontier_m=jnp.where(
+                birth_lip>0.,params[P.academy_height_up_m],
+                params[P.academy_height_down_m]),
             academy_finish_streak=izeros,
             academy_goal_xy=goal_xy,
             academy_goal_lip_armed=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
@@ -3155,7 +3166,7 @@ class EmuMJXEnv(TaskSampler):
         top=self._carpet_real_top_height(data,positions,carpet_heights)
         return carpet_signed_support(self.jnp,positions,top)
 
-    def _carpet_events(self,state,data,metrics,done):
+    def _carpet_events(self,state,data,metrics,done,params):
         """Genuine supported tile-to-tile crossings, separately for UP/DOWN.
 
         Every role can cross the rolling 2x2 world. STEP focus receives evidence
@@ -3256,13 +3267,21 @@ class EmuMJXEnv(TaskSampler):
         # At success or timeout the current body cell may have changed and
         # the transient 'height_m' is commonly zero. Keep the unresolved
         # Academy approach separately from the ordinary episode's FIRST lip.
+        new_approach=approached & ~state.academy_approach_seen
         approach_lip=jnp.where(
-            approached & ~state.academy_approach_seen,rise,
-            state.academy_approach_lip_m)
+            new_approach,rise,state.academy_approach_lip_m)
+        reference=jnp.where(rise>0.,
+                            params[P.academy_height_up_m],
+                            params[P.academy_height_down_m])
+        approach_frontier=jnp.where(
+            new_approach,reference,state.academy_approach_frontier_m)
         ordinary_first=approached & ~state.academy_active & (
             jnp.abs(state.terrain_attempt_lip_m)<=.0015)
         terrain_attempt_lip=jnp.where(
             ordinary_first,rise,state.terrain_attempt_lip_m)
+        terrain_attempt_frontier=jnp.where(
+            ordinary_first,params[P.terrain_height_m],
+            state.terrain_attempt_frontier_m)
         new_foothold=(approached&eligible&~state.academy_foothold_seen)
         # For TRUE two-foot support, each foot must occupy the confirmed
         # new tile, have an authentic upward-facing prism contact, and
@@ -3336,10 +3355,15 @@ class EmuMJXEnv(TaskSampler):
                 (done&academy_focus&seen)),
             approach_seen=jnp.where(confirmed,False,seen),
             approach_lip_m=jnp.where(confirmed,0.,approach_lip),
+            approach_frontier_m=jnp.where(confirmed,0.,approach_frontier),
             terrain_attempt_lip_m=terrain_attempt_lip,
+            terrain_attempt_frontier_m=terrain_attempt_frontier,
             verdict_height_m=jnp.where(
                 paid & academy_focus & lip,rise,
                 jnp.where(done & academy_focus & seen,approach_lip,0.)),
+            verdict_frontier_m=jnp.where(
+                paid & academy_focus & lip,reference,
+                jnp.where(done & academy_focus & seen,approach_frontier,0.)),
             foothold_seen=jnp.where(confirmed,False,
                 state.academy_foothold_seen|new_foothold),
             clearance_new=false,foothold_new=new_foothold,
