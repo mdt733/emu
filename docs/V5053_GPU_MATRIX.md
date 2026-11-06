@@ -66,24 +66,26 @@ Results include all trials, grouped height curves and Wilson
 trainer.** Use a **separate Git worktree** at the same repo:
 ```bash
 cd ~/emu
-git fetch origin
-git worktree add ~/emu-v5053-matrix -b local-v5053 origin/research/v5053-capability-matrix
+# This clone may fetch only a narrow set of branches by default.
+git fetch origin +refs/heads/research/v5053-capability-matrix:refs/remotes/origin/research/v5053-capability-matrix
+git worktree add --detach ~/emu-v5053-matrix refs/remotes/origin/research/v5053-capability-matrix
 cd ~/emu-v5053-matrix
-source ~/emu-graduation/.venv/bin/activate
+# Reuse the existing working EMU venv. Don't refer to ~/emu-graduation.
+source ~/emu/.venv/bin/activate
 export PYTHONPATH="$PWD"
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 python -m pytest -q tests/test_core_capability_matrix.py
 
 # Use the real v5052 trained frozen actor. Export on the v5052 checkout:
-# python -m emu.cli export-policy ~/emu-data/runs/v5052-fixed-destination-v2-s735/arms/01_goal/checkpoints/final.pkl ~/emu-data/actors/01_goal.emupolicy
+# Already exported on this workstation: ~/emu-data/actors/v5052_01_goal.emupolicy
 python -m scripts.v5053_matrix_exam \
-  --policy ~/emu-data/actors/01_goal.emupolicy \
+  --policy ~/emu-data/actors/v5052_01_goal.emupolicy \
   --output ~/emu-data/exams/v5053-01-goal-balanced-s1701 \
   --device cuda --worlds 2048 --horizon 350 \
   --mode balanced --seed 1701
 
 python -m scripts.v5053_matrix_exam \
-  --policy ~/emu-data/actors/01_goal.emupolicy \
+  --policy ~/emu-data/actors/v5052_01_goal.emupolicy \
   --output ~/emu-data/exams/v5053-01-goal-stairs-s1701 \
   --device cuda --worlds 2048 --horizon 350 \
   --mode stairs --seed 1701
@@ -93,7 +95,7 @@ Use a new output directory for each actor/seed/mode. The examiner refuses
 overwriting a nonempty report. For a tiny acceptance before 2,048 worlds:
 ```bash
 python -m scripts.v5053_matrix_exam \
-  --policy ~/emu-data/actors/01_goal.emupolicy \
+  --policy ~/emu-data/actors/v5052_01_goal.emupolicy \
   --output ~/emu-data/exams/v5053-01-goal-smoke \
   --device cuda --worlds 8 --horizon 80 \
   --mode stairs --levels 2 --trials-per-level 3
