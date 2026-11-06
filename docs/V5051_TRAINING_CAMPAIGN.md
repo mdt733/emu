@@ -1,4 +1,10 @@
-# EMU v5051 — 960M PPO training / compact capability standard v2
+# EMU v5051 — historical 960M PPO campaign / capability standard v2
+
+> **Archived experiment, not an active launcher.** The v5051 runner has been
+> removed from the current `scripts/` directory. The historical commands below
+> are for reproducing the original study **only after checking out its pinned
+> source**: [v5051 campaign runner](https://github.com/mdt733/emu/blob/6a3c9cc971936d12f95822a6561cc244abf896e7/scripts/v5051_train_campaign.py).
+> New work uses `emu train`, not an old tournament wrapper.
 
 **REAL PPO training, not 44 frozen diagnostic panels.** A clean 0→60M
 cold foundation is saved as a complete checkpoint (actor, critic, optimizer,
