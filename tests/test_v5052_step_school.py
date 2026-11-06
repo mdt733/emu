@@ -32,6 +32,7 @@ def metrics(*, vx=.12, active=True, support=1., slip=0.):
         step_evidence=.2,action_delta_norm=0.,joint_limit_pressure=0.,
         scissor_pressure=0.,stepping_activity_so_far=.2,gravity_z=1.,
         science_step_focus=1.,
+        science_step_goal_delta_m=(vx*.02),
     )
     return {**{k:np.array([v,v],dtype=np.float32) for k,v in values.items()},
             "science_step_goal_active":np.array([float(active),0.],dtype=np.float32)}
@@ -75,6 +76,12 @@ class StepSchoolTests(unittest.TestCase):
                                  science_step_velocity_relief=.8)
         self.assertGreater(relief[0],original[0])
         self.assertAlmostEqual(float(relief[1]),float(original[1]),places=6)
+        backward=metrics(vx=-.08)
+        backward_pay,terms=training_reward(
+            backward,regime,xp=np,science_step_goal_weight=.30)
+        backward_base,_=training_reward(backward,regime,xp=np)
+        self.assertLess(backward_pay[0],backward_base[0])
+        self.assertAlmostEqual(float(backward_pay[1]),float(backward_base[1]),places=6)
         no_motion,_=training_reward(metrics(vx=0.),regime,xp=np,
                                     science_step_goal_weight=.30)
         no_motion_baseline,_=training_reward(metrics(vx=0.),regime,xp=np)
