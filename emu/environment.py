@@ -2039,7 +2039,7 @@ class EmuMJXEnv(TaskSampler):
             'physical_heading_rad_after_step':jnp.arctan2(
                 self._rotation_body_to_world(data)[:,1,0],
                 self._rotation_body_to_world(data)[:,0,0]),
-            'academy_goal_bilateral_ready':(
+            'academy_goal_sequential_feet_ready':(
                 stepped.academy_goal_transfer_ready).astype(jnp.float32),
             'academy_episode_attempt':(done & state.academy_active).astype(jnp.float32),
             'academy_episode_complete':(done & ~terminal_fail &
