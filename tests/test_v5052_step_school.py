@@ -15,6 +15,7 @@ from emu.rewards import REWARD_ONLY_METRICS, training_reward
 from emu.terrain_carpet_mjx import TILE_M, academy_near_lip_spawn_x
 from emu.step_goal import (destination_from_birth, signed_distance_progress,
                            arrival_quality, stable_arrival, GOAL_STABLE_FRAMES)
+from emu.step_autopsy import inspect_destinations
 from emu.cli import main as emu_cli
 from scripts.v5052_step_school import (
     PARENT_STEPS, TARGET_STEPS, ARMS, EXAMS, command,
@@ -145,6 +146,56 @@ class StepSchoolTests(unittest.TestCase):
         # One frame of unsafe/unsupported contact resets the streak.
         reset,_=stable_arrival(np,q(False),streak,completed)
         self.assertEqual(int(reset[0]),0)
+
+    def test_independent_real_prism_trace_proves_first_lip_destination(self):
+        # No teacher success, no reward fields, and no nominal height!
+        # The scorer sees only raw physical top contacts + first-life motion.
+        n=80
+        xy=np.zeros((n,1,2),dtype=np.float64)
+        xy[:,:,1]=.375
+        xy[:10,:,0]=.53
+        xy[10:35,:,0]=np.linspace(.80,1.35,25)[:,None]
+        xy[35:,:,0]=1.35
+        cells=np.zeros((n,1,2),dtype=np.int32)
+        cells[10:,:,0]=1
+        tops=np.zeros((n,1,4,4))
+        tops[:,:,1,:]=.02  # measured 2cm positive-X lip
+        feet=np.zeros((n,1,2,3))
+        feet[:,:,:,0]=.85
+        feet[:,:,:,1]=.375
+        feet[:,:,:,2]=.038  # 18mm foot ball resting on real 20mm top
+        pairs=np.zeros((n,1,8,2),dtype=bool)
+        vertical=np.zeros((n,1,8,2))
+        pairs[10:,:,2:4,0]=True
+        vertical[10:,:,2:4,0]=1.
+        pairs[20:,:,2:4,1]=True
+        vertical[20:,:,2:4,1]=1.
+        trace=dict(position_xy=xy,
+                   physical_position_xy_after_step=xy,
+                   heading_rad=np.zeros((n,1)),
+                   physical_heading_rad_after_step=np.zeros((n,1)),
+                   carpet_root_cell=cells,
+                   carpet_prism_corner_z=tops,
+                   carpet_raw_contact_pairs=pairs,
+                   carpet_contact_vertical=vertical,
+                   foot_xyz=feet,initial_foot_radii_m=np.array([.018,.018]),
+                   done=np.zeros((n,1),dtype=bool),
+                   fell=np.zeros((n,1),dtype=bool),
+                   terrain_gravity_z=np.ones((n,1)),
+                   terrain_support=np.ones((n,1)),
+                   terrain_bad_contact=np.zeros((n,1)),
+                   stance_slip_proxy=np.zeros((n,1)))
+        successful=inspect_destinations(trace)
+        self.assertEqual(successful["completed_missions"],1)
+        self.assertEqual(successful["uphill_completed"],1)
+        # First contact but no second foot is NOT a completed climb.
+        missing=dict(trace,carpet_raw_contact_pairs=pairs.copy())
+        missing["carpet_raw_contact_pairs"][:,:,2:4,1]=False
+        self.assertEqual(inspect_destinations(missing)["completed_missions"],0)
+        # Same contacts but no travel to the point is NOT a completion.
+        stalled=dict(trace,physical_position_xy_after_step=xy.copy())
+        stalled["physical_position_xy_after_step"][30:,:,0]=.85
+        self.assertEqual(inspect_destinations(stalled)["completed_missions"],0)
 
     def test_protocol_is_immutable(self):
         with TemporaryDirectory() as temp:
