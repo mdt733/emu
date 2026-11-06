@@ -303,13 +303,12 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 'value': value,
                 'reward': out.reward,
                 'done': out.done,
-                # 'episode_fell' is 1.0 only on the exact step a true
-                # physical failure (height/tilt/roll/pitch collapse) ends the
-                # episode, and 0.0 on ordinary steps *and* on timeout steps.
-                # This lets compute_gae tell a real death (bootstrap = 0,
-                # correct) apart from hitting max_episode_steps (bootstrap
-                # should NOT be 0 -- see the comment in compute_gae).
-                'terminal': out.metrics['episode_fell'],
+                # True physical falls AND task-goal completions are
+                # absorbing terminals (bootstrap V=0). Ordinary timeout
+                # remains a truncation, retaining exact value bootstrap.
+                'terminal': jnp.maximum(
+                    out.metrics['episode_fell'],
+                    out.metrics['academy_goal_complete_new']),
                 'bootstrap_obs': out.bootstrap_obs,
                 'metrics': out.metrics,
             }
