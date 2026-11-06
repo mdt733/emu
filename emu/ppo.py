@@ -997,7 +997,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
              speed_error,yaw_error,support_sum,gravity_sum,
              lateral_sum,still_motion,traverse_streak,traversed,
              goal_line,goal_line_both,goal_window_both,
-             goal_window_heading,goal_window_safe,goal_window_all)=carry
+             goal_window_heading,goal_window_safe,goal_window_all,
+             x_window_any,x_window_both,first_both_frame,first_both_x,
+             open_streak,lane_streak,open_cross,lane_cross)=carry
             # Maintain *different* operator instructions in the same
             # JAX program; bypass random command resampling without
             # changing the actual deployable observation format.
@@ -1068,6 +1070,23 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             supported=(m['support']>=.5)
             low_slip=(m['exam_stance_slip_proxy']<=.08)
             feet_ready=healthy & target_mask & jnp.all(feet_seen,axis=1)
+            # Is failure caused by a late trailing foot or by leaving
+            # the lane? Keep x-only and x+y evidence independent.
+            x_in_window=jnp.abs(xy[:,0]-(TILE_M+.60))<=.07
+            x_window_any=x_window_any | (healthy & target_mask & x_in_window)
+            x_window_both=x_window_both | (feet_ready & x_in_window)
+            first_both_new=feet_ready & (first_both_frame<0)
+            first_both_frame=jnp.where(first_both_new,i+1,first_both_frame)
+            first_both_x=jnp.where(first_both_new,xy[:,0],first_both_x)
+            # Nested post-line 5-frame gates: genuine physical crossing,
+            # lateral discipline, then heading. Only the last one is
+            # the previously published controlled-traversal definition.
+            open_ok=feet_ready & beyond & upright & clean_contact
+            lane_ok=open_ok & y_near
+            open_streak=jnp.where(open_ok,open_streak+1,0)
+            lane_streak=jnp.where(lane_ok,lane_streak+1,0)
+            open_cross=open_cross | (open_streak>=5)
+            lane_cross=lane_cross | (lane_streak>=5)
             # Ordered same-frame gates; an ongoing gait need not stop
             # within the narrow strict destination window.
             goal_line=goal_line | (healthy & target_mask & beyond)
@@ -1105,18 +1124,24 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     support_sum,gravity_sum,lateral_sum,still_motion,
                     traverse_streak,traversed,goal_line,goal_line_both,
                     goal_window_both,goal_window_heading,
-                    goal_window_safe,goal_window_all)
+                    goal_window_safe,goal_window_all,
+                    x_window_any,x_window_both,first_both_frame,first_both_x,
+                    open_streak,lane_streak,open_cross,lane_cross)
 
         finished=jax.lax.fori_loop(0,horizon,frame_step,(
             es0,jnp.ones((n,),dtype=jnp.bool_),
             jnp.full((n,),-1,jnp.int32),false,zeros_feet,false_feet,
             zero_i,false,zero,zero_i,zero,zero,zero,zero,zero,zero,
-            zero_i,false,false,false,false,false,false,false))
+            zero_i,false,false,false,false,false,false,false,
+            false,false,jnp.full((n,),-1,jnp.int32),zero,
+            zero_i,zero_i,false,false))
         (_,live,fall,lead,streak,seen,arrival,complete,progress,
          frames,speed_err,yaw_err,support,gravity,lateral,still,
          traverse_streak,traversed,goal_line,goal_line_both,
          goal_window_both,goal_window_heading,
-         goal_window_safe,goal_window_all)=finished
+         goal_window_safe,goal_window_all,x_window_any,x_window_both,
+         first_both_frame,first_both_x,open_streak,lane_streak,
+         open_cross,lane_cross)=finished
         denom=jnp.maximum(frames,1).astype(jnp.float32)
         return dict(
             actual_lip_m=measured_lip,actual_grade_deg=measured_grade,
@@ -1132,6 +1157,12 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             goal_window_aligned=goal_window_heading,
             goal_window_safe_except_slip=goal_window_safe,
             goal_window_all_gates=goal_window_all,
+            goal_x_window_seen=x_window_any,
+            goal_x_window_after_both=x_window_both,
+            first_both_foot_frame=first_both_frame,
+            first_both_foot_body_x_m=first_both_x,
+            traversed_upright_5frame=open_cross,
+            traversed_in_lane_5frame=lane_cross,
             best_forward_progress_m=progress,
             speed_mae_mps=speed_err/denom,
             lateral_mae_mps=lateral/denom,
