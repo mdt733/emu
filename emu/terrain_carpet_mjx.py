@@ -16,6 +16,17 @@ TILE_SIZE_Z_M=.50
 TILE_BASE_M=.14
 TILE_WINDOW_SIDE=2
 TILE_COUNT=TILE_WINDOW_SIDE**2
+
+def academy_near_lip_spawn_x(xp, x, approach_m):
+    """An Academy nursery starts upstream of a REAL physical tile seam.
+
+    This only changes the spawn position, never the prism height/profile or
+    ToF source. Original birth x remains exact when the feature is disabled.
+    """
+    if approach_m == 0.:
+        return x
+    return (xp.floor(x / TILE_M) + 1.) * TILE_M - approach_m
+
 VISIT_HISTORY=64
 PROFILE_HALF=128
 PROFILE_SIZE=PROFILE_HALF*2

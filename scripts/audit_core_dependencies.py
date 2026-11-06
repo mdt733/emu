@@ -27,8 +27,9 @@ OWNED_BACKEND: dict[str, tuple[str, ...]] = {
     "physics": ("contracts", "environment", "terrain_carpet_mjx",
                 "carpet_prism_mjx", "domain_randomization", "directional"),
     "learning": ("training", "ppo", "rewards", "curriculum",
-                 "capability_focus", "capability_field", "training_health"),
-    "state_and_exams": ("checkpoint_io", "results", "evaluation", "prism_exam"),
+                 "capability_focus", "capability_field", "training_health",
+                 "step_goal"),
+    "state_and_exams": ("checkpoint_io", "results", "evaluation", "prism_exam", "step_autopsy"),
     "delivery": ("policy_export", "viewer_server", "capability_viewer"),
     "diagnostics": ("doctor",),
 }

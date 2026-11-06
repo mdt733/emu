@@ -80,6 +80,33 @@ def main(argv=None) -> int:
                    help='v5030 B: 0..1 rolling 25-frame (0.5s) forward tracking blend; OFF by default')
     q.add_argument('--stillness-birth-frac',type=float,default=0.,
                    help='v5047 research: 0..0.25 true 0-vx/vy/yaw command births, with safe zero-command posture credit')
+    # v5051 PPO SCIENCE (default baseline, all source/checkpoint-pinned).
+    q.add_argument('--science-gate-mode',choices=('legacy','zero-only','off'),default='legacy',
+                   help='post-1s posture/contact stepping gate experiment')
+    q.add_argument('--science-phase-lowcmd-scale',type=float,default=1.,
+                   help='multiply phase-clock advance near zero command; 0=pause')
+    q.add_argument('--science-phase-sync-strength',type=float,default=1.,
+                   help='0=no gait-clock synchronisation component in lift reward')
+    q.add_argument('--science-crouch-allowance-m',type=float,default=0.,
+                   help='up to 5cm extra posture-height allowance in STEP-focused lessons')
+    q.add_argument('--science-stride-efficiency-weight',type=float,default=0.,
+                   help='bounded command-tracking useful-progress-per-lift shaping')
+    q.add_argument('--science-supported-cross-bonus',type=float,default=0.,
+                   help='additional one-time true supported prism-lip crossing payment')
+    q.add_argument('--science-foothold-bonus',type=float,default=0.,
+                   help='additional first real upper foothold payment')
+    q.add_argument('--science-bilateral-support-bonus',type=float,default=0.,
+                   help='additional verified 5-frame two-foot upper-tile support payment')
+    q.add_argument('--science-followthrough-bonus',type=float,default=0.,
+                   help='one-time reward for 50cm after bilateral lip support with heading bound')
+    q.add_argument('--science-sensor-teacher-bonus',type=float,default=0.,
+                   help='privileged sensor-visible foothold teaching bonus; actor input unchanged')
+    q.add_argument('--science-step-goal-weight',type=float,default=0.,
+                   help='v5052 bounded supported forward-progress payment ONLY in real Academy steps')
+    q.add_argument('--science-step-velocity-relief',type=float,default=0.,
+                   help='v5052 loosen forward-speed tracking during Academy step negotiation, 0..1')
+    q.add_argument('--science-step-approach-m',type=float,default=0.,
+                   help='v5052 respawn Academy robots 0.1..0.35m before next real 75cm tile boundary; 0=original spawn')
     q.add_argument('--science-step-promotion-mm',type=float,default=0.,
                    help='v5047 frontier A/B: fixed step promotion mm, 0 uses mature +18% rule')
     q.add_argument('--science-step-retreat-mm',type=float,default=0.,

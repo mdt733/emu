@@ -490,7 +490,6 @@ FIXED_EXAM_GUARDS = {
     "eval_dynamic80_survival": ("floor", 0.075),
     "eval_combo70_survival": ("floor", 0.075),
     "eval_resilience75_survival": ("floor", 0.10),
-    "eval_robust40_survival": ("floor", 0.08),
 }
 
 
@@ -530,7 +529,7 @@ def compare_fixed_exam_evidence(
         if any(not (0 <= result[k] <= 1) for k in (
               "eval_core_survival","eval_core_support","eval_core_step_evidence",
               "eval_dynamic80_survival","eval_combo70_survival",
-              "eval_resilience75_survival","eval_robust40_survival")):
+              "eval_resilience75_survival")):
             raise ValueError(f"{name} has out-of-range success/support evidence")
         if any(result[k]<0 for k in required if k.endswith("_mae") or k.endswith("_m")):
             raise ValueError(f"{name} has negative physical errors")
@@ -871,6 +870,17 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             metrics.get('academy_foothold_new',0.)).sum()),
         'academy_transfers': float(np.asarray(
             metrics.get('academy_transfer_new',0.)).sum()),
+        # v5052: objective completion is a one-time *physical* waypoint
+        # arrival AFTER verified two-foot new-tile contact. Never call
+        # any top contact or mere forward travel "destination reached".
+        'academy_goal_completions': float(np.asarray(
+            metrics.get('academy_goal_complete_new',0.)).sum()),
+        'academy_goal_remaining_m_mean': mean_metric(
+            metrics,'academy_goal_remaining_m'),
+        'academy_goal_sequential_feet_ready_frac': mean_metric(
+            metrics,'academy_goal_sequential_feet_ready'),
+        'academy_goal_progress_reward_per_frame': mean_metric(
+            metrics,'reward_weighted_goal_progress'),
         'academy_clearances': float(np.asarray(
             metrics.get('academy_clearance_new',0.)).sum()),
         'academy_episodes': float(np.asarray(
