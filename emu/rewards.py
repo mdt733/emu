@@ -38,7 +38,7 @@ MOTOR_PAYMENT_NAME = "motor_cost"  # opt-in; old eight-payment contract stays fi
 REWARD_ONLY_METRICS = frozenset({
     'target_height', 'stance_slip', 'target_step_height', 'action_delta_norm',
     'joint_limit_pressure', 'scissor_pressure', 'stepping_activity_so_far',
-    'ramp_frac', 'science_step_focus', 'science_step_goal_active',
+    'ramp_frac', 'science_step_focus', 'science_step_goal_active', 'science_step_goal_delta_m',
 })
 
 # Preserved eight-term reward baseline; modifications are explicit opt-in teaching terms.
@@ -157,19 +157,21 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
                       jnp.exp(-6.*m['stance_slip']))
         reward = reward + stride_pay
         payments['stride_efficiency'] = stride_pay
-    # Destination-style stepping nursery: pay bounded *actual* forward
-    # movement while supported on real Academy terrain. This is NOT a
-    # positional waypoint / fixed-height stair success signal; the sparse
-    # signed-lip, foothold and followthrough rewards still define transfer.
-    # A paused gait earns zero; moving backwards earns zero; running sideways
-    # or slipping gets little. Outside the Academy this is exactly absent.
+    # Position-based stair nursery: true measured reduction in distance
+    # to the centre of the NEXT 75cm physical tile, in a fixed global +X
+    # frame. Changes in commanded speed do NOT erase or rebase this goal.
+    # Positive approach pays, moving away is negative, standing still = 0;
+    # oscillating around one location cannot accumulate positive distance.
+    # The new goal target is advanced only by independently verified top
+    # contact / new tile confirmation, not by trainer reward flags.
     if science_step_goal_weight > 0.:
-        useful_vx=jnp.clip(m['vx'],0.,.20)/.20
+        delta=jnp.clip(m['science_step_goal_delta_m']/.012,-1.,1.)
         yaw_error=m['yaw_rate']-m['cmd_yaw']
         upright=jnp.clip(m['gravity_z'],0.,1.)
         goal_progress=(science_step_goal_weight*
                        m['science_step_goal_active']*valid_alive*
-                       useful_vx*jnp.clip(m['support'],0.,1.)*
+                       (m['cmd_vx']>=.05).astype(jnp.float32)*
+                       delta*jnp.clip(m['support'],0.,1.)*
                        (1.-jnp.clip(m['bad_contact'],0.,1.))*
                        jnp.exp(-6.*jnp.maximum(0.,m['stance_slip']))*
                        jnp.exp(-4.*yaw_error*yaw_error)*upright)
