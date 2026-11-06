@@ -1526,12 +1526,21 @@ class EmuMJXEnv(TaskSampler):
         # Reward-only true cohort identity: crouch tolerance cannot become
         # a free survival advantage for all flat/command/resilience worlds.
         step_focus=(state.specialist_active & (state.focus_id==STEP))
+        # Distance-to-destination task: target the centre of the NEXT
+        # physical tile in the global +X direction. The signed change of
+        # absolute distance is a bounded positional reward, not a speed
+        # tracking term or a self-reported crossing. Confirmed-cell changes
+        # only after independent true-prism top contact verification.
+        goal_x=(state.carpet_confirmed[:,0].astype(jnp.float32)+1.5)*CARPET_TILE_M
+        goal_delta=jnp.clip(
+            jnp.abs(goal_x-state.data.qpos[:,0])-
+            jnp.abs(goal_x-data.qpos[:,0]),-.02,.02)
         metrics={**metrics,
                  'science_step_focus':step_focus.astype(jnp.float32),
-                 # This flag is reward-only privileged *assignment*.
-                 # The 360-input actor sees neither it nor the true prism height.
+                 # These TWO teacher-only fields never reach the actor.
                  'science_step_goal_active':(
-                     step_focus & state.academy_active).astype(jnp.float32)}
+                     step_focus & state.academy_active).astype(jnp.float32),
+                 'science_step_goal_delta_m':goal_delta}
         # Gate freezing against previous activity, not this one stance frame.
         stepping_activity_so_far = state.ep_step_evidence_sum / jnp.maximum(1.0, state.ep_len)
         # ramp_frac tracks command-change difficulty. Real episode age is
