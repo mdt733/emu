@@ -105,6 +105,8 @@ def main(argv=None) -> int:
                    help='v5052 bounded supported forward-progress payment ONLY in real Academy steps')
     q.add_argument('--science-step-velocity-relief',type=float,default=0.,
                    help='v5052 loosen forward-speed tracking during Academy step negotiation, 0..1')
+    q.add_argument('--science-step-approach-m',type=float,default=0.,
+                   help='v5052 respawn Academy robots 0.1..0.35m before next real 75cm tile boundary; 0=original spawn')
     q.add_argument('--science-step-promotion-mm',type=float,default=0.,
                    help='v5047 frontier A/B: fixed step promotion mm, 0 uses mature +18% rule')
     q.add_argument('--science-step-retreat-mm',type=float,default=0.,
