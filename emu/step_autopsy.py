@@ -163,16 +163,23 @@ def inspect_destinations(frames):
     """
     from .step_goal import (arrival_quality, destination_from_birth,
                             GOAL_STABLE_FRAMES)
-    xy=np.asarray(frames["position_xy"],dtype=float)
-    yaw=np.asarray(frames["heading_rad"],dtype=float)
+    # First sample is the true birth pose; the *post-step* pose is
+    # independently recorded before the terminal auto-reset. Its frame
+    # alignment matches physical support/tilt and lets a successful 5th
+    # stable frame be verified even when completion instantly ends the run.
+    birth_xy=np.asarray(frames["position_xy"],dtype=float)
+    xy=np.asarray(frames.get(
+        "physical_position_xy_after_step",frames["position_xy"]),dtype=float)
+    yaw=np.asarray(frames.get(
+        "physical_heading_rad_after_step",frames["heading_rad"]),dtype=float)
     alive=first_episode_mask(frames["done"])
     fell=np.asarray(frames["fell"],dtype=bool)
     gravity=np.asarray(frames["terrain_gravity_z"],dtype=float)
     support=np.asarray(frames["terrain_support"],dtype=float)
     bad=np.asarray(frames["terrain_bad_contact"],dtype=float)
     slip=np.asarray(frames["stance_slip_proxy"],dtype=float)
-    target=destination_from_birth(np,xy[0])
-    origin=np.floor(xy[0]/TILE_M).astype(int)
+    target=destination_from_birth(np,birth_xy[0])
+    origin=np.floor(birth_xy[0]/TILE_M).astype(int)
     events=inspect_missions(frames)["events"]
     rows=[]
     for w in range(xy.shape[1]):
@@ -196,8 +203,9 @@ def inspect_destinations(frames):
         for t in range(start,len(xy)):
             if not alive[t,w] or fell[t,w]:
                 break
-            # Trace positions are pre-step, health signals post-step.
-            # Five consecutive frames absorb that one-frame alignment.
+            # Both position and health are now post-step physical
+            # samples. The independent crossing scorer still verifies
+            # raw pre-step prism contacts and first-life world identity.
             qualifies=bool(arrival_quality(
                 np,target[w:w+1],xy[t,w:w+1],yaw[t,w:w+1]-
                 yaw[0,w:w+1],gravity[t,w:w+1],support[t,w:w+1],
