@@ -875,6 +875,8 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         # any top contact or mere forward travel "destination reached".
         'academy_goal_completions': float(np.asarray(
             metrics.get('academy_goal_complete_new',0.)).sum()),
+        'academy_short_climb_successes': float(np.asarray(
+            metrics.get('academy_finish_new',0.)).sum()),
         'academy_goal_remaining_m_mean': mean_metric(
             metrics,'academy_goal_remaining_m'),
         'academy_goal_sequential_feet_ready_frac': mean_metric(
