@@ -158,6 +158,8 @@ def one_run_config(args) -> TrainingConfig:
         'science_bilateral_support_bonus':(0.,10.),
         'science_sensor_teacher_bonus':(0.,8.),
         'science_followthrough_bonus':(0.,15.),
+        'science_step_goal_weight':(0.,.50),
+        'science_step_velocity_relief':(0.,1.),
     }
     if science_gate not in ('legacy','zero-only','off'):
         raise ValueError('Invalid science-gate-mode')
