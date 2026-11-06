@@ -72,7 +72,7 @@ cd ~/emu-v5053-matrix
 source ~/emu-graduation/.venv/bin/activate
 export PYTHONPATH="$PWD"
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
-python -m pytest -q tests/test_v5053_matrix_exam.py
+python -m pytest -q tests/test_core_capability_matrix.py
 
 # Use the real v5052 trained frozen actor. Export on the v5052 checkout:
 # python -m emu.cli export-policy ~/emu-data/runs/v5052-fixed-destination-v2-s735/arms/01_goal/checkpoints/final.pkl ~/emu-data/actors/01_goal.emupolicy
