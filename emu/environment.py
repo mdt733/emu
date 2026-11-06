@@ -43,6 +43,7 @@ from .terrain_carpet_mjx import (
     midpoint_anchor as carpet_midpoint_anchor,
     PROFILE_HALF as CARPET_PROFILE_HALF,
     role_envelope as carpet_role_envelope, make_profiles as carpet_make_profiles,
+    exact_exam_lip_profiles as carpet_exam_lip_profiles,
     generate_window as carpet_generate_window, sample_surface as carpet_sample_surface,
     ray_surface as carpet_ray_surface, VISIT_HISTORY as CARPET_VISIT_HISTORY,
     unseen_tile as carpet_unseen_tile, note_confirmed_tile as carpet_note_confirmed_tile,
@@ -202,8 +203,26 @@ class EnvState(NamedTuple):
     academy_up_crossings: Any
     academy_down_crossings: Any
     academy_foothold_seen: Any
+    # v5051 five-frame simultaneous bilateral real-top support after a lip.
+    academy_transfer_streak: Any
+    academy_transfer_seen: Any
+    academy_transfer_armed: Any  # true only after verified novel signed lip
+    # One-time 50cm post-transfer progress check in original heading.
+    academy_progress_origin_xy: Any
+    academy_progress_heading_rad: Any
+    academy_progress_active: Any
+    academy_progress_paid: Any
     # One physical attempt verdict per lip. No repeated near-edge farming.
     academy_approach_seen: Any
+    # v5052 fixed world-frame target beyond FIRST upcoming real tile lip.
+    # Teacher-only episode state: never present in the 360 actor packet.
+    academy_goal_xy: Any
+    academy_goal_lip_armed: Any
+    academy_goal_foot_streak: Any
+    academy_goal_foot_seen: Any
+    academy_goal_transfer_ready: Any
+    academy_goal_stable_streak: Any
+    academy_goal_completed: Any
     # v5041 physics-only rolling tile state. All four mutable tiles
     # belong to this same PPO world batch, not a second simulator.
     carpet_hfields: Any
@@ -947,6 +966,19 @@ class EmuMJXEnv(TaskSampler):
                  terrain_lesson: str = 'mixed',
                  temporal_vx_reward_share: float = 0.0,
                  stillness_birth_frac: float = 0.0,
+                 science_gate_mode: str = "legacy",
+                 science_phase_lowcmd_scale: float = 1.0,
+                 science_phase_sync_strength: float = 1.0,
+                 science_crouch_allowance_m: float = 0.0,
+                 science_stride_efficiency_weight: float = 0.0,
+                 science_supported_cross_bonus: float = 0.0,
+                 science_foothold_bonus: float = 0.0,
+                 science_bilateral_support_bonus: float = 0.0,
+                 science_followthrough_bonus: float = 0.0,
+                 science_sensor_teacher_bonus: float = 0.0,
+                 science_step_goal_weight: float = 0.0,
+                 science_step_velocity_relief: float = 0.0,
+                 science_step_approach_m: float = 0.0,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
                  carpet_transition_cap_deg: float = 3.0,
@@ -956,7 +988,10 @@ class EmuMJXEnv(TaskSampler):
                  reset_forward_capacity: int = 128,
                  feet_only_contacts: bool = True,
                  solver_iterations: int | None = None,
-                 solver_ls_iterations: int | None = None):
+                 solver_ls_iterations: int | None = None,
+                 exam_fixture_steps_m=None,
+                 exam_fixture_grades_deg=None,
+                 exam_fixture_kicks_mps=None):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -972,6 +1007,29 @@ class EmuMJXEnv(TaskSampler):
         self.jnp = jnp
         self.mujoco = mujoco
         self.mjx = mjx
+        # Read-only heterogeneous physical examination, not a trainable
+        # curriculum knob. Training and old fixed exams leave this None.
+        fixture=(exam_fixture_steps_m,exam_fixture_grades_deg,
+                 exam_fixture_kicks_mps)
+        if any(value is not None for value in fixture):
+            if exam_fixture_steps_m is None:
+                raise ValueError("Exam fixture needs explicit per-world signed heights")
+            arrays=[np.asarray(value if value is not None else
+                      np.zeros(num_envs),dtype=np.float32) for value in fixture]
+            if any(v.shape!=(num_envs,) or not np.isfinite(v).all()
+                   for v in arrays):
+                raise ValueError("Exam fixture must have finite [num_envs] arrays")
+            if (np.max(np.abs(arrays[0]))>.08 or
+                np.max(np.abs(arrays[1]))>15. or
+                np.max(np.abs(arrays[2]))>.6):
+                raise ValueError("Exam physical step/grade/kick exceeds design envelope")
+            self.exam_fixture_steps=jnp.asarray(arrays[0])
+            self.exam_fixture_grades=jnp.asarray(arrays[1])
+            self.exam_fixture_kicks=jnp.asarray(arrays[2])
+        else:
+            self.exam_fixture_steps=None
+            self.exam_fixture_grades=None
+            self.exam_fixture_kicks=None
         if attitude_profile != 'v5015':
             raise ValueError('The active 360-input prism trainer requires v5015 attitude')
         if not (0.0 < pitch_command_max_deg <= 45.0):
@@ -982,6 +1040,29 @@ class EmuMJXEnv(TaskSampler):
         if not np.isfinite(stillness_birth_frac) or not 0. <= stillness_birth_frac <= .25:
             raise ValueError("stillness_birth_frac must be in [0,0.25]")
         self.stillness_birth_frac = float(stillness_birth_frac)
+        if science_gate_mode not in ("legacy","zero-only","off"):
+            raise ValueError("Invalid v5051 gate mode")
+        limits=dict(science_phase_lowcmd_scale=(0.,1.),
+                    science_phase_sync_strength=(0.,1.),
+                    science_crouch_allowance_m=(0.,.05),
+                    science_stride_efficiency_weight=(0.,.12),
+                    science_supported_cross_bonus=(0.,15.),
+                    science_foothold_bonus=(0.,8.),
+                    science_bilateral_support_bonus=(0.,10.),
+                    science_followthrough_bonus=(0.,15.),
+                    science_sensor_teacher_bonus=(0.,8.),
+                    science_step_goal_weight=(0.,.50),
+                    science_step_velocity_relief=(0.,1.),
+                    science_step_approach_m=(0.,.35))
+        candidate=locals()
+        for name,(lo,hi) in limits.items():
+            value=float(candidate[name])
+            if not np.isfinite(value) or not lo<=value<=hi:
+                raise ValueError(f"Invalid v5051 treatment {name}")
+            setattr(self,name,value)
+        if 0. < self.science_step_approach_m < .15:
+            raise ValueError('near-lip Academy birth requires safe 0.15..0.35m or 0=off')
+        self.science_gate_mode=science_gate_mode
         self.observation_schema = observation_schema
         self.base_obs_fields = actor_observation_fields(observation_schema)
         self.base_obs_dim = len(self.base_obs_fields)
@@ -1440,7 +1521,20 @@ class EmuMJXEnv(TaskSampler):
         raw_target = physics.raw_target
 
         step_i = state.step_i + 1
-        phase = (state.phase + CONTROL_DT * state.task[:, T.phase_rate] * 2.0 * jnp.pi) % (2.0 * jnp.pi)
+        # v5051 causal experiment: preserve valid unit-circle phase
+        # channels and policy architecture while slowing the *clock* only
+        # for genuine near-zero requests. Commanded walking is unchanged.
+        phase_rate=state.task[:, T.phase_rate]
+        if self.science_phase_lowcmd_scale < 1.:
+            raw_cmd=state.raw_velocity_command
+            low_speed=jnp.linalg.norm(raw_cmd,axis=1)
+            fraction=jnp.clip(low_speed/.10,0.,1.)
+            factor=(self.science_phase_lowcmd_scale +
+                    (1.-self.science_phase_lowcmd_scale)*fraction)
+            factor=jnp.where(jnp.abs(state.task[:,T.yaw])<=.10,
+                             factor,1.)
+            phase_rate=phase_rate*factor
+        phase = (state.phase + CONTROL_DT * phase_rate * 2.0 * jnp.pi) % (2.0 * jnp.pi)
 
         # 2. The teacher advances the NEXT request; it cannot rewrite the
         # instruction the actor already saw when choosing this action.
@@ -1465,6 +1559,21 @@ class EmuMJXEnv(TaskSampler):
         reward_task = source_task
         metrics = self._metrics(data, reward_task, action, state.prev_action, phase,
                                 state.prev_foot_pos,carpet_heights=state.carpet_hfields)
+        # Reward-only true cohort identity: crouch tolerance cannot become
+        # a free survival advantage for all flat/command/resilience worlds.
+        step_focus=(state.specialist_active & (state.focus_id==STEP))
+        # Fixed birth-to-destination goal: 60cm beyond first +X prism
+        # boundary. No moving carrot, reset on every episode birth only.
+        from .step_goal import signed_distance_progress
+        goal_delta=signed_distance_progress(
+            jnp,state.academy_goal_xy,
+            state.data.qpos[:,:2],data.qpos[:,:2])
+        metrics={**metrics,
+                 'science_step_focus':step_focus.astype(jnp.float32),
+                 # These TWO teacher-only fields never reach the actor.
+                 'science_step_goal_active':(
+                     step_focus & state.academy_active).astype(jnp.float32),
+                 'science_step_goal_delta_m':goal_delta}
         # Gate freezing against previous activity, not this one stance frame.
         stepping_activity_so_far = state.ep_step_evidence_sum / jnp.maximum(1.0, state.ep_len)
         # ramp_frac tracks command-change difficulty. Real episode age is
@@ -1499,6 +1608,12 @@ class EmuMJXEnv(TaskSampler):
             temporal_vx=(temporal if self.temporal_vx_reward_share>0. else None),
             motor_guidance_weight=self.motor_guidance_weight,
             allow_zero_command_balance=self.stillness_birth_frac > 0.,
+            science_gate_mode=self.science_gate_mode,
+            science_phase_sync_strength=self.science_phase_sync_strength,
+            science_crouch_allowance_m=self.science_crouch_allowance_m,
+            science_stride_efficiency_weight=self.science_stride_efficiency_weight,
+            science_step_goal_weight=self.science_step_goal_weight,
+            science_step_velocity_relief=self.science_step_velocity_relief,
             motor_guidance_per_world=(jnp.where(
                     state.academy_active,0.,
                     control_effort_weights(jnp,
@@ -1545,6 +1660,91 @@ class EmuMJXEnv(TaskSampler):
         ep_return=ep_return+10.0*terrain_cross_new.astype(jnp.float32)
         reward=reward+academy['reward']
         ep_return=ep_return+academy['reward']
+        # v5051: sparse event payments only; actual contact/top geometry
+        # is evaluated before each event and duplicate tiles are guarded.
+        # The bilateral event is *top support*, not measured CoM load.
+        if (self.science_supported_cross_bonus > 0. or
+                self.science_foothold_bonus > 0. or
+                self.science_bilateral_support_bonus > 0. or
+                self.science_followthrough_bonus > 0. or
+                self.science_sensor_teacher_bonus > 0.):
+            true_lip=(academy['ordinary_step_new'] | academy['cross_new'])
+            extra=(self.science_supported_cross_bonus*
+                   true_lip.astype(jnp.float32) +
+                   self.science_foothold_bonus*
+                   academy['foothold_new'].astype(jnp.float32) +
+                   self.science_bilateral_support_bonus*
+                   academy['transfer_new'].astype(jnp.float32) +
+                   self.science_followthrough_bonus*
+                   academy['progress_new'].astype(jnp.float32))
+            if self.science_sensor_teacher_bonus > 0.:
+                sensor_now=self._sensor_readout(state.sensor_state,
+                                               self._body_packets(data)[0])
+                valid=jnp.asarray(sensor_now['terrain_valid'],dtype=jnp.bool_)
+                ranges=sensor_now['terrain_ranges_m']
+                visible=jnp.any(valid & (ranges>.045) & (ranges<.70),axis=1)
+                extra=extra+self.science_sensor_teacher_bonus*(
+                    visible & academy['foothold_new']).astype(jnp.float32)
+            reward=reward+extra
+            ep_return=ep_return+extra
+
+        # v5052: an ACTUAL goal task ends only at the fixed position
+        # 60cm beyond the original lip, after true two-foot support transfer
+        # plus five stable arrival frames. No instantaneous teleport or
+        # physical-goal bonus from coordinate changes alone.
+        # Destination coordinates are reward-only, never actor inputs.
+        goal_transfer_ready=state.academy_goal_transfer_ready
+        goal_lip_armed=state.academy_goal_lip_armed
+        goal_foot_streak=state.academy_goal_foot_streak
+        goal_foot_seen=state.academy_goal_foot_seen
+        goal_stable_streak=state.academy_goal_stable_streak
+        goal_completed=state.academy_goal_completed
+        if self.science_step_goal_weight > 0.:
+            from .step_goal import arrival_quality, stable_arrival
+            rot=self._rotation_body_to_world(data)
+            heading=jnp.arctan2(rot[:,1,0],rot[:,0,0])
+            # The recovered feet must belong to the FIRST assigned
+            # destination tile, not an arbitrary later lip in the carpet.
+            destination_cell=jnp.floor(
+                state.academy_goal_xy/CARPET_TILE_M).astype(jnp.int32)
+            observed_cell=jnp.floor(
+                data.qpos[:,:2]/CARPET_TILE_M).astype(jnp.int32)
+            # A dynamic gait may never hold BOTH feet together for
+            # five frames. Verify each independently after the SAME
+            # authentically supported first lip. Neither a coordinate
+            # crossing nor an unrelated later tile can arm this.
+            in_goal_tile=jnp.all(observed_cell==destination_cell,axis=1)
+            goal_lip_armed=(goal_lip_armed |
+                            (academy['cross_new'] & in_goal_tile))
+            foot_ok=(academy['goal_top_feet'] &
+                     goal_lip_armed[:,None] & in_goal_tile[:,None])
+            goal_foot_streak=jnp.where(
+                foot_ok,goal_foot_streak+1,0)
+            goal_foot_seen=(goal_foot_seen |
+                            (goal_foot_streak>=5))
+            goal_transfer_ready=(goal_transfer_ready |
+                                 jnp.all(goal_foot_seen,axis=1))
+            qualified=arrival_quality(
+                jnp,state.academy_goal_xy,data.qpos[:,:2],heading,
+                metrics['gravity_z'],metrics['support'],
+                metrics['bad_contact'],metrics['stance_slip'],
+                goal_transfer_ready)
+            qualified=(qualified & state.academy_active & step_focus &
+                       ~terminal_fail & ~timeout)
+            goal_stable_streak,goal_new=stable_arrival(
+                jnp,qualified,goal_stable_streak,goal_completed)
+            goal_completed=goal_completed|goal_new
+            # One completed manoeuvre earns ~6 reward at weight .30.
+            # This is a sparse terminal event, NOT an arbitrary "high Z"
+            # reward or the existing per-contact training credit.
+            bonus=(20.*self.science_step_goal_weight *
+                   goal_new.astype(jnp.float32))
+            reward=reward+bonus
+            ep_return=ep_return+bonus
+            done=done|goal_new
+        else:
+            goal_new=jnp.zeros_like(done)
+        academy={**academy,'completed':goal_new}
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
@@ -1621,7 +1821,21 @@ class EmuMJXEnv(TaskSampler):
             academy_up_crossings=academy['up_count'],
             academy_down_crossings=academy['down_count'],
             academy_foothold_seen=academy['foothold_seen'],
+            academy_transfer_streak=academy['transfer_streak'],
+            academy_transfer_seen=academy['transfer_seen'],
+            academy_transfer_armed=academy['transfer_armed'],
+            academy_progress_origin_xy=academy['progress_origin_xy'],
+            academy_progress_heading_rad=academy['progress_heading_rad'],
+            academy_progress_active=academy['progress_active'],
+            academy_progress_paid=academy['progress_paid'],
             academy_approach_seen=academy['approach_seen'],
+            academy_goal_xy=state.academy_goal_xy,
+            academy_goal_lip_armed=goal_lip_armed,
+            academy_goal_foot_streak=goal_foot_streak,
+            academy_goal_foot_seen=goal_foot_seen,
+            academy_goal_transfer_ready=goal_transfer_ready,
+            academy_goal_stable_streak=goal_stable_streak,
+            academy_goal_completed=goal_completed,
             carpet_hfields=carpet_hfields,
             carpet_center=carpet_center,
             carpet_confirmed=academy['confirmed_tile'],
@@ -1835,7 +2049,25 @@ class EmuMJXEnv(TaskSampler):
             'academy_clearance_new':academy['clearance_new'].astype(jnp.float32),
             'academy_foothold_new':academy['foothold_new'].astype(jnp.float32),
             'academy_transfer_new':academy['transfer_new'].astype(jnp.float32),
+            'academy_followthrough_new':academy['progress_new'].astype(jnp.float32),
             'academy_reward':academy['reward'],
+            # v5052 actual destination completion is separate from legacy
+            # Academy "any supported lip before timeout" summaries.
+            'academy_goal_complete_new':(
+                stepped.academy_goal_completed &
+                ~state.academy_goal_completed).astype(jnp.float32),
+            'academy_goal_remaining_m':jnp.linalg.norm(
+                state.academy_goal_xy-data.qpos[:,:2],axis=1),
+            # Raw post-step physical pose, BEFORE any automatic reset.
+            # Frozen actor exams need this fifth stable arrival frame:
+            # their ordinary position_xy sample is PRE-step and misses
+            # the last frame when goal completion ends the episode.
+            'physical_position_xy_after_step':data.qpos[:,:2],
+            'physical_heading_rad_after_step':jnp.arctan2(
+                self._rotation_body_to_world(data)[:,1,0],
+                self._rotation_body_to_world(data)[:,0,0]),
+            'academy_goal_sequential_feet_ready':(
+                stepped.academy_goal_transfer_ready).astype(jnp.float32),
             'academy_episode_attempt':(done & state.academy_active).astype(jnp.float32),
             'academy_episode_complete':(done & ~terminal_fail &
                                          state.academy_active &
@@ -2343,11 +2575,20 @@ class EmuMJXEnv(TaskSampler):
             params[P.slope_max_deg],up,down,academy,
             params[P.slope_exposure],params[P.terrain_exposure],seeds)
         xprof,yprof=carpet_make_profiles(jnp,seeds,up,down)
+        if self.exam_fixture_steps is not None:
+            # No sampled ±X sign, jitter or extra lip. Exact 0.75m seam,
+            # optional continuous signed grade, unchanged real colliders.
+            xprof,yprof=carpet_exam_lip_profiles(
+                jnp,self.exam_fixture_steps)
+            up=jnp.zeros_like(up)
+            down=jnp.zeros_like(down)
+            slope=jnp.zeros_like(slope)
         xy=jnp.floor(data.qpos[:,:2]/CARPET_TILE_M).astype(jnp.int32)
         window=carpet_midpoint_anchor(jnp,data.qpos[:,:2])
         centers,heights,_=carpet_generate_window(
             jnp,window[:,0],window[:,1],seeds,xprof,yprof,up,down,slope,
-            transition_limit_deg=self.carpet_transition_cap_deg)
+            transition_limit_deg=self.carpet_transition_cap_deg,
+            exact_grade_x=self.exam_fixture_grades)
         pos=data.mocap_pos
         pos=update_tile_mocaps(
             jnp,pos,self.carpet_mocap_ids,centers)
@@ -2406,7 +2647,8 @@ class EmuMJXEnv(TaskSampler):
             jnp,new_center[:,0],new_center[:,1],state.carpet_seed,
             state.carpet_xprofile,state.carpet_yprofile,
             state.carpet_up,state.carpet_down,state.carpet_slope,
-            transition_limit_deg=self.carpet_transition_cap_deg)
+            transition_limit_deg=self.carpet_transition_cap_deg,
+            exact_grade_x=self.exam_fixture_grades)
         pos=data.mocap_pos
         # Identical slot geometry for every world; only retired 2x2
         # row/column slots move. Never move support under a foot.
@@ -2517,12 +2759,31 @@ class EmuMJXEnv(TaskSampler):
              linvel_keys, joint_keys, carry_keys),
             carryover_qvel,
         )
+        if self.exam_fixture_steps is not None:
+            # Every frozen trial begins 22cm before the first real seam,
+            # centred in Y. Kicks are velocity initial conditions, not
+            # phantom impulses/reward flags. Non-exam births unaffected.
+            qpos=data.qpos.at[:,0].set(.53).at[:,1].set(.375)
+            qvel=data.qvel.at[:,0].add(self.exam_fixture_kicks)
+            data=data.replace(qpos=qpos,qvel=qvel)
         # One episode-local collision course. The standard flat path above
         # is bitwise untouched whenever terrain_step_max_m is zero.
-        birth_root_z=data.qpos[:,2]
         academy_active=self._academy_birth(
             keys,params,focus_id,specialist_active,
             task[:,T.athletic_rehearsal])
+        if self.science_step_approach_m > 0.:
+            # Academic stair nursery: Academy-only births land a fixed safe
+            # distance BEFORE the next authentic 75cm prism seam. The
+            # physical profile (including its signed up/down lip), ToF and
+            # foot contacts are then recomputed from the new birth position
+            # by the ordinary _carpet_birth + MJX forward path.
+            # Other roles and the reset RNG are strictly unchanged.
+            from .terrain_carpet_mjx import academy_near_lip_spawn_x
+            near_x=academy_near_lip_spawn_x(
+                jnp,data.qpos[:,0],self.science_step_approach_m)
+            data=data.replace(qpos=data.qpos.at[:,0].set(
+                jnp.where(academy_active,near_x,data.qpos[:,0])))
+        birth_root_z=data.qpos[:,2]
         data,carpet=self._carpet_birth(
             data,keys,params,focus_id,specialist_active,task,
             birth_root_z,academy_active)
@@ -2541,6 +2802,8 @@ class EmuMJXEnv(TaskSampler):
         hist = jnp.repeat(base[:, None, :], HISTORY_LEN, axis=1)
         zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
         izeros = jnp.zeros((self.num_envs,), dtype=jnp.int32)
+        from .step_goal import destination_from_birth
+        goal_xy=destination_from_birth(jnp,data.qpos[:,:2])
         cmd_target, cmd_ramp_from, cmd_ramp_frac, cmd_ramp_speed, cmd_hold_left = self._init_transition_state(task, params, hold_keys)
         push_force0 = jnp.zeros((self.num_envs, 3), dtype=jnp.float32)
         return EnvState(
@@ -2584,7 +2847,21 @@ class EmuMJXEnv(TaskSampler):
             academy_up_crossings=izeros,
             academy_down_crossings=izeros,
             academy_foothold_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_transfer_streak=izeros,
+            academy_transfer_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_transfer_armed=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_progress_origin_xy=jnp.zeros((self.num_envs,2),dtype=jnp.float32),
+            academy_progress_heading_rad=zeros,
+            academy_progress_active=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_progress_paid=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_approach_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_goal_xy=goal_xy,
+            academy_goal_lip_armed=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_goal_foot_streak=jnp.zeros((self.num_envs,2),dtype=jnp.int32),
+            academy_goal_foot_seen=jnp.zeros((self.num_envs,2),dtype=jnp.bool_),
+            academy_goal_transfer_ready=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_goal_stable_streak=izeros,
+            academy_goal_completed=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             carpet_hfields=carpet['carpet_hfields'],
             carpet_center=carpet['carpet_center'],
             carpet_seed=carpet['carpet_seed'],
@@ -2889,6 +3166,54 @@ class EmuMJXEnv(TaskSampler):
         approached=moved&near&shared_lip&lip&step_focus&fresh
         seen=state.academy_approach_seen|approached
         new_foothold=(approached&eligible&~state.academy_foothold_seen)
+        # For TRUE two-foot support, each foot must occupy the confirmed
+        # new tile, have an authentic upward-facing prism contact, and
+        # stay there together for five uninterrupted frames. A single
+        # leading-foot contact is not a trailing-foot recovery.
+        both_top=jnp.all(jnp.all(foot_cell==root[:,None,:],axis=2) &
+                         target_pairs,axis=1)
+        same_confirmed=jnp.all(root==previous,axis=1)
+        # A prior crossing somewhere in the episode is NOT sufficient.
+        # Arm the transfer exam only after an authentically supported
+        # *new signed lip*, never after a smooth tile or later flat stance.
+        transfer_ok=(academy_focus & state.academy_transfer_armed &
+                     same_confirmed & both_top & healthy)
+        transfer_streak=jnp.where(transfer_ok,
+                                   state.academy_transfer_streak+1,0)
+        new_transfer=(transfer_ok & (transfer_streak>=5) &
+                      ~state.academy_transfer_seen)
+        transfer_seen=jnp.where(confirmed,False,
+                                state.academy_transfer_seen|new_transfer)
+        transfer_streak=jnp.where(confirmed,0,transfer_streak)
+        transfer_armed=jnp.where(
+            confirmed,paid & academy_focus & lip,
+            state.academy_transfer_armed & ~new_transfer)
+        # Newly confirmed bilateral support creates a single rewardable
+        # continuation episode. Heading is latched at transfer, not
+        # silently redefined as the robot walks or turns around.
+        R=self._rotation_body_to_world(data)
+        yaw=jnp.arctan2(R[:,1,0],R[:,0,0])
+        progress_origin=jnp.where(new_transfer[:,None],
+                                  data.qpos[:,:2],
+                                  state.academy_progress_origin_xy)
+        progress_heading=jnp.where(new_transfer,yaw,
+                                    state.academy_progress_heading_rad)
+        angle=yaw-progress_heading
+        heading_error=jnp.abs(jnp.arctan2(jnp.sin(angle),jnp.cos(angle)))
+        follow_active=jnp.where(
+            confirmed,False,
+            jnp.where(new_transfer,True,
+                      state.academy_progress_active &
+                      (heading_error<=.35) & ~done))
+        travel=jnp.sum(
+            (data.qpos[:,:2]-progress_origin) *
+            jnp.stack((jnp.cos(progress_heading),
+                       jnp.sin(progress_heading)),axis=1),axis=1)
+        fresh_paid=jnp.where(confirmed,False,state.academy_progress_paid)
+        new_progress=(follow_active & ~fresh_paid &
+                      (travel>=.50) & (metrics['cmd_vx']>=.05) &
+                      (metrics['support']>=.5) & healthy)
+        follow_paid=fresh_paid|new_progress
         # No repeated foothold farm after 5-frame verification.
         reward=(3.*new_foothold.astype(jnp.float32)+
                 10.*(paid&academy_focus&lip).astype(jnp.float32))
@@ -2915,7 +3240,20 @@ class EmuMJXEnv(TaskSampler):
             foothold_seen=jnp.where(confirmed,False,
                 state.academy_foothold_seen|new_foothold),
             clearance_new=false,foothold_new=new_foothold,
-            transfer_new=false,
+            transfer_new=new_transfer,
+            # Separate v5052 stage: each foot's independently real top
+            # contact on this root tile (never a sidewall or virtual hfield).
+            # Teacher goal code additionally checks the ASSIGNED first tile.
+            goal_top_feet=(jnp.all(foot_cell==root[:,None,:],axis=2)
+                           & target_pairs & healthy[:,None]),
+            transfer_streak=transfer_streak,
+            transfer_seen=transfer_seen,
+            transfer_armed=transfer_armed,
+            progress_new=new_progress,
+            progress_origin_xy=progress_origin,
+            progress_heading_rad=progress_heading,
+            progress_active=follow_active,
+            progress_paid=follow_paid,
             reward=reward,height_m=jnp.where(
                 moved&fresh&shared_lip,rise,zero),
             completed=false)

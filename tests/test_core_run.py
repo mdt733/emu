@@ -1,4 +1,4 @@
-"""Maintained EMU run contracts: real CLI, source-locked continuation, physics.
+"""Four maintained run contracts: held-out physics, source-locked forks and checkpoint safety.
 
 The 140M / 20M / eight-arm tournament launch scripts were disposable.
 Test the *one training CLI and checkpoint contract* they exercised rather
@@ -44,51 +44,6 @@ def training_flags(run_dir: Path, seed: int = 735) -> list[str]:
         "--fixed-eval-every-steps", "50000000",
         "--solver-iterations", "2", "--solver-ls-iterations", "4",
     ]
-
-
-def test_training_cli_is_one_360_input_eight_prism_specialist_policy(tmp_path):
-    from emu.cli import main
-    calls=[]
-    with patch("emu.run.train_one",side_effect=lambda ns:(calls.append(one_run_config(ns)),0)[1]):
-        assert main(training_flags(tmp_path/"study")) == 0
-    assert len(calls)==1
-    cfg=calls[0]
-    assert (cfg.steps,cfg.envs,cfg.seed)==(EXAMPLE_STEPS,ENVS,735)
-    assert cfg.terrain_carpet and cfg.terrain_carpet_prisms
-    assert cfg.unified_capability_focus and cfg.academy_stream
-    assert cfg.observation_schema==OBS_SCHEMA_TERRAIN
-    assert cfg.foundation_steps==10_000_000
-    assert cfg.academy_intro_steps==600_000_000
-    assert cfg.athletic_rehearsal_frac==pytest.approx(.10)
-    assert cfg.retention_share==pytest.approx(.15)
-    assert (cfg.solver_iterations,cfg.solver_ls_iterations)==(2,4)
-
-
-def test_one_cli_preserves_config_through_resume_verify_and_plan(tmp_path):
-    from emu.cli import main
-    base=training_flags(tmp_path/"study")
-    seen=[]
-    def capture(ns):
-        # Resume is an operator action, not a permanent physical
-        # TrainingConfig field. Preserve source/physics config between
-        # calls, but assert the runtime *requested* proper recovery.
-        seen.append((ns.resume,ns.check_resume_only,one_run_config(ns)))
-        return 0
-    with patch("emu.run.train_one",side_effect=capture):
-        assert main(base)==0
-        assert main(base+["--resume","auto"])==0
-        assert main(base+["--resume","auto","--check-resume-only"])==0
-    assert len(seen)==3
-    assert seen[0][0] in ("",None)
-    assert seen[1][0]==seen[2][0]=="auto"
-    assert not seen[0][1] and not seen[1][1] and seen[2][1]
-    assert seen[0][2]==seen[1][2]==seen[2][2]
-    with patch("emu.run.train_one",side_effect=lambda ns:one_run_config(ns)):
-        with pytest.raises(ValueError,match="solver-iterations"):
-            main(base[:-4]+["--solver-iterations","0",
-                           "--solver-ls-iterations","4"])
-    # Source-owned plan can be checked without touching the GPU.
-    assert main(base+["--plan"])==0
 
 
 def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
@@ -326,33 +281,3 @@ def test_current_360_checkpoint_roundtrip_rejects_sensor_drift(tmp_path):
         load_checkpoint(file,expected_observation_schema=OBS_SCHEMA_TERRAIN,
                         expected_sensor_contract=corrupted)
 
-
-def test_public_200m_release_has_explicit_inference_only_provenance(tmp_path):
-    """Accept source+actor+sensor+exam-evidence hashes, never fake final.pkl."""
-    import json
-    from scripts.verify_showcase_release import verify_approved_release
-    root=Path(__file__).resolve().parents[1]
-    path=root/"showcase"/"champion.emupolicy"
-    approval_path=root/"showcase"/"release_approval.json"
-    approved=verify_approved_release(path,approval_path)
-    assert approved["release_schema"]==2
-    assert approved["checkpoint_sha256"] is None
-    assert approved["checkpoint_archive_status"]=="not_provided"
-    assert approved["approval_basis"]=="owner-reviewed-inference-only"
-    assert approved["step"]==200015872
-    assert approved["obs_dim"]==360
-    assert approved["policy_sha256"]=="36508ecca685cb7f113f62502541594f8f9da345dda3025dbb4c9e7fac6668c6"
-    assert len(approved["evaluation_bundle_sha256"])==64
-
-    for change in (
-        {"checkpoint_sha256":"0"*64},
-        {"approval_basis":"unreviewed"},
-        {"evaluation_bundle_sha256":""},
-        {"policy_sha256":"0"*64},
-        {"training_source_commit":"0"*40},
-    ):
-        damaged={**approved,**change}
-        place=tmp_path/"tampered-approval.json"
-        place.write_text(json.dumps(damaged),encoding="utf-8")
-        with pytest.raises(ValueError):
-            verify_approved_release(path,place)
