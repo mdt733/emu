@@ -34,6 +34,7 @@ COMMON = (
     "--profile","sim2real","--terrain-actor","--unified-capabilities",
     "--terrain-carpet","--carpet-prisms","--academy-stream",
     "--terrain-step-max-m",".08","--terrain-lesson","coherent-careful",
+    "--science-step-approach-m",".22",
     "--growth-recipe","main-mature","--foundation-steps","20000000",
     "--fixed-eval-every-steps","40000000",
     "--solver-iterations","2","--solver-ls-iterations","4",
