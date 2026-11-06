@@ -194,6 +194,20 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     restored = RegimeGovernor(unified_capability_focus=True)
     restored.load_state_dict(original)
     assert restored.state_dict() == original
+    # A successful instant stair finish is NOT a 40-frame fall. The
+    # 350-frame equivalent is used solely for governor competence, while
+    # truthful episode lengths remain available in the report.
+    succeeded = RegimeGovernor()
+    corrected=succeeded.update(dict(
+        fall_rate=0.,episodes=1.,ep_len_mean=40.,
+        core_fall_rate=0.,core_ep_len_mean=40.,
+        core_ep_len_competence_mean=350.))
+    assert corrected["core_competence"]==pytest.approx(1.)
+    uncorrected=RegimeGovernor()
+    old=uncorrected.update(dict(
+        fall_rate=0.,episodes=1.,ep_len_mean=40.,
+        core_fall_rate=0.,core_ep_len_mean=40.))
+    assert old["core_competence"]<.12
     for remove in ('academy_evidence', 'terrain_evidence', 'command_evidence'):
         corrupt = deepcopy(original)
         del corrupt[remove]
