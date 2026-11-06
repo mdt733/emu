@@ -154,97 +154,115 @@ def inspect_missions(frames, *, minimum_progress_m=.50, heading_limit_rad=.35,
 
 
 def inspect_destinations(frames):
-    """Independent frozen-actor exam of v5052's 60cm-past-first-lip task.
+    """Independent v5052 goal: sequential real foot landings + stable arrival.
 
-    The physical evidence comes from raw trace positions, first-episode
-    prismatic *top* contacts and independent five-frame bilateral recovery.
-    NEVER read an Academy reward or any teacher success boolean. This does
-    not certify a guaranteed fixed-height wall: signed lip rise is measured.
+    The strict historical scorer separately asks for both feet together.
+    A dynamically walking biped may land them at different times, so this
+    task verifies FIVE consecutive genuine physical top-contact frames
+    *per foot*, after the first signed lip, without requiring overlap.
+    No Academy event/reward/completion flag is ever an input.
     """
-    from .step_goal import (arrival_quality, destination_from_birth,
-                            GOAL_STABLE_FRAMES)
-    # First sample is the true birth pose; the *post-step* pose is
-    # independently recorded before the terminal auto-reset. Its frame
-    # alignment matches physical support/tilt and lets a successful 5th
-    # stable frame be verified even when completion instantly ends the run.
-    birth_xy=np.asarray(frames["position_xy"],dtype=float)
-    xy=np.asarray(frames.get(
-        "physical_position_xy_after_step",frames["position_xy"]),dtype=float)
-    yaw=np.asarray(frames.get(
-        "physical_heading_rad_after_step",frames["heading_rad"]),dtype=float)
+    from .step_goal import (
+        arrival_quality, destination_from_birth, GOAL_STABLE_FRAMES)
+    birth=np.asarray(frames["position_xy"],float)
+    xy=np.asarray(frames.get("physical_position_xy_after_step",
+                             frames["position_xy"]),float)
+    yaw=np.asarray(frames.get("physical_heading_rad_after_step",
+                              frames["heading_rad"]),float)
     alive=first_episode_mask(frames["done"])
-    fell=np.asarray(frames["fell"],dtype=bool)
-    gravity=np.asarray(frames["terrain_gravity_z"],dtype=float)
-    support=np.asarray(frames["terrain_support"],dtype=float)
-    bad=np.asarray(frames["terrain_bad_contact"],dtype=float)
-    slip=np.asarray(frames["stance_slip_proxy"],dtype=float)
-    target=destination_from_birth(np,birth_xy[0])
-    origin=np.floor(birth_xy[0]/TILE_M).astype(int)
-    events=inspect_missions(frames)["events"]
+    fell=np.asarray(frames["fell"],bool)
+    gravity=np.asarray(frames["terrain_gravity_z"],float)
+    support=np.asarray(frames["terrain_support"],float)
+    bad=np.asarray(frames["terrain_bad_contact"],float)
+    slip=np.asarray(frames["stance_slip_proxy"],float)
+    xyz=np.asarray(frames["foot_xyz"],float)
+    corners=np.asarray(frames["carpet_prism_corner_z"],float)
+    pairs=np.asarray(frames["carpet_raw_contact_pairs"],bool)
+    vertical=np.asarray(frames["carpet_contact_vertical"],float)
+    radii=np.asarray(frames["initial_foot_radii_m"],float)
+    target=destination_from_birth(np,birth[0])
+    origin=np.floor(birth[0]/TILE_M).astype(int)
+    contacts=score_prism_crossings(frames,required_frames=5)["worlds"]
     rows=[]
     for w in range(xy.shape[1]):
-        matches=[e for e in events
-                 if e["world"]==w and
-                 e["from_cell"]==origin[w].tolist() and
-                 e["to_cell"]==[int(origin[w,0])+1,int(origin[w,1])]]
-        verified=next((e for e in matches
-                       if e["both_feet_upper_support"] and
-                       e["trailing_recovery_frame"] is not None),None)
-        start=(int(verified["trailing_recovery_frame"])
-               if verified is not None else len(xy))
-        streak=0
-        completed=False
+        from_cell=origin[w].tolist()
+        to_cell=[int(origin[w,0])+1,int(origin[w,1])]
+        encounters=[e for e in contacts[w]["independently_supported_lips"]
+                    if e["from_cell"]==from_cell and e["to_cell"]==to_cell
+                    and abs(e["signed_height_cm"])>=.15]
+        # Do not accept a later unrelated tile as the actual first step.
+        first=encounters[0] if encounters else None
+        slot=_slot(to_cell)
+        seen=[False,False]
+        contact_streak=[0,0]
+        ready_frame=None
         arrived_frame=None
-        # Only the first life is valid: a later reset could reach this
-        # position while the original stair attempt already failed.
+        arrive_streak=0
+        if first is not None:
+            for t in range(int(first["frame"]),len(xy)):
+                if not alive[t,w] or fell[t,w]:
+                    break
+                for foot in range(2):
+                    actual_top=_top(corners[t,w,slot],to_cell,
+                                    xyz[t,w,foot,:2])
+                    contact=bool(np.any(
+                        pairs[t,w,2*slot:2*slot+2,foot] &
+                        (vertical[t,w,2*slot:2*slot+2,foot]>=.70)))
+                    placed=bool(
+                        contact and actual_top is not None and
+                        abs(xyz[t,w,foot,2]-radii[foot]-actual_top)<=.009)
+                    contact_streak[foot]=(contact_streak[foot]+1
+                                          if placed else 0)
+                    seen[foot]=seen[foot] or contact_streak[foot]>=5
+                if all(seen) and ready_frame is None:
+                    ready_frame=t
+                if ready_frame is None:
+                    continue
+                stable=bool(arrival_quality(
+                    np,target[w:w+1],xy[t,w:w+1],
+                    yaw[t,w:w+1]-yaw[0,w:w+1],
+                    gravity[t,w:w+1],support[t,w:w+1],
+                    bad[t,w:w+1],slip[t,w:w+1],
+                    np.array([True]))[0])
+                arrive_streak=arrive_streak+1 if stable else 0
+                if arrive_streak>=GOAL_STABLE_FRAMES:
+                    arrived_frame=t
+                    break
         life=np.flatnonzero(alive[:,w])
-        closest=float(np.min(np.linalg.norm(
-            xy[life,w]-target[w],axis=1))) if len(life) else None
-        for t in range(start,len(xy)):
-            if not alive[t,w] or fell[t,w]:
-                break
-            # Both position and health are now post-step physical
-            # samples. The independent crossing scorer still verifies
-            # raw pre-step prism contacts and first-life world identity.
-            qualifies=bool(arrival_quality(
-                np,target[w:w+1],xy[t,w:w+1],yaw[t,w:w+1]-
-                yaw[0,w:w+1],gravity[t,w:w+1],support[t,w:w+1],
-                bad[t,w:w+1],slip[t,w:w+1],
-                np.array([verified is not None]))[0])
-            streak=streak+1 if qualifies else 0
-            if streak>=GOAL_STABLE_FRAMES:
-                completed=True
-                arrived_frame=t
-                break
+        closest=(float(np.min(np.linalg.norm(xy[life,w]-target[w],axis=1)))
+                 if len(life) else None)
+        signed=float(first["signed_height_cm"]) if first is not None else None
         rows.append(dict(
-            world=w,
-            goal_xy_m=[round(float(x),4) for x in target[w]],
-            matched_first_lip_contacts=len(matches),
-            first_lip_bilateral_verified=verified is not None,
-            first_lip_actual_height_cm=(
-                float(verified["signed_actual_height_cm"])
-                if verified is not None else None),
-            closest_to_goal_m=(
-                round(closest,4) if closest is not None else None),
-            stable_arrival=completed,
+            world=w,goal_xy_m=[round(float(x),4) for x in target[w]],
+            matched_first_lip_contacts=len(encounters),
+            first_lip_actual_height_cm=signed,
+            first_lip_each_foot_verified=all(seen),
+            independent_foot_contact_frames=5,
+            first_lip_simultaneous_bilateral_verified=False,
+            first_lip_sequential_ready_frame=ready_frame,
+            closest_to_goal_m=(round(closest,4) if closest is not None else None),
+            stable_arrival=arrived_frame is not None,
             arrival_frame=arrived_frame,
         ))
+    # The original stricter bilateral test still runs as mission_autopsy.
     return dict(
-        protocol=dict(goal="60cm past first positive-X tile edge",
+        protocol=dict(goal="60cm after first +X physical tile lip",
                       stable_frames=GOAL_STABLE_FRAMES,
-                      origin="birth position, fixed for episode",
-                      contact="independent first-life real-prism upper-top contact",
-                      note="Not a guaranteed-height stair; true geometry measured."),
-        completed_missions=sum(row["stable_arrival"] for row in rows),
-        uphill_completed=sum(row["stable_arrival"] and
-                             row["first_lip_actual_height_cm"] is not None and
-                             row["first_lip_actual_height_cm"]>=.15
-                             for row in rows),
-        downhill_completed=sum(row["stable_arrival"] and
-                               row["first_lip_actual_height_cm"] is not None and
-                               row["first_lip_actual_height_cm"]<=-.15
-                               for row in rows),
-        physically_verified_bilateral=sum(
-            row["first_lip_bilateral_verified"] for row in rows),
+                      each_foot_contact_frames=5,
+                      foot_support="independent consecutive top contacts per foot",
+                      first_life_only=True,
+                      note="No simultaneous double stance required. Measured "
+                           "signed geometry, not a guaranteed-height riser."),
+        completed_missions=sum(x["stable_arrival"] for x in rows),
+        uphill_completed=sum(x["stable_arrival"] and
+                             x["first_lip_actual_height_cm"] is not None and
+                             x["first_lip_actual_height_cm"]>=.15
+                             for x in rows),
+        downhill_completed=sum(x["stable_arrival"] and
+                               x["first_lip_actual_height_cm"] is not None and
+                               x["first_lip_actual_height_cm"]<=-.15
+                               for x in rows),
+        physically_verified_sequential_feet=sum(
+            x["first_lip_each_foot_verified"] for x in rows),
         worlds=rows,
     )
