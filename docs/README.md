@@ -33,7 +33,8 @@ A completed CUDA training tournament is not a released Pinnacle.
 
 ## Historical files
 
-Old v5045 140M / v5046 20M / v5048 eight-arm launchers, retired
+Old v5045 140M / v5046 20M / v5048 eight-arm launchers and the
+completed v5051 fixed-wall/campaign and v5052 step-school wrappers, retired
 workflows, earlier field geometries and research notebooks remain
 recoverable at their **immutable original Git commits**. They do not
 need to be in active `scripts/` or duplicated into a growing
