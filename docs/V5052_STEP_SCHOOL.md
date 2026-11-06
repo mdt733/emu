@@ -60,8 +60,10 @@ or height fields: it still receives ordinary forward commands and real
   physical falls and ordinary time-limit truncation. Success has
   zero terminal-value bootstrap; timeout still bootstraps. Source
   provenance and checkpoint schema prevent mixing prior versions.
-- Only true FIRST tile bilateral transfer counts toward goal credit;
-  contact with a later unrelated lip cannot unlock the first target.
+- Only genuine sequential placement of BOTH feet on the FIRST goal tile
+  counts toward completion. A later unrelated lip cannot unlock the target.
+  The old strictly simultaneous bilateral-support check remains a
+  separate diagnostic, not a compulsory component of a moving gait.
   Training geometry is still the actual dynamic eight-prism world,
   not a guaranteed exact-height riser.
 
