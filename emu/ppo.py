@@ -1003,8 +1003,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                          .at[:,-1,cmd_idx[1]].set(commands[:,1])
                          .at[:,-1,cmd_idx[2]].set(commands[:,2]))
             current=es._replace(
-                task=task,hist=hist,cmd_target=commands,
-                cmd_ramp_from=commands,
+                task=task,hist=hist,
+                cmd_target=es.cmd_target.at[:,:3].set(commands),
+                cmd_ramp_from=es.cmd_ramp_from.at[:,:3].set(commands),
                 cmd_ramp_frac=jnp.ones_like(es.cmd_ramp_frac),
                 cmd_ramp_speed=jnp.zeros_like(es.cmd_ramp_speed),
                 cmd_hold_left=jnp.full_like(es.cmd_hold_left,1000000000),
