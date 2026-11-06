@@ -142,6 +142,12 @@ class ScienceTrainingTests(unittest.TestCase):
         self.assertTrue(np.isfinite(np.asarray(jax.device_get(out.reward))).all())
         self.assertEqual(out.state.academy_progress_origin_xy.shape,(4,2))
         self.assertIn("academy_followthrough_new",out.metrics)
+        self.assertIn("academy_goal_complete_new",out.metrics)
+        self.assertIn("physical_position_xy_after_step",out.metrics)
+        self.assertIn("academy_goal_remaining_m",out.metrics)
+        self.assertEqual(out.state.academy_goal_xy.shape,(4,2))
+        self.assertTrue(np.isfinite(
+            np.asarray(jax.device_get(out.state.academy_goal_xy))).all())
 
     def test_real_stair_mission_requires_bilateral_support_and_progress(self):
         # Keep one positive and three negative physical verdicts. They
