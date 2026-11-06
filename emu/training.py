@@ -110,6 +110,8 @@ def env_kwargs_from_args(args) -> dict:
         science_bilateral_support_bonus=args.science_bilateral_support_bonus,
         science_sensor_teacher_bonus=args.science_sensor_teacher_bonus,
         science_followthrough_bonus=args.science_followthrough_bonus,
+        science_step_goal_weight=args.science_step_goal_weight,
+        science_step_velocity_relief=args.science_step_velocity_relief,
         academy_stream=args.academy_stream,
         terrain_carpet=args.terrain_carpet,
         terrain_carpet_prisms=args.terrain_carpet_prisms,
