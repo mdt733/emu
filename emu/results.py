@@ -870,6 +870,17 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             metrics.get('academy_foothold_new',0.)).sum()),
         'academy_transfers': float(np.asarray(
             metrics.get('academy_transfer_new',0.)).sum()),
+        # v5052: objective completion is a one-time *physical* waypoint
+        # arrival AFTER verified two-foot new-tile contact. Never call
+        # any top contact or mere forward travel "destination reached".
+        'academy_goal_completions': float(np.asarray(
+            metrics.get('academy_goal_complete_new',0.)).sum()),
+        'academy_goal_remaining_m_mean': mean_metric(
+            metrics,'academy_goal_remaining_m'),
+        'academy_goal_transfer_ready_frac': mean_metric(
+            metrics,'academy_goal_bilateral_ready'),
+        'academy_goal_progress_reward_per_frame': mean_metric(
+            metrics,'reward_weighted_goal_progress'),
         'academy_clearances': float(np.asarray(
             metrics.get('academy_clearance_new',0.)).sum()),
         'academy_episodes': float(np.asarray(
