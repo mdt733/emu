@@ -168,13 +168,18 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
         delta=jnp.clip(m['science_step_goal_delta_m']/.012,-1.,1.)
         yaw_error=m['yaw_rate']-m['cmd_yaw']
         upright=jnp.clip(m['gravity_z'],0.,1.)
-        goal_progress=(science_step_goal_weight*
-                       m['science_step_goal_active']*valid_alive*
-                       (m['cmd_vx']>=.05).astype(jnp.float32)*
-                       delta*jnp.clip(m['support'],0.,1.)*
+        # Make distance changes a genuine signed potential:
+        # backwards motion receives full negative credit even when airborne,
+        # unsupported or slipping. Otherwise bouncing off support could
+        # farm positive approach while escaping its equal-distance retreat.
+        safe_progress=(jnp.clip(m['support'],0.,1.)*
                        (1.-jnp.clip(m['bad_contact'],0.,1.))*
                        jnp.exp(-6.*jnp.maximum(0.,m['stance_slip']))*
                        jnp.exp(-4.*yaw_error*yaw_error)*upright)
+        signed_delta=jnp.where(delta>0.,delta*safe_progress,delta)
+        goal_progress=(science_step_goal_weight*
+                       m['science_step_goal_active']*valid_alive*
+                       signed_delta)
         reward=reward+goal_progress
         payments['goal_progress']=goal_progress
     motor_payment = payments.get('motor_cost', jnp.zeros_like(valid_alive))
