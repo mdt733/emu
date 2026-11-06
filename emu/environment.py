@@ -43,6 +43,7 @@ from .terrain_carpet_mjx import (
     midpoint_anchor as carpet_midpoint_anchor,
     PROFILE_HALF as CARPET_PROFILE_HALF,
     role_envelope as carpet_role_envelope, make_profiles as carpet_make_profiles,
+    exact_exam_lip_profiles as carpet_exam_lip_profiles,
     generate_window as carpet_generate_window, sample_surface as carpet_sample_surface,
     ray_surface as carpet_ray_surface, VISIT_HISTORY as CARPET_VISIT_HISTORY,
     unseen_tile as carpet_unseen_tile, note_confirmed_tile as carpet_note_confirmed_tile,
@@ -987,7 +988,10 @@ class EmuMJXEnv(TaskSampler):
                  reset_forward_capacity: int = 128,
                  feet_only_contacts: bool = True,
                  solver_iterations: int | None = None,
-                 solver_ls_iterations: int | None = None):
+                 solver_ls_iterations: int | None = None,
+                 exam_fixture_steps_m=None,
+                 exam_fixture_grades_deg=None,
+                 exam_fixture_kicks_mps=None):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1003,6 +1007,29 @@ class EmuMJXEnv(TaskSampler):
         self.jnp = jnp
         self.mujoco = mujoco
         self.mjx = mjx
+        # Read-only heterogeneous physical examination, not a trainable
+        # curriculum knob. Training and old fixed exams leave this None.
+        fixture=(exam_fixture_steps_m,exam_fixture_grades_deg,
+                 exam_fixture_kicks_mps)
+        if any(value is not None for value in fixture):
+            if exam_fixture_steps_m is None:
+                raise ValueError("Exam fixture needs explicit per-world signed heights")
+            arrays=[np.asarray(value if value is not None else
+                      np.zeros(num_envs),dtype=np.float32) for value in fixture]
+            if any(v.shape!=(num_envs,) or not np.isfinite(v).all()
+                   for v in arrays):
+                raise ValueError("Exam fixture must have finite [num_envs] arrays")
+            if (np.max(np.abs(arrays[0]))>.08 or
+                np.max(np.abs(arrays[1]))>15. or
+                np.max(np.abs(arrays[2]))>.6):
+                raise ValueError("Exam physical step/grade/kick exceeds design envelope")
+            self.exam_fixture_steps=jnp.asarray(arrays[0])
+            self.exam_fixture_grades=jnp.asarray(arrays[1])
+            self.exam_fixture_kicks=jnp.asarray(arrays[2])
+        else:
+            self.exam_fixture_steps=None
+            self.exam_fixture_grades=None
+            self.exam_fixture_kicks=None
         if attitude_profile != 'v5015':
             raise ValueError('The active 360-input prism trainer requires v5015 attitude')
         if not (0.0 < pitch_command_max_deg <= 45.0):
@@ -2548,11 +2575,20 @@ class EmuMJXEnv(TaskSampler):
             params[P.slope_max_deg],up,down,academy,
             params[P.slope_exposure],params[P.terrain_exposure],seeds)
         xprof,yprof=carpet_make_profiles(jnp,seeds,up,down)
+        if self.exam_fixture_steps is not None:
+            # No sampled ±X sign, jitter or extra lip. Exact 0.75m seam,
+            # optional continuous signed grade, unchanged real colliders.
+            xprof,yprof=carpet_exam_lip_profiles(
+                jnp,self.exam_fixture_steps)
+            up=jnp.zeros_like(up)
+            down=jnp.zeros_like(down)
+            slope=jnp.zeros_like(slope)
         xy=jnp.floor(data.qpos[:,:2]/CARPET_TILE_M).astype(jnp.int32)
         window=carpet_midpoint_anchor(jnp,data.qpos[:,:2])
         centers,heights,_=carpet_generate_window(
             jnp,window[:,0],window[:,1],seeds,xprof,yprof,up,down,slope,
-            transition_limit_deg=self.carpet_transition_cap_deg)
+            transition_limit_deg=self.carpet_transition_cap_deg,
+            exact_grade_x=self.exam_fixture_grades)
         pos=data.mocap_pos
         pos=update_tile_mocaps(
             jnp,pos,self.carpet_mocap_ids,centers)
@@ -2611,7 +2647,8 @@ class EmuMJXEnv(TaskSampler):
             jnp,new_center[:,0],new_center[:,1],state.carpet_seed,
             state.carpet_xprofile,state.carpet_yprofile,
             state.carpet_up,state.carpet_down,state.carpet_slope,
-            transition_limit_deg=self.carpet_transition_cap_deg)
+            transition_limit_deg=self.carpet_transition_cap_deg,
+            exact_grade_x=self.exam_fixture_grades)
         pos=data.mocap_pos
         # Identical slot geometry for every world; only retired 2x2
         # row/column slots move. Never move support under a foot.
@@ -2722,6 +2759,13 @@ class EmuMJXEnv(TaskSampler):
              linvel_keys, joint_keys, carry_keys),
             carryover_qvel,
         )
+        if self.exam_fixture_steps is not None:
+            # Every frozen trial begins 22cm before the first real seam,
+            # centred in Y. Kicks are velocity initial conditions, not
+            # phantom impulses/reward flags. Non-exam births unaffected.
+            qpos=data.qpos.at[:,0].set(.53).at[:,1].set(.375)
+            qvel=data.qvel.at[:,0].add(self.exam_fixture_kicks)
+            data=data.replace(qpos=qpos,qvel=qvel)
         # One episode-local collision course. The standard flat path above
         # is bitwise untouched whenever terrain_step_max_m is zero.
         academy_active=self._academy_birth(
