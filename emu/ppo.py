@@ -820,6 +820,13 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 # reward measurements as the actual training environment.
                 terrain_support=out.metrics['support'],
                 terrain_bad_contact=out.metrics['bad_contact'],
+                # Independent goal certification uses raw poststep pose,
+                # matched with the poststep physical contact health below.
+                # It never reads the teacher's goal-completion reward flag.
+                physical_position_xy_after_step=out.metrics[
+                    'physical_position_xy_after_step'],
+                physical_heading_rad_after_step=out.metrics[
+                    'physical_heading_rad_after_step'],
                 terrain_vx=out.metrics['vx'],
                 terrain_height=out.metrics['height'],
                 terrain_gravity_z=out.metrics['gravity_z'],
