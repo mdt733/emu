@@ -242,7 +242,7 @@ def forensic(root,arms,source=None):
         destination_uphill=0
         destination_downhill=0
         destination_worlds=0
-        destination_bilateral=0
+        destination_sequential_feet=0
         by_verdict=Counter()
         worlds=0
         fast_vx=[]
@@ -263,7 +263,7 @@ def forensic(root,arms,source=None):
                     destination_uphill+=int(destination.get("uphill_completed",0))
                     destination_downhill+=int(destination.get("downhill_completed",0))
                     destination_worlds+=len(destination["worlds"])
-                    destination_bilateral+=int(
+                    destination_sequential_feet+=int(
                         destination["physically_verified_sequential_feet"])
             elif mode=="flat" and speed>.5:
                 fast_vx += [float(w["achieved_vx_mps"]) for w in d["worlds"]
@@ -302,7 +302,7 @@ def forensic(root,arms,source=None):
             destination_uphill=destination_uphill,
             destination_downhill=destination_downhill,
             destination_worlds=destination_worlds,
-            destination_bilateral=destination_bilateral,
+            destination_sequential_feet=destination_sequential_feet,
             failure_breakdown=dict(by_verdict),
             fast_vx=round(sum(fast_vx)/len(fast_vx),4) if fast_vx else None,
             fast_survival=round(sum(fast_alive)/len(fast_alive),4) if fast_alive else None,
