@@ -36,8 +36,18 @@ reward and sets `done` immediately. The existing per-world reset path
 then samples the next task, step profile, pose and RNG. The PPO terminal
 mask treats this as **absorbing** (V=0), like an actual successful goal.
 Falls remain failures; timeouts retain value bootstrap.
-No duplicate payment is possible within an episode. Other specialists,
-flat retention, and the original v5052 precise 60cm goal remain unchanged.
+No duplicate payment is possible within an episode. At termination
+at least one foot must still have a genuine first-target prism-top contact.
+Other specialists, flat retention, and the original v5052 precise 60cm
+goal remain unchanged.
+
+**Survival accounting matters:** a fast success may last e.g. 80 frames.
+The true 80 frames are reported as episode length, but a completed
+stair is NOT treated as a failed 80-frame survival attempt by the
+general regime/core competence governor: it receives an equivalent
+successful 350-frame competence credit. Falls and timeouts are unchanged.
+This correction affects the governor's survival estimator only, not
+physical telemetry, PPO rewards, or the frozen external examiner.
 
 This is a **short climb**, not proof of reliable multi-step locomotion,
 long-range navigation or exact stable destination arrival. The independent
