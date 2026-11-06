@@ -354,6 +354,14 @@ def main():
               f"{len(seeds)} seed(s) × {a.exam_worlds} worlds/arm")
         return
     if a.stage=="forensic":
+        # Prior v5051 contains different arm IDs; discover their actual
+        # saved names rather than pretending they are v5052 treatments.
+        if a.source_exams is not None and a.only=="all":
+            previous=Path(a.source_exams).expanduser().resolve()/"exams"
+            if not previous.is_dir():
+                ap.error("--source-exams has no exams/ directory")
+            selected=tuple(Arm(p.name,"historical v5051") for p in sorted(
+                previous.iterdir()) if p.is_dir())
         forensic(root,selected,a.source_exams)
         return
     validate_checkout()
