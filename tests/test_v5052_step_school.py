@@ -12,6 +12,7 @@ import unittest
 import numpy as np
 
 from emu.rewards import REWARD_ONLY_METRICS, training_reward
+from emu.terrain_carpet_mjx import TILE_M, academy_near_lip_spawn_x
 from emu.cli import main as emu_cli
 from scripts.v5052_step_school import (
     PARENT_STEPS, TARGET_STEPS, ARMS, EXAMS, command,
@@ -86,6 +87,18 @@ class StepSchoolTests(unittest.TestCase):
         # as a certified stair crossing. No zero-contact bonus is expected.
         np.testing.assert_allclose(no_contact,no_contact_baseline,atol=1e-7)
         self.assertIn("science_step_goal_active",REWARD_ONLY_METRICS)
+
+    def test_academy_birth_is_exactly_upstream_of_real_prism_seam(self):
+        starts=np.array([-.02,.02,.37,.80],dtype=np.float32)
+        near=academy_near_lip_spawn_x(np,starts,.22)
+        np.testing.assert_allclose(near,[-.22,.53,.53,1.28],atol=1e-6)
+        # A robot that begins 22cm before a tile edge should always see
+        # the boundary ahead without changing actual prism heights.
+        np.testing.assert_allclose(
+            (np.floor(near/TILE_M)+1)*TILE_M-near,
+            np.full_like(near,.22),atol=1e-6)
+        np.testing.assert_array_equal(
+            academy_near_lip_spawn_x(np,starts,0.),starts)
 
     def test_protocol_is_immutable(self):
         with TemporaryDirectory() as temp:
