@@ -7,13 +7,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 import jax
 import jax.numpy as jnp
 import mujoco
 
 from emu.carpet_prism_mjx import (batch_update_prism_mocaps, PRISM_COUNT,
-                                  PRISMS_PER_TILE, PRISM_GEOM_NAMES)
+                                  PRISMS_PER_TILE)
 from emu.terrain_carpet_mjx import (
     update_tile_mocaps,
     feet_clear_of_abandoned_prisms, add_carpet_geoms,
