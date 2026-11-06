@@ -165,6 +165,12 @@ class MatrixExamTests(unittest.TestCase):
         np.testing.assert_allclose(
             np.asarray(jax.device_get(init.env_state.academy_birth_lip_m)),
             [0.,.0025,.02,-.05],atol=.0005)
+        # The difficulty reference is captured at the SAME birth;
+        # an eventual promotion must never relabel this older trial.
+        birth_ref=np.asarray(jax.device_get(
+            init.env_state.academy_birth_frontier_m))
+        assert birth_ref.shape==(4,)
+        assert np.all(birth_ref>0.)
         out=trainer["evaluate_matrix"](
             init.params,task,jnp.zeros((360,),dtype=jnp.float32),
             jnp.ones((360,),dtype=jnp.float32),
