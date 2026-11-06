@@ -160,6 +160,11 @@ class MatrixExamTests(unittest.TestCase):
             epochs=1,minibatches=1,
             entropy_cost=PPO_ENTROPY_COST,value_cost=PPO_VALUE_COST)
         init=trainer["make_initial_state"](teacher)
+        # The new success/reset curriculum must retain the EXACT first
+        # signed physical seam at birth, even after a later foot transfer.
+        np.testing.assert_allclose(
+            np.asarray(jax.device_get(init.env_state.academy_birth_lip_m)),
+            [0.,.0025,.02,-.05],atol=.0005)
         out=trainer["evaluate_matrix"](
             init.params,task,jnp.zeros((360,),dtype=jnp.float32),
             jnp.ones((360,),dtype=jnp.float32),
