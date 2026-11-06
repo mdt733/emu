@@ -144,6 +144,7 @@ class MatrixExamTests(unittest.TestCase):
             unified_capability_focus=True,
             terrain_carpet=True,terrain_carpet_prisms=True,
             terrain_step_max_m=.08,academy_stream=True,
+            science_step_finish_on_transfer=True,
             solver_iterations=2,solver_ls_iterations=4,
             exam_fixture_steps_m=np.array([0.,.0025,.02,-.05]),
             exam_fixture_grades_deg=np.array([0.,0.,0.,0.]))
