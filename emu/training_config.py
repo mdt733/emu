@@ -263,6 +263,12 @@ class TrainingConfig:
     def load(cls, path: Path) -> "TrainingConfig":
         data = json.loads(path.read_text(encoding="utf-8"))
         expected = {f.name for f in dataclass_fields(cls)}
+        # One narrowly scoped compatibility allowance for immutable
+        # v5052 checkpoint parents. That source could not have enabled a
+        # v5054-only episode termination, so the historical value is
+        # provably False. All other unknown/missing keys still fail closed.
+        if set(data)==expected-{"science_step_finish_on_transfer"}:
+            data["science_step_finish_on_transfer"]=False
         missing, extra = expected - set(data), set(data) - expected
         # No source-pinned v5045 run can accept an incomplete historical
         # config: re-creating defaults would change teacher and sensor meaning.
