@@ -43,6 +43,12 @@ One *NEW SOURCE-PINNED* 0→40M parent:
 - 0–20M: ordinary gentle cold foundation; learn standing and walking.
 - 20–40M: early low-height Academy introduction, same 8 real prisms and all
   six specialist/retention regimes; 20% Academy intro allocation.
+  Academy-only births start **22cm before the next real 75cm prism seam**
+  (within useful 4×4 ToF range), instead of wasting a novice episode
+  walking 75cm before reaching its first challenge. The true tile surface,
+  signed riser and collision are generated unmodified. Ordinary flat,
+  resilience and other non-Academy births keep their original positions.
+  This near-lip preparation is SHARED by all 7 arms, not a treatment factor.
 - PPO optimizer, actor, critic, normalizer, curriculum and capability field
   saved in the identical `parent/checkpoints/final.pkl`.
 
