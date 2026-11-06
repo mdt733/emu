@@ -214,6 +214,10 @@ class EnvState(NamedTuple):
     academy_progress_paid: Any
     # One physical attempt verdict per lip. No repeated near-edge farming.
     academy_approach_seen: Any
+    academy_approach_lip_m: Any  # signed physical lip retained until failure verdict
+    terrain_attempt_lip_m: Any  # first ordinary STEP encounter retained to episode end
+    academy_birth_lip_m: Any  # actual FIRST +X seam signed height, sampled at reset
+    academy_finish_streak: Any  # three safe frames after BOTH verified upper feet
     # v5052 fixed world-frame target beyond FIRST upcoming real tile lip.
     # Teacher-only episode state: never present in the 360 actor packet.
     academy_goal_xy: Any
@@ -979,6 +983,7 @@ class EmuMJXEnv(TaskSampler):
                  science_step_goal_weight: float = 0.0,
                  science_step_velocity_relief: float = 0.0,
                  science_step_approach_m: float = 0.0,
+                 science_step_finish_on_transfer: bool = False,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
                  carpet_transition_cap_deg: float = 3.0,
@@ -1062,6 +1067,11 @@ class EmuMJXEnv(TaskSampler):
             setattr(self,name,value)
         if 0. < self.science_step_approach_m < .15:
             raise ValueError('near-lip Academy birth requires safe 0.15..0.35m or 0=off')
+        if type(science_step_finish_on_transfer) is not bool:
+            raise ValueError("step finish switch must be boolean")
+        if science_step_finish_on_transfer and not academy_stream:
+            raise ValueError("step finish requires streamed real-prism Academy")
+        self.science_step_finish_on_transfer=science_step_finish_on_transfer
         self.science_gate_mode=science_gate_mode
         self.observation_schema = observation_schema
         self.base_obs_fields = actor_observation_fields(observation_schema)
@@ -1829,6 +1839,10 @@ class EmuMJXEnv(TaskSampler):
             academy_progress_active=academy['progress_active'],
             academy_progress_paid=academy['progress_paid'],
             academy_approach_seen=academy['approach_seen'],
+            academy_approach_lip_m=academy['approach_lip_m'],
+            terrain_attempt_lip_m=academy['terrain_attempt_lip_m'],
+            academy_birth_lip_m=state.academy_birth_lip_m,
+            academy_finish_streak=finish_streak,
             academy_goal_xy=state.academy_goal_xy,
             academy_goal_lip_armed=goal_lip_armed,
             academy_goal_foot_streak=goal_foot_streak,
@@ -2792,6 +2806,22 @@ class EmuMJXEnv(TaskSampler):
         data = data.replace(ctrl=ctrl)
         dynamic_model=self._carpet_dynamic_model(carpet['carpet_hfields'])
         data = self._forward_reset_data(dynamic_model, data, reset_mask)
+        # Actual signed FIRST +X edge: these are the physical prism sources
+        # already used to generate collisions, not a requested frontier or
+        # the transient seam height at an eventual end-of-episode frame.
+        cx=jnp.floor(data.qpos[:,0]/CARPET_TILE_M).astype(jnp.int32)
+        cy=jnp.floor(data.qpos[:,1]/CARPET_TILE_M).astype(jnp.int32)
+        src_slot=jnp.mod(cx,2)+2*jnp.mod(cy,2)
+        dst_slot=jnp.mod(cx+1,2)+2*jnp.mod(cy,2)
+        corners=carpet['carpet_hfields'].reshape((self.num_envs,CARPET_TILE_COUNT,4))
+        src=jnp.take_along_axis(corners,src_slot[:,None,None],axis=1)[:,0,:]
+        dst=jnp.take_along_axis(corners,dst_slot[:,None,None],axis=1)[:,0,:]
+        mz=jnp.stack(tuple(data.mocap_pos[:,m,2]
+                           for m in self.carpet_mocap_ids),axis=1)
+        z_src=jnp.take_along_axis(mz,src_slot[:,None],axis=1)[:,0]
+        z_dst=jnp.take_along_axis(mz,dst_slot[:,None],axis=1)[:,0]
+        birth_lip=z_dst-z_src+.5*CARPET_SIZE_Z_M*(
+            dst[:,0]+dst[:,2]-src[:,1]-src[:,3])
         phase = jax.vmap(lambda k: jax.random.uniform(k, (), minval=0.0, maxval=2.0 * jnp.pi))(phase_keys)
         prev_action = jnp.zeros((self.num_envs, ACTION_DIM), dtype=jnp.float32)
         prev_foot_pos = data.xpos[:, self.foot_bodies, :]
@@ -2855,6 +2885,10 @@ class EmuMJXEnv(TaskSampler):
             academy_progress_active=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_progress_paid=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_approach_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_approach_lip_m=zeros,
+            terrain_attempt_lip_m=zeros,
+            academy_birth_lip_m=birth_lip,
+            academy_finish_streak=izeros,
             academy_goal_xy=goal_xy,
             academy_goal_lip_armed=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_goal_foot_streak=jnp.zeros((self.num_envs,2),dtype=jnp.int32),
@@ -3165,6 +3199,17 @@ class EmuMJXEnv(TaskSampler):
         academy_focus=step_focus&state.academy_active
         approached=moved&near&shared_lip&lip&step_focus&fresh
         seen=state.academy_approach_seen|approached
+        # Latch the signed real rise while the seam actually exists.
+        # At success or timeout the current body cell may have changed and
+        # the transient 'height_m' is commonly zero. Keep the unresolved
+        # Academy approach separately from the ordinary episode's FIRST lip.
+        approach_lip=jnp.where(
+            approached & ~state.academy_approach_seen,rise,
+            state.academy_approach_lip_m)
+        ordinary_first=approached & ~state.academy_active & (
+            jnp.abs(state.terrain_attempt_lip_m)<=.0015)
+        terrain_attempt_lip=jnp.where(
+            ordinary_first,rise,state.terrain_attempt_lip_m)
         new_foothold=(approached&eligible&~state.academy_foothold_seen)
         # For TRUE two-foot support, each foot must occupy the confirmed
         # new tile, have an authentic upward-facing prism contact, and
@@ -3237,6 +3282,11 @@ class EmuMJXEnv(TaskSampler):
             attempt_new=((paid&academy_focus&lip) |
                 (done&academy_focus&seen)),
             approach_seen=jnp.where(confirmed,False,seen),
+            approach_lip_m=jnp.where(confirmed,0.,approach_lip),
+            terrain_attempt_lip_m=terrain_attempt_lip,
+            verdict_height_m=jnp.where(
+                paid & academy_focus & lip,rise,
+                jnp.where(done & academy_focus & seen,approach_lip,0.)),
             foothold_seen=jnp.where(confirmed,False,
                 state.academy_foothold_seen|new_foothold),
             clearance_new=false,foothold_new=new_foothold,
