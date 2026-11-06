@@ -101,6 +101,10 @@ def main(argv=None) -> int:
                    help='one-time reward for 50cm after bilateral lip support with heading bound')
     q.add_argument('--science-sensor-teacher-bonus',type=float,default=0.,
                    help='privileged sensor-visible foothold teaching bonus; actor input unchanged')
+    q.add_argument('--science-step-goal-weight',type=float,default=0.,
+                   help='v5052 bounded supported forward-progress payment ONLY in real Academy steps')
+    q.add_argument('--science-step-velocity-relief',type=float,default=0.,
+                   help='v5052 loosen forward-speed tracking during Academy step negotiation, 0..1')
     q.add_argument('--science-step-promotion-mm',type=float,default=0.,
                    help='v5047 frontier A/B: fixed step promotion mm, 0 uses mature +18% rule')
     q.add_argument('--science-step-retreat-mm',type=float,default=0.,
