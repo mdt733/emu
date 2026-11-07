@@ -55,6 +55,8 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertEqual(out.state.academy_progress_origin_xy.shape,(4,2))
         self.assertIn("academy_followthrough_new",out.metrics)
         self.assertIn("academy_goal_complete_new",out.metrics)
+        self.assertIn("academy_episode_first_lip_armed",out.metrics)
+        self.assertIn("academy_episode_two_foot_ready",out.metrics)
         self.assertIn("physical_position_xy_after_step",out.metrics)
         self.assertIn("academy_goal_remaining_m",out.metrics)
         self.assertEqual(out.state.academy_goal_xy.shape,(4,2))
