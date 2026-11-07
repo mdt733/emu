@@ -2149,6 +2149,16 @@ class EmuMJXEnv(TaskSampler):
             'academy_goal_sequential_feet_ready':(
                 stepped.academy_goal_transfer_ready).astype(jnp.float32),
             'academy_episode_attempt':(done & state.academy_active).astype(jnp.float32),
+            # Separate first-tile proof gates at EPISODE END. These are
+            # read-only diagnostics, not actor observations or reward flags.
+            # A valid upper-foot transfer can be lost to the *teacher's*
+            # first-lip arming gate before the short-finish check.
+            'academy_episode_first_lip_armed':(
+                done & state.academy_active &
+                stepped.academy_goal_lip_armed).astype(jnp.float32),
+            'academy_episode_two_foot_ready':(
+                done & state.academy_active &
+                stepped.academy_goal_transfer_ready).astype(jnp.float32),
             'academy_episode_complete':jnp.where(
                 self.science_step_finish_on_transfer,
                 academy['finish_new'],
