@@ -897,6 +897,10 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             metrics.get('academy_clearance_new',0.)).sum()),
         'academy_episodes': float(np.asarray(
             metrics.get('academy_episode_attempt',0.)).sum()),
+        'academy_episodes_first_lip_armed': float(np.asarray(
+            metrics.get('academy_episode_first_lip_armed',0.)).sum()),
+        'academy_episodes_two_foot_ready': float(np.asarray(
+            metrics.get('academy_episode_two_foot_ready',0.)).sum()),
         'academy_four_lip_milestones': float(np.asarray(
             metrics.get('academy_course_new',0.)).sum()),
         'academy_reward_per_frame': mean_metric(metrics,'academy_reward'),
@@ -985,6 +989,18 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'birth_resilience_d': done_mean(metrics, 'birth_resilience_d', default=-1.0),
         'birth_posture_d': done_mean(metrics, 'birth_posture_d', default=-1.0),
     }
+    # Diagnose whether Academy's slow/attenuated operator commands are
+    # over-represented relative to the held-out 0.25m/s stair exam.
+    academy_mask = (np.asarray(metrics['academy_active']) > .5) if (
+        'academy_active' in metrics) else None
+    if academy_mask is not None and academy_mask.any():
+        row['academy_actual_cmd_vx_mps'] = float(
+            np.asarray(metrics['cmd_vx'])[academy_mask].mean())
+        row['academy_actual_vx_mps'] = float(
+            np.asarray(metrics['vx'])[academy_mask].mean())
+    else:
+        row['academy_actual_cmd_vx_mps'] = -1.
+        row['academy_actual_vx_mps'] = -1.
     # True mixed-geometry physical slope: never infer gradient from a
     # curriculum target or fold downhill into successful uphill evidence.
     # All four directional counters are COMPLETE episode facts.
