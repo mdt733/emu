@@ -57,6 +57,12 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertIn("academy_goal_complete_new",out.metrics)
         self.assertIn("academy_episode_first_lip_armed",out.metrics)
         self.assertIn("academy_episode_two_foot_ready",out.metrics)
+        self.assertIn("hip_roll_motor_load_frac_left",out.metrics)
+        self.assertIn("hip_roll_motor_load_frac_right",out.metrics)
+        self.assertIn("hip_roll_spring_abs_nm_left",out.metrics)
+        self.assertIn("hip_roll_spring_abs_nm_right",out.metrics)
+        self.assertTrue(np.isfinite(np.asarray(
+            jax.device_get(out.metrics["hip_roll_motor_load_frac_left"]))).all())
         self.assertIn("physical_position_xy_after_step",out.metrics)
         self.assertIn("academy_goal_remaining_m",out.metrics)
         self.assertEqual(out.state.academy_goal_xy.shape,(4,2))
