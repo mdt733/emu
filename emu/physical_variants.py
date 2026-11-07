@@ -69,7 +69,7 @@ def profile_numbers(name: str) -> dict[str, float | str]:
     stiffness = REFERENCE_KNEE_STIFFNESS_N_M * (
         mass / REFERENCE_TOTAL_MASS_KG) * scale * p.knee_support
     return dict(profile=name, hip_height_m=p.hip_height_m,
-                fully_straight_leg_m=2 * BASE_HALF_LINK_M * scale * 2,
+                fully_straight_leg_m=2 * (2 ** .5) * BASE_HALF_LINK_M * scale,
                 thigh_length_m=(2 ** .5) * BASE_HALF_LINK_M * scale,
                 shin_length_m=(2 ** .5) * BASE_HALF_LINK_M * scale,
                 mass_kg=mass, link_scale=scale, knee_strut_k_n_m=stiffness,
@@ -115,7 +115,6 @@ def generate_xml(source_xml: str, name: str) -> str:
                      (BASE_SHIN_QUARTER_M * s, 0.,
                       -BASE_SHIN_QUARTER_M * s))
         thigh = _get(root, f".//geom[@name='{prefix}thigh_rod']")
-        _set_xyz(thigh, "fromto", (0., 0., 0.)) if False else None
         thigh.set("fromto",
                    f"0 0 0 {-BASE_HALF_LINK_M*s:.8f} 0 {-BASE_HALF_LINK_M*s:.8f}")
         thigh.set("mass", f"{.040*s:.8f}")
