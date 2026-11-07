@@ -33,6 +33,7 @@ def hip_roll_action_saturation(xp, raw_action, academy_active):
     for cohort, mask in (('academy', active), ('other', ~active)):
         count = xp.sum(mask.astype(raw_action.dtype))
         denom = xp.maximum(count, 1.)
+        out[f'hip_roll_frames_{cohort}'] = count
         for idx, side in ((0, 'right'), (3, 'left')):
             v = raw_action[..., idx]
             clip = xp.abs(v) > 1.
