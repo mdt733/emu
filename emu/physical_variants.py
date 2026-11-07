@@ -74,6 +74,7 @@ def profile_numbers(name: str) -> dict[str, float | str]:
                 shin_length_m=(2 ** .5) * BASE_HALF_LINK_M * scale,
                 mass_kg=mass, link_scale=scale, knee_strut_k_n_m=stiffness,
                 spring_support_fraction=p.knee_support,
+                shin_flex_stiffness_nm_rad=4.0 / scale,
                 hip_roll_stiffness_nm_rad=p.hip_roll_stiffness)
 
 
@@ -130,6 +131,10 @@ def generate_xml(source_xml: str, name: str) -> str:
         # length; this is the same physical hinge spring mechanism.
         _get(root, f".//joint[@name='{prefix}hip_roll']").set(
             "stiffness", f"{p.hip_roll_stiffness:.6f}")
+        # Same tube section/material, longer bending segment: equivalent
+        # rotational flex stiffness scales approximately EI/L, not constant.
+        _get(root, f".//joint[@name='{prefix}shin_flex']").set(
+            "stiffness", f"{4.0/s:.8f}")
         _get(root, f".//spatial[@name='{prefix}knee_support']").set(
             "stiffness", f"{float(info['knee_strut_k_n_m']):.8f}")
     return ET.tostring(root, encoding="unicode")
