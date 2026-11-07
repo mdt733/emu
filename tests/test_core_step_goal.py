@@ -206,6 +206,21 @@ class CoreAcademyTests(unittest.TestCase):
         self.assertAlmostEqual(window['ppo_stair_audit_academy_cmd_vx_mps'],.15)
         self.assertAlmostEqual(window['ppo_stair_audit_academy_vx_mps'],.12)
 
+        from emu.ppo import hip_roll_action_saturation
+        # Two Academy frames saturate ONLY left roll (+, +);
+        # two generalist frames saturate ONLY right roll (-, -).
+        a=np.zeros((2,2,6),dtype=np.float32)
+        a[0,:,3]=[1.3,1.6]
+        a[1,:,0]=[-1.2,-1.4]
+        cohorts=np.array([[1.,1.],[0.,0.]],dtype=np.float32)
+        hip=hip_roll_action_saturation(np,a,cohorts)
+        self.assertEqual(float(hip['hip_roll_clip_left_academy']),1.)
+        self.assertEqual(float(hip['hip_roll_clip_left_other']),0.)
+        self.assertEqual(float(hip['hip_roll_clip_right_academy']),0.)
+        self.assertEqual(float(hip['hip_roll_clip_right_other']),1.)
+        self.assertAlmostEqual(float(hip['hip_roll_raw_left_academy']),1.45,places=6)
+        self.assertAlmostEqual(float(hip['hip_roll_raw_right_other']),-1.3,places=6)
+
     def test_independent_real_prism_trace_proves_first_lip_destination(self):
         # No teacher success, no reward fields, and no nominal height!
         # The scorer sees only raw physical top contacts + first-life motion.
