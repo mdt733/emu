@@ -32,7 +32,7 @@ from .contracts import (
     sensor_observation_contract,
     SIM_DT,
 )
-from .environment import TARGET_SPAN
+from .environment import TARGET_SPAN, NEUTRAL_ROOT_Z
 from .contracts import ROBOT_XML, VERSION
 from .ppo import PPO_HIDDEN_SIZES, PPO_STD_MAX, PPO_STD_MIN, build_obs_norm_mask
 
@@ -490,7 +490,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
             "actuated_joints": list(ACTUATED_JOINTS),
             "target_span_rad": [float(x) for x in np.asarray(TARGET_SPAN)],
             "one_control_frame_actuation_delay": True,
-            "neutral_root_z_m": 0.2584,
+            "neutral_root_z_m": NEUTRAL_ROOT_Z,
             "default_commands": {
                 "vx": 0.04, "vy": 0.0, "yaw": 0.0, "height": 0.0,
                 "pitch": 0.0, "roll": 0.0, "step_height": 0.012,
