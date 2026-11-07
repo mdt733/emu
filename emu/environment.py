@@ -315,7 +315,8 @@ def horizontal_tracking_motion(xp, rotation_world, linear_world, angular_world):
 # actuator output (N m) after actuator limits, NOT servo electrical current.
 # These are per-control-frame *instantaneous* estimates, not joule integration,
 # winding temperature, battery watts or a calibrated thermal model.
-SERVO_RATED_CONTINUOUS_TORQUE_NM = 0.980665  # C018 @ 12V, nominal rated (NOT sustained thermal proof)
+SERVO_RATED_CONTINUOUS_TORQUE_NM = 0.980665  # C018 @ 12V; NOT sustained thermal proof
+from .physical_variants import SERVO_NOLOAD_RAD_S
 
 
 def servo_effort_metrics(xp, torque_nm, joint_rate_rad_s, stall_limit_nm):
@@ -327,12 +328,24 @@ def servo_effort_metrics(xp, torque_nm, joint_rate_rad_s, stall_limit_nm):
     """
     power = torque_nm * joint_rate_rad_s
     torque_abs = xp.abs(torque_nm)
+    speed_abs = xp.abs(joint_rate_rad_s)
+    # DIAGNOSTICS ONLY: these do not enforce an electric torque-speed curve.
+    # A passively driven/backdriven joint can exceed a motor's no-load speed;
+    # this is a reality-check warning, NOT a calibrated motor failure.
+    speed_ratio = speed_abs / SERVO_NOLOAD_RAD_S
+    torque_ratio = torque_abs / xp.maximum(stall_limit_nm, 1e-6)
     return {
         'servo_shaft_abs_power_w': xp.sum(xp.abs(power), axis=1),
         'servo_shaft_drive_power_w': xp.sum(xp.maximum(power, 0.0), axis=1),
         'servo_shaft_brake_power_w': xp.sum(xp.maximum(-power, 0.0), axis=1),
         'servo_over_rated_frac': xp.mean((torque_abs > SERVO_RATED_CONTINUOUS_TORQUE_NM).astype(torque_nm.dtype), axis=1),
-        'servo_peak_torque_limit_frac': xp.max(torque_abs / xp.maximum(stall_limit_nm, 1e-6), axis=1),
+        'servo_peak_torque_limit_frac': xp.max(torque_ratio, axis=1),
+        'servo_speed_over_noload_frac': xp.mean(
+            (speed_ratio > 1.).astype(torque_nm.dtype), axis=1),
+        'servo_peak_speed_ratio': xp.max(speed_ratio, axis=1),
+        'servo_linear_envelope_warning_frac': xp.mean(
+            ((torque_ratio + speed_ratio > 1.) &
+             (power > 0.)).astype(torque_nm.dtype), axis=1),
     }
 
 
