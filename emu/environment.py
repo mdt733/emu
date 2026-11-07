@@ -314,7 +314,7 @@ def horizontal_tracking_motion(xp, rotation_world, linear_world, angular_world):
 # actuator output (N m) after actuator limits, NOT servo electrical current.
 # These are per-control-frame *instantaneous* estimates, not joule integration,
 # winding temperature, battery watts or a calibrated thermal model.
-SERVO_RATED_CONTINUOUS_TORQUE_NM = 0.638  # STS3215 nominal rating, robot.xml
+SERVO_RATED_CONTINUOUS_TORQUE_NM = 0.980665  # C018 @ 12V, nominal rated (NOT sustained thermal proof)
 
 
 def servo_effort_metrics(xp, torque_nm, joint_rate_rad_s, stall_limit_nm):
@@ -1344,6 +1344,23 @@ class EmuMJXEnv(TaskSampler):
             np.asarray(self.mj_model.qpos_spring)[joint_pos], dtype=jnp.float32)
         self.spring_stiffness = jnp.asarray(
             np.asarray(self.mj_model.jnt_stiffness)[joints], dtype=jnp.float32)
+        # Symmetric v5056 passive compression struts are spatial tendons, NOT
+        # linear joint springs. Real tendon lengths are updated by MJX, and
+        # stored energy must include those springs even when all servo power
+        # is zero. Read physical stiffness/rest lengths from the compiled XML.
+        knee_struts = ('r_knee_support', 'l_knee_support')
+        tendon_ids = [mujoco.mj_name2id(
+            self.mj_model, mujoco.mjtObj.mjOBJ_TENDON, name)
+            for name in knee_struts]
+        if any(t < 0 for t in tendon_ids):
+            raise ValueError('Missing symmetric knee-compression struts in robot.xml')
+        self.knee_strut_ids = jnp.asarray(tendon_ids, dtype=jnp.int32)
+        self.knee_strut_k = jnp.asarray(
+            np.asarray(self.mj_model.tendon_stiffness)[tendon_ids],
+            dtype=jnp.float32)
+        self.knee_strut_rest_m = jnp.asarray(
+            np.asarray(self.mj_model.tendon_lengthspring)[tendon_ids, 0],
+            dtype=jnp.float32)
         self.act_joint_range = jnp.asarray(self.ids['act_joint_range'], dtype=jnp.float32)
         self.shin_qpos = jnp.asarray(self.ids['shin_qpos'], dtype=jnp.int32)
         self.shin_qvel = jnp.asarray(self.ids['shin_qvel'], dtype=jnp.int32)
@@ -3557,6 +3574,24 @@ class EmuMJXEnv(TaskSampler):
         spring_energy = joint_spring_energy(
             jnp, data.qpos[:, self.spring_qpos],
             self.spring_reference, self.spring_stiffness)
+        # Compression only: positive force pushes sites apart. This is
+        # stored elastic energy, not electrical motor power or actuator work.
+        strut_compression = jnp.maximum(
+            0.0, self.knee_strut_rest_m -
+            jnp.take(data.ten_length, self.knee_strut_ids, axis=1))
+        strut_force = self.knee_strut_k * strut_compression
+        strut_energy = 0.5 * jnp.sum(
+            self.knee_strut_k * strut_compression**2, axis=1)
+        spring_energy = {
+            **spring_energy,
+            'spring_potential_energy_j': (
+                spring_energy['spring_potential_energy_j'] + strut_energy),
+            'knee_strut_energy_j': strut_energy,
+            'knee_strut_compression_m_right': strut_compression[:, 0],
+            'knee_strut_compression_m_left': strut_compression[:, 1],
+            'knee_strut_force_n_right': strut_force[:, 0],
+            'knee_strut_force_n_left': strut_force[:, 1],
+        }
         model_damping_dissipation_w = jnp.sum(
             self.act_joint_viscous_damping *
             data.qvel[:, self.act_qvel]**2, axis=-1)
