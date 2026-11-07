@@ -132,6 +132,27 @@ class CoreAcademyTests(unittest.TestCase):
         self.assertFalse(climb(side=.30)[0])
         self.assertEqual(CLIMB_STABLE_FRAMES,3)
 
+        # An ostensibly positive short-climb payment may actually be an
+        # undesirable action under the PPO advantage that gets optimised.
+        # Keep this contract in the EXISTING core test, not another test.
+        from emu.ppo import stair_terminal_credit_stats
+        credit=stair_terminal_credit_stats(
+            np,np.array([-42.,2.,3.,4.]),
+            np.array([8.,0.,0.,0.]),
+            np.array([50.,0.,0.,0.]),
+            np.array([1.,0.,0.,0.]))
+        self.assertEqual(float(credit['stair_credit_finish_events']),1.)
+        self.assertEqual(float(credit['stair_credit_finish_reward']),8.)
+        self.assertEqual(float(credit['stair_credit_finish_td']),-42.)
+        self.assertEqual(float(credit['stair_credit_finish_adv_raw']),-42.)
+        self.assertLess(float(credit['stair_credit_finish_adv_normalised']),0.)
+        self.assertEqual(float(credit['stair_credit_finish_negative_fraction']),1.)
+        empty=stair_terminal_credit_stats(
+            np,np.array([1.,2.]),np.array([0.,0.]),
+            np.array([0.,0.]),np.zeros(2))
+        self.assertEqual(float(empty['stair_credit_finish_events']),0.)
+        self.assertEqual(float(empty['stair_credit_finish_adv_raw']),-1.)
+
     def test_independent_real_prism_trace_proves_first_lip_destination(self):
         # No teacher success, no reward fields, and no nominal height!
         # The scorer sees only raw physical top contacts + first-life motion.
