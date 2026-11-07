@@ -17,7 +17,8 @@ All options below keep the original torso, two ±80mm hip mount offsets,
 ball feet, 360 sensor channels, six C018 12V servo outputs, servo gear=1:1,
 spring attachment levers (30mm), contact topology and fixed ToF beam pattern.
 Longer thigh/shin tubes gain mass in proportion to length, while their
-own inertia is recomputed by real MuJoCo geometry. Torso/servo mass stays
+own inertia is recomputed by real MuJoCo geometry. The passive carbon
+shin flex's rotational stiffness decreases as EI/L for the longer tube. Torso/servo mass stays
 fixed. This is a first-order carbon-tube mass model, NOT a CAD bill of
 materials. Larger limbs also produce more swing inertia and demand more
 hip/knee torque; a longer leg is not automatically better at a step.
@@ -25,13 +26,13 @@ hip/knee torque; a longer leg is not automatically better at a step.
 | Profile | Hip neutral | Thigh & shin | Total mass approx | Knee spring k | Hip roll k |
 |---|---:|---:|---:|---:|---:|
 | base26 | 25.84cm | 17.00cm | 480g | 750 N/m | 2 Nm/rad |
-| h30 | 30cm | 19.94cm | 504g | ~931 N/m | 2 Nm/rad |
-| h34 | 34cm | 22.74cm | 527g | ~1,113 N/m | 2 Nm/rad |
+| h30 | 30cm | 19.94cm | 504g | ~924 N/m | 2 Nm/rad |
+| h34 | 34cm | 22.74cm | 527g | ~1,104 N/m | 2 Nm/rad |
 | h40 | 40cm | 27.02cm | 562g | ~1,400 N/m | 2 Nm/rad |
-| h34_k75 | 34cm | 22.74cm | 527g | ~835 N/m | 2 Nm/rad |
-| h34_k125 | 34cm | 22.74cm | 527g | ~1,391 N/m | 2 Nm/rad |
-| h34_roll1 | 34cm | 22.74cm | 527g | ~1,113 N/m | **1** Nm/rad |
-| h40_k75 | 40cm | 27.02cm | 562g | ~1,050 N/m | 2 Nm/rad |
+| h34_k75 | 34cm | 22.74cm | 527g | ~828 N/m | 2 Nm/rad |
+| h34_k125 | 34cm | 22.74cm | 527g | ~1,380 N/m | 2 Nm/rad |
+| h34_roll1 | 34cm | 22.74cm | 527g | ~1,104 N/m | **1** Nm/rad |
+| h40_k75 | 40cm | 27.02cm | 562g | ~1,047 N/m | 2 Nm/rad |
 
 **Selection premise:** 30–34cm is the practical leading range.
 40cm is worth testing as an upper-bound experiment, not promising it
