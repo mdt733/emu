@@ -52,7 +52,10 @@ already-computed GAE and original PPO advantage-normalization:
   events whose *normalised* advantage is negative.
 
 Every conditional metric is **-1 (unknown)** when its event count is
-zero. All metrics are summaries, not actor inputs and not new reward.
+zero.
+This includes the **first** 32-frame GPU rollout; the metrics are evaluated
+on the pre-update critic and policy, so later optimiser updates cannot
+rewrite which action produced an earlier terminal. All metrics are summaries, not actor inputs and not new reward.
 No trainer, sampler, physics, optimizer, architecture or sensor changes.
 
 ### Stage 1: short **diagnostic** PPO fork
