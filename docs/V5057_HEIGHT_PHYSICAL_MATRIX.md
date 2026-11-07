@@ -15,17 +15,23 @@ The existing two ~170mm links produce ~258mm hip height at their neutral
 ~270mm thigh and ~270mm shin (540mm straight-leg span). That's a major
 1.59× growth in leg length, NOT a 40cm version of the existing short legs.
 
-All options below keep the original torso, two ±80mm hip mount offsets,
-ball feet, 360 sensor channels, six C018 12V servo outputs, servo gear=1:1,
-spring attachment levers (30mm) and contact topology. The **same rigid
+All options below keep the original **300g torso mass**, two ±80mm hip
+mount offsets, ball feet, 360 sensor channels, six C018 12V servo
+outputs, servo gear=1:1, spring attachment levers (30mm), and
+contact topology. To preserve neutral fore-aft balance, we **move the
+torso payload centre forward** as longer folded rods shift their mass
+rearward: +26mm (base), +36.5mm (30cm), +48.3mm (34cm), **+68.8mm
+(40cm)** relative to the hip. This is a real packaging requirement,
+not free anti-gravity. Verify battery, wiring, chassis width and actual
+motor mount distribution before committing to a taller physical build. The **same rigid
 4×4 ToF array is tilted downward** according to neutral hip height,
 so its shallowest beam hits level ground ~25cm ahead. These actual
 per-profile extrinsics travel in the exported sensor contract.
 Longer thigh/shin tubes gain mass in proportion to length, while their
 own inertia is recomputed by real MuJoCo geometry. The passive carbon
-shin flex's rotational stiffness decreases as EI/L for the longer tube. Torso/servo mass stays
-fixed. This is a first-order carbon-tube mass model, NOT a CAD bill of
-materials. Larger limbs also produce more swing inertia and demand more
+shin flex's rotational stiffness decreases as EI/L for the longer tube. Torso mass stays fixed, but its neutral position above the feet is
+rebalanced as described. This is a first-order carbon-tube mass model,
+NOT a CAD bill of materials. Larger limbs also produce more swing inertia and demand more
 hip/knee torque; a longer leg is not automatically better at a step.
 
 | Profile | Hip neutral | Thigh & shin | Total mass approx | Knee spring k | Hip roll k |
