@@ -15,6 +15,7 @@ from pathlib import Path
 from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
                             run_training, update_boundary_at_or_after)
 from .contracts import source_repo_root, OBS_SCHEMA_TERRAIN
+from .physical_variants import selected_profile, profile_numbers
 from .training_config import (TrainingConfig, prism_base_config,
                               training_sensor_contract, verify_existing_phase_config)
 
@@ -178,6 +179,7 @@ def one_run_config(args) -> TrainingConfig:
     if 0. < approach < .15:
         raise ValueError('science-step-approach-m must be zero or >=0.15m')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
+                   physical_profile=selected_profile(),
                    solver_iterations=solver_iterations,
                    solver_ls_iterations=solver_ls_iterations,
                    observation_schema=OBS_SCHEMA_TERRAIN,
@@ -284,7 +286,7 @@ def verify_experiment_fork(parent: TrainingConfig, child: TrainingConfig) -> Non
     # economics, pushes and teaching are exactly what researchers may
     # deliberately vary. Saved configs/provenance describe those differences.
     fixed=('observation_schema','unified_capability_focus',
-           'attitude_profile')
+           'attitude_profile','physical_profile')
     bad={name:(getattr(parent,name),getattr(child,name))
          for name in fixed if getattr(parent,name)!=getattr(child,name)}
     if bad:
