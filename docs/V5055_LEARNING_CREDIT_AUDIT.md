@@ -64,12 +64,28 @@ The actual `make_profiles` first-lip amplitude contains factors
 `0.90 * (0.75..1.0) * (0.95..1.5)` on the nominal frontier,
 while the short-climb teacher counts a signed lip only if
 `abs(birth_lip_m) > 1.5mm`. At the minimum 1.5mm frontier,
-the first lip is often below that threshold; consequently some
-nominally allocated Academy episodes cannot earn a credited finish
-or contribute a promotion attempt. Do not introduce a 1.5mm minimum
-frontier into a cold-start experiment without a physical birth
-eligibility distribution audit. A request of 3mm does not guarantee a
-3mm realised first lip.
+the first lip is **always below that threshold** for the first
+global x=0→1 seam when slope is zero: at the exact 1.5mm minimum,
+the maximum offset is
+`1.5 * 0.90 * (0.95 + 0.55/14) + (1.5 * 0.10) = 1.486 mm`,
+still smaller than the strict `>1.5mm` contact-classifier threshold.
+The smooth slope cancels across the shared seam; the independent
+height jitter has at most the shown 0.15mm difference.
+
+A NumPy reproduction of the current deterministic source-hash profiles
+over 200,000 random 31-bit terrain seeds found:
+- 1.5mm nominal: **0.0%** classifiable first lips; 0.0% near;
+- 2mm nominal: **63.1%** classifiable; 49.5% near;
+- 3mm nominal: **100%** classifiable; 49.5% near;
+- 4mm nominal: **100%** classifiable; 49.5% near.
+Here "near" uses the existing physical actual/requested ratio
+`0.78..1.05`. These are **physics-generator samples, not training
+success rates**, and refer to the first +X seam with equal uphill/downhill
+frontiers. A requested 3mm does NOT mean a realised 3mm lip.
+The minimum reachable governor frontier is therefore a **deterministic
+training dead zone**, not a safe resting difficulty for failed novices.
+This must be corrected before a cold run, but changing it now would
+contaminate the logging-only causal audit.
 
 ## Hypothesis A: task completion can have negative policy credit
 
