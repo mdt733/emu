@@ -1070,6 +1070,9 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             metrics, 'actuator_joint_viscous_damping_w'),
         'servo_over_rated_frac': mean_metric(metrics, 'servo_over_rated_frac'),
         'servo_peak_torque_limit_frac': mean_metric(metrics, 'servo_peak_torque_limit_frac'),
+        'servo_speed_over_noload_frac': mean_metric(metrics, 'servo_speed_over_noload_frac'),
+        'servo_peak_speed_ratio': mean_metric(metrics, 'servo_peak_speed_ratio'),
+        'servo_linear_envelope_warning_frac': mean_metric(metrics, 'servo_linear_envelope_warning_frac'),
         'spring_potential_energy_j': mean_metric(metrics, 'spring_potential_energy_j'),
         'shin_spring_energy_j': mean_metric(metrics, 'shin_spring_energy_j'),
         # Real passive two-site knee struts, distinct from motor shaft work.
