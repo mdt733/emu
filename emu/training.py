@@ -84,6 +84,28 @@ TRAIN_PERF_TIMER_NAMES = (
 # Utilities / artifacts.
 # ---------------------------------------------------------------------------
 
+def compatible_academy_evidence_recipe(parent: TrainingConfig,
+                                       current: TrainingConfig) -> bool:
+    """Same measured stair-success semantics and physical lesson distribution.
+
+    A new *source SHA alone* is not evidence of a changed episode objective:
+    a logging-only fork must preserve its completed near/easy evidence.
+    This check is necessary but cannot prove code equivalence; a deliberate
+    new success-definition implementation must explicitly reset evidence.
+    """
+    if not parent.science_step_finish_on_transfer:
+        return False
+    return all(getattr(parent, name) == getattr(current, name)
+               for name in (
+                   'science_step_finish_on_transfer',
+                   'science_step_goal_weight', 'science_step_approach_m',
+                   'academy_stream', 'academy_height_cap_m',
+                   'academy_course_episode_frames',
+                   'terrain_carpet', 'terrain_carpet_prisms',
+                   'terrain_step_max_m', 'terrain_lesson',
+                   'solver_iterations', 'solver_ls_iterations'))
+
+
 def env_kwargs_from_args(args) -> dict:
     """One source of truth for the physical/sensor envelope used by training."""
     return dict(
@@ -341,18 +363,9 @@ def train(args: TrainingConfig) -> int:
                     if parent_cfg_path.is_file():
                         try:
                             parent_cfg = TrainingConfig.load(parent_cfg_path)
-                            identity_fields = (
-                                'science_step_finish_on_transfer',
-                                'science_step_goal_weight',
-                                'science_step_approach_m',
-                                'academy_stream', 'academy_height_cap_m',
-                                'academy_course_episode_frames',
-                                'terrain_carpet', 'terrain_carpet_prisms',
-                                'terrain_step_max_m', 'terrain_lesson',
-                                'solver_iterations', 'solver_ls_iterations')
-                            safe_evidence_fork = all(
-                                getattr(parent_cfg, name) == getattr(args, name)
-                                for name in identity_fields)
+                            safe_evidence_fork = (
+                                compatible_academy_evidence_recipe(
+                                    parent_cfg, args))
                         except (ValueError, TypeError, OSError) as exc:
                             print(f'{LOG_PREFIX} parent recipe not verifiable: '
                                   f'{exc}; clearing incompatible evidence',
