@@ -221,6 +221,17 @@ class CoreAcademyTests(unittest.TestCase):
         self.assertAlmostEqual(float(hip['hip_roll_raw_left_academy']),1.45,places=6)
         self.assertAlmostEqual(float(hip['hip_roll_raw_right_other']),-1.3,places=6)
 
+        self.assertEqual(float(hip['hip_roll_frames_academy']),2.)
+        self.assertEqual(float(hip['hip_roll_frames_other']),2.)
+        hip_audit=StairCreditAudit()
+        hip_audit.observe({'academy_active_fraction':0.},
+            {'stair_credit_finish_events':0., **hip})
+        aggregate=hip_audit.summary()
+        self.assertEqual(aggregate['ppo_stair_audit_hip_roll_frames_academy'],2.)
+        self.assertEqual(aggregate['ppo_stair_audit_hip_roll_frames_other'],2.)
+        self.assertEqual(aggregate['ppo_stair_audit_hip_roll_clip_left_academy'],1.)
+        self.assertEqual(aggregate['ppo_stair_audit_hip_roll_clip_left_other'],0.)
+
         from dataclasses import replace
         from emu.training_config import TrainingConfig
         from emu.training import compatible_academy_evidence_recipe
