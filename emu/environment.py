@@ -3550,6 +3550,28 @@ class EmuMJXEnv(TaskSampler):
         spring_energy = joint_spring_energy(
             jnp, data.qpos[:, self.spring_qpos],
             self.spring_reference, self.spring_stiffness)
+        # Distinguish exhausted ACTION position range from actual MOTOR
+        # force saturation at the two hip-rolls. The readouts are MJX
+        # position-actuator output, not current, temperature, or passive
+        # joint damping. Do not claim actuator force includes the 0.435
+        # N*m*s/rad viscous term from robot.xml.
+        motor_roll_r = jnp.abs(data.actuator_force[:, 0])
+        motor_roll_l = jnp.abs(data.actuator_force[:, 3])
+        hip_roll_motor = dict(
+            hip_roll_motor_load_frac_right=(
+                motor_roll_r / jnp.maximum(self.servo_stall_torque_nm[0], 1e-6)),
+            hip_roll_motor_load_frac_left=(
+                motor_roll_l / jnp.maximum(self.servo_stall_torque_nm[3], 1e-6)),
+            # Physical joint-centering spring, separately from actuator force.
+            hip_roll_spring_abs_nm_right=(
+                jnp.abs(self.spring_stiffness[0] *
+                    (data.qpos[:, self.spring_qpos[0]] -
+                     self.spring_reference[0]))),
+            hip_roll_spring_abs_nm_left=(
+                jnp.abs(self.spring_stiffness[3] *
+                    (data.qpos[:, self.spring_qpos[3]] -
+                     self.spring_reference[3]))),
+        )
         # Reward-only stance-foot slip proxy. MuJoCo truth is allowed in the
         # reward: consecutive
         # foot poses estimate tangential speed and only near-floor feet count.
@@ -3627,6 +3649,7 @@ class EmuMJXEnv(TaskSampler):
             'scissor_pressure': scissor,
             **servo_effort,
             **spring_energy,
+            **hip_roll_motor,
         }
 
     # ---- Actor observation: sensor/command contract, no teacher geometry ----
