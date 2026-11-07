@@ -27,7 +27,7 @@ MARKDOWN_LINK = re.compile(r'!?\[[^\]]*\]\(([^)]+)\)')
 # coverage assertion.
 OWNED_BACKEND: dict[str, tuple[str, ...]] = {
     "commands": ("__init__", "cli", "run", "training_config"),
-    "physics": ("contracts", "environment", "terrain_carpet_mjx",
+    "physics": ("contracts", "physical_variants", "environment", "terrain_carpet_mjx",
                 "carpet_prism_mjx", "domain_randomization", "directional"),
     "learning": ("training", "ppo", "rewards", "curriculum",
                  "capability_focus", "capability_field", "training_health",
