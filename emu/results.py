@@ -327,6 +327,85 @@ def attach_field_influence(report: dict[str, Any], params: dict[str, Any]) -> No
     report['field_edge_influence'] = float(params.get('field_edge_frac', 0.0))
 
 
+
+class StairCreditAudit:
+    """CPU-only cumulative *per-process* evidence from EVERY PPO rollout.
+
+    The canonical metrics CSV is logged once per ten PPO updates. Sampling
+    only its latest rollout misses ~90% of rare short-climb terminals, so
+    accumulate the already-host-transferred scalar PPO summaries instead.
+    The same rollout's physical gate counters are accumulated separately.
+    These numbers NEVER affect training, resets, the governor or PPO.
+    """
+
+    CREDIT_FIELDS = (
+        'stair_credit_finish_reward', 'stair_credit_finish_value',
+        'stair_credit_finish_td', 'stair_credit_finish_adv_raw',
+        'stair_credit_finish_adv_normalised',
+        'stair_credit_finish_negative_fraction',
+    )
+    GATE_FIELDS = (
+        'academy_episodes', 'academy_episodes_first_lip_armed',
+        'academy_episodes_two_foot_ready', 'academy_short_climb_successes',
+    )
+
+    def __init__(self):
+        self.updates = 0
+        self.events = 0.0
+        self.credit_sums = {name: 0.0 for name in self.CREDIT_FIELDS}
+        self.gate_sums = {name: 0.0 for name in self.GATE_FIELDS}
+        self.speed_weight = 0.0
+        self.command_weighted_sum = 0.0
+        self.velocity_weighted_sum = 0.0
+
+    def observe(self, row: dict, aux: dict):
+        """Update after the host has collected the exact PPO rollout."""
+        self.updates += 1
+        n = float(np.asarray(aux.get('stair_credit_finish_events', 0.)))
+        if not math.isfinite(n) or n < 0.:
+            raise ValueError('invalid PPO stair credit event count')
+        self.events += n
+        if n:
+            for name in self.CREDIT_FIELDS:
+                value = float(np.asarray(aux[name]))
+                if not math.isfinite(value):
+                    raise ValueError(f'invalid PPO stair credit: {name}')
+                self.credit_sums[name] += n * value
+        for name in self.GATE_FIELDS:
+            self.gate_sums[name] += float(row.get(name, 0.))
+        # Each rollout has the same number of control frames; frame
+        # occupancy is the correct weight, not episode count.
+        weight = float(row.get('academy_active_fraction', 0.))
+        if weight > 0.:
+            command = float(row['academy_actual_cmd_vx_mps'])
+            velocity = float(row['academy_actual_vx_mps'])
+            if not all(map(math.isfinite, (weight, command, velocity))):
+                raise ValueError('nonfinite Academy requested/actual velocity')
+            self.speed_weight += weight
+            self.command_weighted_sum += weight * command
+            self.velocity_weighted_sum += weight * velocity
+
+    def summary(self) -> dict[str, float]:
+        """Unknown conditional results are -1; event counts are true zero."""
+        prefix = 'ppo_stair_audit_'
+        out = {
+            prefix + 'rollouts_since_process_start': float(self.updates),
+            prefix + 'finish_events': self.events,
+        }
+        out.update({prefix + k: v for k, v in self.gate_sums.items()})
+        out.update({prefix + name.replace('stair_credit_', ''):
+                    self.credit_sums[name] / self.events
+                    if self.events else -1.
+                    for name in self.CREDIT_FIELDS})
+        out[prefix+'academy_cmd_vx_mps'] = (
+            self.command_weighted_sum / self.speed_weight
+            if self.speed_weight else -1.)
+        out[prefix+'academy_vx_mps'] = (
+            self.velocity_weighted_sum / self.speed_weight
+            if self.speed_weight else -1.)
+        return out
+
+
 def make_metrics_row(*, step: int, elapsed: float, wall_fps: float, train_fps: float,
                      reward: float, row: dict[str, Any], report: dict[str, Any], aux: dict[str, Any],
                      nan_grad_skips: int, num_envs: int, jax_backend: str, perf_row: dict[str, Any],
