@@ -154,6 +154,47 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     np.testing.assert_array_equal(light.body_mass,reference.body_mass)
     np.testing.assert_array_equal(light.body_inertia,reference.body_inertia)
     np.testing.assert_array_equal(light.geom_size,reference.geom_size)
+    # v5056: this physical topology is still six motors and eight joint DoFs.
+    # Restoring *passive* knee support must not sneak in motors or new DoFs.
+    assert light.nu == 6
+    assert light.ntendon == 2
+    np.testing.assert_allclose(
+        light.actuator_forcerange,
+        np.tile([-2.941995, 2.941995], (6, 1)), rtol=0, atol=1e-5)
+    for side in ('r', 'l'):
+        for joint in (f'{side}_hip_pitch', f'{side}_knee'):
+            ji=mujoco.mj_name2id(light,mujoco.mjtObj.mjOBJ_JOINT,joint)
+            assert light.jnt_stiffness[ji] == 0.0
+        assert mujoco.mj_name2id(
+            light,mujoco.mjtObj.mjOBJ_TENDON,
+            f'{side}_knee_support') >= 0
+
+    # CPU's ACTUAL MuJoCo passive force, not an unconnected curve assertion.
+    # With servos unpowered and qvel=0, each tendon must PUSH the folded knee
+    # towards straight (q increases), and reach zero at q=+90 degrees.
+    # A mere joint spring with equilibrium at +45 fails this contract.
+    data = mujoco.MjData(light)
+    for knee_deg in (-55., -40., 0., 45., 90.):
+        mujoco.mj_resetData(light, data)
+        beta = np.deg2rad((90. + knee_deg) / 2.)
+        compression = 0.060 * (1.0 - np.sin(beta))
+        torque = 750.0 * compression * 0.030 * np.cos(beta)
+        for side in ('r', 'l'):
+            ji=mujoco.mj_name2id(light,mujoco.mjtObj.mjOBJ_JOINT,
+                                 f'{side}_knee')
+            data.qpos[light.jnt_qposadr[ji]] = np.deg2rad(knee_deg)
+        mujoco.mj_forward(light,data)
+        observed = []
+        for side in ('r', 'l'):
+            ji=mujoco.mj_name2id(light,mujoco.mjtObj.mjOBJ_JOINT,
+                                 f'{side}_knee')
+            ti=mujoco.mj_name2id(light,mujoco.mjtObj.mjOBJ_TENDON,
+                                 f'{side}_knee_support')
+            np.testing.assert_allclose(
+                data.ten_length[ti],0.060-compression,atol=4e-6,rtol=0)
+            observed.append(data.qfrc_passive[light.jnt_dofadr[ji]])
+        np.testing.assert_allclose(observed, [torque,torque],
+                                   atol=.015,rtol=.03)
     for name in ('torso_box','floor','r_thigh_rod','l_thigh_rod',
                  'r_shin_upper','l_shin_upper',
                  'r_shin_lower_rod','l_shin_lower_rod'):
