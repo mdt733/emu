@@ -53,8 +53,27 @@ export function parsePolicy(text) {
     if(!Number.isFinite(settings[key]))
       throw Error('Invalid sensor setting: '+key);
   }
+  // Legacy 40/60/80/100° is required for the released showcase.
+  // v5057 mounts the SAME 4×4 array lower on the forward footprint,
+  // rotating all four pitch rows together with the model's hip height.
+  // Accept only these explicitly supported physical morphologies;
+  // never trust arbitrary policy-supplied sensor angles.
+  const pitch=c.tof4x4_pitch_from_horizontal_deg;
+  const legacy=JSON.stringify(pitch)===JSON.stringify([40,60,80,100]);
+  const heights=[.2584,.30,.34,.40];
+  const matchedHeight=Array.isArray(pitch)&&pitch.length===4
+    ?heights.find(height=>{
+      const shallow=Math.atan2(height,.25)*180/Math.PI;
+      return pitch.every((v,i)=>Number.isFinite(v)&&
+        Math.abs(v-(shallow+20*i))<.00002);
+    })
+    :undefined;
+  const neutral=b.control?.neutral_root_z_m;
+  if(!legacy&&matchedHeight!==undefined&&neutral!==undefined&&
+     (!Number.isFinite(neutral)||Math.abs(neutral-matchedHeight)>.00002))
+    throw Error('ToF mount height differs from exported robot neutral pose');
   if(JSON.stringify(c.tof4x4_mount_body_m)!==JSON.stringify([0,0,0])||
-     JSON.stringify(c.tof4x4_pitch_from_horizontal_deg)!==JSON.stringify([40,60,80,100])||
+     (!legacy&&matchedHeight===undefined)||
      JSON.stringify(c.tof4x4_yaw_deg)!==JSON.stringify([-22.5,-7.5,7.5,22.5])||
      JSON.stringify(c.tof4x4_range_limits_m)!==JSON.stringify([.04,1.5])||
      c.tof4x4_occlusion!=='nearest ray-sphere foot hit masks terrain return'||
