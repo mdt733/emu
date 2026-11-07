@@ -74,7 +74,10 @@ TERRAIN_TOF_MIN_M, TERRAIN_TOF_MAX_M = 0.04, 1.5
 # Row-major far-to-near ray centres. Sensor is at torso site, 0mm ahead,
 # pitched 70 degrees below horizontal with 60-degree vertical spread.
 # Horizontal fan spans 45 degrees. These physical extrinsics are hashed.
-TERRAIN_TOF_PITCH_DEG = (40., 60., 80., 100.)
+from .physical_variants import terrain_tof_pitch_deg
+# Rigid sensor assembly tilt per body, selected once before Python imports.
+# At neutral the shallowest beam hits ~25cm ahead, inside the loaded tiles.
+TERRAIN_TOF_PITCH_DEG = terrain_tof_pitch_deg()
 TERRAIN_TOF_YAW_DEG = (-22.5, -7.5, 7.5, 22.5)
 # Observation schema identifies meanings, not merely array widths. A hash
 # also covers timing and physical sensor extrinsics when using sim2real_232.
