@@ -331,10 +331,10 @@ def test_both_physical_triangle_normals_respect_curriculum():
     # Academy cannot retreat into a first-lip classifiability dead zone.
     # Test ACTUAL delivered first seam for both possible spawn cells,
     # including independent per-tile base jitter; no fake nominal heights.
-    from emu.curriculum import RegimeController
+    from emu.curriculum import RegimeGovernor
     from emu.terrain_carpet_mjx import (
         make_profiles, tile_level, PROFILE_HALF)
-    assert RegimeController.ACADEMY_MIN_LIP_M >= .003
+    assert RegimeGovernor.ACADEMY_MIN_LIP_M >= .003
     seeds=np.arange(4096,dtype=np.int32)+37001
     frontier=np.full(len(seeds),.003,dtype=np.float32)
     px,py=make_profiles(np,seeds,frontier,frontier)
