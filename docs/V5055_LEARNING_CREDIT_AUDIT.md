@@ -40,6 +40,18 @@ correlation, NOT proof of causal lane-drift or a motor torque metric.
 The new read-only keys `ppo_hip_roll_clip_{left,right}_{academy,other}`
 and `ppo_hip_roll_raw_{left,right}_{academy,other}` separate Academy
 sampling from generalist exposure and reveal the signed control bias.
+The network output layer is linear (no tanh squashing), with a
+global per-joint Gaussian exploration std bounded by **0.10..0.60**.
+If its action mean were centered on 0 and std as large as 0.60,
+Gaussian exploration alone would clip only about **9.6%** of samples
+outside [-1,1]. Observing ~67% left-roll clipping therefore requires
+strongly nonzero / out-of-range action means for many states; it is
+not ordinary zero-mean sampling noise. PPO evaluates the *raw*
+Gaussian sample's log probability but MJX receives the clipped
+action. This is not by itself a wrong PPO likelihood, but the
+policy may devote learning effort to requests beyond the available
+hip-roll POSITION range. More motor stall torque cannot extend that
+angle. Never infer motor-force saturation without physical torque data.
 If saturation exists only in Academy, prioritize reward/contact
 incentives; if it spreads to other worlds, assess actor-wide control
 authority and generalist forgetting.
