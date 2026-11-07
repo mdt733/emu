@@ -58,7 +58,7 @@ from .results import (
     summarize_rollout, augment_rollout_row,
     ensure_run_dir, write_json, read_csv_rows, format_line,
     attach_field_influence, make_metrics_row, append_training_observation,
-    write_capability_field_artifacts,
+    write_capability_field_artifacts, StairCreditAudit,
 )
 from .evaluation import (
     build_worlds as build_eval_worlds, initial_metrics as initial_eval_metrics, evaluate_fixed,
@@ -567,6 +567,10 @@ def train(args: TrainingConfig) -> int:
             pass
     comp_window: list[tuple[float, float]] = []
     recent_rewards: list[float] = []
+    # Audit EVERY PPO rollout, not just the one in each periodic metrics row.
+    # This only aggregates already-transferred scalars; no GPU work or PPO
+    # behavior changes. The count is since THIS process began.
+    stair_audit = StairCreditAudit()
     log_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(LOG_EVERY_UPDATES))
     save_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(CHECKPOINT_EVERY_UPDATES))
     snapshot_every_steps = max(0, int(SNAPSHOT_EVERY_STEPS))
@@ -644,6 +648,7 @@ def train(args: TrainingConfig) -> int:
             row, aux, rollout_params_for_metrics=rollout_params_for_metrics,
             rollout_lr_scale_for_metrics=rollout_lr_scale_for_metrics,
             norm_diag=norm_diag, latest_eval=latest_eval, obs_norm_mode=OBS_NORM_MODE)
+        stair_audit.observe(row, aux)
         perf.add('host_rollout_summary', time.perf_counter() - host_summary_t0)
         governor_t0 = time.perf_counter()
         health_ppo = health.observe_ppo(row)
@@ -785,7 +790,8 @@ def train(args: TrainingConfig) -> int:
                       f"if this keeps firing.", flush=True)
             log_row = make_metrics_row(
                 step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
-                reward=float(np.mean(recent_rewards)), row=row, report=report, aux=aux,
+                reward=float(np.mean(recent_rewards)),
+                row={**row, **stair_audit.summary()}, report=report, aux=aux,
                 nan_grad_skips=nan_grad_skips, num_envs=args.envs,
                 jax_backend=jax.default_backend(), perf_row=perf.row(), rollout_steps=ROLLOUT_STEPS, base_lr=args.ppo_lr)
             log_io_t0 = time.perf_counter()
@@ -966,6 +972,7 @@ def train(args: TrainingConfig) -> int:
             row, aux, rollout_params_for_metrics=rollout_params_for_metrics,
             rollout_lr_scale_for_metrics=rollout_lr_scale_for_metrics,
             norm_diag=norm_diag, latest_eval=latest_eval, obs_norm_mode=OBS_NORM_MODE)
+    stair_audit.observe(row, aux)
     health_ppo = health.observe_ppo(row)
     report = governor.advance_curriculum(
         row, step=total_steps, max_height_m=args.terrain_step_max_m,
@@ -1002,7 +1009,8 @@ def train(args: TrainingConfig) -> int:
     nan_grad_skips = int(np.asarray(state.opt_state.total_notfinite))
     final_row = make_metrics_row(
         step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
-        reward=float(np.mean(recent_rewards)), row=row, report=report, aux=aux,
+        reward=float(np.mean(recent_rewards)),
+        row={**row, **stair_audit.summary()}, report=report, aux=aux,
         nan_grad_skips=nan_grad_skips, num_envs=args.envs,
         jax_backend=jax.default_backend(), perf_row=perf.row(), rollout_steps=ROLLOUT_STEPS, base_lr=args.ppo_lr)
     append_training_observation(
