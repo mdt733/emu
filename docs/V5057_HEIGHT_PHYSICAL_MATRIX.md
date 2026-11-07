@@ -2,9 +2,11 @@
 
 **Purpose:** choose a mechanically plausible geometry that learns stable walking
 *from zero* in 20M world steps, BEFORE spending 80–200M on stair learning.
-Parent v5056 C018/12V progressive knee-spring model is unchanged at
-`base26`. No merges into `main`, no inherited walking checkpoint,
-no new policy architecture or separate terrain engine.
+Parent v5056 C018/12V progressive knee-spring **mechanics** remain
+unchanged at `base26`. v5057 deliberately re-aims the ToF array
+for *all* candidates (including base26), so the sensor calibration is
+not identical to the archived v5056 source. No merges into `main`,
+no inherited checkpoint, no new policy or separate terrain engine.
 
 ## How tall? Ground-to-hip at neutral, not just straight-leg reach
 
@@ -15,7 +17,10 @@ The existing two ~170mm links produce ~258mm hip height at their neutral
 
 All options below keep the original torso, two ±80mm hip mount offsets,
 ball feet, 360 sensor channels, six C018 12V servo outputs, servo gear=1:1,
-spring attachment levers (30mm), contact topology and fixed ToF beam pattern.
+spring attachment levers (30mm) and contact topology. The **same rigid
+4×4 ToF array is tilted downward** according to neutral hip height,
+so its shallowest beam hits level ground ~25cm ahead. These actual
+per-profile extrinsics travel in the exported sensor contract.
 Longer thigh/shin tubes gain mass in proportion to length, while their
 own inertia is recomputed by real MuJoCo geometry. The passive carbon
 shin flex's rotational stiffness decreases as EI/L for the longer tube. Torso/servo mass stays
@@ -72,8 +77,13 @@ v5057 adds **read-only** nominal motor speed warning metrics:
 mechanical/electrical velocity limit, and forced/back-driven motion can
 exceed the no-load rating. Reject seemingly great gaits with huge
 unphysical speed demands; do not claim simulated success as hardware
-proof. ToF is 0.04–1.5m and its beam angles are unchanged; compare
-actual terrain visibility on the taller geometry before choosing it.
+proof. ToF is 0.04–1.5m. The existing 40° far ray would
+look ~48cm ahead from a 40cm hip—past the four-tile window's
+guaranteed 37.5cm nearest support. We now **rigidly re-aim all
+four pitch rows together** (preserving their 20° spacing) to keep
+the shallowest ray's flat-ground footprint ~25cm ahead at neutral.
+Extreme pitch and downhills can still create voids; inspect real ToF
+validity before choosing a finalist.
 
 ## Physics/CI safety: no robot cloning
 
