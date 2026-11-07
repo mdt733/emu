@@ -1317,9 +1317,11 @@ class EmuMJXEnv(TaskSampler):
         self.act_qvel = jnp.asarray(self.ids['act_qvel'], dtype=jnp.int32)
         # Source-XML passive viscous torque-speed approximation, NOT motor
         # electrical power. It dissipates energy even at zero servo command.
-        self.act_joint_viscous_damping = jnp.asarray(
-            np.asarray(self.mj_model.dof_damping)[self.ids['act_qvel']],
-            dtype=jnp.float32)
+        # Use the live MJX model's last dimension so this diagnostic is
+        # also correct for per-world randomized damping, if enabled.
+        # Shape is [6] for static motor physics or [world,6].
+        self.act_joint_viscous_damping = jnp.take(
+            self.mjx_model.dof_damping, self.act_qvel, axis=-1)
         # Resolve the nominal stall limit from the actual loaded XML instead
         # of duplicating six force ceilings in training code.
         limits = np.asarray(self.mj_model.actuator_forcerange, dtype=np.float32)
@@ -3556,8 +3558,8 @@ class EmuMJXEnv(TaskSampler):
             jnp, data.qpos[:, self.spring_qpos],
             self.spring_reference, self.spring_stiffness)
         model_damping_dissipation_w = jnp.sum(
-            self.act_joint_viscous_damping[None, :] *
-            data.qvel[:, self.act_qvel]**2, axis=1)
+            self.act_joint_viscous_damping *
+            data.qvel[:, self.act_qvel]**2, axis=-1)
         # Distinguish exhausted ACTION position range from actual MOTOR
         # force saturation at the two hip-rolls. The readouts are MJX
         # position-actuator output, not current, temperature, or passive
