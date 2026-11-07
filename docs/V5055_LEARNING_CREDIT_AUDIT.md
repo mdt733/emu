@@ -28,6 +28,47 @@ frontier of approximately **2/114 mm**. It reports zero PPO KL-stop
 events in those rows. This does NOT prove a healthy learning objective
 or adequate actuator/perception capability.
 
+## Additional observed control regression: one-sided hip-roll saturation
+
+Reanalysis of the complete 182M v5054 metrics.csv finds that the sampled
+**left hip-roll** action (joint 3, 0-indexed) clipped against [-1,1] at
+about **19.4%** across the first four recorded intervals and **67.2%**
+across the last four; the right hip-roll action (joint 0) increased only
+about **10.5% → 13.3%**. The 0.25m/s held-out generalist broad score
+declined **0.672 → 0.446** during the same continuation. This is a
+correlation, NOT proof of causal lane-drift or a motor torque metric.
+The new read-only keys `ppo_hip_roll_clip_{left,right}_{academy,other}`
+and `ppo_hip_roll_raw_{left,right}_{academy,other}` separate Academy
+sampling from generalist exposure and reveal the signed control bias.
+If saturation exists only in Academy, prioritize reward/contact
+incentives; if it spreads to other worlds, assess actor-wide control
+authority and generalist forgetting.
+
+## Perception limit worth checking, not an established failure
+
+The raw 4x4 ToF range synthesizer adds Gaussian range noise of **2mm
+sigma × sensor scale**. The default sensor-scale frontier in the observed
+182M bundle was **1.5**, giving nominal 3mm sigma in many worlds.
+The Academy's 2–3mm target lips are therefore near this noise scale
+before geometric beam placement, body oscillation, occlusion and
+sensor delay. That does NOT prove invisibility; a top-surface height
+change maps to a beam-range difference depending on ray inclination.
+A paired flat/positive-lip sensor audit at fixed pose, x distance,
+body attitude and sample keys is needed before changing the sensor.
+
+## Curriculum hazard: min lip threshold versus generated difficulty
+
+The actual `make_profiles` first-lip amplitude contains factors
+`0.90 * (0.75..1.0) * (0.95..1.5)` on the nominal frontier,
+while the short-climb teacher counts a signed lip only if
+`abs(birth_lip_m) > 1.5mm`. At the minimum 1.5mm frontier,
+the first lip is often below that threshold; consequently some
+nominally allocated Academy episodes cannot earn a credited finish
+or contribute a promotion attempt. Do not introduce a 1.5mm minimum
+frontier into a cold-start experiment without a physical birth
+eligibility distribution audit. A request of 3mm does not guarantee a
+3mm realised first lip.
+
 ## Hypothesis A: task completion can have negative policy credit
 
 Current PPO has `gamma=.99`, `GAE lambda=.95`. An Academy short climb
@@ -52,7 +93,12 @@ already-computed GAE and original PPO advantage-normalization:
   events whose *normalised* advantage is negative.
 
 Every conditional metric is **-1 (unknown)** when its event count is
-zero.
+zero. The logger normally publishes only 1 of every 10 PPO updates: the
+audit therefore accumulates event-WEIGHTED credit over EVERY rollout
+seen by the current process, not just the current log tick. Keys begin
+`ppo_stair_audit_`. The cumulative count and means are strictly
+`since_process_start` (a mid-run process restart begins a new audit
+window; it does not silently pretend to include prior rollouts).
 This includes the **first** 32-frame GPU rollout; the metrics are evaluated
 on the pre-update critic and policy, so later optimiser updates cannot
 rewrite which action produced an earlier terminal. All metrics are summaries, not actor inputs and not new reward.
