@@ -82,11 +82,13 @@ the per-servo idle or normal current alone.
 
 ### Physical spring and action limits may explain one-sided saturation
 
-Robot's hip-roll springs have stiffness **2 N.m/rad**. At a clipped
-roll action of `TARGET_SPAN=0.38 rad` the *centering spring* alone
-opposes with 0.76 N.m (~20.7kgf.cm), beyond both C001 published
-continuous torque ratings. At ±25° hard joint limit it reaches ~0.873
-N.m. This doesn't imply the motor has reached stall in simulation;
+Robot's hip-roll springs have stiffness **2 N.m/rad**. If the physical
+joint actually follows a clipped roll target of `TARGET_SPAN=0.38 rad`,
+the *centering spring* exerts 0.76 N.m (~7.75kgf.cm), beyond both C001
+published continuous torque ratings. At ±25° joint limit it reaches
+~0.873 N.m. **Action clipping alone does NOT imply the joint reached
+its commanded angle, nor that the motor is fighting the spring**:
+the direction of actual motor and spring moments matters. This doesn't imply the motor has reached stall in simulation;
 the spring may be doing useful energy storage, and the motor may work
 with gravity rather than against it. Need physically-signed moment
 and motor-load data before changing the springs.
