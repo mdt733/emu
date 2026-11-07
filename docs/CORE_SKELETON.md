@@ -54,19 +54,19 @@ MJX exam of the actual terrain curriculum. There is no scripted
 climbing gait, second network, cloud evaluator or privileged terrain
 geometry in the deployable sensor observations.
 
-## Owners of the 27 live Python modules
+## Owners of the 28 live Python modules
 
 | Owner | Files under `emu/` |
 |---|---|
 | Entry point, commands and saved configuration | `__init__.py`, `cli.py`, `run.py`, `training_config.py` |
-| Real physics and sensor geometry | `contracts.py`, `environment.py`, `terrain_carpet_mjx.py`, `carpet_prism_mjx.py`, `domain_randomization.py`, `directional.py` |
+| Real physics and sensor geometry | `contracts.py`, `physical_variants.py`, `environment.py`, `terrain_carpet_mjx.py`, `carpet_prism_mjx.py`, `domain_randomization.py`, `directional.py` |
 | One PPO policy and teaching | `training.py`, `ppo.py`, `rewards.py`, `curriculum.py`, `capability_focus.py`, `capability_field.py`, `training_health.py`, `step_goal.py` |
 | Checkpoint, metrics and physical examinations | `checkpoint_io.py`, `results.py`, `evaluation.py`, `prism_exam.py`, `step_autopsy.py` |
 | Actor delivery and viewer | `policy_export.py`, `viewer_server.py`, `capability_viewer.py` |
 | Hardware/system diagnosis | `doctor.py` |
 
 The physical robot is `emu/robot.xml`; the browser lives in
-`emu/viewer_src/`. The [read-only source-ownership inventory](../scripts/audit_core_dependencies.py) checks that all 27 modules
+`emu/viewer_src/`. The [read-only source-ownership inventory](../scripts/audit_core_dependencies.py) checks that all 28 modules
 have exactly one declared owner and no retired imports reappear. Run
 it to get live counts, instead of trusting an old numbered file list:
 
