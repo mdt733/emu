@@ -164,11 +164,14 @@ export function terrainHeightOffsetsCm(reading, referenceZ=0) {
 
 // v5023 actor-observed ToF: exactly one geometric ray in each of 16 zones,
 // unlike the optional 5-sample diagnostic depth inspector above. Row order is
-// far-to-near (pitch 40,60,80,100deg), column yaw -22.5..+22.5deg.
+// Physical 4x4 beam pitch/yaw come from the exported sensor contract.
+// Keep the old baseline defaults for legacy/showcase and standalone tests.
 // The contract uses the torso origin (no forward/height mount offset).
-export function terrainActorRays(R) {
+const ORIGINAL_PITCH=[40,60,80,100];
+const ORIGINAL_YAW=[-22.5,-7.5,7.5,22.5];
+export function terrainActorRays(R, pitches=ORIGINAL_PITCH, yaws=ORIGINAL_YAW) {
   const out = [];
-  for (const pitch of [40,60,80,100]) for (const yaw of [-22.5,-7.5,7.5,22.5]) {
+  for (const pitch of pitches) for (const yaw of yaws) {
     const p=pitch*Math.PI/180,y=yaw*Math.PI/180;
     out.push(bodyToWorld(R,[Math.cos(p)*Math.cos(y), Math.cos(p)*Math.sin(y), -Math.sin(p)]));
   }
@@ -239,13 +242,15 @@ export class TerrainActorObserver {
   constructor(contract) {
     if(contract?.schema!=='terrain_360')throw new Error('Schema-9 terrain contract required');
     this.settings=contract.settings;
+    this.pitches=contract.tof4x4_pitch_from_horizontal_deg;
+    this.yaws=contract.tof4x4_yaw_deg;
     this.frame=0;
     this.ring=[];
   }
   sample(pose,model,data,footGeomIds,noisy=true) {
     const scale=noisy?this.settings.sensor_noise_scale:0;
     const h=pose.terrainHeightAt||null;
-    const ranges=terrainActorRays(pose.R).map(ray=>{
+    const ranges=terrainActorRays(pose.R,this.pitches,this.yaws).map(ray=>{
       const measured=actorTerrainDistance(pose.torso,ray,model,data,footGeomIds,h);
       return measured ? clamp(measured+scale*.002*gaussian(),.04,1.5) : 0;
     });
@@ -278,10 +283,11 @@ export class TerrainActorObserver {
 // Unified 360-input actor: no physical tripod ToFs. Infer one *optional*
 // smooth ground-plane estimate from the same delayed 16 rays that the network
 // receives directly. Reject mixed-level/riser fits rather than invent a slope.
-export function fitArrayGround(ranges,valid,gravity){
+export function fitArrayGround(ranges,valid,gravity,
+                               pitches=ORIGINAL_PITCH,yaws=ORIGINAL_YAW){
   const invalid={valid:false,depth:0,forward:0,side:0,confidence:0,
                  residual:Infinity,count:0};
-  const rays=terrainActorRays([1,0,0,0,1,0,0,0,1]);
+  const rays=terrainActorRays([1,0,0,0,1,0,0,0,1],pitches,yaws);
   const G=[[.00005,0,0],[0,.00005,0],[0,0,.0000001]],rhs=[0,0,0];
   let count=0;
   const points=[];
@@ -344,6 +350,8 @@ export class ArrayFlowObserver {
     if(contract?.sensor_model_revision!=='forward_tof4x4_array_plane_fit_no_tripod_2')
       throw new Error('Expected array-only terrain sensor');
     this.settings=contract.settings;this.ring=[];this.frame=0;this.bias=[0,0,0];
+    this.pitches=contract.tof4x4_pitch_from_horizontal_deg;
+    this.yaws=contract.tof4x4_yaw_deg;
   }
   synth(pose,model,data,noisy=true){
     const st=this.settings,ns=noisy?st.sensor_noise_scale:0;
@@ -384,7 +392,8 @@ export class ArrayFlowObserver {
   }
   read(gravity,array){
     const s=this.settings,flow=this.ring[3-s.flow_delay_frames];
-    const ground=fitArrayGround(array.ranges,array.valid,gravity);
+    const ground=fitArrayGround(array.ranges,array.valid,gravity,
+                               this.pitches,this.yaws);
     const good=ground.depthValid&&flow.flowValid;
     const depth=ground.valid?ground.depth:0;
     const velocity=good?[
