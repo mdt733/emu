@@ -44,6 +44,101 @@ If saturation exists only in Academy, prioritize reward/contact
 incentives; if it spreads to other worlds, assess actor-wide control
 authority and generalist forgetting.
 
+## Manufacturer motor calibration: existing simulator is NOT a confirmed 6V motor
+
+`emu/robot.xml` currently labels STS3215 at **6V** yet assumes
+19.5 kgf.cm stall (1.913 N.m), 6.5 kgf.cm rated (0.638 N.m), and
+42 rpm no-load (0.238s/60°).
+
+The actual Feetech STS3215/C001 official 2023 A/1 datasheet gives:
+
+| Supply | Stall kgf.cm | Rated kgf.cm | no-load RPM | I_stall |
+|---|---:|---:|---:|---:|
+| 6V | 16.5 | 4.0 | 42 | 2.0A |
+| 7.4V | 19.5 | 5.0 | 52 | 2.5A |
+| ST-3215-C018 @12V | 30 | 10.0 | 45 | 2.7A |
+
+Source PDFs (manufacturer):
+- https://files.seeedstudio.com/products/Feetech/108090023_STS3215-C001_Datasheet.pdf
+- https://cdn.robotshop.com/media/F/Fit/RB-Fit-155/pdf/feetech_12v_30kg_cm_magnetic_encoding_servo_sts321_specification_pdf.pdf
+
+Interpretation: model peak torque reflects a **7.4V** C001, but model
+max speed is for **6V**, and model continuous rated torque is optimistic
+at *either* supply. At 6V rated is 0.392 N.m; at 7.4V 0.490 N.m.
+The model's 0.638 N.m over-rated threshold overestimates real
+published continuous load headroom by ~63% / 30% respectively. A
+reported 68% of actuator samples over *model* rated is therefore NOT
+a reliable thermal-duty estimate for either voltage.
+
+C018 12V motor nominal stall/rated are 2.942/0.981 N.m, same
+45.2x24.7x35mm case and 55g. Its 45 RPM is actually slower than the
+C001 at 7.4V (52 RPM), although torque improves substantially. Power
+must remain separately regulated/verified; do **not** apply 12V to C001.
+The official C018 spec describes an over-current shutdown at >2A for
+2 seconds (customizable) and a 70°C shutdown; stall-current figure is
+not a continuous operating target. Six C018 can theoretically demand
+6 * 2.7A = **16.2A** simultaneously at stall; no supply is sized by
+the per-servo idle or normal current alone.
+
+### Physical spring and action limits may explain one-sided saturation
+
+Robot's hip-roll springs have stiffness **2 N.m/rad**. At a clipped
+roll action of `TARGET_SPAN=0.38 rad` the *centering spring* alone
+opposes with 0.76 N.m (~20.7kgf.cm), beyond both C001 published
+continuous torque ratings. At ±25° hard joint limit it reaches ~0.873
+N.m. This doesn't imply the motor has reached stall in simulation;
+the spring may be doing useful energy storage, and the motor may work
+with gravity rather than against it. Need physically-signed moment
+and motor-load data before changing the springs.
+
+The 6-axis policy clips the left hip-roll action at ±1 increasingly
+often (19.4%→67.2% early→late), but a command-position limit is
+**not** a torque limit. The v5055 read-only diagnostic now reports
+physical MJX actuator load fraction and hip-roll spring moment by
+Academy versus non-Academy worlds, separate from the already reported
+network action clipping. Motor actuator force omits MuJoCo passive
+damping. The 0.435 N.m*s/rad joint damping is a heuristic for a
+torque–speed slope; it ALWAYS dissipates power, including when no
+motor torque is commanded, so it is not a faithful active servo
+torque-speed limiter and must not be confused with motor electrical
+work. Do not change the solver or motor physics in this credit audit.
+
+### Out-of-the-box shape threshold: 36mm diameter ball foot
+
+Each foot is a sphere with radius **18mm**. A 36mm diameter rounded
+contact can exploit rolling/rocking interactions against lips
+shallower than the diameter without a clean pre-lip swing lift.
+Around and above **36mm**, this mechanism cannot alone make the
+sphere bridge from lower floor to upper lip; an actual lifted step
+becomes critical. v5054's sharp physical traverse failure from
+32.5mm to 40mm may reflect a *change of required mechanism*, not just
+curriculum aggression. This is a hypothesis, not a proven geometric
+causal threshold; re-examine 28–44mm with dense 1.25mm height levels
+(`--levels 40 --trials-per-level 50`), extract first upper-foot
+height and contact normal BEFORE lateral-accuracy gates.
+
+### Other falsifiable engineering questions
+
+- **Mirrored trials:** identical sign-mirrored left/right robot states,
+  commands and local step normals should give symmetric dynamics.
+  Actor has no enforced chirality equivariance, and a persistent
+  one-sided roll preference could be a policy bias, not weak motors.
+- **Sight geometry:** torso origin ~0.258m above foot ground; a 40°
+  downward ToF beam hits flat terrain ~0.308m ahead, 60° ~0.149m,
+  80° ~0.046m, while 100° looks slightly backward. At a birth only
+  0.22m before a lip, essentially the shallow 40° row (four rays)
+  samples the upper platform. 3mm top-height change causes only
+  ~4.7mm idealized ray-range shift (3mm normal-range noise at
+  sensor_scale=1.5); body pose, dropout and the 8mm planar-fit
+  residual may obscure the event. Validate with actual fixed-pose
+  ray samples; don't infer invisibility from this approximation.
+- **Real robot mass:** C001 and C018 each weigh 55g, six motors
+  already contribute 330g. The current XML total mass is about
+  0.5kg; check **where those motor masses are physically located**
+  before treating simulated lower-leg inertia and available torque
+  as hardware-calibrated. 12V motor swap may retain nominal mass
+  but changes motor dynamics.
+
 ## Perception limit worth checking, not an established failure
 
 The raw 4x4 ToF range synthesizer adds Gaussian range noise of **2mm
