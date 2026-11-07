@@ -154,6 +154,49 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     np.testing.assert_array_equal(light.body_mass,reference.body_mass)
     np.testing.assert_array_equal(light.body_inertia,reference.body_inertia)
     np.testing.assert_array_equal(light.geom_size,reference.geom_size)
+    # v5057: compile every taller *real* model on CPU, never merely
+    # compare XML strings. Neutral sole contact, leg inertia, scaled spring
+    # loading and left/right knee passive torque are physical acceptance.
+    from emu.physical_variants import (
+        PROFILES, generate_xml, profile_numbers, FOOT_RADIUS_M)
+    base_source=(Path(__file__).resolve().parents[1]/'emu'/'robot.xml').read_text()
+    for variant in PROFILES:
+        row=profile_numbers(variant)
+        body=mujoco.MjModel.from_xml_string(
+            generate_xml(base_source, variant))
+        state=mujoco.MjData(body)
+        mujoco.mj_forward(body,state)
+        assert body.nu==6 and body.ntendon==2
+        assert body.nq==15 and body.nv==14
+        np.testing.assert_allclose(sum(body.body_mass),
+                                   row['mass_kg'], atol=1e-4, rtol=0)
+        foot_heights=[]
+        knee_loads=[]
+        for side in 'rl':
+            fi=mujoco.mj_name2id(body,mujoco.mjtObj.mjOBJ_BODY,
+                                f'{side}_foot')
+            ki=mujoco.mj_name2id(body,mujoco.mjtObj.mjOBJ_JOINT,
+                                f'{side}_knee')
+            ti=mujoco.mj_name2id(body,mujoco.mjtObj.mjOBJ_TENDON,
+                                f'{side}_knee_support')
+            foot_heights.append(float(state.xpos[fi,2]))
+            knee_loads.append(float(state.qfrc_passive[
+                body.jnt_dofadr[ki]]))
+            np.testing.assert_allclose(
+                state.ten_length[ti],.060*(2**-.5),
+                atol=1e-5,rtol=0)
+        np.testing.assert_allclose(
+            foot_heights,[FOOT_RADIUS_M]*2,atol=2e-5,rtol=0)
+        assert all(t>0 for t in knee_loads)
+        np.testing.assert_allclose(knee_loads[0],knee_loads[1],
+                                   atol=1e-5,rtol=0)
+        k=float(row['knee_strut_k_n_m'])
+        expected=k*.060*(1.-2**-.5)*.030*(2**-.5)
+        np.testing.assert_allclose(knee_loads,[expected]*2,
+                                   atol=.01,rtol=.02)
+        np.testing.assert_allclose(body.actuator_forcerange,
+             np.tile([-2.941995,2.941995],(6,1)),
+             atol=1e-5,rtol=0)
     # v5056: this physical topology is still six motors and eight joint DoFs.
     # Restoring *passive* knee support must not sneak in motors or new DoFs.
     assert light.nu == 6
