@@ -1117,6 +1117,28 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
     else:
         row['academy_actual_cmd_vx_mps'] = -1.
         row['academy_actual_vx_mps'] = -1.
+    # Policy action hitting its angular limit is NOT the same as
+    # an MJX position actuator hitting the *torque* limit. Measure
+    # their separation at each hip, with the actual source-XML ceiling.
+    # Spring moments are reported separately from actuator force.
+    for cohort in ('academy', 'other'):
+        if academy_mask is None:
+            mask = None
+        else:
+            mask = academy_mask if cohort == 'academy' else ~academy_mask
+        for side in ('left', 'right'):
+            torque_key = f'hip_roll_motor_load_frac_{side}'
+            spring_key = f'hip_roll_spring_abs_nm_{side}'
+            for name, source, near_limit in (
+                (f'hip_roll_motor_load_{side}_{cohort}',torque_key,False),
+                (f'hip_roll_motor_near_stall_{side}_{cohort}',torque_key,True),
+                (f'hip_roll_spring_abs_nm_{side}_{cohort}',spring_key,False),
+            ):
+                if mask is None or not mask.any() or source not in metrics:
+                    row[name] = -1.
+                else:
+                    values = np.asarray(metrics[source])[mask]
+                    row[name] = float(np.mean(values >= .95)) if near_limit else float(np.mean(values))
     # True mixed-geometry physical slope: never infer gradient from a
     # curriculum target or fold downhill into successful uphill evidence.
     # All four directional counters are COMPLETE episode facts.
