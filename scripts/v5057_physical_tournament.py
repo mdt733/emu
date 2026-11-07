@@ -90,7 +90,8 @@ def _last_csv(path: Path) -> dict:
     if not path.is_file():
         return {}
     with path.open(newline="", encoding="utf-8-sig") as source:
-        return list(csv.DictReader(source))[-1:] [0] if path.stat().st_size else {}
+        rows = list(csv.DictReader(source))
+    return rows[-1] if rows else {}
 
 
 def row_for(run_dir: Path, profile: str, seed: int) -> dict:
