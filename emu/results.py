@@ -357,6 +357,11 @@ class StairCreditAudit:
         self.speed_weight = 0.0
         self.command_weighted_sum = 0.0
         self.velocity_weighted_sum = 0.0
+        self.hip_frames = {'academy': 0., 'other': 0.}
+        self.hip_sums = {f'{kind}_{side}_{cohort}': 0.
+                         for cohort in ('academy', 'other')
+                         for side in ('left', 'right')
+                         for kind in ('clip', 'raw')}
 
     def observe(self, row: dict, aux: dict):
         """Update after the host has collected the exact PPO rollout."""
@@ -384,6 +389,22 @@ class StairCreditAudit:
             self.speed_weight += weight
             self.command_weighted_sum += weight * command
             self.velocity_weighted_sum += weight * velocity
+        # Each cohort's action saturation must be weighted by its sampled
+        # control frames across EVERY PPO rollout, not sampled only when the
+        # 10-update console logger happens to fire.
+        for cohort in ('academy', 'other'):
+            frames = float(np.asarray(aux.get(f'hip_roll_frames_{cohort}', 0.)))
+            if not math.isfinite(frames) or frames < 0.:
+                raise ValueError('invalid hip-roll cohort frame count')
+            self.hip_frames[cohort] += frames
+            if frames:
+                for side in ('left', 'right'):
+                    for kind in ('clip', 'raw'):
+                        name = f'{kind}_{side}_{cohort}'
+                        val = float(np.asarray(aux[f'hip_roll_{name}']))
+                        if not math.isfinite(val):
+                            raise ValueError('invalid hip-roll saturation sample')
+                        self.hip_sums[name] += frames * val
 
     def summary(self) -> dict[str, float]:
         """Unknown conditional results are -1; event counts are true zero."""
@@ -403,6 +424,14 @@ class StairCreditAudit:
         out[prefix+'academy_vx_mps'] = (
             self.velocity_weighted_sum / self.speed_weight
             if self.speed_weight else -1.)
+        for cohort in ('academy', 'other'):
+            n = self.hip_frames[cohort]
+            out[prefix+f'hip_roll_frames_{cohort}'] = n
+            for side in ('left', 'right'):
+                for kind in ('clip', 'raw'):
+                    name = f'{kind}_{side}_{cohort}'
+                    out[prefix+f'hip_roll_{name}'] = (
+                        self.hip_sums[name] / n if n else -1.)
         return out
 
 
