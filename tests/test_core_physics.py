@@ -182,6 +182,11 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
             foot_heights.append(float(state.xpos[fi,2]))
             knee_loads.append(float(state.qfrc_passive[
                 body.jnt_dofadr[ki]]))
+            flex=mujoco.mj_name2id(body,mujoco.mjtObj.mjOBJ_JOINT,
+                                  f'{side}_shin_flex')
+            np.testing.assert_allclose(
+                body.jnt_stiffness[flex],
+                row['shin_flex_stiffness_nm_rad'],atol=1e-5,rtol=0)
             np.testing.assert_allclose(
                 state.ten_length[ti],.060*(2**-.5),
                 atol=1e-5,rtol=0)
