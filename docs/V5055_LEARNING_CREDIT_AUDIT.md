@@ -119,6 +119,40 @@ causal threshold; re-examine 28–44mm with dense 1.25mm height levels
 (`--levels 40 --trials-per-level 50`), extract first upper-foot
 height and contact normal BEFORE lateral-accuracy gates.
 
+### Potential training/evaluation leakage through a fixed 22cm approach
+
+Both the Academy nursery (via `academy_near_lip_spawn_x`) and the
+v5053 frozen stair exam spawn at exactly **22cm before the first seam**.
+Thus the ostensibly independent contact/height evaluation changes
+obstacle size but still shares a *strong temporal spatial prior*
+with training. With a persistent phase clock and repeated short
+episodes, a policy could anticipate when a seam arrives from
+reset/time and command speed, without learning to interpret 4x4 ToF.
+This does not invalidate the contact score, but it weakens the claim
+that the actor is genuinely using its eyes or can generalize to
+arbitrary step distances.
+
+Decisive frozen-policy screen: run the SAME actors, velocities, terrain
+physics, seeds and height curve with (a) 12/18/22/28/32cm randomized
+starting distances and (b) truthful 4x4 ToF vs correctly paired
+sensor ablation (all rays flat/absent and confidence properly updated).
+The score must fall under ablation while remaining reasonably stable
+to start-distance changes to support terrain perception. We have
+**not** run this experiment and should not claim ToF proficiency.
+
+### Information asymmetry in the critic
+
+PPO's policy and value MLP presently receive the same 360 hardware-
+plausible actor inputs, while training terminal truth depends on
+assigned first lip and an unobserved fixed destination. If the
+actor's ToF does not resolve a ~2mm lip, the critic also cannot
+predict its outcome and may generate poor advantage estimates.
+A *privileged training-only critic* with real signed lip/seam
+information could reduce variance without feeding privileged data
+to the deployed actor. This is a **research option** only, not a
+license to add another PPO or actor. Test the current credit/
+visibility failure before changing critic architecture.
+
 ### Other falsifiable engineering questions
 
 - **Mirrored trials:** identical sign-mirrored left/right robot states,
