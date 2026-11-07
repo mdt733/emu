@@ -123,14 +123,34 @@ checkpoints; rerunning the same command validates and resumes safely.
 All output is outside the repo.
 
 ```bash
-cd ~/emu
-git fetch origin
+# Explicitly fetch this branch: the default fetch refspec may NOT fetch
+# experimental refs, even when the commit exists on GitHub.
+cd ~/emu &&
+git fetch origin \
+  '+refs/heads/research/v5057-height-physics-matrix:refs/remotes/origin/research/v5057-height-physics-matrix' &&
 git worktree add --detach ~/emu-v5057-height \
-  origin/research/v5057-height-physics-matrix
-cd ~/emu-v5057-height
+  refs/remotes/origin/research/v5057-height-physics-matrix &&
+cd ~/emu-v5057-height &&
+test -f emu/physical_variants.py &&
+echo "V5057 SOURCE: $(git rev-parse HEAD)"
+
+# STOP on any failed command above. Never run a smoke from ~/emu instead.
+cd ~/emu-v5057-height || exit 1
 source ~/emu/.venv/bin/activate
 export PYTHONPATH="$PWD"
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
+
+# Mandatory source-specific model preflight: genuine h40 XML must be
+# distinct from the 26cm source, even before importing MJX.
+EMU_PHYSICAL_PROFILE=h40 python -c '
+from emu.contracts import ROBOT_XML
+from emu.physical_variants import profile_numbers
+m=profile_numbers("h40")
+print("MODEL:", ROBOT_XML)
+print("NEUTRAL HIP:",m["hip_height_m"], "MASS:",m["mass_kg"])
+assert m["hip_height_m"] == .40
+assert "h40" in ROBOT_XML.name
+'
 
 # Core physical checks before borrowing the GPU:
 python -m pytest -q tests
