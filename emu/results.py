@@ -908,6 +908,14 @@ def augment_rollout_row(
         'ppo_stair_credit_finish_adv_raw': 'stair_credit_finish_adv_raw',
         'ppo_stair_credit_finish_adv_normalised': 'stair_credit_finish_adv_normalised',
         'ppo_stair_credit_finish_negative_fraction': 'stair_credit_finish_negative_fraction',
+        'ppo_hip_roll_clip_left_academy': 'hip_roll_clip_left_academy',
+        'ppo_hip_roll_raw_left_academy': 'hip_roll_raw_left_academy',
+        'ppo_hip_roll_clip_right_academy': 'hip_roll_clip_right_academy',
+        'ppo_hip_roll_raw_right_academy': 'hip_roll_raw_right_academy',
+        'ppo_hip_roll_clip_left_other': 'hip_roll_clip_left_other',
+        'ppo_hip_roll_raw_left_other': 'hip_roll_raw_left_other',
+        'ppo_hip_roll_clip_right_other': 'hip_roll_clip_right_other',
+        'ppo_hip_roll_raw_right_other': 'hip_roll_raw_right_other',
     }
     for dst, src in scalar_aux.items():
         row[dst] = float(np.asarray(aux_now.get(src, 0.0)))
