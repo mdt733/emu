@@ -19,6 +19,39 @@ from .directional import contact_pair_mask
 from .directional import heading_rate_request
 from .contracts import CONTROL_DT, P
 
+def stair_terminal_credit_stats(xp, advantage, reward, value, finished):
+    """Pre-update PPO credit at genuine short-climb terminal transitions.
+
+    The actor is optimised with BATCH-NORMALISED advantages, not reward alone.
+    A positive +8 completion payment can still produce a negative advantage
+    when the critic values the continuing per-frame reward more highly.
+    This diagnostic uses the SAME pre-update GAE and normalisation as PPO;
+    it changes neither optimisation nor the environment. A -1 measurement
+    means no completed stair event in this rollout, not a negative score.
+    """
+    matched = finished > .5
+    count = xp.sum(matched.astype(advantage.dtype))
+    denom = xp.maximum(count, 1.)
+    normalised = (advantage - xp.mean(advantage)) / (
+        xp.std(advantage) + 1e-8)
+
+    def conditional_mean(values):
+        result = xp.sum(xp.where(matched, values, 0.)) / denom
+        return xp.where(count > 0., result, -1.)
+
+    return {
+        'stair_credit_finish_events': count,
+        'stair_credit_finish_reward': conditional_mean(reward),
+        'stair_credit_finish_value': conditional_mean(value),
+        # On a genuine absorbing terminal, delta = reward - V(s).
+        'stair_credit_finish_td': conditional_mean(reward - value),
+        'stair_credit_finish_adv_raw': conditional_mean(advantage),
+        'stair_credit_finish_adv_normalised': conditional_mean(normalised),
+        'stair_credit_finish_negative_fraction': conditional_mean(
+            (normalised < 0.).astype(advantage.dtype)),
+    }
+
+
 # Fixed current PPO doctrine. These are not experiment knobs in modern EMU;
 # training_config records them with each run, while this module owns their use.
 PPO_GAMMA = 0.99
@@ -535,6 +568,12 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             aux_mean[f'adv_mean_{rn}'] = a_mu
             aux_mean[f'adv_std_{rn}'] = jnp.sqrt(jnp.maximum(a_var, 0.0))
             aux_mean[f'value_ev_{rn}'] = 1.0 - err_var / jnp.maximum(rv, 1e-8)
+        # Source-grounded reward-versus-continuation audit. A single
+        # completed nursery climb is measured BEFORE advantage normalisation
+        # and after it, using the exact batch PPO will optimise on.
+        aux_mean.update(stair_terminal_credit_stats(
+            jnp, raw_adv, traj['reward'].reshape((batch_size,)), raw_val,
+            traj['metrics']['academy_finish_new'].reshape((batch_size,))))
         new_state = PPOState(params, opt_state, state.env_state, state.obs, key)
         rollout_metrics = traj['metrics']
         # Mean exploration std, so a run can show directly whether
