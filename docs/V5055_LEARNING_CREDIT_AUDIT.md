@@ -47,8 +47,10 @@ authority and generalist forgetting.
 ## Perception limit worth checking, not an established failure
 
 The raw 4x4 ToF range synthesizer adds Gaussian range noise of **2mm
-sigma × sensor scale**. The default sensor-scale frontier in the observed
-182M bundle was **1.5**, giving nominal 3mm sigma in many worlds.
+sigma × sensor scale**. The actual sensor-scale frontier in the observed
+182M bundle was **1.5**. The task sampler assigns that same frontier
+to the birth sensor-scale field, yielding nominal **3mm sigma** unless
+another task path overrides it.
 The Academy's 2–3mm target lips are therefore near this noise scale
 before geometric beam placement, body oscillation, occlusion and
 sensor delay. That does NOT prove invisibility; a top-surface height
@@ -104,6 +106,13 @@ on the pre-update critic and policy, so later optimiser updates cannot
 rewrite which action produced an earlier terminal. All metrics are summaries, not actor inputs and not new reward.
 No trainer, sampler, physics, optimizer, architecture or sensor changes.
 
+Separate from the direct per-rollout metrics, `ppo_stair_audit_*`
+contains the cumulative, event-weighted evidence over all 32-frame
+rollouts in the **current process**, including those between 10-update
+CSV log intervals. Use `ppo_stair_audit_finish_events` and
+`ppo_stair_audit_finish_adv_normalised` for the decision, rather than
+a per-row event that may have only zero or one success.
+
 The same audit publishes two *episode-ended* teacher gate counts,
 `academy_episodes_first_lip_armed` and
 `academy_episodes_two_foot_ready`, against
@@ -118,8 +127,16 @@ are post-step measurements only and change no actor behaviour.
 
 Fork the saved v5054 182M checkpoint into a NEW run directory using
 cross-source hash guards, and collect roughly 4M more environment
-steps (absolute target 186M). This is not a new treatment: the new
-branch changes **logging only**. Run under same 2048-world, seed-735,
+steps (absolute target 186M). This is not a new treatment: reward,
+policy actions, observation schema and physical teacher stay unchanged.
+**Critical resume hygiene:** the original v5054 code would automatically
+discard Academy/ordinary STEP evidence on any cross-source fork, even
+when only logging changed. The v5055 branch now checks the actual
+parent `training_config.json` for the same success/terrain/solver recipe
+and preserves compatible evidence. It still resets when an older or
+unverifiable success recipe is used. The parent's recovery.pkl is not
+inherited across source commits, even for diagnostic-only changes, so
+monitor rollback decisions separately. Run under same 2048-world, seed-735,
 Academy, obstacle and reward configuration as v5054.
 
 Use the existing `python -m emu.cli train` with
