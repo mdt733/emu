@@ -178,6 +178,14 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
         assert body.nq==15 and body.nv==14
         np.testing.assert_allclose(sum(body.body_mass),
                                    row['mass_kg'], atol=1e-4, rtol=0)
+        torso_id=mujoco.mj_name2id(
+            body,mujoco.mjtObj.mjOBJ_BODY,'torso')
+        # The neutral centre of mass must remain over the same support
+        # location: longer folded legs should not quietly bias gravity.
+        expected_com_x=(-.000614)/row['mass_kg']
+        np.testing.assert_allclose(
+            state.subtree_com[torso_id,0],expected_com_x,
+            atol=2e-4,rtol=0)
         foot_heights=[]
         knee_loads=[]
         for side in 'rl':
