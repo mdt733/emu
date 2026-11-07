@@ -164,8 +164,11 @@ visibility failure before changing critic architecture.
 
 ### Other falsifiable engineering questions
 
-- **Mirrored trials:** identical sign-mirrored left/right robot states,
-  commands and local step normals should give symmetric dynamics.
+- **Mirrored trials:** the source XML has identical `kp=10`, torque
+  limits, roll stiffness 2 N.m/rad and ±25° angular joint ranges for
+  both left and right hips. There is **no intentionally weaker left
+  actuator** in the simulator. Identical sign-mirrored left/right robot
+  states, commands and local step normals should give symmetric dynamics.
   Actor has no enforced chirality equivariance, and a persistent
   one-sided roll preference could be a policy bias, not weak motors.
 - **Sight geometry:** torso origin ~0.258m above foot ground; a 40°
