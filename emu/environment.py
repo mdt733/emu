@@ -85,7 +85,8 @@ TARGET_SPAN = np.array([0.38, 0.48, 0.58, 0.38, 0.48, 0.58], dtype=np.float32)
 RESET_JOINT_NOISE = 0.004
 RESET_QVEL_NOISE = 0.003
 RESET_FORWARD_VELOCITY_BLEND = 1.0
-NEUTRAL_ROOT_Z = 0.2584
+from .physical_variants import neutral_hip_height
+NEUTRAL_ROOT_Z = neutral_hip_height()  # exact selected robot geometry, not 26cm hardcode
 # Falling is diagnosed from body geometry/height rather than treating every
 # non-foot contact as an immediate terminal. EMU is expected to recover through
 # dynamic stepping, so termination should represent an unrecoverable fall rather
