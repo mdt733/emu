@@ -43,6 +43,12 @@ FOOT_RADIUS_M = .018
 REFERENCE_TOTAL_MASS_KG = .48
 REFERENCE_LINK_MASS_KG = .14
 REFERENCE_KNEE_STIFFNESS_N_M = 750.
+TORSO_MASS_KG = .30
+BASE_TORSO_X_M = .026
+# Two folded thighs (40g), two upper shins (15g), two lower shins (15g).
+# Each link's mass grows as s and its rear COM offset as s: moment ~s².
+BASE_LINK_REAR_MOMENT_KG_M = 2. * (
+    .040 * .0601 + .015 * .09015 + .015 * .03005)
 STRUT_HALF_LEVER_M = .0212132  # 30 mm from knee pivot along 45 deg link
 STRUT_REST_M = .060
 SERVO_NOLOAD_RAD_S = (60. / .222) * (3.141592653589793 / 180.)  # 4.7165 rad/s
@@ -69,11 +75,17 @@ def profile_numbers(name: str) -> dict[str, float | str]:
     # moment arm; do not accidentally make the 40cm model under-sprung.
     stiffness = REFERENCE_KNEE_STIFFNESS_N_M * (
         mass / REFERENCE_TOTAL_MASS_KG) * scale * p.knee_support
+    # Keep the neutral horizontal COM over the same contact point, otherwise
+    # increasing length quietly makes the body back-heavy. This implies
+    # a real payload/chassis placement change, particularly for 40cm legs.
+    torso_x = (BASE_TORSO_X_M + BASE_LINK_REAR_MOMENT_KG_M
+               * (scale * scale - 1.) / TORSO_MASS_KG)
     return dict(profile=name, hip_height_m=p.hip_height_m,
                 fully_straight_leg_m=2 * (2 ** .5) * BASE_HALF_LINK_M * scale,
                 thigh_length_m=(2 ** .5) * BASE_HALF_LINK_M * scale,
                 shin_length_m=(2 ** .5) * BASE_HALF_LINK_M * scale,
                 mass_kg=mass, link_scale=scale, knee_strut_k_n_m=stiffness,
+                torso_payload_x_m=torso_x,
                 spring_support_fraction=p.knee_support,
                 shin_flex_stiffness_nm_rad=4.0 / scale,
                 hip_roll_stiffness_nm_rad=p.hip_roll_stiffness)
@@ -120,6 +132,8 @@ def generate_xml(source_xml: str, name: str) -> str:
     root.set("model", f"emu-{name}")
     _set_xyz(_get(root, ".//body[@name='torso']"), "pos",
              (0., 0., p.hip_height_m))
+    _set_xyz(_get(root, ".//geom[@name='torso_box']"), "pos",
+             (float(info["torso_payload_x_m"]), 0., 0.))
     for side in "rl":
         prefix = f"{side}_"
         _set_xyz(_get(root, f".//body[@name='{prefix}shin']"), "pos",
