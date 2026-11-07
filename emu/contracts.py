@@ -382,7 +382,8 @@ from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 VERSION_FILE = PACKAGE_ROOT / "VERSION"
-ROBOT_XML = PACKAGE_ROOT / "robot.xml"
+from .physical_variants import robot_xml_path
+ROBOT_XML = robot_xml_path(PACKAGE_ROOT)
 VERSION = VERSION_FILE.read_text(encoding="utf-8").strip()
 
 
