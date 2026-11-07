@@ -221,6 +221,26 @@ class CoreAcademyTests(unittest.TestCase):
         self.assertAlmostEqual(float(hip['hip_roll_raw_left_academy']),1.45,places=6)
         self.assertAlmostEqual(float(hip['hip_roll_raw_right_other']),-1.3,places=6)
 
+        from dataclasses import replace
+        from emu.training_config import TrainingConfig
+        from emu.training import compatible_academy_evidence_recipe
+        parent=replace(TrainingConfig(),
+            science_step_finish_on_transfer=True,
+            academy_stream=True, science_step_goal_weight=.3,
+            science_step_approach_m=.22, terrain_step_max_m=.08,
+            terrain_carpet=True, terrain_carpet_prisms=True,
+            terrain_lesson='coherent-careful',
+            solver_iterations=2, solver_ls_iterations=4)
+        same=replace(parent,run_dir='diagnostic-fork',
+                     steps=190_000_000,resume='parent/final.pkl')
+        self.assertTrue(compatible_academy_evidence_recipe(parent,same))
+        self.assertFalse(compatible_academy_evidence_recipe(
+            replace(parent,science_step_finish_on_transfer=False),same))
+        self.assertFalse(compatible_academy_evidence_recipe(
+            parent,replace(same,science_step_approach_m=.18)))
+        self.assertFalse(compatible_academy_evidence_recipe(
+            parent,replace(same,solver_iterations=1)))
+
     def test_independent_real_prism_trace_proves_first_lip_destination(self):
         # No teacher success, no reward fields, and no nominal height!
         # The scorer sees only raw physical top contacts + first-life motion.
