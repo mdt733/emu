@@ -62,6 +62,17 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertIn("hip_roll_spring_abs_nm_left",out.metrics)
         self.assertIn("hip_roll_spring_abs_nm_right",out.metrics)
         self.assertIn("actuator_joint_viscous_damping_w",out.metrics)
+        self.assertIn("knee_strut_energy_j",out.metrics)
+        self.assertIn("knee_strut_force_n_left",out.metrics)
+        self.assertIn("knee_strut_force_n_right",out.metrics)
+        self.assertTrue(np.all(np.asarray(jax.device_get(
+            out.metrics["knee_strut_energy_j"])) > 0.))
+        self.assertTrue(np.all(np.asarray(jax.device_get(
+            out.metrics["knee_strut_force_n_left"])) > 0.))
+        np.testing.assert_allclose(
+            np.asarray(jax.device_get(out.metrics["knee_strut_force_n_left"])),
+            np.asarray(jax.device_get(out.metrics["knee_strut_force_n_right"])),
+            atol=10.,rtol=.5)  # dynamic worlds may lean, no strict equal-load requirement
         self.assertTrue(np.all(np.asarray(jax.device_get(
             out.metrics["actuator_joint_viscous_damping_w"]))>=0.))
         self.assertTrue(np.isfinite(np.asarray(
