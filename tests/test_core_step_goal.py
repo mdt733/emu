@@ -153,6 +153,59 @@ class CoreAcademyTests(unittest.TestCase):
         self.assertEqual(float(empty['stair_credit_finish_events']),0.)
         self.assertEqual(float(empty['stair_credit_finish_adv_raw']),-1.)
 
+        # A logged row represents only one of ten PPO updates. Evidence
+        # must not disappear because the successful update was not logged.
+        from emu.results import StairCreditAudit
+        audit=StairCreditAudit()
+        audit.observe({
+            'academy_episodes':3.,'academy_episodes_first_lip_armed':2.,
+            'academy_episodes_two_foot_ready':1.,
+            'academy_short_climb_successes':1.,
+            'academy_active_fraction':.5,
+            'academy_actual_cmd_vx_mps':.1,
+            'academy_actual_vx_mps':.08,
+        }, {
+            'stair_credit_finish_events':1.,
+            'stair_credit_finish_reward':8.,'stair_credit_finish_value':50.,
+            'stair_credit_finish_td':-42.,
+            'stair_credit_finish_adv_raw':-42.,
+            'stair_credit_finish_adv_normalised':-1.5,
+            'stair_credit_finish_negative_fraction':1.,
+        })
+        audit.observe({
+            'academy_episodes':5.,'academy_episodes_first_lip_armed':3.,
+            'academy_episodes_two_foot_ready':2.,
+            'academy_short_climb_successes':0.,
+            'academy_active_fraction':.25,
+            'academy_actual_cmd_vx_mps':.2,
+            'academy_actual_vx_mps':.16,
+        },{'stair_credit_finish_events':0.})
+        audit.observe({
+            'academy_episodes':4.,'academy_episodes_first_lip_armed':3.,
+            'academy_episodes_two_foot_ready':2.,
+            'academy_short_climb_successes':2.,
+            'academy_active_fraction':.25,
+            'academy_actual_cmd_vx_mps':.2,
+            'academy_actual_vx_mps':.16,
+        },{
+            'stair_credit_finish_events':2.,
+            'stair_credit_finish_reward':10.,'stair_credit_finish_value':5.,
+            'stair_credit_finish_td':5.,
+            'stair_credit_finish_adv_raw':4.,
+            'stair_credit_finish_adv_normalised':.5,
+            'stair_credit_finish_negative_fraction':0.,
+        })
+        window=audit.summary()
+        self.assertEqual(window['ppo_stair_audit_rollouts_since_process_start'],3.)
+        self.assertEqual(window['ppo_stair_audit_finish_events'],3.)
+        self.assertEqual(window['ppo_stair_audit_academy_episodes'],12.)
+        self.assertEqual(window['ppo_stair_audit_academy_episodes_first_lip_armed'],8.)
+        self.assertEqual(window['ppo_stair_audit_academy_episodes_two_foot_ready'],5.)
+        self.assertAlmostEqual(window['ppo_stair_audit_finish_adv_normalised'],-1./6.)
+        self.assertAlmostEqual(window['ppo_stair_audit_finish_negative_fraction'],1./3.)
+        self.assertAlmostEqual(window['ppo_stair_audit_academy_cmd_vx_mps'],.15)
+        self.assertAlmostEqual(window['ppo_stair_audit_academy_vx_mps'],.12)
+
     def test_independent_real_prism_trace_proves_first_lip_destination(self):
         # No teacher success, no reward fields, and no nominal height!
         # The scorer sees only raw physical top contacts + first-life motion.
