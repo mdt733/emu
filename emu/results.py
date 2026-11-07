@@ -822,6 +822,13 @@ def augment_rollout_row(
         'ppo_grad_norm_value_preclip': 'grad_norm_value_preclip',
         'ppo_update_norm_policy': 'update_norm_policy',
         'ppo_update_norm_value': 'update_norm_value',
+        'ppo_stair_credit_finish_events': 'stair_credit_finish_events',
+        'ppo_stair_credit_finish_reward': 'stair_credit_finish_reward',
+        'ppo_stair_credit_finish_value': 'stair_credit_finish_value',
+        'ppo_stair_credit_finish_td': 'stair_credit_finish_td',
+        'ppo_stair_credit_finish_adv_raw': 'stair_credit_finish_adv_raw',
+        'ppo_stair_credit_finish_adv_normalised': 'stair_credit_finish_adv_normalised',
+        'ppo_stair_credit_finish_negative_fraction': 'stair_credit_finish_negative_fraction',
     }
     for dst, src in scalar_aux.items():
         row[dst] = float(np.asarray(aux_now.get(src, 0.0)))
