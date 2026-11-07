@@ -3559,9 +3559,9 @@ class EmuMJXEnv(TaskSampler):
         motor_roll_l = jnp.abs(data.actuator_force[:, 3])
         hip_roll_motor = dict(
             hip_roll_motor_load_frac_right=(
-                motor_roll_r / jnp.maximum(self.servo_stall_torque_nm[0], 1e-6)),
+                motor_roll_r / jnp.maximum(self.servo_stall_torque_nm[..., 0], 1e-6)),
             hip_roll_motor_load_frac_left=(
-                motor_roll_l / jnp.maximum(self.servo_stall_torque_nm[3], 1e-6)),
+                motor_roll_l / jnp.maximum(self.servo_stall_torque_nm[..., 3], 1e-6)),
             # Physical joint-centering spring, separately from actuator force.
             hip_roll_spring_abs_nm_right=(
                 jnp.abs(self.spring_stiffness[0] *
