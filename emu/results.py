@@ -1064,6 +1064,10 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'servo_shaft_abs_power_w': mean_metric(metrics, 'servo_shaft_abs_power_w'),
         'servo_shaft_drive_power_w': mean_metric(metrics, 'servo_shaft_drive_power_w'),
         'servo_shaft_brake_power_w': mean_metric(metrics, 'servo_shaft_brake_power_w'),
+        # Model joint damping is separate energy dissipation and is not
+        # reported by the actuator-only shaft-power proxy above.
+        'actuator_joint_viscous_damping_w': mean_metric(
+            metrics, 'actuator_joint_viscous_damping_w'),
         'servo_over_rated_frac': mean_metric(metrics, 'servo_over_rated_frac'),
         'servo_peak_torque_limit_frac': mean_metric(metrics, 'servo_peak_torque_limit_frac'),
         'spring_potential_energy_j': mean_metric(metrics, 'spring_potential_energy_j'),
