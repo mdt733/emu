@@ -328,6 +328,26 @@ def _check_both_physical_triangle_normals_respect_curriculum(
 
 
 def test_both_physical_triangle_normals_respect_curriculum():
+    # Academy cannot retreat into a first-lip classifiability dead zone.
+    # Test ACTUAL delivered first seam for both possible spawn cells,
+    # including independent per-tile base jitter; no fake nominal heights.
+    from emu.curriculum import RegimeController
+    from emu.terrain_carpet_mjx import (
+        make_profiles, tile_level, PROFILE_HALF)
+    assert RegimeController.ACADEMY_MIN_LIP_M >= .003
+    seeds=np.arange(4096,dtype=np.int32)+37001
+    frontier=np.full(len(seeds),.003,dtype=np.float32)
+    px,py=make_profiles(np,seeds,frontier,frontier)
+    y=np.zeros(len(seeds),dtype=np.int32)
+    for left,right in ((-1,0),(0,1)):
+        a=tile_level(np,np.full(len(seeds),left,dtype=np.int32),
+                     y,seeds,px,py,frontier,frontier)
+        b=tile_level(np,np.full(len(seeds),right,dtype=np.int32),
+                     y,seeds,px,py,frontier,frontier)
+        delivered=np.abs(b-a)
+        assert np.all(delivered>.0015), float(delivered.min())
+        near=(delivered>=.78*.003)&(delivered<=1.05*.003)
+        assert near.mean()>.65,(left,right,float(near.mean()))
     # Keep all six slope/crease envelopes in one physical-invariant test.
     # These variants are not six independent tests.
     for slope_deg, transition_deg in (
