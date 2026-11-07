@@ -164,11 +164,39 @@ held-out survival is reasonable. If not, fix dynamics before PPO.
 ### Stage B — continue SAME source & run to 80M
 
 Only if Stage A passes, continue the **same run and config** with
-`--steps 80000000` (absolute world-step target), using EMU's
-same-source checkpoint/resume contract. Do not invent an external
-cross-source fork or discard optimizer/curriculum state. Review
-`emu train --help` and the run's `training_config.json` before
-resuming; the full argument recipe other than steps must match.
+`--steps 80000000 --resume auto` (absolute world-step target).
+A finished 20M run **requires** explicit `--resume auto` to
+increase its target safely; omitting this flag would be rejected.
+Do not invent an external cross-source fork or discard optimizer/curriculum
+state. The source SHA and full recipe other than steps must match.
+
+```bash
+cd ~/emu-v5056-springs
+source ~/emu/.venv/bin/activate
+export PYTHONPATH="$PWD"
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+export EMU_UNIFIED_CONTINUOUS=cold-growth-approved
+ROOT="$HOME/emu-data/runs/v5056-strut-c018-s735"
+ARGS=(
+  --run-dir "$ROOT" --steps 80000000 --resume auto
+  --envs 2048 --seed 735 --device cuda --profile sim2real
+  --terrain-actor --unified-capabilities
+  --terrain-carpet --carpet-prisms --academy-stream
+  --terrain-step-max-m .08 --terrain-lesson coherent-careful
+  --growth-recipe main-mature --foundation-steps 20000000
+  --fixed-eval-every-steps 20000000
+  --solver-iterations 2 --solver-ls-iterations 4
+  --academy-intro-steps 20000000
+  --academy-start-steps 40000000 --academy-ramp-steps 15000000
+  --academy-intro-share .20 --academy-max-share .60
+  --athletic-rehearsal-share .15 --retention-share .15
+  --temporal-vx-reward-share .25
+  --science-step-approach-m .22 --science-step-goal-weight .30
+  --science-step-finish-on-transfer
+)
+python -m emu.cli train "${ARGS[@]}" --check-resume-only
+python -m emu.cli train "${ARGS[@]}"
+```
 
 At 40M the Academy expands; at 55M it can use up to 60% of worlds.
 Retain 15% useful walking so the stair nursery cannot erase all
