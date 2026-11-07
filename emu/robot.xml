@@ -136,12 +136,23 @@
   </worldbody>
 
   <!--
-    Position actuators — Feetech STS3215 @ 6V, direct at robot joint (servo has its own internal geartrain).
+    Position actuators — STS3215-inspired *simulation approximation*,
+    direct at robot joint (servo has its own internal geartrain).
+    CAUTION: this historic model MIXES physical 6V/7.4V specifications.
+    The line below is NOT a validated Feetech motor at a single voltage.
 
-    Physical specs:
-      Peak stall torque:  19.5 kg·cm = 1.913 N·m
-      Rated cont. torque:  6.5 kg·cm = 0.638 N·m
-      No-load speed:       60°/0.238s = 4.40 rad/s = 252 deg/s
+    Existing simulation assumptions (kept unchanged for reproducibility):
+      Peak stall torque:  19.5 kg·cm = 1.913 N·m   (actual C001 @7.4V)
+      Legacy "rated" proxy: 6.5 kg·cm = 0.638 N·m (NOT Feetech datasheet rated)
+      No-load speed:       60°/0.238s = 4.40 rad/s = 252 deg/s (C001 @6V)
+
+    Manufacturer C001 2023 A/1: at 6V stall/rated = 16.5/4 kg·cm;
+    at 7.4V stall/rated = 19.5/5 kg·cm, no-load 52RPM.
+    C018 12V 2023 A/0: stall/rated = 30/10 kg·cm, no-load 45RPM.
+    Datasheets + implications: docs/V5055_LEARNING_CREDIT_AUDIT.md.
+    DO NOT reinterpret old training power/over-rated results as a
+    calibrated thermal or electrical model. Changing model dynamics
+    requires a separately pinned motor-calibration experiment.
 
     Torque-speed curve simulation via joint damping:
       A brushed/brushless servo has a roughly linear torque-speed relationship:
