@@ -61,6 +61,9 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertIn("hip_roll_motor_load_frac_right",out.metrics)
         self.assertIn("hip_roll_spring_abs_nm_left",out.metrics)
         self.assertIn("hip_roll_spring_abs_nm_right",out.metrics)
+        self.assertIn("actuator_joint_viscous_damping_w",out.metrics)
+        self.assertTrue(np.all(np.asarray(jax.device_get(
+            out.metrics["actuator_joint_viscous_damping_w"]))>=0.))
         self.assertTrue(np.isfinite(np.asarray(
             jax.device_get(out.metrics["hip_roll_motor_load_frac_left"]))).all())
         self.assertIn("physical_position_xy_after_step",out.metrics)
