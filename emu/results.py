@@ -327,6 +327,114 @@ def attach_field_influence(report: dict[str, Any], params: dict[str, Any]) -> No
     report['field_edge_influence'] = float(params.get('field_edge_frac', 0.0))
 
 
+
+class StairCreditAudit:
+    """CPU-only cumulative *per-process* evidence from EVERY PPO rollout.
+
+    The canonical metrics CSV is logged once per ten PPO updates. Sampling
+    only its latest rollout misses ~90% of rare short-climb terminals, so
+    accumulate the already-host-transferred scalar PPO summaries instead.
+    The same rollout's physical gate counters are accumulated separately.
+    These numbers NEVER affect training, resets, the governor or PPO.
+    """
+
+    CREDIT_FIELDS = (
+        'stair_credit_finish_reward', 'stair_credit_finish_value',
+        'stair_credit_finish_td', 'stair_credit_finish_adv_raw',
+        'stair_credit_finish_adv_normalised',
+        'stair_credit_finish_negative_fraction',
+    )
+    GATE_FIELDS = (
+        'academy_episodes', 'academy_episodes_first_lip_armed',
+        'academy_episodes_two_foot_ready', 'academy_short_climb_successes',
+    )
+
+    def __init__(self):
+        self.updates = 0
+        self.events = 0.0
+        self.credit_sums = {name: 0.0 for name in self.CREDIT_FIELDS}
+        self.gate_sums = {name: 0.0 for name in self.GATE_FIELDS}
+        self.speed_weight = 0.0
+        self.command_weighted_sum = 0.0
+        self.velocity_weighted_sum = 0.0
+        self.hip_frames = {'academy': 0., 'other': 0.}
+        self.hip_sums = {f'{kind}_{side}_{cohort}': 0.
+                         for cohort in ('academy', 'other')
+                         for side in ('left', 'right')
+                         for kind in ('clip', 'raw')}
+
+    def observe(self, row: dict, aux: dict):
+        """Update after the host has collected the exact PPO rollout."""
+        self.updates += 1
+        n = float(np.asarray(aux.get('stair_credit_finish_events', 0.)))
+        if not math.isfinite(n) or n < 0.:
+            raise ValueError('invalid PPO stair credit event count')
+        self.events += n
+        if n:
+            for name in self.CREDIT_FIELDS:
+                value = float(np.asarray(aux[name]))
+                if not math.isfinite(value):
+                    raise ValueError(f'invalid PPO stair credit: {name}')
+                self.credit_sums[name] += n * value
+        for name in self.GATE_FIELDS:
+            self.gate_sums[name] += float(row.get(name, 0.))
+        # Each rollout has the same number of control frames; frame
+        # occupancy is the correct weight, not episode count.
+        weight = float(row.get('academy_active_fraction', 0.))
+        if weight > 0.:
+            command = float(row['academy_actual_cmd_vx_mps'])
+            velocity = float(row['academy_actual_vx_mps'])
+            if not all(map(math.isfinite, (weight, command, velocity))):
+                raise ValueError('nonfinite Academy requested/actual velocity')
+            self.speed_weight += weight
+            self.command_weighted_sum += weight * command
+            self.velocity_weighted_sum += weight * velocity
+        # Each cohort's action saturation must be weighted by its sampled
+        # control frames across EVERY PPO rollout, not sampled only when the
+        # 10-update console logger happens to fire.
+        for cohort in ('academy', 'other'):
+            frames = float(np.asarray(aux.get(f'hip_roll_frames_{cohort}', 0.)))
+            if not math.isfinite(frames) or frames < 0.:
+                raise ValueError('invalid hip-roll cohort frame count')
+            self.hip_frames[cohort] += frames
+            if frames:
+                for side in ('left', 'right'):
+                    for kind in ('clip', 'raw'):
+                        name = f'{kind}_{side}_{cohort}'
+                        val = float(np.asarray(aux[f'hip_roll_{name}']))
+                        if not math.isfinite(val):
+                            raise ValueError('invalid hip-roll saturation sample')
+                        self.hip_sums[name] += frames * val
+
+    def summary(self) -> dict[str, float]:
+        """Unknown conditional results are -1; event counts are true zero."""
+        prefix = 'ppo_stair_audit_'
+        out = {
+            prefix + 'rollouts_since_process_start': float(self.updates),
+            prefix + 'finish_events': self.events,
+        }
+        out.update({prefix + k: v for k, v in self.gate_sums.items()})
+        out.update({prefix + name.replace('stair_credit_', ''):
+                    self.credit_sums[name] / self.events
+                    if self.events else -1.
+                    for name in self.CREDIT_FIELDS})
+        out[prefix+'academy_cmd_vx_mps'] = (
+            self.command_weighted_sum / self.speed_weight
+            if self.speed_weight else -1.)
+        out[prefix+'academy_vx_mps'] = (
+            self.velocity_weighted_sum / self.speed_weight
+            if self.speed_weight else -1.)
+        for cohort in ('academy', 'other'):
+            n = self.hip_frames[cohort]
+            out[prefix+f'hip_roll_frames_{cohort}'] = n
+            for side in ('left', 'right'):
+                for kind in ('clip', 'raw'):
+                    name = f'{kind}_{side}_{cohort}'
+                    out[prefix+f'hip_roll_{name}'] = (
+                        self.hip_sums[name] / n if n else -1.)
+        return out
+
+
 def make_metrics_row(*, step: int, elapsed: float, wall_fps: float, train_fps: float,
                      reward: float, row: dict[str, Any], report: dict[str, Any], aux: dict[str, Any],
                      nan_grad_skips: int, num_envs: int, jax_backend: str, perf_row: dict[str, Any],
@@ -822,6 +930,21 @@ def augment_rollout_row(
         'ppo_grad_norm_value_preclip': 'grad_norm_value_preclip',
         'ppo_update_norm_policy': 'update_norm_policy',
         'ppo_update_norm_value': 'update_norm_value',
+        'ppo_stair_credit_finish_events': 'stair_credit_finish_events',
+        'ppo_stair_credit_finish_reward': 'stair_credit_finish_reward',
+        'ppo_stair_credit_finish_value': 'stair_credit_finish_value',
+        'ppo_stair_credit_finish_td': 'stair_credit_finish_td',
+        'ppo_stair_credit_finish_adv_raw': 'stair_credit_finish_adv_raw',
+        'ppo_stair_credit_finish_adv_normalised': 'stair_credit_finish_adv_normalised',
+        'ppo_stair_credit_finish_negative_fraction': 'stair_credit_finish_negative_fraction',
+        'ppo_hip_roll_clip_left_academy': 'hip_roll_clip_left_academy',
+        'ppo_hip_roll_raw_left_academy': 'hip_roll_raw_left_academy',
+        'ppo_hip_roll_clip_right_academy': 'hip_roll_clip_right_academy',
+        'ppo_hip_roll_raw_right_academy': 'hip_roll_raw_right_academy',
+        'ppo_hip_roll_clip_left_other': 'hip_roll_clip_left_other',
+        'ppo_hip_roll_raw_left_other': 'hip_roll_raw_left_other',
+        'ppo_hip_roll_clip_right_other': 'hip_roll_clip_right_other',
+        'ppo_hip_roll_raw_right_other': 'hip_roll_raw_right_other',
     }
     for dst, src in scalar_aux.items():
         row[dst] = float(np.asarray(aux_now.get(src, 0.0)))
@@ -890,6 +1013,10 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             metrics.get('academy_clearance_new',0.)).sum()),
         'academy_episodes': float(np.asarray(
             metrics.get('academy_episode_attempt',0.)).sum()),
+        'academy_episodes_first_lip_armed': float(np.asarray(
+            metrics.get('academy_episode_first_lip_armed',0.)).sum()),
+        'academy_episodes_two_foot_ready': float(np.asarray(
+            metrics.get('academy_episode_two_foot_ready',0.)).sum()),
         'academy_four_lip_milestones': float(np.asarray(
             metrics.get('academy_course_new',0.)).sum()),
         'academy_reward_per_frame': mean_metric(metrics,'academy_reward'),
@@ -937,6 +1064,10 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'servo_shaft_abs_power_w': mean_metric(metrics, 'servo_shaft_abs_power_w'),
         'servo_shaft_drive_power_w': mean_metric(metrics, 'servo_shaft_drive_power_w'),
         'servo_shaft_brake_power_w': mean_metric(metrics, 'servo_shaft_brake_power_w'),
+        # Model joint damping is separate energy dissipation and is not
+        # reported by the actuator-only shaft-power proxy above.
+        'actuator_joint_viscous_damping_w': mean_metric(
+            metrics, 'actuator_joint_viscous_damping_w'),
         'servo_over_rated_frac': mean_metric(metrics, 'servo_over_rated_frac'),
         'servo_peak_torque_limit_frac': mean_metric(metrics, 'servo_peak_torque_limit_frac'),
         'spring_potential_energy_j': mean_metric(metrics, 'spring_potential_energy_j'),
@@ -978,6 +1109,40 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'birth_resilience_d': done_mean(metrics, 'birth_resilience_d', default=-1.0),
         'birth_posture_d': done_mean(metrics, 'birth_posture_d', default=-1.0),
     }
+    # Diagnose whether Academy's slow/attenuated operator commands are
+    # over-represented relative to the held-out 0.25m/s stair exam.
+    academy_mask = (np.asarray(metrics['academy_active']) > .5) if (
+        'academy_active' in metrics) else None
+    if academy_mask is not None and academy_mask.any():
+        row['academy_actual_cmd_vx_mps'] = float(
+            np.asarray(metrics['cmd_vx'])[academy_mask].mean())
+        row['academy_actual_vx_mps'] = float(
+            np.asarray(metrics['vx'])[academy_mask].mean())
+    else:
+        row['academy_actual_cmd_vx_mps'] = -1.
+        row['academy_actual_vx_mps'] = -1.
+    # Policy action hitting its angular limit is NOT the same as
+    # an MJX position actuator hitting the *torque* limit. Measure
+    # their separation at each hip, with the actual source-XML ceiling.
+    # Spring moments are reported separately from actuator force.
+    for cohort in ('academy', 'other'):
+        if academy_mask is None:
+            mask = None
+        else:
+            mask = academy_mask if cohort == 'academy' else ~academy_mask
+        for side in ('left', 'right'):
+            torque_key = f'hip_roll_motor_load_frac_{side}'
+            spring_key = f'hip_roll_spring_abs_nm_{side}'
+            for name, source, near_limit in (
+                (f'hip_roll_motor_load_{side}_{cohort}',torque_key,False),
+                (f'hip_roll_motor_near_stall_{side}_{cohort}',torque_key,True),
+                (f'hip_roll_spring_abs_nm_{side}_{cohort}',spring_key,False),
+            ):
+                if mask is None or not mask.any() or source not in metrics:
+                    row[name] = -1.
+                else:
+                    values = np.asarray(metrics[source])[mask]
+                    row[name] = float(np.mean(values >= .95)) if near_limit else float(np.mean(values))
     # True mixed-geometry physical slope: never infer gradient from a
     # curriculum target or fold downhill into successful uphill evidence.
     # All four directional counters are COMPLETE episode facts.

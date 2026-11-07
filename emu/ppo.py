@@ -19,6 +19,64 @@ from .directional import contact_pair_mask
 from .directional import heading_rate_request
 from .contracts import CONTROL_DT, P
 
+def hip_roll_action_saturation(xp, raw_action, academy_active):
+    """Read-only sampled hip-roll command saturation, Academy vs other roles.
+
+    Columns 0 and 3 are right/left HIP ROLL in the six-servo action contract.
+    Clip means a sampled network command exceeded the [-1,1] action range;
+    it does NOT measure actual physical motor torque or prove cause of drift.
+    Record raw signed means to distinguish a preferred saturated direction
+    from symmetric high exploration. Unknown cohorts report -1.
+    """
+    active = academy_active > .5
+    out = {}
+    for cohort, mask in (('academy', active), ('other', ~active)):
+        count = xp.sum(mask.astype(raw_action.dtype))
+        denom = xp.maximum(count, 1.)
+        out[f'hip_roll_frames_{cohort}'] = count
+        for idx, side in ((0, 'right'), (3, 'left')):
+            v = raw_action[..., idx]
+            clip = xp.abs(v) > 1.
+            out[f'hip_roll_clip_{side}_{cohort}'] = xp.where(
+                count > 0., xp.sum(xp.where(mask, clip, False)) / denom, -1.)
+            out[f'hip_roll_raw_{side}_{cohort}'] = xp.where(
+                count > 0., xp.sum(xp.where(mask, v, 0.)) / denom, -1.)
+    return out
+
+
+def stair_terminal_credit_stats(xp, advantage, reward, value, finished):
+    """Pre-update PPO credit at genuine short-climb terminal transitions.
+
+    The actor is optimised with BATCH-NORMALISED advantages, not reward alone.
+    A positive +8 completion payment can still produce a negative advantage
+    when the critic values the continuing per-frame reward more highly.
+    This diagnostic uses the SAME pre-update GAE and normalisation as PPO;
+    it changes neither optimisation nor the environment. A -1 measurement
+    means no completed stair event in this rollout, not a negative score.
+    """
+    matched = finished > .5
+    count = xp.sum(matched.astype(advantage.dtype))
+    denom = xp.maximum(count, 1.)
+    normalised = (advantage - xp.mean(advantage)) / (
+        xp.std(advantage) + 1e-8)
+
+    def conditional_mean(values):
+        result = xp.sum(xp.where(matched, values, 0.)) / denom
+        return xp.where(count > 0., result, -1.)
+
+    return {
+        'stair_credit_finish_events': count,
+        'stair_credit_finish_reward': conditional_mean(reward),
+        'stair_credit_finish_value': conditional_mean(value),
+        # On a genuine absorbing terminal, delta = reward - V(s).
+        'stair_credit_finish_td': conditional_mean(reward - value),
+        'stair_credit_finish_adv_raw': conditional_mean(advantage),
+        'stair_credit_finish_adv_normalised': conditional_mean(normalised),
+        'stair_credit_finish_negative_fraction': conditional_mean(
+            (normalised < 0.).astype(advantage.dtype)),
+    }
+
+
 # Fixed current PPO doctrine. These are not experiment knobs in modern EMU;
 # training_config records them with each run, while this module owns their use.
 PPO_GAMMA = 0.99
@@ -497,13 +555,11 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         aux_mean['approx_kl_final'] = aux['approx_kl_final'][-1]
         aux_mean['lr_scale'] = lr_scale
         # Two cheap diagnostics:
-        #  - action_clip_frac: what fraction of sampled action components hit
-        #    the +/-1 clip in policy_sample. That matters because `lp` is the
-        #    density of the CLIPPED action under the UNclipped Gaussian, so a
-        #    high clip fraction inflates approx_kl for reasons that have
-        #    nothing to do with step size. Logging it first (rather than
-        #    changing the semantics blind) so the next run can say whether
-        #    this is happening at all -- see --logp-on-raw-action.
+        #  - action_clip_frac: what fraction of sampled components hit
+        #    the +/-1 action bound. PPO correctly evaluates the RAW sampled
+        #    Gaussian action's likelihood; the robot receives its clipped
+        #    version. Rising action saturation can remove control authority
+        #    without any optimizer KL warning. Log the actual joint/cohort.
         #  - adv_tail_frac: fraction of normalized advantages beyond 5 sigma.
         #    The terminal fall penalty is -65 to -110 against a per-step
         #    reward of ~+2.5, so the advantage distribution is expected to be
@@ -516,6 +572,10 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         aux_mean['adv_tail_frac'] = adv_tail_frac
         for ji in range(action_dim):
             aux_mean[f'action_clip_j{ji}'] = jnp.mean(action_clip_mask[..., ji].astype(jnp.float32))
+        # Audit the increasing LEFT hip-roll saturation against cohort
+        # identity, without touching the actor or the PPO loss.
+        aux_mean.update(hip_roll_action_saturation(
+            jnp, traj['raw_action'], traj['metrics']['academy_active']))
         # Per-regime credit/value diagnostics: a mixed-policy collapse can be
         # hidden by global advantage normalisation or a healthy global EV.
         raw_adv = adv.reshape((batch_size,))
@@ -535,6 +595,12 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             aux_mean[f'adv_mean_{rn}'] = a_mu
             aux_mean[f'adv_std_{rn}'] = jnp.sqrt(jnp.maximum(a_var, 0.0))
             aux_mean[f'value_ev_{rn}'] = 1.0 - err_var / jnp.maximum(rv, 1e-8)
+        # Source-grounded reward-versus-continuation audit. A single
+        # completed nursery climb is measured BEFORE advantage normalisation
+        # and after it, using the exact batch PPO will optimise on.
+        aux_mean.update(stair_terminal_credit_stats(
+            jnp, raw_adv, traj['reward'].reshape((batch_size,)), raw_val,
+            traj['metrics']['academy_finish_new'].reshape((batch_size,))))
         new_state = PPOState(params, opt_state, state.env_state, state.obs, key)
         rollout_metrics = traj['metrics']
         # Mean exploration std, so a run can show directly whether

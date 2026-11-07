@@ -132,6 +132,126 @@ class CoreAcademyTests(unittest.TestCase):
         self.assertFalse(climb(side=.30)[0])
         self.assertEqual(CLIMB_STABLE_FRAMES,3)
 
+        # An ostensibly positive short-climb payment may actually be an
+        # undesirable action under the PPO advantage that gets optimised.
+        # Keep this contract in the EXISTING core test, not another test.
+        from emu.ppo import stair_terminal_credit_stats
+        credit=stair_terminal_credit_stats(
+            np,np.array([-42.,2.,3.,4.]),
+            np.array([8.,0.,0.,0.]),
+            np.array([50.,0.,0.,0.]),
+            np.array([1.,0.,0.,0.]))
+        self.assertEqual(float(credit['stair_credit_finish_events']),1.)
+        self.assertEqual(float(credit['stair_credit_finish_reward']),8.)
+        self.assertEqual(float(credit['stair_credit_finish_td']),-42.)
+        self.assertEqual(float(credit['stair_credit_finish_adv_raw']),-42.)
+        self.assertLess(float(credit['stair_credit_finish_adv_normalised']),0.)
+        self.assertEqual(float(credit['stair_credit_finish_negative_fraction']),1.)
+        empty=stair_terminal_credit_stats(
+            np,np.array([1.,2.]),np.array([0.,0.]),
+            np.array([0.,0.]),np.zeros(2))
+        self.assertEqual(float(empty['stair_credit_finish_events']),0.)
+        self.assertEqual(float(empty['stair_credit_finish_adv_raw']),-1.)
+
+        # A logged row represents only one of ten PPO updates. Evidence
+        # must not disappear because the successful update was not logged.
+        from emu.results import StairCreditAudit
+        audit=StairCreditAudit()
+        audit.observe({
+            'academy_episodes':3.,'academy_episodes_first_lip_armed':2.,
+            'academy_episodes_two_foot_ready':1.,
+            'academy_short_climb_successes':1.,
+            'academy_active_fraction':.5,
+            'academy_actual_cmd_vx_mps':.1,
+            'academy_actual_vx_mps':.08,
+        }, {
+            'stair_credit_finish_events':1.,
+            'stair_credit_finish_reward':8.,'stair_credit_finish_value':50.,
+            'stair_credit_finish_td':-42.,
+            'stair_credit_finish_adv_raw':-42.,
+            'stair_credit_finish_adv_normalised':-1.5,
+            'stair_credit_finish_negative_fraction':1.,
+        })
+        audit.observe({
+            'academy_episodes':5.,'academy_episodes_first_lip_armed':3.,
+            'academy_episodes_two_foot_ready':2.,
+            'academy_short_climb_successes':0.,
+            'academy_active_fraction':.25,
+            'academy_actual_cmd_vx_mps':.2,
+            'academy_actual_vx_mps':.16,
+        },{'stair_credit_finish_events':0.})
+        audit.observe({
+            'academy_episodes':4.,'academy_episodes_first_lip_armed':3.,
+            'academy_episodes_two_foot_ready':2.,
+            'academy_short_climb_successes':2.,
+            'academy_active_fraction':.25,
+            'academy_actual_cmd_vx_mps':.2,
+            'academy_actual_vx_mps':.16,
+        },{
+            'stair_credit_finish_events':2.,
+            'stair_credit_finish_reward':10.,'stair_credit_finish_value':5.,
+            'stair_credit_finish_td':5.,
+            'stair_credit_finish_adv_raw':4.,
+            'stair_credit_finish_adv_normalised':.5,
+            'stair_credit_finish_negative_fraction':0.,
+        })
+        window=audit.summary()
+        self.assertEqual(window['ppo_stair_audit_rollouts_since_process_start'],3.)
+        self.assertEqual(window['ppo_stair_audit_finish_events'],3.)
+        self.assertEqual(window['ppo_stair_audit_academy_episodes'],12.)
+        self.assertEqual(window['ppo_stair_audit_academy_episodes_first_lip_armed'],8.)
+        self.assertEqual(window['ppo_stair_audit_academy_episodes_two_foot_ready'],5.)
+        self.assertAlmostEqual(window['ppo_stair_audit_finish_adv_normalised'],-1./6.)
+        self.assertAlmostEqual(window['ppo_stair_audit_finish_negative_fraction'],1./3.)
+        self.assertAlmostEqual(window['ppo_stair_audit_academy_cmd_vx_mps'],.15)
+        self.assertAlmostEqual(window['ppo_stair_audit_academy_vx_mps'],.12)
+
+        from emu.ppo import hip_roll_action_saturation
+        # Two Academy frames saturate ONLY left roll (+, +);
+        # two generalist frames saturate ONLY right roll (-, -).
+        a=np.zeros((2,2,6),dtype=np.float32)
+        a[0,:,3]=[1.3,1.6]
+        a[1,:,0]=[-1.2,-1.4]
+        cohorts=np.array([[1.,1.],[0.,0.]],dtype=np.float32)
+        hip=hip_roll_action_saturation(np,a,cohorts)
+        self.assertEqual(float(hip['hip_roll_clip_left_academy']),1.)
+        self.assertEqual(float(hip['hip_roll_clip_left_other']),0.)
+        self.assertEqual(float(hip['hip_roll_clip_right_academy']),0.)
+        self.assertEqual(float(hip['hip_roll_clip_right_other']),1.)
+        self.assertAlmostEqual(float(hip['hip_roll_raw_left_academy']),1.45,places=6)
+        self.assertAlmostEqual(float(hip['hip_roll_raw_right_other']),-1.3,places=6)
+
+        self.assertEqual(float(hip['hip_roll_frames_academy']),2.)
+        self.assertEqual(float(hip['hip_roll_frames_other']),2.)
+        hip_audit=StairCreditAudit()
+        hip_audit.observe({'academy_active_fraction':0.},
+            {'stair_credit_finish_events':0., **hip})
+        aggregate=hip_audit.summary()
+        self.assertEqual(aggregate['ppo_stair_audit_hip_roll_frames_academy'],2.)
+        self.assertEqual(aggregate['ppo_stair_audit_hip_roll_frames_other'],2.)
+        self.assertEqual(aggregate['ppo_stair_audit_hip_roll_clip_left_academy'],1.)
+        self.assertEqual(aggregate['ppo_stair_audit_hip_roll_clip_left_other'],0.)
+
+        from dataclasses import replace
+        from emu.training_config import TrainingConfig
+        from emu.training import compatible_academy_evidence_recipe
+        parent=replace(TrainingConfig(),
+            science_step_finish_on_transfer=True,
+            academy_stream=True, science_step_goal_weight=.3,
+            science_step_approach_m=.22, terrain_step_max_m=.08,
+            terrain_carpet=True, terrain_carpet_prisms=True,
+            terrain_lesson='coherent-careful',
+            solver_iterations=2, solver_ls_iterations=4)
+        same=replace(parent,run_dir='diagnostic-fork',
+                     steps=190_000_000,resume='parent/final.pkl')
+        self.assertTrue(compatible_academy_evidence_recipe(parent,same))
+        self.assertFalse(compatible_academy_evidence_recipe(
+            replace(parent,science_step_finish_on_transfer=False),same))
+        self.assertFalse(compatible_academy_evidence_recipe(
+            parent,replace(same,science_step_approach_m=.18)))
+        self.assertFalse(compatible_academy_evidence_recipe(
+            parent,replace(same,solver_iterations=1)))
+
     def test_independent_real_prism_trace_proves_first_lip_destination(self):
         # No teacher success, no reward fields, and no nominal height!
         # The scorer sees only raw physical top contacts + first-life motion.

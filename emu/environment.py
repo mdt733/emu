@@ -1315,6 +1315,13 @@ class EmuMJXEnv(TaskSampler):
         self.home_target = jnp.zeros((ACTION_DIM,), dtype=jnp.float32)
         self.act_qpos = jnp.asarray(self.ids['act_qpos'], dtype=jnp.int32)
         self.act_qvel = jnp.asarray(self.ids['act_qvel'], dtype=jnp.int32)
+        # Source-XML passive viscous torque-speed approximation, NOT motor
+        # electrical power. It dissipates energy even at zero servo command.
+        # Use the live MJX model's last dimension so this diagnostic is
+        # also correct for per-world randomized damping, if enabled.
+        # Shape is [6] for static motor physics or [world,6].
+        self.act_joint_viscous_damping = jnp.take(
+            self.mjx_model.dof_damping, self.act_qvel, axis=-1)
         # Resolve the nominal stall limit from the actual loaded XML instead
         # of duplicating six force ceilings in training code.
         limits = np.asarray(self.mj_model.actuator_forcerange, dtype=np.float32)
@@ -2149,6 +2156,16 @@ class EmuMJXEnv(TaskSampler):
             'academy_goal_sequential_feet_ready':(
                 stepped.academy_goal_transfer_ready).astype(jnp.float32),
             'academy_episode_attempt':(done & state.academy_active).astype(jnp.float32),
+            # Separate first-tile proof gates at EPISODE END. These are
+            # read-only diagnostics, not actor observations or reward flags.
+            # A valid upper-foot transfer can be lost to the *teacher's*
+            # first-lip arming gate before the short-finish check.
+            'academy_episode_first_lip_armed':(
+                done & state.academy_active &
+                stepped.academy_goal_lip_armed).astype(jnp.float32),
+            'academy_episode_two_foot_ready':(
+                done & state.academy_active &
+                stepped.academy_goal_transfer_ready).astype(jnp.float32),
             'academy_episode_complete':jnp.where(
                 self.science_step_finish_on_transfer,
                 academy['finish_new'],
@@ -3540,6 +3557,31 @@ class EmuMJXEnv(TaskSampler):
         spring_energy = joint_spring_energy(
             jnp, data.qpos[:, self.spring_qpos],
             self.spring_reference, self.spring_stiffness)
+        model_damping_dissipation_w = jnp.sum(
+            self.act_joint_viscous_damping *
+            data.qvel[:, self.act_qvel]**2, axis=-1)
+        # Distinguish exhausted ACTION position range from actual MOTOR
+        # force saturation at the two hip-rolls. The readouts are MJX
+        # position-actuator output, not current, temperature, or passive
+        # joint damping. Do not claim actuator force includes the 0.435
+        # N*m*s/rad viscous term from robot.xml.
+        motor_roll_r = jnp.abs(data.actuator_force[:, 0])
+        motor_roll_l = jnp.abs(data.actuator_force[:, 3])
+        hip_roll_motor = dict(
+            hip_roll_motor_load_frac_right=(
+                motor_roll_r / jnp.maximum(self.servo_stall_torque_nm[..., 0], 1e-6)),
+            hip_roll_motor_load_frac_left=(
+                motor_roll_l / jnp.maximum(self.servo_stall_torque_nm[..., 3], 1e-6)),
+            # Physical joint-centering spring, separately from actuator force.
+            hip_roll_spring_abs_nm_right=(
+                jnp.abs(self.spring_stiffness[0] *
+                    (data.qpos[:, self.spring_qpos[0]] -
+                     self.spring_reference[0]))),
+            hip_roll_spring_abs_nm_left=(
+                jnp.abs(self.spring_stiffness[3] *
+                    (data.qpos[:, self.spring_qpos[3]] -
+                     self.spring_reference[3]))),
+        )
         # Reward-only stance-foot slip proxy. MuJoCo truth is allowed in the
         # reward: consecutive
         # foot poses estimate tangential speed and only near-floor feet count.
@@ -3617,6 +3659,8 @@ class EmuMJXEnv(TaskSampler):
             'scissor_pressure': scissor,
             **servo_effort,
             **spring_energy,
+            **hip_roll_motor,
+            'actuator_joint_viscous_damping_w': model_damping_dissipation_w,
         }
 
     # ---- Actor observation: sensor/command contract, no teacher geometry ----
