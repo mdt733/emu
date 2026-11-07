@@ -158,10 +158,18 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     # compare XML strings. Neutral sole contact, leg inertia, scaled spring
     # loading and left/right knee passive torque are physical acceptance.
     from emu.physical_variants import (
-        PROFILES, generate_xml, profile_numbers, FOOT_RADIUS_M)
+        PROFILES, generate_xml, profile_numbers, terrain_tof_pitch_deg,
+        FOOT_RADIUS_M)
     base_source=(Path(__file__).resolve().parents[1]/'emu'/'robot.xml').read_text()
     for variant in PROFILES:
         row=profile_numbers(variant)
+        # Rigidly re-aim the 4x4 array to keep the 40cm robot's sensor
+        # from looking beyond the 37.5cm guaranteed loaded carpet.
+        pitch=terrain_tof_pitch_deg(variant)
+        np.testing.assert_allclose(np.diff(pitch),[20.,20.,20.],
+                                   atol=2e-5,rtol=0)
+        reach=row["hip_height_m"]/np.tan(np.deg2rad(pitch[0]))
+        np.testing.assert_allclose(reach,.25,atol=1e-6,rtol=0)
         body=mujoco.MjModel.from_xml_string(
             generate_xml(base_source, variant))
         state=mujoco.MjData(body)
