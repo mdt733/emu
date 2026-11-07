@@ -103,7 +103,16 @@ damping. The 0.435 N.m*s/rad joint damping is a heuristic for a
 torque–speed slope; it ALWAYS dissipates power, including when no
 motor torque is commanded, so it is not a faithful active servo
 torque-speed limiter and must not be confused with motor electrical
-work. Do not change the solver or motor physics in this credit audit.
+work. New passive read-only `actuator_joint_viscous_damping_w`
+reports `sum(dof_damping * joint_speed^2)` from the actual XML,
+separate from `servo_shaft_drive_power_w`. It does not represent
+electrical current, heat, or a directly measured real servo loss.
+Do not change the solver or motor physics in this credit audit.
+
+**No XML edits on the diagnostic branch:** the complete robot.xml
+file is hashed into every checkpoint. Even a comment-only change
+would break compatibility with the 182M parent actor. The historical
+XML assumptions remain byte-identical and the correction lives here.
 
 ### Out-of-the-box shape threshold: 36mm diameter ball foot
 
