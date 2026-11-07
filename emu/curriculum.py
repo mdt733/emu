@@ -82,7 +82,10 @@ class RegimeGovernor:
     ACADEMY_MIN_ATTEMPTS_PER_DIRECTION = 12
     ACADEMY_MAX_WINDOW_UPDATES = 50
     ACADEMY_SEED_LIP_M = 0.003
-    ACADEMY_MIN_LIP_M = 0.0015
+    # First +X seams below ~2mm are not reliably classifiable/visible.
+    # 1.5mm had ZERO eligible births; don't let retreats park there.
+    # v5056 first seams are now deliberately sampled near this 3mm frontier.
+    ACADEMY_MIN_LIP_M = 0.003
     ACADEMY_HEIGHT_GROWTH_M = 0.0005
     COMMAND_SECTORS = ('vx_hi','vx_lo','vy_pos','vy_neg','yaw_pos','yaw_neg','mixed')
     COMMAND_MIN_EDGE_EPISODES = 4

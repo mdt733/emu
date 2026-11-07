@@ -192,8 +192,15 @@ def make_profiles(xp,seeds,up,down):
     # teacher correctly rejects. Start at 95% and reach 150% by tile 14.
     # Global coordinates keep revisits immutable throughout the episode.
     challenge=.95+.55*xp.minimum(1.,xp.abs(idx.astype(xp.float32))/14.)
-    signed_x=xp.where(hx<.5,.90*up[:,None],
-                       -.90*down[:,None])*(.75+.25*ax)*challenge
+    # First approach can originate in tile -1 or 0; the first +X lip
+    # is indexed 0 or 1 respectively. Expose 0.79..1.03x the nominal
+    # 3mm+ frontier after <=0.1x local tile jitter, so the teacher actually
+    # receives enough near-height (>1.5mm) evidence to promote/retreat.
+    # Keep all later seams' old varied challenge progression unchanged.
+    initial_seam=(idx==0)|(idx==1)
+    amplitude=xp.where(initial_seam,.98*(.90+.10*ax),
+                       .90*(.75+.25*ax)*challenge)
+    signed_x=xp.where(hx<.5,up[:,None],-down[:,None])*amplitude
     hy=hash_float(xp,0,idx,seed,103)
     ay=hash_float(xp,0,idx,seed,104)
     # v5043 experimental carpet: a newly generated row in Y is also a

@@ -1072,6 +1072,12 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'servo_peak_torque_limit_frac': mean_metric(metrics, 'servo_peak_torque_limit_frac'),
         'spring_potential_energy_j': mean_metric(metrics, 'spring_potential_energy_j'),
         'shin_spring_energy_j': mean_metric(metrics, 'shin_spring_energy_j'),
+        # Real passive two-site knee struts, distinct from motor shaft work.
+        'knee_strut_energy_j': mean_metric(metrics, 'knee_strut_energy_j'),
+        'knee_strut_compression_m_right': mean_metric(metrics, 'knee_strut_compression_m_right'),
+        'knee_strut_compression_m_left': mean_metric(metrics, 'knee_strut_compression_m_left'),
+        'knee_strut_force_n_right': mean_metric(metrics, 'knee_strut_force_n_right'),
+        'knee_strut_force_n_left': mean_metric(metrics, 'knee_strut_force_n_left'),
         # The reward ledger owns payment names. These remain teaching
         # payments; unlike measured progress or torque they are NOT exams.
         **{f'reward_weighted_{name}': mean_metric(metrics, f'reward_weighted_{name}')

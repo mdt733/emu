@@ -2,7 +2,7 @@
 <!--
   robot.xml — EMU v3017 Clean Blob fast training model
   ═══════════════════════════════════════════════════════
-  ~0.5 kg ball-foot biped, 6 actuated DoF, 2 passive mid-shin flex DoF.
+  ~0.48 kg ball-foot biped, 6 actuated DoF, 2 passive mid-shin flex DoF.
 
   Kinematic chain per leg:
     torso → hip_roll → hip_pitch → knee → passive mid-shin flex → ball foot
@@ -12,17 +12,28 @@
     shin:   (0,0,0) → (+0.1202, 0, -0.1202)   → 45° down-and-forward at q=0
     foot:   sphere ball, r=0.018, one main contact point
 
-  Passive spring design:
-    The neutral "< 45/90/45" crouch is spring-supported enough to be recoverable,
-    but not passively stable on ball feet.  Springs make the first survival-walk
-    problem physically reasonable; the policy still has to step and correct.
+  Passive spring design — v5056 physical variant:
+    Each knee has a 30mm/30mm site-to-site compression-strut equivalent.
+    MuJoCo's spatial tendon spring pushes sites apart when the leg is folded:
+    rest pin separation 60mm, stiffness 750 N/m, effective neutral knee
+    extension torque about 0.28 N.m and deep (-55deg) about 0.90 N.m.
+    This is NOT a string/tension-only cable: real hardware needs a guided
+    compression cartridge (or an equivalent rocker/cam). There is NO knee
+    spring torque at full extension (+90deg). Hip-pitch springs are removed,
+    while hip-roll centering and passive shin flex remain unchanged.
+    Physical spring stiffness is preliminary: verify COM, mass, interference,
+    CPU/MJX parity, thermal loads and actual hardware before building.
 
   Actuators:
-    Feetech STS3215-style joint-direct model (servo itself is internally geared).
-    Six actuated joints use forcerange = ±1.913 N·m, kp = 10 N·m/rad,
-    damping = 0.435 N·m·s/rad, armature = 0.012 kg·m² and Coulomb
-    frictionloss = 0.08 N·m. Servo target speed/lag/safety is handled by
-    environment.py; the physical joint constants themselves live here.
+    Six Feetech ST-3215-C018 at 12V (6x 55g) use rated 0.980665 N.m,
+    peak-stall ±2.941995 N.m and no-load 0.222s/60deg (4.717 rad/s).
+    A passive viscous damping coefficient of 0.624 is retained as the
+    previous SIMPLIFIED motor speed/load proxy; it is NOT a true servo
+    velocity-dependent electrical torque limit and damps even unpowered.
+    kp=10 N.m/rad, armature=0.012 kg.m², frictionloss=0.08 N.m are
+    provisional pre-existing controls, not manufacturer-calibrated values.
+    Hardware needs its own 12V regulator, adequate bus current margin,
+    thermal limits and mechanical load validation.
 
   Contact contract:
     v3017 seed model deliberately makes the thin thigh/shin rods non-contacting
@@ -41,10 +52,11 @@
       Base joint defaults preserve the passive-shin model. The six motor joints
       explicitly override armature/frictionloss below so robot.xml alone fully
       defines the effective physics used by MJX.
-      damping=0.435 implements the STS3215 torque-speed slope; shin_flex joints
+      damping=0.624 is a crude C018 stall/no-load speed proxy; unlike an
+      electrical torque-speed curve it always dissipates. Shin flex joints
       override damping to 0.08 for the passive carbon-shin compliance.
     -->
-    <joint damping="0.435" armature="0.006" />
+    <joint damping="0.624" armature="0.006" />
     <geom friction="1.5 0.005 0.0001" />
   </default>
 
@@ -67,16 +79,18 @@
         <joint name="r_hip_roll" type="hinge" armature="0.012" frictionloss="0.08" axis="1 0 0"
                range="-25 25" stiffness="2.0" springref="0" />
         <body name="r_thigh" pos="0 0 0">
-          <!-- Spring-balanced crouch: | has zero spring, q=0 `<` supports ~1x weight, deep `=` ~2x weight. -->
+          <!-- No competing hip pitch spring: progressive knee strut owns vertical support. -->
           <joint name="r_hip_pitch" type="hinge" armature="0.012" frictionloss="0.08" axis="0 1 0"
-                 range="-50 50" stiffness="0.480" springref="-45" />
+                 range="-50 50" stiffness="0" springref="0" />
+          <site name="r_knee_strut_thigh" pos="-0.0989868 0 -0.0989868" size="0.003" rgba="0 0.7 0.6 1" />
           <geom name="r_thigh_rod" type="capsule" size="0.008"
                 fromto="0 0 0 -0.1202 0 -0.1202" mass="0.04"
                 contype="0" conaffinity="0" />
           <body name="r_shin" pos="-0.1202 0 -0.1202">
-            <!-- Knee support for the neutral crouch; motors still do dynamic correction. -->
+            <!-- Knee support comes from a two-site compressive spatial tendon. -->
             <joint name="r_knee" type="hinge" armature="0.012" frictionloss="0.08" axis="0 1 0"
-                   range="-55 95" stiffness="0.480" springref="45" />
+                   range="-55 95" stiffness="0" springref="90" />
+            <site name="r_knee_strut_shin" pos="0.0212132 0 -0.0212132" size="0.003" rgba="0 0.7 0.6 1" />
             <!-- Carbon shin compliance is modelled at the rod midpoint so the
                  virtual flex angle has the same semantics as the magnet/Hall
                  pair on the real shin. -->
@@ -105,13 +119,15 @@
                range="-25 25" stiffness="2.0" springref="0" />
         <body name="l_thigh" pos="0 0 0">
           <joint name="l_hip_pitch" type="hinge" armature="0.012" frictionloss="0.08" axis="0 1 0"
-                 range="-50 50" stiffness="0.480" springref="-45" />
+                 range="-50 50" stiffness="0" springref="0" />
+          <site name="l_knee_strut_thigh" pos="-0.0989868 0 -0.0989868" size="0.003" rgba="0 0.7 0.6 1" />
           <geom name="l_thigh_rod" type="capsule" size="0.008"
                 fromto="0 0 0 -0.1202 0 -0.1202" mass="0.04"
                 contype="0" conaffinity="0" />
           <body name="l_shin" pos="-0.1202 0 -0.1202">
             <joint name="l_knee" type="hinge" armature="0.012" frictionloss="0.08" axis="0 1 0"
-                   range="-55 95" stiffness="0.480" springref="45" />
+                   range="-55 95" stiffness="0" springref="90" />
+            <site name="l_knee_strut_shin" pos="0.0212132 0 -0.0212132" size="0.003" rgba="0 0.7 0.6 1" />
             <!-- Carbon shin compliance is modelled at the rod midpoint so the
                  virtual flex angle has the same semantics as the magnet/Hall
                  pair on the real shin. -->
@@ -136,51 +152,45 @@
   </worldbody>
 
   <!--
-    Position actuators — Feetech STS3215 @ 6V, direct at robot joint (servo has its own internal geartrain).
-
-    Physical specs:
-      Peak stall torque:  19.5 kg·cm = 1.913 N·m
-      Rated cont. torque:  6.5 kg·cm = 0.638 N·m
-      No-load speed:       60°/0.238s = 4.40 rad/s = 252 deg/s
-
-    Torque-speed curve simulation via joint damping:
-      A brushed/brushless servo has a roughly linear torque-speed relationship:
-        T(ω) = T_stall − b · ω    where  b = T_stall / ω_noload
-      b = 1.913 / 4.40 = 0.435 N·m·s/rad
-
-      This is implemented as joint damping in the <default> block (0.435).
-      The actuator forcerange is set to the STALL torque ceiling (±1.913 N·m).
-      At any joint speed ω, the effective output torque is:
-        T_eff = clip(kp·error, ±1.913) − 0.435·ω
-      which reproduces the torque-speed line:
-        ω=0   → T_eff up to 1.913 N·m  (100% stall)  ✓
-        ω=2.93 → T_eff up to 0.638 N·m  (33%, rated)  ✓
-        ω=4.40 → T_eff → 0             (no-load speed) ✓
-
-    Effective joint dynamics (kp=10, armature=0.012 kg·m²):
-      ω_n  = √(kp/J)         = 28.9 rad/s = 4.6 Hz
-      ζ    = b/(2√(kp·J))    = 0.628
-      Coulomb frictionloss   = 0.08 N·m
-      Saturation error       = 1.913/10 = 0.191 rad = 11°
-
-    vs old 2:1 geared MG996R:
-      Peak torque: 2.54 → 1.913 N·m  (−25%)  compensated by springs in stance
-      Max speed:   2.62 → 4.40 rad/s (+68%)   step frequency ceiling ~3.5 Hz
-      Backdrivability: poor → good              ground impacts absorbed as motion
+    v5056: ST-3215-C018 (12 V), SAME six position-actuator channels.
+    Manufacturer A/0: stall 30 kgf.cm = 2.941995 N.m, rated 10 kgf.cm
+    = 0.980665 N.m, no-load 0.222s/60deg = 4.717 rad/s (45RPM),
+    stall 2.7 A per motor, 55g each. DO NOT supply 12V to old C001.
+    Simple position/forcerange + joint damping is NOT a thermally or
+    electrically faithful torque-speed servo model. Measure speed,
+    torque and current before treating this as validated sim2real.
+    The 0.624 N.m.s/rad damping is a heuristic (stall / no-load speed)
+    that *also* damps without active drive; report separately.
   -->
+  <tendon>
+    <!-- Site separation 18..60mm as knee folds -55..+90deg; compression
+         pushes the points apart via MuJoCo's passive tendon spring.
+         Rest length 60mm; 750N/m equivalent, 42mm max compression.
+         A physical spring needs a guided strut / 2:1 rocker cartridge. -->
+    <spatial name="r_knee_support" stiffness="750" springlength="0.060" width="0.002"
+             rgba="0 0.7 0.6 1">
+      <site site="r_knee_strut_thigh" />
+      <site site="r_knee_strut_shin" />
+    </spatial>
+    <spatial name="l_knee_support" stiffness="750" springlength="0.060" width="0.002"
+             rgba="0 0.7 0.6 1">
+      <site site="l_knee_strut_thigh" />
+      <site site="l_knee_strut_shin" />
+    </spatial>
+  </tendon>
   <actuator>
     <position name="r_hip_roll"  joint="r_hip_roll"
-              kp="10" ctrlrange="-25 25"  forcerange="-1.913 1.913" />
+              kp="10" ctrlrange="-25 25"  forcerange="-2.941995 2.941995" />
     <position name="r_hip_pitch" joint="r_hip_pitch"
-              kp="10" ctrlrange="-50 50"  forcerange="-1.913 1.913" />
+              kp="10" ctrlrange="-50 50"  forcerange="-2.941995 2.941995" />
     <position name="r_knee"      joint="r_knee"
-              kp="10" ctrlrange="-55 95"  forcerange="-1.913 1.913" />
+              kp="10" ctrlrange="-55 95"  forcerange="-2.941995 2.941995" />
     <position name="l_hip_roll"  joint="l_hip_roll"
-              kp="10" ctrlrange="-25 25"  forcerange="-1.913 1.913" />
+              kp="10" ctrlrange="-25 25"  forcerange="-2.941995 2.941995" />
     <position name="l_hip_pitch" joint="l_hip_pitch"
-              kp="10" ctrlrange="-50 50"  forcerange="-1.913 1.913" />
+              kp="10" ctrlrange="-50 50"  forcerange="-2.941995 2.941995" />
     <position name="l_knee"      joint="l_knee"
-              kp="10" ctrlrange="-55 95"  forcerange="-1.913 1.913" />
+              kp="10" ctrlrange="-55 95"  forcerange="-2.941995 2.941995" />
   </actuator>
 
   <!-- Thigh and shin rods are non-contacting in the fast seed model; feet are
