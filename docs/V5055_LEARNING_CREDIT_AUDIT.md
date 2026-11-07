@@ -58,6 +58,16 @@ on the pre-update critic and policy, so later optimiser updates cannot
 rewrite which action produced an earlier terminal. All metrics are summaries, not actor inputs and not new reward.
 No trainer, sampler, physics, optimizer, architecture or sensor changes.
 
+The same audit publishes two *episode-ended* teacher gate counts,
+`academy_episodes_first_lip_armed` and
+`academy_episodes_two_foot_ready`, against
+`academy_episodes` and `academy_short_climb_successes`. These
+show whether the first-lip confirmation or independent-five-frame foot
+latch is starved. It also reports the ACTUAL Academy mean requested and
+achieved velocities (`academy_actual_cmd_vx_mps`,
+`academy_actual_vx_mps`) to test the approach-speed mismatch. These
+are post-step measurements only and change no actor behaviour.
+
 ### Stage 1: short **diagnostic** PPO fork
 
 Fork the saved v5054 182M checkpoint into a NEW run directory using
