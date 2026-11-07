@@ -324,17 +324,49 @@ def train(args: TrainingConfig) -> int:
             # erase evidence on later same-source crash recovery.
             ancestor_sha = ((resumed_payload.get('meta', {}).get('source_provenance') or {})
                             .get('git_commit'))
-            # v5054 redefines an Academy success from a single supported
-            # lip to a verified two-foot short climb. Historical near/easy
-            # success windows must NOT survive this new-source fork. Preserve
-            # the learned heights but rebuild evidence; do not clear during
-            # same-source interruption/resume.
+            # Evidence is keyed to the physical lesson's success definition,
+            # NOT merely the Python source SHA. v5054 changed that definition,
+            # so a legacy source fork must discard incomparable evidence.
+            # Conversely a logging-only v5055 research fork from an already
+            # v5054-trained actor must NOT silently empty its curriculum.
+            # Cross-source preservation requires the parent's saved training
+            # recipe to prove matching active step-lesson semantics.
             if (args.science_step_finish_on_transfer and
                     ancestor_sha != source_provenance_from_env().get('git_commit')):
-                governor.academy_evidence = governor._empty_academy_evidence()
-                governor.terrain_evidence = governor._empty_terrain_evidence()
-                print(f"{LOG_PREFIX} v5054: reset inherited step/Academy evidence "
-                      "(earned height frontiers preserved)",flush=True)
+                safe_evidence_fork = False
+                if args.resume and args.resume.lower() != 'auto':
+                    parent_cfg_path = (
+                        Path(args.resume).expanduser().resolve().parent.parent
+                        / 'training_config.json')
+                    if parent_cfg_path.is_file():
+                        try:
+                            parent_cfg = TrainingConfig.load(parent_cfg_path)
+                            identity_fields = (
+                                'science_step_finish_on_transfer',
+                                'science_step_goal_weight',
+                                'science_step_approach_m',
+                                'academy_stream', 'academy_height_cap_m',
+                                'academy_course_episode_frames',
+                                'terrain_carpet', 'terrain_carpet_prisms',
+                                'terrain_step_max_m', 'terrain_lesson',
+                                'solver_iterations', 'solver_ls_iterations')
+                            safe_evidence_fork = all(
+                                getattr(parent_cfg, name) == getattr(args, name)
+                                for name in identity_fields)
+                        except (ValueError, TypeError, OSError) as exc:
+                            print(f'{LOG_PREFIX} parent recipe not verifiable: '
+                                  f'{exc}; clearing incompatible evidence',
+                                  flush=True)
+                if safe_evidence_fork:
+                    print(f'{LOG_PREFIX} source-only diagnostic fork: '
+                          'preserved already-compatible Academy/STEP evidence',
+                          flush=True)
+                else:
+                    governor.academy_evidence = governor._empty_academy_evidence()
+                    governor.terrain_evidence = governor._empty_terrain_evidence()
+                    print(f'{LOG_PREFIX} new or unverified step-success recipe: '
+                          'reset inherited Academy/STEP evidence '
+                          '(height frontiers retained)',flush=True)
             if (args.science_reset_step_evidence_on_fork and
                     ancestor_sha != source_provenance_from_env().get('git_commit')):
                 governor.terrain_evidence = governor._empty_terrain_evidence()
