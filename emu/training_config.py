@@ -129,6 +129,7 @@ class TrainingConfig:
     # Source-pinned experimental physics: None keeps robot.xml defaults.
     solver_iterations: int | None = None
     solver_ls_iterations: int | None = None
+    physical_profile: str = "base26"  # robot XML hash also pinned in checkpoint
 
     # Tunable PPO economics. Original doctrine values are the defaults;
     # only an explicitly versioned experiment changes them. Rollout length,
