@@ -1,8 +1,89 @@
 # handover.md — EMU 40 cm carbon-rod leg
 
 Last updated 2026-11-08 (Australia/Sydney).
-**Current research branch:** `research/v5059-40cm-carbon-leg-physical-design`.
+**Current analysis branch:** `research/v5060-carbon-stand-diagnostics` (model remains v5059 `h40_carbon2`).
 **Full engineering proposal:** [docs/V5059_40CM_CARBON_LEG_PROPOSAL.md](docs/V5059_40CM_CARBON_LEG_PROPOSAL.md).
+
+## v5060: 20M carbon h40 failure, source-grounded diagnosis (2026-11-08)
+
+**User-supplied artifacts:** physical_matrix(1).csv/md from one
+`h40_carbon2` seed 735, finished **20,054,016 world steps**.
+The new 478.3g carbon model did NOT learn to stand:
+* At 5/10/20M: all final-window fall rates 100%;
+  episodes average 19.87 / 23.81 / 26.50 control steps.
+  At 20ms control DT this is ~0.40 / 0.48 / 0.53 seconds.
+* End vx 0.638m/s vs cmd 0.043m/s => likely uncontrolled
+  movement, not learned fast walking.
+* Simulated actuator forces over rated: **0.0%**; maximum
+  rated-force utilization 95.0%, so v5058 hard cap appears
+  effective in TRAINING. Nominal no-load speed exceeded in
+  24.7% of samples: a backdriven falling joint can exceed
+  motor no-load speed; do not infer an actively over-speeding
+  motor just from this aggregate statistic.
+* Average knee spring energy 0.0535J; the neutral-geometry
+  two-spring preload estimate is ~0.162J. This is consistent
+  with being away from its initial knee pose, NOT a direct
+  fall-cause measurement.
+* No independent held-out evaluation in the CSV.
+
+**IMPORTANT MECHANICS HYPOTHESIS, not yet proven:** at h40
+neutral the knee-to-foot x lever is ~0.1975m, so total 478g
+weight divided equally between two feet gives ~0.463Nm
+gravity-induced knee moment per side if transmitted as a
+vertical reaction. The newly proposed spring is 450N/m and
+19mm past its 31mm slack length with ~24mm moment arm;
+at neutral it produces only **0.205Nm** extensor torque
+per knee (~44% of the simple equal-foot standing load).
+The rated servo is capable of supplying more, but an
+untrained policy gets little passive support. This is a
+first-order STATIC load estimate; true contact and other
+joint moment distribution may differ.
+
+Further candidates: two extremely soft passive shin hinge
+axes (0.06327Nm/rad), 5mm-radius feet, imaginary ±25°
+hard stops, unmodelled upper knee-drive linkage. Do not
+claim any individual factor caused all falls until the
+fall-cause and support telemetry are read.
+
+**New diagnostic source branch**:
+`research/v5060-carbon-stand-diagnostics`.
+Extends existing `scripts/v5057_physical_tournament.py --report`
+to extract already-saved 20M `metrics.csv` fall-height,
+tilt, angular-rate, virtual strikes, support, height error,
+shin-near-stop, measured knee forces and motor saturation,
+plus 5M/10M/20M progression. This is ZERO-GPU forensic
+analysis and DOES NOT mutate the trained model or checkpoints.
+
+Get report WITHOUT rerunning training:
+
+```bash
+cd ~/emu && git fetch origin \
+  '+refs/heads/research/v5060-carbon-stand-diagnostics:refs/remotes/origin/research/v5060-carbon-stand-diagnostics'
+git worktree add --detach ~/emu-v5060-diagnostics \
+  refs/remotes/origin/research/v5060-carbon-stand-diagnostics
+cd ~/emu-v5060-diagnostics
+source ~/emu/.venv/bin/activate
+export PYTHONPATH="$PWD"
+export EMU_PHYSICAL_PROFILE=h40_carbon2
+python scripts/v5057_physical_tournament.py \
+  --root "$HOME/emu-data/runs/v5059-carbon-physical" \
+  --profiles h40_carbon2 --seeds 735 --report
+```
+
+Outputs in existing tournament root:
+`physical_matrix.md` and `physical_matrix.csv`.
+Analysis-only output may overwrite those REPORT files,
+but never the checkpoints or original `metrics.csv`.
+If these source columns are unavailable, the report prints
+`—` instead of inventing values.
+
+**Do not launch another 20M/200M run yet.** Compare fall
+causes at 5/10/20M, evaluate a short gravity/neutral
+support trial, choose whether to increase passive knee
+support or modify shin mechanics after evidence. A spring
+change requires an independent source/model SHA and run
+directory, not a silent checkpoint resume. Keep the
+existing branch and old 20M run archived.
 
 ## Most important status
 
