@@ -66,7 +66,7 @@ Every run lives outside Git at `~/emu-data/runs/<name>/` and includes resolved c
 
 ## Known fidelity boundaries
 
-1. **ToF mismatch to intended ST VL53L8CX:** present policy ray spread uses **60° vertical** and **45° horizontal** despite the sensor's **45°×45°** physical FoV. At h40, two rows aim partly behind the robot. Viewer now offers a *separate* 45° optical diagnostic and an overlay of the exact policy rays for visual inspection; the real training sensor contract is not changed by the viewer.
+1. **ToF mismatch to intended ST VL53L8CX:** present policy ray spread uses **60° vertical** and **45° horizontal** despite the sensor's **45°×45°** physical FoV. At h40, two rows aim partly behind the robot. The dedicated CPU `viewer --sensor-lab` shows the h40 robot and adjustable 45°×45° physical sensor preview (foot occlusion included) alongside the old actor-ray contract; the training sensor contract remains unchanged.
 2. **Viewer geometry is illustrative:** current browser terrain uses a separate nine-box/50 cm preview, not the trainer's four 75 cm / eight real prisms. Do not call it a physics-fidelity exam.
 3. **1 m tile option not yet accepted:** a 2×2 window of four 1 m tiles may improve preview margin for the taller robot, but changes contact geometry/recycler and therefore needs new source and acceptance. Preserve the rated v5058 20M baseline.
 4. **Contact acceleration:** non-foot colliders are disabled in the fast solver and monitored by virtual safety probes. 2/4 solver iterations is experimental, not a certified physically faithful engine.

@@ -222,3 +222,35 @@ and 148-panel examination archive instead.
 [Documentation index](docs/README.md) ·
 [Maintenance principles](docs/MAINTENANCE.md) ·
 [Research backlog](https://github.com/mdt733/emu/issues/17).
+
+## CPU-only 40 cm sensor calibration (not a trained gait)
+
+The h40 sensor laboratory is a **local browser/MuJoCo-WASM** preview; it does
+not require a CUDA GPU, a Python ML installation, a training checkpoint, or a
+separate exported actor. It loads the actual rated-torque h40 robot geometry
+from `robot.xml` via `physical_variants.py`, with **no neural inference**.
+
+```bash
+python -m emu.cli viewer-build
+python -m emu.cli viewer --sensor-lab --port 8765
+```
+
+Run from the checked-out repository, with Node/npm available. On a clean CPU
+machine use the [sensor-audit maintenance branch](https://github.com/mdt733/emu/tree/maintenance/v5058-clean-skeleton-sensor-audit);
+`python` only needs the standard library for this mode. Visit
+`http://127.0.0.1:8765/` if your browser does not open automatically.
+
+The lab opens a **static 2×2 arrangement of four 1 m tiles**, with eight
+*real convex triangular-prism* CPU collision meshes, and a 40 cm neutral-pose
+robot. The scene starts paused for stable measurement; **Run physics** enables
+untrained position-servo motion. Open the Sensor inspector to adjust the
+VL53L8CX 45°×45° optical preview's pitch, yaw, forward/lateral and vertical
+mounting position. **Frame feet** starts at 75° down / 45 mm above torso
+centre / 0 mm forward, aiming for the bottom row to show
+`ground / FOOT / FOOT / ground`. Use 5 rays per 4×4 zone, watch the live
+foot-blocked cells and copy the raw scan/configuration back for calibration.
+
+This is a geometry/occlusion inspection instrument, **not** an MJX terrain
+recycler, a corrected training sensor contract or a proof of walking.
+Training continues on the original 75 cm v5058 source until explicitly
+revised and independently retrained.
