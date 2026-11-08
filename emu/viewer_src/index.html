@@ -190,7 +190,9 @@
           <option value="4">4 (64 rays)</option>
           <option value="5">5 (80 rays)</option>
         </select></label>
-      <label class="depth-visual"><input id="depthRays" type="checkbox" checked/> Show beams from sensor</label>
+      <label class="depth-visual"><input id="depthRays" type="checkbox" checked/> Show 45°×45° physical preview (green)</label>
+      <label class="depth-visual"><input id="depthActorRays" type="checkbox" checked/> Show exact trained-policy rays (magenta)</label>
+      <div id="actorDepthSource" class="depth-foot">Load an actor to compare its ray aiming with the sensor hardware.</div>
       <label class="depth-visual"><input id="depthFootprint" type="checkbox" checked/> Show 4×4 ground footprint</label>
       <label class="depth-row">Display <select id="depthView">
         <option value="height" selected>Terrain height · ±15 cm colours</option>

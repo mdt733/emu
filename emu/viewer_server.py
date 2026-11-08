@@ -216,13 +216,13 @@ def read_terrain_training_snapshot(root: Path) -> dict:
         },
         'source_sha':(meta.get('source_provenance') or {}).get('git_commit'),
         'physics_mode':(
-            '18 convex triangular-prism MJX collisions / browser illustrative terrain'
+            '8 convex triangular-prism MJX collisions (four 75cm tiles) / illustrative browser nine-box terrain'
             if cfg.get('terrain_carpet_prisms',False) else
             'nine-solid-box trainer / browser representative nine-solid-box world'
             if cfg.get('terrain_carpet',False) else
             'older training topology / browser illustrative terrain'),
         'warnings':([
-            'Browser is illustrative, not the 18 actual per-world MJX convex-prism'
+            'Browser is illustrative, not the 8 actual per-world MJX convex-prism'
             ' colliders, normals, seeded tiles or changing training birth states.'
         ] if cfg.get('terrain_carpet_prisms',False) else [
             'Browser matches the nine-solid-box collision TYPE but not the exact per-world'

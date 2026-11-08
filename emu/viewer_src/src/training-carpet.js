@@ -101,7 +101,7 @@ export function trainingLimits(data){
     transitionMeasured,transitionConfigured,
     source:'training',physicsMode:data.physics_mode||(
       cfg.terrain_carpet_prisms===true
-        ? '18-prism MJX training / representative nine-box browser'
+        ? '8-prism MJX training (four 75cm tiles) / representative nine-box browser'
         : 'source curriculum metrics'),
     warnings:data.warnings||[]};
 }

@@ -64,14 +64,14 @@ the v5058 model hash.
    --prisms --solver-iterations 2 --solver-ls-iterations 4`.
    Require `rated-torque MJX PASS`, recycler/physics pass,
    actual PPO updates, finite state. This is NOT a gait test.
-3. **CHEAP early-stand gate before another 20M.**
+3. **Early diagnostic only; 20M is our standard minimum judgement.**
    Start ONE new, totally independent rated h40 seed 735 run,
-   stop/check after ~2–5M steps for meaningful growth in
-   episode duration, falls, actual-command tracking, and
-   force saturation. If consistently dead-on-arrival, halt
-   and do four-world neutral stance/torque, passive support,
-   roll balance, fixed feet and fall-reason autopsy. Do NOT
-   spend the full 20M if it cannot stand.
+   observe growth around 5M, but normally complete the full
+   **20M**, which is cheap enough on our GPU to judge a new gait.
+   Interrupt early only for proven physical divergence/invalid state;
+   a novice still falling at 5M is not enough evidence to abandon it.
+   For a failed 20M, investigate four-world neutral stance/torque,
+   passive support, roll balance, fixed feet and fall reasons.
 4. **20M cold start, same physical source.** A successful
    seed 735 20M foundation must show standing and sustained,
    real command tracking, not just apparent rapid fall velocity.
@@ -159,3 +159,9 @@ This is the current source-of-truth handover for the
 40cm main-replacement effort. The v5059/v5060 handovers
 are **historical context for the failed carbon run**,
 not competing active roadmaps.
+
+## Sensor/terrain candidate (NOT applied to v5058 20M baseline)
+
+The intended ST VL53L8CX in 4×4 mode has a **45° horizontal × 45° vertical** detection field (65° diagonal); the current 360-input MJX ray contract uses **45° columns × 60° rows**. At 40 cm two lower actor rows look backwards. The browser now overlays its exact actor rays (magenta) and independent adjustable 45° square physical ray preview (green). Adjust mounting aim visually, then make any corrected actor/sensor contract a **new source-identified** cold start.
+
+Similarly, four **1 m** tiles in a 2×2 window may give the taller robot more forward visibility than the frozen four **75 cm** tiles. It is a hypothesis, **not** a silent edit to the active rated-torque run: validate recycler coverage, genuine eight-prism mesh normals/collisions, independent signed-step exam, ToF visibility and GPU PPO first. Do not mix 1 m terrain and FOV changes into the source of the first rated-torque 20M baseline.

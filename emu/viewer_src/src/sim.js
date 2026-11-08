@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
-import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe } from './sensor.js';
+import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe, terrainActorRays } from './sensor.js';
 import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredAttitude, sampleShove, expectedShoveRate } from './sim-math.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
 import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient } from './terrain.js';
@@ -131,7 +131,7 @@ export class EmuBrowserSim {
     this.sensorObstacle = 'flat';
     this.surfaceSlopeDegrees=3;
     this.surfaceStepHeightCm=2;
-    this.depthConfig = {enabled:true,forward:0,tilt:70,showRays:true,showFootprint:true,subrays:'auto'};
+    this.depthConfig = {enabled:true,forward:0,tilt:70,showRays:true,showActorRays:true,showFootprint:true,subrays:'auto'};
     this.depthReading = null;
     this.depthLastMs = 0;
     this.depthRaycaster = new THREE.Raycaster();
@@ -144,6 +144,18 @@ export class EmuBrowserSim {
     this.depthLines.frustumCulled=false;
     this.depthLines.visible=false;
     this.scene.add(this.depthLines);
+    // The training policy's rays are drawn independently from the optional
+    // VL53L8CX square-FoV probe. This shows the actual serialized contract,
+    // including any backwards-pointing rows. No NN inputs are modified.
+    this.actorRayPositions=new Float32Array(16*6);
+    const actorRayGeometry=new THREE.BufferGeometry();
+    actorRayGeometry.setAttribute('position',
+      new THREE.BufferAttribute(this.actorRayPositions,3).setUsage(THREE.DynamicDrawUsage));
+    this.actorRayLines=new THREE.LineSegments(actorRayGeometry,
+      new THREE.LineBasicMaterial({color:0xee63df,transparent:true,opacity:.82,depthTest:true}));
+    this.actorRayLines.frustumCulled=false;
+    this.actorRayLines.visible=false;
+    this.scene.add(this.actorRayLines);
     // Optional 5x5 boundary grid maps the physical 4x4 footprint directly
     // onto the same MuJoCo-rendered ground used by the range inspector.
     const footprintGeometry=new THREE.BufferGeometry();
@@ -340,6 +352,8 @@ export class EmuBrowserSim {
     this.disposeModel();
     this.depthLines.geometry.dispose();
     this.depthLines.material.dispose();
+    this.actorRayLines.geometry.dispose();
+    this.actorRayLines.material.dispose();
     this.depthFootprint.geometry.dispose();
     this.depthFootprint.material.dispose();
     this.depthMountMarker.geometry.dispose();
@@ -521,9 +535,9 @@ export class EmuBrowserSim {
     this.surfaceStepHeightCm=stepHeightCm;
     if(this.terrainMode==='sensor')this.loadModel();
   }
-  setDepthInspector({enabled,forward,tilt,showRays,showFootprint=true,subrays='auto'}) {
+  setDepthInspector({enabled,forward,tilt,showRays,showActorRays=true,showFootprint=true,subrays='auto'}) {
     const values={enabled:Boolean(enabled),forward:Number(forward),tilt:Number(tilt),
-      showRays:Boolean(showRays),showFootprint:Boolean(showFootprint),subrays};
+      showRays:Boolean(showRays),showActorRays:Boolean(showActorRays),showFootprint:Boolean(showFootprint),subrays};
     if(!['auto',1,4,5].includes(subrays))throw new Error('Depth samples must be auto, 1, 4 or 5');
     // Validation lives with one optical mounting model, not a policy contract.
     if(values.forward<0||values.forward>.2||values.tilt<0||values.tilt>90)throw new Error('Invalid depth mount');
@@ -1401,6 +1415,7 @@ export class EmuBrowserSim {
     // 4x4 actor rays use their own truthful, timed physical observation ring.
     if(!this.depthConfig.enabled || !this.data){
       this.depthLines.visible=false;
+      this.actorRayLines.visible=false;
       this.depthFootprint.visible=false;
       this.depthMountMarker.visible=false;
       this.depthReading=null;
@@ -1449,6 +1464,25 @@ export class EmuBrowserSim {
     this.depthLines.geometry.attributes.position.needsUpdate=true;
     this.depthLines.geometry.attributes.color.needsUpdate=true;
     this.depthLines.visible=this.depthConfig.showRays;
+    if(this.depthConfig.showActorRays){
+      const contract=this.bundle.observation.sensor_contract;
+      const actorRays=terrainActorRays(
+        rotation,contract.tof4x4_pitch_from_horizontal_deg,contract.tof4x4_yaw_deg);
+      const positions=this.actorRayPositions;
+      const actorOrigin=new THREE.Vector3(...torso); // actor uses torso origin, not preview offset
+      for(let i=0;i<actorRays.length;i++){
+        raycaster.set(actorOrigin,direction.set(...actorRays[i]).normalize());
+        raycaster.far=1.5;
+        const hit=raycaster.intersectObjects(targets,false)[0];
+        const endpoint=hit?.point || actorOrigin.clone().addScaledVector(direction,.65);
+        for(let k=0;k<3;k++){
+          positions[i*6+k]=torso[k];
+          positions[i*6+3+k]=endpoint.getComponent(k);
+        }
+      }
+      this.actorRayLines.geometry.attributes.position.needsUpdate=true;
+      this.actorRayLines.visible=true;
+    }else this.actorRayLines.visible=false;
     if(this.depthConfig.showFootprint){
       // Footprint boundary casts are purely for visualisation and never
       // become privileged actor observations. They stop at the first

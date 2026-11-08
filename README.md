@@ -12,7 +12,7 @@ thousands of parallel MuJoCo/MJX physics worlds.
 [**200M released policy / measured limitations**](docs/V5048_SHARED_PARENT_RESULTS_20261105.md) ·
 [**Original 260M Pinnacle baseline**](docs/V5032_PINNACLE_RELEASE.md) ·
 [**Fresh installation**](docs/INSTALL.md) ·
-[**Current handover**](HANDOVER.md)
+[**Current handover**](handover.md)
 
 ## The idea in one minute
 
@@ -80,9 +80,9 @@ another specialty succeeds. Conversely, do not call a 131k-step
 smoke policy broken because it falls: those tests validate physics,
 PPO, memory and checkpoints, **not learned locomotion**.
 See the [foundation / six-specialist curriculum](docs/UNIFIED_CAPABILITY_GROWTH.md)
-and [active engineering handover](HANDOVER.md).
+and [active engineering handover](handover.md).
 
-## Current baseline — v5032 Pinnacle 260M
+## Historical reference — v5032 Pinnacle 260M
 
 <small>First released 360-input generation · 31 October 2026</small>
 

@@ -151,7 +151,7 @@ test('live true-prism origin explicitly warns about nine-box browser replay',()=
   });
   assert.equal(b.trainingCarpet,true);
   assert.equal(b.trainingCarpetPrisms,true);
-  assert.match(b.physicsMode,/18-prism MJX training/);
+  assert.match(b.physicsMode,/8-prism MJX training/);
   const boxSource=data(60000000);
   assert.equal(boxSource.trainingCarpetPrisms,false);
 });
@@ -168,4 +168,17 @@ test('simulation helper consolidation preserves independent physics/UI functions
   const p=chasePose([0,0,.2],0);
   assert.equal(p.position.length,3);
   assert.equal(sampleShove({intensity:0,maxForceN:0}),null);
+});
+
+// The optional hardware inspector and the trained actor must not be confused.
+test('h40 actor backward rows are exposed beside a 45-degree VL53L8CX preview',()=>{
+  const R=[1,0,0,0,1,0,0,0,1];
+  const actual=depthLabSensor.terrainActorRays(R,[58,78,98,118],[-22.5,-7.5,7.5,22.5]);
+  assert.equal(actual.length,16);
+  assert.ok(actual.slice(8).every(ray=>ray[0]<0),'last two policy rows point backwards');
+  const physical=depthLabSensor.depthProbeRays([0,0,.4],R,{tilt:70,forward:0,height:0});
+  assert.equal(physical.directions.length,16);
+  assert.ok(physical.directions.every(zone=>zone[0][0]>0),
+    'hardware 45° square centre rays point forwards at 70° tilt');
+  assert.equal(depthLabSensor.DEPTH_FOV_DEG,45);
 });

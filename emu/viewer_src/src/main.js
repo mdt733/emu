@@ -45,7 +45,7 @@ let carpetSource='Illustrative defaults';
 let carpetFetching=false;
 let carpetLastAppliedSignature='';
 let discoverCarpetFromLive=false;
-const depthOn=$('depthOn'),depthTilt=$('depthTilt');
+const depthOn=$('depthOn'),depthTilt=$('depthTilt'),depthActorRays=$('depthActorRays');
 const depthMount=$('depthMount'),depthRays=$('depthRays'),depthSamples=$('depthSamples'),depthFootprint=$('depthFootprint');
 const depthView=$('depthView');
 const depthCells=Array.from({length:16},()=>{
@@ -743,16 +743,22 @@ setInterval(()=>refreshCarpetLive(false),5000);
 renderCarpetValues();
 
 function updateDepthSettings(){
+  const c=bundle?.observation?.sensor_contract;
+  const pitches=c?.tof4x4_pitch_from_horizontal_deg;
+  $('actorDepthSource').textContent=pitches?.length===4
+    ? `Policy rays: ${pitches[0].toFixed(1)}°–${pitches[3].toFixed(1)}° down (60° vertical row spread), versus VL53L8CX 45°×45° square FoV. Magenta = trained actor; green = adjustable physical sensor preview.`
+    : 'Load a policy to display its exact ToF aiming in magenta against the adjustable 45°×45° hardware preview.';
   $('depthTiltOut').textContent=depthTilt.value+'°';
   $('depthMountOut').textContent=depthMount.value+' mm';
   if(sim)sim.setDepthInspector({
     enabled:depthOn.checked,tilt:Number(depthTilt.value),
     forward:Number(depthMount.value)/1000,showRays:depthRays.checked,
+    showActorRays:depthActorRays.checked,
     showFootprint:depthFootprint.checked,
     subrays:depthSamples.value==='auto'?'auto':Number(depthSamples.value),
   });
 }
-for(const input of [depthOn,depthTilt,depthMount,depthRays,depthFootprint,depthSamples])
+for(const input of [depthOn,depthTilt,depthMount,depthRays,depthActorRays,depthFootprint,depthSamples])
   input.addEventListener('input',updateDepthSettings);
 depthView.addEventListener('change',updateDepthGrid);
 $('depthCopy').addEventListener('click',async()=>{
@@ -767,6 +773,9 @@ $('depthCopy').addEventListener('click',async()=>{
     tilt_down_deg:Number(depthTilt.value),
     mount_forward_mm:Number(depthMount.value),
     depth_sample_rays:reading.subrays*16,
+    trained_actor_pitch_rows_deg:bundle?.observation?.sensor_contract?.tof4x4_pitch_from_horizontal_deg,
+    trained_actor_yaw_columns_deg:bundle?.observation?.sensor_contract?.tof4x4_yaw_deg,
+    trained_actor_rays_visible:depthActorRays.checked,
     visual_footprint_rays:reading.footprintRays||0,
     scan_time_ms:Number(reading.costMs.toFixed(2)),
     displayed_as:depthView.value==='height'?'signed terrain elevation (cm)':'slant range (cm)',
@@ -1134,7 +1143,7 @@ async function startViewerFeed() {
         }
         if (config.live) {
           discoverCarpetFromLive=true;
-          // Source-tagged nine-box AND 18-prism runs auto-enter Carpet,
+          // Source-tagged historical nine-box AND current eight-prism runs auto-enter Carpet,
           // with the prism-versus-browser geometry mismatch stated in the UI.
           // The published champion and older/legacy live runs keep the
           // original Terrain Park until the user explicitly selects it.

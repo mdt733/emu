@@ -6,7 +6,7 @@ It is useful, accurate, supported, recoverable, mechanically reasonable
 locomotion across commands, slopes, steps, disturbances and transitions.
 
 **Physical dimension inventory:** [CAPABILITY_DIMENSIONS.md](CAPABILITY_DIMENSIONS.md)  
-**Current engineering state:** [HANDOVER.md](../HANDOVER.md)  
+**Current engineering state:** [HANDOVER.md](../handover.md)  
 **Complete cold run, resume and extension commands:** [INSTALL.md](INSTALL.md)
 
 ## Design in one diagram
