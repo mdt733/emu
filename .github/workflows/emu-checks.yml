@@ -51,7 +51,7 @@ jobs:
           test ! -e scripts/v5052_step_school.py
           python -m pytest -q tests
       - name: Actual eight-prism CPU MJX contacts, sidewalls, mesh and robot
-        run: timeout 540s python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
+        run: timeout 540s env EMU_PHYSICAL_PROFILE=h40_carbon2 python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
 
   browser:
     runs-on: ubuntu-latest
