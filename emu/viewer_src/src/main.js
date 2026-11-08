@@ -796,6 +796,8 @@ $('depthCopy').addEventListener('click',async()=>{
         return reading.valid[i]?Number((100*reading.ranges[i]).toFixed(1)):null;
       })),
     self_occluded_zones:reading.selfOccluded.map((v,i)=>v?i:null).filter(v=>v!==null),
+    foot_occluded_zones:reading.footOccluded?.map((v,i)=>v?i:null).filter(v=>v!==null),
+    bottom_row_foot_hits:reading.footHitCounts?.slice(12,16),
     mixed_edge_zones:reading.mixed.map((v,i)=>v?i:null).filter(v=>v!==null),
   };
   try {
@@ -826,15 +828,19 @@ function updateDepthGrid(){
   depthCells.forEach((cell,i)=>{
     const valid=Boolean(data?.valid[i]);
     const blocked=valid&&data.selfOccluded[i];
+    const footBlocked=Boolean(data?.footOccluded?.[i]);
     const height=heights?.[i]??null;
     cell.className=valid?'depth-cell':'depth-cell invalid';
     cell.removeAttribute('title');
     if(blocked){
       // Seeing the robot is not evidence of an elevated piece of terrain.
       cell.className+=' occluded';
-      cell.textContent='SELF';
-      cell.style.background='#855524';
-      cell.title='Robot or foot occludes this zone · no terrain height';
+      cell.textContent=footBlocked?'FOOT':'SELF';
+      cell.style.background=footBlocked?'#865c19':'#855524';
+      cell.title=footBlocked
+        ? 'Foot blocks '+(data.footHitCounts?.[i]||0)+' of '+data.subrays+
+          ' rays in this zone; do not interpret it as ground'
+        : 'Robot part occludes this zone · no terrain height';
     }else if(valid){
       hits++;
       const cm=data.ranges[i]*100;
@@ -1141,11 +1147,39 @@ async function startViewerFeed() {
           throw new Error('Invalid EMU local viewer API configuration');
         }
         if (config.initial_policy && !config.live) {
+          if(config.sensor_lab){
+            // Standalone CPU calibration. The model is h40 and the actor
+            // inference is DISABLED; do not mislabel this a trained gait.
+            terrainMode.value='carpet';
+            carpetRole.value='standing';
+            carpetDifficulty={...CARPET_DEFAULT,slopeDeg:0,transitionDeg:0,
+              stepUpM:0,stepDownM:0};
+            demoActive=false;
+            $('liveDemo').checked=false;
+            autoResetToggle.checked=true;
+            carpetDrive.value='manual';
+            carpetShoves.checked=false;
+            depthOn.checked=true;depthTilt.value='75';
+            depthMount.value='0';depthHeight.value='45';
+            depthSamples.value='5';
+            depthActorRays.checked=true;
+            depthRays.checked=true;
+            depthFootprint.checked=true;
+            $('sensorDetails').open=true;
+          }
           const file = await fetch('/api/initial-policy', {cache:'no-store'});
           if (file.ok) {
             const parsed = parsePolicy(await file.text());
-            policyLibrary.push({fileName:'Preloaded policy',bundle:parsed});
+            policyLibrary.push({fileName:config.sensor_lab?'H40 SENSOR LAB — UNTRAINED':'Preloaded policy',bundle:parsed});
             await activatePolicy(policyLibrary.length-1);
+            if(config.sensor_lab){
+              updateWorldTabs();
+              updateDepthSettings();
+              $('modeLabel').textContent='40 cm CPU SENSOR LAB — no trained gait';
+              setStatus('40cm h40 · 4×1m / 8 real CPU prisms · neural actor OFF','ok');
+              $('depthNote').textContent=
+                'Default aims for FOOT in bottom middle zones. Pause physics to inspect the neutral pose; sliders change the physical sensor preview only.';
+            }
           }
         }
         if (config.live) {

@@ -177,7 +177,7 @@
         <summary>Sensor inspector <span class="subtle">optional 4×4 depth overlay</span></summary>
     <aside id="depthPanel" class="depth-panel glass" aria-label="Front depth sensor laboratory">
       <div class="depth-head"><b>4×4 depth scan</b><label><input id="depthOn" type="checkbox" /> On</label></div>
-      <div class="depth-sub">Optional visual diagnostic; actor's physical input is separate</div>
+      <div class="depth-sub">45°×45° VL53L8CX optical preview, distinct from the 60° training-source rays. Sensor lab runs the 40cm body in browser CPU MuJoCo with no trained gait.</div>
       <div class="depth-foot">Measures the currently selected Field or Training Carpet world. Never switches the simulation to a retired course.</div>
       <label class="depth-row">Downward tilt <output id="depthTiltOut">70°</output>
         <input id="depthTilt" type="range" min="0" max="90" value="70" step="5"/></label>
@@ -202,7 +202,7 @@
       </select></label>
       <div id="depthGrid" class="depth-grid" role="img" aria-label="Live 4 by 4 signed terrain heights in centimetres"></div>
       <div class="depth-far">↑ Farther ahead · nearer below · one sensor, square optical field</div>
-      <div class="depth-legend"><span style="color:#7fd7bf">Teal: flat zero</span> · <span style="color:#f2aa6d">orange: raised</span> · <span style="color:#6ab4ed">blue: lower</span> · <span style="color:#ffbb65">SELF: blocked</span> · <span style="color:#ffe175">yellow border: mixed edge</span> · grey: missing</div>
+      <div class="depth-legend"><span style="color:#7fd7bf">Teal: flat zero</span> · <span style="color:#f2aa6d">orange: raised</span> · <span style="color:#6ab4ed">blue: lower</span> · <span style="color:#ffbb65">FOOT: foot-blocked / SELF: other robot part</span> · <span style="color:#ffe175">yellow border: mixed edge</span> · grey: missing</div>
       <div id="depthNote" class="depth-foot">Waiting for robot · height relative to flat world z=0</div>
       <button id="depthCopy" class="depth-copy" type="button">Copy raw range + height + settings</button>
     </aside>
