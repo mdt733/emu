@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main, experiment/v5046-75cm-four-tile-midpoint, maintenance/v5046-prune-sweep-and-promotion-gates, experiment/v5047-pinnacle-stairs-gaits, experiment/v5048-shared-parent-pinnacle]
   push:
-    branches: [main, experiment/v5046-75cm-four-tile-midpoint, release/v5049-main-promotion-prep, research/v5059-40cm-carbon-leg-physical-design]
+    branches: [main, experiment/v5046-75cm-four-tile-midpoint, release/v5049-main-promotion-prep, research/v5059-40cm-carbon-leg-physical-design, research/v5060-carbon-stand-diagnostics]
   workflow_dispatch:
 
 permissions:
