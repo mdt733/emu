@@ -268,9 +268,18 @@ def main():
     # A spherical foot may still touch an outgoing solid even when its
     # CENTRE has entered the new tile cell. The old integer-cell test
     # incorrectly recycled such a tile, potentially teleporting support.
-    seam_x=desired[:,0].astype(jnp.float32)*TILE_M+.020
+    # The recycler protects actual foot radius + 4mm against an abandoned
+    # prism AABB. Do NOT use the legacy 18mm sphere's 20mm test offset for
+    # a 5mm carbon foot: that would place it entirely outside the margin.
+    foot_geom_ids=np.asarray(env.ids['foot_geoms'],dtype=np.int32)
+    foot_radii=np.asarray(env.mj_model.geom_size[foot_geom_ids,0])
+    if not np.all(np.isfinite(foot_radii)) or np.any(foot_radii<=0):
+        raise RuntimeError("Invalid real foot radii in compiled robot XML")
+    margin=float(foot_radii[0])+.004
+    boundary=desired[:,0].astype(jnp.float32)*TILE_M
     edge_feet=jnp.broadcast_to(root_xy[:,None,:],(a.worlds,2,2))
-    edge_feet=edge_feet.at[:,0,0].set(seam_x)
+    # INSIDE: a foot near the outgoing prism must veto the entire move.
+    edge_feet=edge_feet.at[:,0,0].set(boundary+margin-.002)
     edge_data=safe_data.replace(xpos=safe_data.xpos.at[
         :,env.foot_bodies,0:2].set(edge_feet))
     edge_shifted,edge_h,edge_c=env._carpet_recycle(state,edge_data)
@@ -279,6 +288,17 @@ def main():
         raise RuntimeError("Recycler moved a physical prism sidewall under a foot sphere")
     if not np.array_equal(np.asarray(jax.device_get(edge_h)),heights):
         raise RuntimeError("Recycler altered physical triangle heights before a foot cleared a sidewall")
+    # OUTSIDE: the same foot just beyond the radius+margin must be allowed
+    # to advance, proving the check isn't permanently blocking recycling.
+    clear_feet=edge_feet.at[:,0,0].set(boundary+margin+.002)
+    clear_data=safe_data.replace(xpos=safe_data.xpos.at[
+        :,env.foot_bodies,0:2].set(clear_feet))
+    _,_,clear_c=env._carpet_recycle(state,clear_data)
+    if not np.array_equal(np.asarray(jax.device_get(clear_c)),
+                          np.asarray(jax.device_get(desired))):
+        raise RuntimeError("Recycler refused a foot safely clear of the sidewall")
+    print(f"foot-sidewall recycler threshold PASS: sphere radius={foot_radii[0]*1000:.1f}mm "
+          f"guard={margin*1000:.1f}mm; inside blocked, outside advanced",flush=True)
     print("recycler PASS: safe tile advance, trailing-foot hold, "
           "real sphere/solid-footprint clearance",flush=True)
     for i in range(a.frames):
