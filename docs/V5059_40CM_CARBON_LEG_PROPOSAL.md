@@ -1,6 +1,8 @@
 # v5059 | 40 cm EMU carbon-rod leg: source-grounded physical proposal
 
-Status: **engineering proposal, NOT a validated physical robot or ready-to-train model**.
+Status: **implemented preliminary model** `h40_carbon2` in v5059 source;
+CPU/GPU acceptance and 20M walking have separate verification gates.
+**Not a measured physical robot**; no calibration data recovered for the shin flex.
 Branch: `research/v5059-40cm-carbon-leg-physical-design`; parent v5058 rated-torque hard cap.
 Preserve `main`, the v5057 200M result, and source/checkpoint hashes. Separate
 exploratory simulator work from physical validation: do not claim hardware
@@ -30,7 +32,7 @@ The uploaded render shows the intended joint/linkage layout, not physical
 section sizes or final dimensions. The assembled CAD, exact spring
 attachment positions, real material grade and masses are still required.
 
-## 2. What the current source ACTUALLY models
+## 2. What the PREVIOUS h40 model physically represented
 
 From `emu/robot.xml` and `emu/physical_variants.py`:
 * `h40`: neutral hip 0.400 m, each nominal shin **0.27013 m**,
@@ -63,6 +65,69 @@ From `emu/robot.xml` and `emu/physical_variants.py`:
   55g C018 servos ALONE weigh ~.330kg. This is a warning that actuator,
   battery, linkage and chassis masses are not yet itemized by actual
   moving body. Do NOT infer total finished mass by just deleting rod mass.
+
+## 2a. IMPLEMENTED v5059 adjustable model (not just a suggestion)
+
+The `h40_carbon2` profile now exists in
+`emu/physical_variants.py` and is used with
+`EMU_PHYSICAL_PROFILE=h40_carbon2`.
+**No new trainer, PPO algorithm, special sensor schema, or second actor.**
+The generated XML has its own SHA256 and separate checkpoint lineage.
+All uncertain physical inputs live as editable named constants near the
+top of `physical_variants.py`; commit each calibration adjustment.
+
+* **2 mm solid carbon spar** with 30 GPa nominal flexural modulus,
+  density 1600 kg/m³ provisional. At neutral hip 0.400m and 5mm
+  foot radius, each complete 45deg diagonal member is ~279.3mm.
+* **One pitch and one lateral passive shin-flex hinge at each rod
+  midpoint**, `k=0.0632689 N.m/rad`,
+  `c=0.00059985 N.m.s/rad` (assume ζ=0.15 and effective
+  distal inertia 0.00006319 kg.m²), ±25° provisional joint range.
+  The two-axis spring is a reduced-order *beam-bending surrogate*,
+  not an actual rigid pivot on the carbon rod.
+* **Tension-only knee spring** as true MuJoCo spatial tendon
+  `springlength="0 0.031"`, stiffness 450N/m. Spring from
+  40mm shin-tail tip to 30mm-up-thigh anchor; nominal length
+  50mm, nominal pull ~8.55N, knee extension torque ~0.205N.m.
+  All quantities are **estimates** until CAD/spring measured.
+* **Small sole** 10mm diameter / 5mm radius, adjusting neutral
+  folded link lengths and foot-ground height proxies. Old
+  36mm ball would materially change stance reward/clearance.
+* **Mass ledger:** 420g torso lump (330g nominal motors plus
+  90g chassis/electronics), 10g per hip pivot, ~12g per thigh
+  including second rod and attachments, and ~7.14g per shin
+  including foot ball+mount, knee clamp, Hall reference and
+  upper/lower spar. Total ~**478.28g**. Geometries are radius
+  1mm rather than the previous 8mm rods; only feet collide.
+* **Passive actuated joint drag** reduced from 0.624 N.m.s/rad
+  to preliminary 0.018; joint frictionloss 0.025N.m; armature
+  0.003kg.m², all source-pinned and unmeasured. Passive shin
+  flex hinges explicitly set armature=0, avoiding a 100×
+  inertia modelling error on the flex joint.
+* **Motor limits** hard fixed at ±0.980665 N.m for all six
+  C018 channels from v5058, including randomized motor output.
+* **Hall observation** uses existing shin flex/rate/load fields
+  within 360 inputs. Load signal is a normalized bend proxy,
+  NOT measured motor force; no privileged lateral bend input.
+
+The second upper "knee actuation" rod is currently an inertial
+`knee_drive_rod` geom with no closed-loop mechanical constraint.
+This honestly represents its approximate mass but **DOES NOT**
+simulate real four-bar load sharing/remote actuation torque ratios.
+Until actual pivots and constraints are measured, never claim the
+second rod is an independently load-bearing articulated link.
+The Hall reference is also a noncontacting, low-mass geom.
+
+Important modelling limitation: the ±25° flex-joint range can
+act as a **fictional hard mechanical stop** if learning pushes
+into it. Inspect flex-limit occupancy before trusting successful
+training; prefer measured bending/strain curves and a no-stop
+beam approximation in future if the real assembly has no stop.
+
+The **v5058 h40** measurements in section 2 are intentionally
+historical. They do not apply to `h40_carbon2`. The
+`handover.md` at the repository root has exact WSL
+verification, GPU smoke and cold-start commands.
 
 ## 3. Source-backed 2mm material range
 
@@ -186,6 +251,11 @@ Recompute neutral contact positions and actual eight-prism collision
 tests; never just change the sphere radius without fixing pose.
 
 ## 5. Build order and acceptance gates (lean code, no scaffolding pile)
+
+**Code gate C has a preliminary implementation** through the
+`h40_carbon2` profile; it remains to verify true 2048-world GPU
+acceptance and independent cold-start learning. The physical measurements
+and accurate knee-drive linkage geometry remain future work.
 
 **Gate A — motor fix (v5058):** finish physical tests and actual
 2048-world CUDA PPO smoke, verify motor over-rated fraction ZERO.
