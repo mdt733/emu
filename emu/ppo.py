@@ -999,7 +999,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
                 spring_reference_rad=env.spring_reference,
                 spring_stiffness_nm_rad=env.spring_stiffness,
-                servo_peak_limit_nm=env.servo_stall_torque_nm)
+                servo_peak_limit_nm=env.servo_actuator_torque_limit_nm)
         return dict(**frames,last_position_xy=last_xy,
                     last_heading_rad=last_yaw,last_foot_xyz=last_foot,
                     last_floor_contact=last_contacts,
@@ -1008,7 +1008,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     last_spring_joint_qpos_rad=last.data.qpos[:,env.spring_qpos],
                     spring_reference_rad=env.spring_reference,
                     spring_stiffness_nm_rad=env.spring_stiffness,
-                    servo_peak_limit_nm=env.servo_stall_torque_nm)
+                    servo_peak_limit_nm=env.servo_actuator_torque_limit_nm)
 
 
     def evaluate_matrix(params, curriculum_params, obs_mean, obs_std,
