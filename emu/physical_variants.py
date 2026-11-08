@@ -257,10 +257,13 @@ def generate_xml(source_xml: str, name: str) -> str:
             thigh.set("size", f"{CARBON_ROD_DIAMETER_M/2.:.8f}")
             thigh.set("mass", f"{CARBON_THIGH_SPAR_MASS_KG:.8f}")
             thigh_body = _get(root, f".//body[@name='{prefix}thigh']")
+            # Mirror lateral placement; the rod is an inertial surrogate
+            # until exact knee-drive linkage attachments are measured.
+            drive_y = .008 if side == "r" else -.008
             ET.SubElement(thigh_body,"geom",{
                 "name":f"{prefix}knee_drive_rod", "type":"capsule",
                 "size":f"{CARBON_ROD_DIAMETER_M/2.:.8f}",
-                "fromto":f"0 0.008 0 {-BASE_HALF_LINK_M*s:.8f} 0.008 {-BASE_HALF_LINK_M*s:.8f}",
+                "fromto":f"0 {drive_y:.8f} 0 {-BASE_HALF_LINK_M*s:.8f} {drive_y:.8f} {-BASE_HALF_LINK_M*s:.8f}",
                 "mass":f"{CARBON_KNEE_DRIVE_MASS_KG:.8f}",
                 "contype":"0","conaffinity":"0"})
             for segment,mass_part in (("shin_upper",CARBON_SHIN_UPPER_ROD_MASS_KG),
