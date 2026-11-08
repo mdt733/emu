@@ -24,7 +24,7 @@ class Profile:
 
 
 # Paired-seed factorial-ish screen. h40 is an intentionally risky upper bound,
-# not a claimed optimum. Source XML at base26 is byte-for-byte v5056.
+# not a claimed optimum. Source XML is the ONE physical authority for all bodies.
 PROFILES = {
     "base26": Profile(.2584),
     "h30": Profile(.30),
@@ -51,6 +51,8 @@ BASE_LINK_REAR_MOMENT_KG_M = 2. * (
     .040 * .0601 + .015 * .09015 + .015 * .03005)
 STRUT_HALF_LEVER_M = .0212132  # 30 mm from knee pivot along 45 deg link
 STRUT_REST_M = .060
+SERVO_RATED_CONTINUOUS_TORQUE_NM = 0.980665  # C018 12V, hard actuator ceiling
+SERVO_PEAK_STALL_TORQUE_NM = 2.941995        # only for diagnostic speed-load proxy
 SERVO_NOLOAD_RAD_S = (60. / .222) * (3.141592653589793 / 180.)  # 4.7165 rad/s
 
 
