@@ -31,6 +31,19 @@ jobs:
         run: python -m pip install -e ".[dev]"
       - name: Syntax, public actor and CLI contract
         run: |
+          # A new, package-free CPU-only WSL installation must be able to
+          # parse and serve the sensor lab, without importing NumPy/JAX.
+          python -S -m emu.cli viewer-build --help >/dev/null
+          python -S -m emu.cli viewer --sensor-lab --help >/dev/null
+          python -S - <<'PY'
+          import json
+          from emu.viewer_server import make_sensor_lab_bundle
+          b = json.loads(make_sensor_lab_bundle())
+          assert b['sensor_lab'] is True
+          assert 'h40' in b['robot_xml']
+          assert b['source']['actor_sha256'] == 'not-applicable-sensor-lab'
+          print('DEPENDENCY-FREE h40 LAB STARTUP: PASS')
+          PY
           python -m compileall -q emu scripts tests
           python scripts/verify_showcase_release.py
           if ! python scripts/audit_core_dependencies.py --json > /tmp/emu-core-inventory.json; then
