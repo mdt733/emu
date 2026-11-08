@@ -244,7 +244,8 @@ def format_line(version: str, step: int, reward: float, row: dict[str, float], r
         f"/{row.get('actual_vx_at_cmd_over_03',-1.):+.2f}m/s "
         f"rehearsal={100*row.get('occupancy_athletic_rehearsal',0.):.0f}% "
         f"slope={slope} step≤{ceiling_cm:.1f}cm({exposure:.0f}%) "
-        f"res={report['resilience_difficulty']:.2f} shaft≈{efficiency}J/m"
+        f"res={report['resilience_difficulty']:.2f} shaft≈{efficiency}J/m "
+        f"shin-stop={100*row.get('shin_flex_near_stop_frac',0.):.0f}%"
         f"{terrain_pair}"
         f"{' NAN-SKIPS='+str(nan_grad_skips) if nan_grad_skips else ''}"
     )
@@ -1045,6 +1046,8 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'support': done_mean(metrics, 'episode_support', default=mean_metric(metrics, 'support')),
         'fall_height': mean_metric(metrics, 'fall_height'),
         'fall_tilt': mean_metric(metrics, 'fall_tilt'),
+        # Near-unverified shin hinge hard stop means potentially fake support.
+        'shin_flex_near_stop_frac':mean_metric(metrics,'shin_flex_near_stop'),
         'fall_roll_rate': mean_metric(metrics, 'fall_roll_rate'),
         'fall_pitch_rate': mean_metric(metrics, 'fall_pitch_rate'),
         'height': mean_metric(metrics, 'height'),
