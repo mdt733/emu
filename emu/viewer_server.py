@@ -229,12 +229,41 @@ def read_terrain_training_snapshot(root: Path) -> dict:
     }
 
 
-def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
+def make_sensor_lab_bundle() -> bytes:
+    """Untrained h40 MJCF for CPU sensor calibration, never a policy export.
+
+    Reuse the public bundle's validated observation *shape*, but disable its
+    trained actor in the browser. This mode cannot be exported or resumed.
+    """
+    import hashlib
+    from .physical_variants import generate_xml, terrain_tof_pitch_deg
+
+    template = Path(__file__).resolve().parents[1] / 'showcase' / 'champion.emupolicy'
+    b = json.loads(template.read_text(encoding='utf-8'))
+    raw = (Path(__file__).resolve().parent / 'robot.xml').read_text(encoding='utf-8')
+    model = generate_xml(raw, 'h40')
+    b['robot_xml'] = model
+    b['sensor_lab'] = True
+    b['control']['neutral_root_z_m'] = .4
+    sensor = b['observation']['sensor_contract']
+    sensor['tof4x4_pitch_from_horizontal_deg'] = list(terrain_tof_pitch_deg('h40'))
+    identity = {k:v for k,v in sensor.items() if k != 'sha256'}
+    sensor['sha256'] = hashlib.sha256(
+        json.dumps(identity, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    b['source'].update(run_name='40 cm sensor laboratory — NO TRAINED ACTOR',
+                       step=0, actor_sha256='not-applicable-sensor-lab',
+                       robot_model_sha256=hashlib.sha256(model.encode()).hexdigest())
+    return json.dumps(b, separators=(',', ':')).encode('utf-8')
+
+
+def make_handler(dist: Path, *, watcher=None, policy: Path | None = None,
+                 sensor_lab: bool = False):
     """Fixed local API, no user-supplied filesystem paths or directory browsing."""
     mimetypes.add_type('application/wasm', '.wasm')
     # A manually selected brain stays fixed for this entire viewer session.
     # Only the separate live watcher selects new validated policy snapshots.
-    initial_policy = policy.read_bytes() if policy is not None else None
+    initial_policy = (make_sensor_lab_bundle() if sensor_lab
+                      else policy.read_bytes() if policy is not None else None)
 
     class Handler(http.server.SimpleHTTPRequestHandler):
         extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map,
@@ -259,6 +288,7 @@ def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
             route = urlsplit(self.path).path
             if route == '/api/viewer-config':
                 return self._json({'live': watcher is not None,
+                                   'sensor_lab': sensor_lab,
                                    'initial_policy': initial_policy is not None})
             if route == '/api/live/status':
                 if watcher is None:
@@ -291,7 +321,10 @@ def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
 
 
 def serve(*, port: int = 8765, policy: Path | None = None,
-          live_root: Path | None = None, open_browser: bool = True) -> int:
+          live_root: Path | None = None, open_browser: bool = True,
+          sensor_lab: bool = False) -> int:
+    if sensor_lab and (policy is not None or live_root is not None):
+        raise ValueError('Sensor lab does not accept a trained policy or live-run watcher')
     dist = viewer_dist()
     if not (dist / 'index.html').exists():
         print('Viewer build missing; invoking npm build...', flush=True)
@@ -307,7 +340,7 @@ def serve(*, port: int = 8765, policy: Path | None = None,
         raise FileNotFoundError(f'Policy not found: {policy}')
     # Loopback deliberately: this endpoint contains training-derived weights and
     # has no authentication. Use a separate secured service for remote clients.
-    handler = make_handler(dist, watcher=watcher, policy=policy)
+    handler = make_handler(dist, watcher=watcher, policy=policy, sensor_lab=sensor_lab)
     class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True
         allow_reuse_address = True
@@ -316,7 +349,10 @@ def serve(*, port: int = 8765, policy: Path | None = None,
         print(f'EMU viewer: {url}', flush=True)
         if watcher:
             print(f'Live viewer watching completed checkpoints under {watcher.root}', flush=True)
-        print('Training stays on GPU; browser runs the robot and neural inference.', flush=True)
+        print(('SENSOR LAB: 40cm h40 robot in browser CPU MuJoCo; '
+               'NO trained policy, NO PPO, no CUDA required.' if sensor_lab else
+               'Training stays on GPU; browser runs the robot and neural inference.'),
+              flush=True)
         if open_browser:
             try: webbrowser.open(url)
             except Exception: pass

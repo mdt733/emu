@@ -152,7 +152,7 @@ def main(argv=None) -> int:
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
     q=sub.add_parser('export-policy',help='export a checkpoint to browser-native .emupolicy'); q.add_argument('checkpoint'); q.add_argument('output'); q.add_argument('--pretty',action='store_true')
     q=sub.add_parser('viewer-build',help='build the static browser viewer into the package (requires npm once)')
-    q=sub.add_parser('viewer',help='serve the local-browser MuJoCo viewer'); q.add_argument('policy',nargs='?',default=''); q.add_argument('--port',type=int,default=8765); q.add_argument('--no-open',action='store_true'); q.add_argument('--live',action='store_true',help='watch newest validated checkpoint from a training lineage'); q.add_argument('--root',default='',help='experiment run root to watch')
+    q=sub.add_parser('viewer',help='serve the local-browser MuJoCo viewer'); q.add_argument('policy',nargs='?',default=''); q.add_argument('--port',type=int,default=8765); q.add_argument('--no-open',action='store_true'); q.add_argument('--sensor-lab',action='store_true',help='CPU-only 40cm h40 + 4x1m eight-prism sensor aiming laboratory (no learned actor)'); q.add_argument('--live',action='store_true',help='watch newest validated checkpoint from a training lineage'); q.add_argument('--root',default='',help='experiment run root to watch')
 
     args=p.parse_args(argv)
     if args.cmd=='doctor': return doctor(args)
@@ -198,7 +198,7 @@ def main(argv=None) -> int:
         pol=Path(args.policy) if args.policy else None
         return serve(port=args.port,policy=pol,
                      live_root=Path(args.root).expanduser() if args.live else None,
-                     open_browser=not args.no_open)
+                     open_browser=not args.no_open,sensor_lab=args.sensor_lab)
     return 2
 
 
