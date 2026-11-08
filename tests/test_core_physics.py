@@ -159,7 +159,7 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     # loading and left/right knee passive torque are physical acceptance.
     from emu.physical_variants import (
         PROFILES, generate_xml, profile_numbers, terrain_tof_pitch_deg,
-        FOOT_RADIUS_M)
+        FOOT_RADIUS_M, SERVO_RATED_CONTINUOUS_TORQUE_NM)
     base_source=(Path(__file__).resolve().parents[1]/'emu'/'robot.xml').read_text()
     for variant in PROFILES:
         row=profile_numbers(variant)
@@ -215,16 +215,34 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
         expected=k*.060*(1.-2**-.5)*.030*(2**-.5)
         np.testing.assert_allclose(knee_loads,[expected]*2,
                                    atol=.01,rtol=.02)
+        rated=SERVO_RATED_CONTINUOUS_TORQUE_NM
         np.testing.assert_allclose(body.actuator_forcerange,
-             np.tile([-2.941995,2.941995],(6,1)),
-             atol=1e-5,rtol=0)
+             np.tile([-rated,rated],(6,1)),
+             atol=1e-6,rtol=0)
+        assert np.all(body.actuator_forcelimited == 1)
+        # REAL MuJoCo stress: command every servo to both extreme targets.
+        # The delivered actuator and 1:1 generalized forces must NOT exceed
+        # 10 kgf.cm, regardless of how unreasonable the requested position is.
+        for side in (0,1):
+            mujoco.mj_resetData(body,state)
+            state.ctrl[:] = body.actuator_ctrlrange[:,side]
+            mujoco.mj_forward(body,state)
+            assert np.max(np.abs(state.actuator_force)) <= rated + 1e-6
+            dofs=[body.jnt_dofadr[body.actuator_trnid[i,0]]
+                  for i in range(body.nu)]
+            assert np.max(np.abs(state.qfrc_actuator[dofs])) <= rated + 1e-6
+            # At least some servos should actually saturate; otherwise this
+            # could be a useless small-command test.
+            assert np.max(np.abs(state.actuator_force)) > rated * .95
     # v5056: this physical topology is still six motors and eight joint DoFs.
     # Restoring *passive* knee support must not sneak in motors or new DoFs.
     assert light.nu == 6
     assert light.ntendon == 2
     np.testing.assert_allclose(
         light.actuator_forcerange,
-        np.tile([-2.941995, 2.941995], (6, 1)), rtol=0, atol=1e-5)
+        np.tile([-SERVO_RATED_CONTINUOUS_TORQUE_NM,
+                 SERVO_RATED_CONTINUOUS_TORQUE_NM], (6, 1)),
+        rtol=0, atol=1e-6)
     for side in ('r', 'l'):
         for joint in (f'{side}_hip_pitch', f'{side}_knee'):
             ji=mujoco.mj_name2id(light,mujoco.mjtObj.mjOBJ_JOINT,joint)
@@ -279,6 +297,21 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     new=mjx.make_data(mjx.put_model(light))
     assert new._impl.contact.geom1.shape[0]<old._impl.contact.geom1.shape[0]
     assert new._impl.efc_J.shape[0]<old._impl.efc_J.shape[0]
+    # Per-world randomized motor force is ALSO hard bounded, including
+    # samples whose nominal hardware strength multiplier is >1.
+    from emu.domain_randomization import (
+        build_batched_model, DomainRandomizationConfig)
+    dofs=[light.jnt_dofadr[light.actuator_trnid[i,0]]
+          for i in range(light.nu)]
+    varied,_,_=build_batched_model(
+        mjx.put_model(light),
+        ids={'actuators':np.arange(light.nu), 'act_qvel':np.asarray(dofs)},
+        num_envs=8, seed=735,
+        config=DomainRandomizationConfig(
+            enabled=True,robot_radius=1.,hardware_radius=1.))
+    varied_limits=np.asarray(varied.actuator_forcerange)
+    assert varied_limits.shape == (8,6,2)
+    assert np.max(np.abs(varied_limits)) <= SERVO_RATED_CONTINUOUS_TORQUE_NM+1e-6
 
 
 def test_midpoint_2x2_window_covers_30cm_and_preserves_present_tile():
