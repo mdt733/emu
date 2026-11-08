@@ -115,12 +115,26 @@ def row_for(run_dir: Path, profile: str, seed: int) -> dict:
                 "vx_mean","cmd_vx_mean","servo_over_rated_frac",
                 "servo_peak_torque_limit_frac","servo_speed_over_noload_frac",
                 "knee_strut_energy_j","ppo_hip_roll_clip_left_other",
-                "shaft_j_per_m_forward"):
+                "shaft_j_per_m_forward",
+                # 20M dead-on-arrival diagnostic: these columns are already
+                # in metrics.csv; reporting them needs zero GPU work.
+                "fall_height","fall_tilt","fall_roll_rate","fall_pitch_rate",
+                "fall_virtual_contact","support","bad_contact","height_error_m",
+                "shin_flex_near_stop_frac","servo_peak_speed_ratio",
+                "knee_strut_force_n_right","knee_strut_force_n_left",
+                "knee_support_extension_m_right","knee_support_extension_m_left",
+                "servo_shaft_abs_power_w","servo_linear_envelope_warning_frac"):
         result[key]=_float(final,key)
     for million in (5,10,20):
         sample=_nearest(rows,million*1_000_000)
         result[f"fall_{million}m"]=_float(sample,"fall_rate")
         result[f"len_{million}m"]=_float(sample,"ep_len_mean")
+        for diagnostic in ("support","shin_flex_near_stop_frac",
+                           "height_error_m","servo_peak_torque_limit_frac",
+                           "knee_strut_force_n_right","fall_height",
+                           "fall_tilt","fall_roll_rate","fall_pitch_rate",
+                           "fall_virtual_contact"):
+            result[f"{diagnostic}_{million}m"]=_float(sample,diagnostic)
     fixed=_last_csv(run_dir/"fixed_eval.csv")
     # The owned exam CSV may expose multiple physical grades and scores.
     # Don't pretend an unknown numeric column is a held-out success rate.
@@ -164,6 +178,39 @@ def report(root: Path, profiles: list[str], seeds: list[int]) -> None:
             f"| {_fmt(row.get('servo_over_rated_frac'),'.1%')} "
             f"| {_fmt(row.get('servo_speed_over_noload_frac'),'.1%')} "
             f"| {_fmt(row.get('heldout_score'),'.3f')} |")
+    # Interpret FINAL-window fall components and the progression at 5/10/20M
+    # without inventing an explanation from the aggregate fall rate alone.
+    lines += ["", "## Physical failure diagnostics (final training window)", "",
+        "Fall components are time-averaged fractions; they may overlap.",
+        "A near-stop value means the simulated passive shin hinge approached",
+        "its *unmeasured* artificial angular limit, not a real carbon stop.", "",
+        "| Profile | Height fall | Tilt fall | Roll-rate fall | Pitch-rate fall | Virtual strike | Support | Shin near-stop | Height error | Knee cable R/L (N) | Rated limit used |",
+        "|:---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    for row in rows:
+        lines.append(
+          f"| {row['profile']} | {_fmt(row.get('fall_height'),'.1%')} "
+          f"| {_fmt(row.get('fall_tilt'),'.1%')} "
+          f"| {_fmt(row.get('fall_roll_rate'),'.1%')} "
+          f"| {_fmt(row.get('fall_pitch_rate'),'.1%')} "
+          f"| {_fmt(row.get('fall_virtual_contact'),'.1%')} "
+          f"| {_fmt(row.get('support'),'.2f')} "
+          f"| {_fmt(row.get('shin_flex_near_stop_frac'),'.1%')} "
+          f"| {_fmt(row.get('height_error_m'),'.3f')} "
+          f"| {_fmt(row.get('knee_strut_force_n_right'),'.1f')} / {_fmt(row.get('knee_strut_force_n_left'),'.1f')} "
+          f"| {_fmt(row.get('servo_peak_torque_limit_frac'),'.1%')} |")
+    lines += ["", "## Existing-run progression (no retraining)", "",
+        "| Profile | Age | Fall | Episode length | Support | Shin stop | Height error | Knee force R |",
+        "|:---|---:|---:|---:|---:|---:|---:|---:|"]
+    for row in rows:
+        for million in (5,10,20):
+            lines.append(
+              f"| {row['profile']} | {million}M "
+              f"| {_fmt(row.get(f'fall_{million}m'),'.1%')} "
+              f"| {_fmt(row.get(f'len_{million}m'),'.0f')} "
+              f"| {_fmt(row.get(f'support_{million}m'),'.2f')} "
+              f"| {_fmt(row.get(f'shin_flex_near_stop_frac_{million}m'),'.1%')} "
+              f"| {_fmt(row.get(f'height_error_m_{million}m'),'.3f')} "
+              f"| {_fmt(row.get(f'knee_strut_force_n_right_{million}m'),'.1f')} |")
     lines += ["", "## Selection rules", "",
         "- Evaluate paired seeds, not one lucky walk.",
         "- Require sustained walking and actual velocity tracking;",
