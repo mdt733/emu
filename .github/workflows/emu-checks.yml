@@ -50,6 +50,41 @@ jobs:
           test ! -e scripts/v5051_train_campaign.py
           test ! -e scripts/v5052_step_school.py
           python -m pytest -q tests
+      - name: Compile the h40 CPU sensor laboratory's eight genuine prism meshes
+        run: |
+          python - <<'PY'
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+
+          import mujoco
+          from emu.physical_variants import generate_xml
+
+          js = ("import {createSensorLabCarpet,sensorLabPrismXml} "
+                "from './emu/viewer_src/src/sensor-lab-carpet.js';"
+                "console.log(JSON.stringify(sensorLabPrismXml("
+                "createSensorLabCarpet({slopeDeg:0,stepUpM:0,stepDownM:0}))));")
+          fixture = json.loads(subprocess.check_output(
+              ['node', '--input-type=module', '-e', js], text=True))
+          robot = generate_xml(Path('emu/robot.xml').read_text(), 'h40')
+          robot, floor_count = re.subn(
+              r'<geom\s+name="floor"[^>]*\/>', '', robot)
+          assert floor_count == 1
+          robot = robot.replace('<worldbody>', '<asset>' + fixture['assets'] +
+                                '</asset><worldbody>')
+          robot = robot.replace('</worldbody>', fixture['bodies'] + '</worldbody>')
+          model = mujoco.MjModel.from_xml_string(robot)
+          assert model.nu == 6
+          assert sum(mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i)
+                     .startswith('sensor_lab_prism_')
+                     for i in range(model.ngeom)) == 8
+          data = mujoco.MjData(model)
+          data.qpos[0] = data.qpos[1] = .5
+          mujoco.mj_forward(model, data)
+          assert data.ncon >= 1, 'neutral h40 feet must contact real prism tops'
+          print(f'h40 SENSOR LAB CPU PASS: {model.ngeom} geoms, {data.ncon} contacts')
+          PY
       - name: Actual eight-prism CPU MJX contacts, sidewalls, mesh and robot
         run: timeout 540s python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
 
