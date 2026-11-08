@@ -127,6 +127,37 @@ mechanism. The second upper rod is a **mass proxy** and does not transfer
 the exact four-bar forces. Update the source (not an untracked editable
 XML cache) as physical parts are measured, keeping the old run immutable.
 
+## v5059 CUDA smoke recycler check (2026-11-08)
+
+User's first actual 2048-world CUDA smoke from commit `4dd05e1`
+loaded the new carbon model with **0.47828kg and k=0.0632689
+Nm/rad**, built real eight prisms and passed surface/reset checks.
+It stopped BEFORE training at
+`Recycler moved a physical prism sidewall under a foot sphere`.
+Root cause was the **smoke test's fixed +20mm overhang position**:
+the former 18mm foot +4mm guard must block at 20mm; the current
+5mm carbon foot +4mm guard is already CLEAR at 20mm, so the
+actual physics recycler correctly moved the old prism. There was
+**no demonstrated unsafe recycler bug**.
+
+Fix committed on the v5059 branch: `scripts/smoke_gpu_carpet.py`
+now tests the exact loaded foot radius+4mm margin at 2mm INSIDE
+(must block) and 2mm OUTSIDE (must recycle). The existing
+`tests/test_core_physics.py` footprint guard tests both
+5mm and 18mm radii through the same JIT path. The actual
+production guard `feet_clear_of_abandoned_prisms` was **not
+weakened or changed**.
+
+The CUDA timer warning about delayed warmup and optional missing
+Warp modules are not the cause of this abort.
+
+**Next:** fetch the latest v5059 branch into the *existing*
+`~/emu-v5059-carbon` detached worktree (do not `git worktree
+add` again), then rerun the same CUDA smoke. Only if that passes,
+allow the fresh h40_carbon2 20M independent cold start. Do not
+claim 2048-world acceptance or learned walking from the
+aborted test.
+
 ## User's physical leg design (see user sketch and CAD in chat)
 
 * Approx 400mm neutral hip.
