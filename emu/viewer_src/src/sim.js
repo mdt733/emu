@@ -131,7 +131,7 @@ export class EmuBrowserSim {
     this.sensorObstacle = 'flat';
     this.surfaceSlopeDegrees=3;
     this.surfaceStepHeightCm=2;
-    this.depthConfig = {enabled:true,forward:0,tilt:70,showRays:true,showActorRays:true,showFootprint:true,subrays:'auto'};
+    this.depthConfig = {enabled:true,forward:0,height:-.040,tilt:70,showRays:true,showActorRays:true,showFootprint:true,subrays:'auto'};
     this.depthReading = null;
     this.depthLastMs = 0;
     this.depthRaycaster = new THREE.Raycaster();
@@ -535,12 +535,14 @@ export class EmuBrowserSim {
     this.surfaceStepHeightCm=stepHeightCm;
     if(this.terrainMode==='sensor')this.loadModel();
   }
-  setDepthInspector({enabled,forward,tilt,showRays,showActorRays=true,showFootprint=true,subrays='auto'}) {
-    const values={enabled:Boolean(enabled),forward:Number(forward),tilt:Number(tilt),
+  setDepthInspector({enabled,forward,tilt,height=-.040,showRays,showActorRays=true,showFootprint=true,subrays='auto'}) {
+    const values={enabled:Boolean(enabled),forward:Number(forward),height:Number(height),tilt:Number(tilt),
       showRays:Boolean(showRays),showActorRays:Boolean(showActorRays),showFootprint:Boolean(showFootprint),subrays};
     if(!['auto',1,4,5].includes(subrays))throw new Error('Depth samples must be auto, 1, 4 or 5');
     // Validation lives with one optical mounting model, not a policy contract.
-    if(values.forward<0||values.forward>.2||values.tilt<0||values.tilt>90)throw new Error('Invalid depth mount');
+    if(!Number.isFinite(values.height)||values.height<-.12||values.height>.10||
+       values.forward<0||values.forward>.2||values.tilt<0||values.tilt>90)
+      throw new Error('Invalid depth mount');
     this.depthConfig=values;
     this.depthLastMs=0;
   }
@@ -1512,7 +1514,14 @@ export class EmuBrowserSim {
       this.depthFootprint.geometry.setDrawRange(0,written/3);
       this.depthFootprint.visible=written>0;
     }else this.depthFootprint.visible=false;
+    const bodyForward=[rotation[0],rotation[3],rotation[6]];
+    const forwardHits=reading.hitPoints.map((p,i)=>
+      reading.valid[i]&&!reading.selfOccluded[i]
+        ?p.reduce((sum,n,k)=>sum+(n-pose.origin[k])*bodyForward[k],0):NaN)
+      .filter(Number.isFinite);
     this.depthReading={...reading,updatedMs:nowMs,subrays:sampleCount,
+      reachNearM:forwardHits.length?Math.min(...forwardHits):null,
+      reachFarM:forwardHits.length?Math.max(...forwardHits):null,
       footprintRays:this.depthConfig.showFootprint?25:0,
       costMs:performance.now()-begin};
     this.depthMountMarker.position.copy(origin);

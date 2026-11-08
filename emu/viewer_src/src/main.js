@@ -46,7 +46,7 @@ let carpetFetching=false;
 let carpetLastAppliedSignature='';
 let discoverCarpetFromLive=false;
 const depthOn=$('depthOn'),depthTilt=$('depthTilt'),depthActorRays=$('depthActorRays');
-const depthMount=$('depthMount'),depthRays=$('depthRays'),depthSamples=$('depthSamples'),depthFootprint=$('depthFootprint');
+const depthMount=$('depthMount'),depthHeight=$('depthHeight'),depthRays=$('depthRays'),depthSamples=$('depthSamples'),depthFootprint=$('depthFootprint');
 const depthView=$('depthView');
 const depthCells=Array.from({length:16},()=>{
   const cell=document.createElement('span');
@@ -750,15 +750,16 @@ function updateDepthSettings(){
     : 'Load a policy to display its exact ToF aiming in magenta against the adjustable 45°×45° hardware preview.';
   $('depthTiltOut').textContent=depthTilt.value+'°';
   $('depthMountOut').textContent=depthMount.value+' mm';
+  $('depthHeightOut').textContent=(Number(depthHeight.value)>=0?'+':'')+depthHeight.value+' mm';
   if(sim)sim.setDepthInspector({
     enabled:depthOn.checked,tilt:Number(depthTilt.value),
-    forward:Number(depthMount.value)/1000,showRays:depthRays.checked,
+    forward:Number(depthMount.value)/1000,height:Number(depthHeight.value)/1000,showRays:depthRays.checked,
     showActorRays:depthActorRays.checked,
     showFootprint:depthFootprint.checked,
     subrays:depthSamples.value==='auto'?'auto':Number(depthSamples.value),
   });
 }
-for(const input of [depthOn,depthTilt,depthMount,depthRays,depthActorRays,depthFootprint,depthSamples])
+for(const input of [depthOn,depthTilt,depthMount,depthHeight,depthRays,depthActorRays,depthFootprint,depthSamples])
   input.addEventListener('input',updateDepthSettings);
 depthView.addEventListener('change',updateDepthGrid);
 $('depthCopy').addEventListener('click',async()=>{
@@ -772,6 +773,9 @@ $('depthCopy').addEventListener('click',async()=>{
     obstacle:'current viewer terrain',
     tilt_down_deg:Number(depthTilt.value),
     mount_forward_mm:Number(depthMount.value),
+    mount_vertical_mm:Number(depthHeight.value),
+    valid_forward_reach_cm:reading.reachNearM==null?null:[
+      Number((reading.reachNearM*100).toFixed(1)), Number((reading.reachFarM*100).toFixed(1))],
     depth_sample_rays:reading.subrays*16,
     trained_actor_pitch_rows_deg:bundle?.observation?.sensor_contract?.tof4x4_pitch_from_horizontal_deg,
     trained_actor_yaw_columns_deg:bundle?.observation?.sensor_contract?.tof4x4_yaw_deg,
@@ -865,7 +869,10 @@ function updateDepthGrid(){
     : !data?'Waiting for robot · no scan yet'
     : hits+'/16 visible terrain zones · '+(data.subrays*16)+' depth rays'+
       (data.footprintRays?' + '+data.footprintRays+' grid':'')+' · '+data.costMs.toFixed(1)+
-      ' ms · '+(mode==='height'?'signed cm from flat z=0 (colour ±15 cm)':'raw slant cm');
+      ' ms · '+(data.reachNearM==null?'no ground reach':
+      'forward hit footprint '+(100*data.reachNearM).toFixed(0)+'–'+
+      (100*data.reachFarM).toFixed(0)+' cm')+
+      ' · '+(mode==='height'?'signed cm from flat z=0 (colour ±15 cm)':'raw slant cm');
 }
 
 // World switches are the two explicit Field / Carpet buttons above.

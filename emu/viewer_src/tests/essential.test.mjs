@@ -181,4 +181,6 @@ test('h40 actor backward rows are exposed beside a 45-degree VL53L8CX preview',(
   assert.ok(physical.directions.every(zone=>zone[0][0]>0),
     'hardware 45° square centre rays point forwards at 70° tilt');
   assert.equal(depthLabSensor.DEPTH_FOV_DEG,45);
+  const lower=depthLabSensor.depthProbeRays([0,0,.4],R,{tilt:70,forward:0,height:-.04});
+  assert.ok(Math.abs(lower.origin[2]-.36)<1e-8,'physical mount height is adjustable');
 });
