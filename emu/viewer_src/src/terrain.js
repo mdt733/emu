@@ -1,3 +1,5 @@
+import { sensorLabPrismXml } from './sensor-lab-carpet.js';
+
 // Browser-only landscape: one continuous MuJoCo heightfield for collision
 // and one matching Three.js triangle mesh for appearance. No training changes.
 export const GENTLE_SLOPE_DEGREES = 1;
@@ -340,7 +342,7 @@ function depthCourseXml(kind,{slopeDegrees=3,stepHeightCm=2}={}) {
 export function withTerrain(robotXml,mode='flat',options={}) {
   if(typeof robotXml!=='string'||!robotXml.includes('</worldbody>'))
     throw new Error('Cannot locate worldbody in policy robot XML');
-  if(/viewer_ramp_up|viewer_park_hfield|viewer_carpet_solid_|viewer_tree_trunk_|surface_lab_plane|depth_(?:approach|log|rise|landing|angled_ridge)/.test(robotXml))
+  if(/viewer_ramp_up|viewer_park_hfield|viewer_carpet_solid_|sensor_lab_prism_|viewer_tree_trunk_|surface_lab_plane|depth_(?:approach|log|rise|landing|angled_ridge)/.test(robotXml))
     throw new Error('Viewer terrain already inserted');
   if(mode==='flat')return robotXml;
   if(mode==='sensor'){
@@ -355,6 +357,17 @@ export function withTerrain(robotXml,mode='flat',options={}) {
   if(mode==='ramp')return robotXml.replace('</worldbody>',ramp+'\n</worldbody>');
   if(!['park','carpet'].includes(mode))throw new Error('Unknown terrain mode');
   const park=options.park||generateTerrainPark(options);
+  if(mode==='carpet'&&park?.physics==='eight-1m-prisms'){
+    // Four 1m tiles and eight TRUE convex triangular-prism CPU MuJoCo
+    // contacts. This is a static calibration fixture, not MJX recycling.
+    const geom=sensorLabPrismXml(park);
+    let xml=robotXml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
+    if(xml===robotXml)throw Error('Sensor lab requires the named source floor');
+    if(xml.includes('</asset>'))
+      xml=xml.replace('</asset>',geom.assets+'\n</asset>');
+    else xml=xml.replace('<worldbody>','<asset>'+geom.assets+'</asset>\n<worldbody>');
+    return xml.replace('</worldbody>',geom.bodies+'\n</worldbody>');
+  }
   if(mode==='carpet'){
     // Old procedural hfield-carpet preview has been deleted. The new
     // prism-trained actor MUST get actual browser solid contacts, not

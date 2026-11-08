@@ -9,6 +9,7 @@ import { joystickToCommands, nextYawCommand } from './controls.js';
 import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient } from './terrain.js';
 import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
 import { createSolidCarpet, safeCarpetShift } from './training-solid-carpet.js';
+import { createSensorLabCarpet, LAB_TILE_M, LAB_PRISM_COUNT } from './sensor-lab-carpet.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
@@ -52,7 +53,8 @@ export class EmuBrowserSim {
     this.canvas = canvas;
     this.bundle = bundle;
     this.mujoco = mujoco;
-    this.policy = new PolicyRunner(bundle);
+    this.sensorLab=Boolean(bundle.sensor_lab);
+    this.policy = this.sensorLab ? null : new PolicyRunner(bundle);
     this.model = null;
     this.data = null;
     this.mjvOption = new mujoco.MjvOption();
@@ -592,7 +594,9 @@ export class EmuBrowserSim {
                              trees:this.parkTreesEnabled,features:this.parkFeaturesEnabled,
                              challengeLevel:this.parkChallengeLevel})
       : this.terrainMode==='carpet'
-        ? createSolidCarpet(this.carpetDifficulty,this.carpetRole)
+        ? (this.sensorLab
+          ? createSensorLabCarpet(this.carpetDifficulty)
+          : createSolidCarpet(this.carpetDifficulty,this.carpetRole))
         : null;
     const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park,obstacle:this.sensorObstacle,
       slopeDegrees:this.surfaceSlopeDegrees,stepHeightCm:this.surfaceStepHeightCm});
@@ -601,8 +605,8 @@ export class EmuBrowserSim {
     this.data = new this.mujoco.MjData(this.model);
     this.mjvScene = new this.mujoco.MjvScene(this.model, this.maxGeoms);
     this.resolveIds();
-    if(this.park?.physics==='nine-solid-boxes'){
-      // The nine live MuJoCo BOX geoms render themselves in refreshScene().
+    if(['nine-solid-boxes','eight-1m-prisms'].includes(this.park?.physics)){
+      // Physical browser geoms render directly, not as decorative heightfields.
       // Do not put a decorative hfield over their real vertical contact faces.
       this.makeCarpetTileOverlay();
     }else if(this.park){
@@ -653,6 +657,11 @@ export class EmuBrowserSim {
     this.footIds = ['r_foot', 'l_foot'].map(n => this.name2id(mj.mjtObj.mjOBJ_BODY, n));
     this.footGeomIds = ['r_foot_ball','l_foot_ball'].map(n =>
       this.name2id(mj.mjtObj.mjOBJ_GEOM,n));
+    if(this.park?.physics==='eight-1m-prisms'){
+      this.carpetMocapIds=[];
+      this.carpetGeomIds=new Set(Array.from({length:LAB_PRISM_COUNT},(_,i)=>
+        this.name2id(mj.mjtObj.mjOBJ_GEOM,'sensor_lab_prism_'+i)));
+    }
     if(this.park?.physics==='nine-solid-boxes'){
       this.carpetMocapIds=Array.from({length:9},(_,i)=>{
         const body=this.name2id(mj.mjtObj.mjOBJ_BODY,'viewer_carpet_body_'+i);
@@ -679,6 +688,7 @@ export class EmuBrowserSim {
   }
 
   recycleCarpetWindow(){
+    if(this.sensorLab)return; // fixed 2x2 calibration fixture, no collision teleport
     if(this.terrainMode!=='carpet'||!this.data||!this.carpetWindowCenter)return;
     const current=this.carpetWindowCenter;
     const next=[Math.floor(this.data.qpos[0]/.5),
@@ -737,11 +747,16 @@ export class EmuBrowserSim {
     this.data.qvel.fill(0);
     // Training births already moving near the commanded state. Do the same for
     // the interactive viewer so reset is not a special stationary task.
-    this.data.qvel[0] = this.command.vx;
-    this.data.qvel[1] = this.command.vy;
+    this.data.qvel[0] = this.sensorLab ? 0 : this.command.vx;
+    this.data.qvel[1] = this.sensorLab ? 0 : this.command.vy;
     this.requestedYaw = this.commandTarget.yaw;
     this.command.yaw = this.requestedYaw;
     this.data.qvel[5] = this.command.yaw;
+    if(this.park?.physics==='eight-1m-prisms'){
+      this.data.qpos[0]=LAB_TILE_M*.5;
+      this.data.qpos[1]=LAB_TILE_M*.5;
+      this.carpetWindowCenter=[0,0];
+    }
     if(this.park?.physics==='nine-solid-boxes'){
       // Spawn at the centre of the first 50cm support, not the four-lip
       // intersection at world (0,0). The trainer also uses supported births.
@@ -873,7 +888,8 @@ export class EmuBrowserSim {
   }
   updateCarpetTileOverlay() {
     if(!this.carpetTileOverlay||!this.park||!this.data)return;
-    const x=this.data.qpos[0],y=this.data.qpos[1],size=.5;
+    const x=this.data.qpos[0],y=this.data.qpos[1],
+      size=this.park.tileSizeM||.5;
     const cx=this.carpetWindowCenter?.[0]??Math.floor(x/size);
     const cy=this.carpetWindowCenter?.[1]??Math.floor(y/size);
     const key=cx+','+cy;
@@ -898,7 +914,7 @@ export class EmuBrowserSim {
             [x1,yy,this.park.sampleHeight(x1,yy)+.006]);
       }
     }
-    // One diagonal line per 50cm tile, making the 18 triangles legible.
+    // Diagonal boundaries show each tile's two physical triangular prisms.
     for(let j=-1;j<=1;j++)for(let i=-1;i<=1;i++){
       const x0=(cx+i)*size,y0=(cy+j)*size;
       add([x0,y0,this.park.sampleHeight(x0,y0)+.006],
@@ -1017,7 +1033,7 @@ export class EmuBrowserSim {
     this.requestedYaw=steering.requestedYaw;
     this.headingTarget=steering.headingTarget;
     this.command.yaw=steering.appliedYaw;
-    const action = this.policy.infer(this.obs);
+    const action = this.sensorLab ? new Float32Array(6) : this.policy.infer(this.obs);
     this.controlFrames++;
     const span = this.bundle.control.target_span_rad;
 
