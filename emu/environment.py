@@ -315,36 +315,44 @@ def horizontal_tracking_motion(xp, rotation_world, linear_world, angular_world):
 # actuator output (N m) after actuator limits, NOT servo electrical current.
 # These are per-control-frame *instantaneous* estimates, not joule integration,
 # winding temperature, battery watts or a calibrated thermal model.
-SERVO_RATED_CONTINUOUS_TORQUE_NM = 0.980665  # C018 @ 12V; NOT sustained thermal proof
-from .physical_variants import SERVO_NOLOAD_RAD_S
+from .physical_variants import (
+    SERVO_RATED_CONTINUOUS_TORQUE_NM,
+    SERVO_PEAK_STALL_TORQUE_NM,
+    SERVO_NOLOAD_RAD_S,
+)
 
 
-def servo_effort_metrics(xp, torque_nm, joint_rate_rad_s, stall_limit_nm):
+def servo_effort_metrics(xp, torque_nm, joint_rate_rad_s, actuator_limit_nm):
     """Six-actuator nominal shaft demand from MuJoCo actuator force and qvel.
 
     Shapes: [worlds, 6] inputs -> [worlds] named diagnostics.
     Drive/brake are mechanical power sign splits; braking isn't regeneration.
-    A high fraction over rated torque indicates load exposure, not overheating.
+    Hardware rated torque is now a HARD MuJoCo/MJX actuator force limit.
+    Nonzero over-rated exposure means the physical contract is broken.
     """
     power = torque_nm * joint_rate_rad_s
     torque_abs = xp.abs(torque_nm)
     speed_abs = xp.abs(joint_rate_rad_s)
-    # DIAGNOSTICS ONLY: these do not enforce an electric torque-speed curve.
+    # READ-ONLY: the XML enforces rated torque, not an electric speed curve.
     # A passively driven/backdriven joint can exceed a motor's no-load speed;
     # this is a reality-check warning, NOT a calibrated motor failure.
     speed_ratio = speed_abs / SERVO_NOLOAD_RAD_S
-    torque_ratio = torque_abs / xp.maximum(stall_limit_nm, 1e-6)
+    torque_ratio = torque_abs / xp.maximum(actuator_limit_nm, 1e-6)
+    # The speculative linear electrical envelope uses the datasheet STALL
+    # intercept, NOT the new hard rated actuator limit. Neither the
+    # datasheet line nor the speed warning controls motor power.
+    electrical_stall_ratio = torque_abs / SERVO_PEAK_STALL_TORQUE_NM
     return {
         'servo_shaft_abs_power_w': xp.sum(xp.abs(power), axis=1),
         'servo_shaft_drive_power_w': xp.sum(xp.maximum(power, 0.0), axis=1),
         'servo_shaft_brake_power_w': xp.sum(xp.maximum(-power, 0.0), axis=1),
-        'servo_over_rated_frac': xp.mean((torque_abs > SERVO_RATED_CONTINUOUS_TORQUE_NM).astype(torque_nm.dtype), axis=1),
+        'servo_over_rated_frac': xp.mean((torque_abs > SERVO_RATED_CONTINUOUS_TORQUE_NM + 1e-6).astype(torque_nm.dtype), axis=1),
         'servo_peak_torque_limit_frac': xp.max(torque_ratio, axis=1),
         'servo_speed_over_noload_frac': xp.mean(
             (speed_ratio > 1.).astype(torque_nm.dtype), axis=1),
         'servo_peak_speed_ratio': xp.max(speed_ratio, axis=1),
         'servo_linear_envelope_warning_frac': xp.mean(
-            ((torque_ratio + speed_ratio > 1.) &
+            ((electrical_stall_ratio + speed_ratio > 1.) &
              (power > 0.)).astype(torque_nm.dtype), axis=1),
     }
 
@@ -1336,14 +1344,22 @@ class EmuMJXEnv(TaskSampler):
         # Shape is [6] for static motor physics or [world,6].
         self.act_joint_viscous_damping = jnp.take(
             self.mjx_model.dof_damping, self.act_qvel, axis=-1)
-        # Resolve the nominal stall limit from the actual loaded XML instead
-        # of duplicating six force ceilings in training code.
+        # FAIL CLOSED if this source loads a peak-stall-torque XML, or
+        # someone disables MuJoCo force limiting. This is a physics
+        # invariant, not optional PPO shaping or a logging convention.
         limits = np.asarray(self.mj_model.actuator_forcerange, dtype=np.float32)
-        if limits.shape != (ACTION_DIM, 2):
-            raise ValueError('Expected exactly six force-limited robot actuators')
-        # Hardware domain randomisation can vary actuator forcerange per
-        # world. Use the actual model limits, not the nominal XML ceiling.
-        self.servo_stall_torque_nm = jnp.max(
+        limited = np.asarray(self.mj_model.actuator_forcelimited)
+        if (limits.shape != (ACTION_DIM, 2) or
+                limited.shape != (ACTION_DIM,) or
+                not np.all(limited == 1) or
+                not np.all(np.isfinite(limits)) or
+                not np.all(limits[:, 0] < 0.) or
+                not np.all(limits[:, 1] > 0.) or
+                np.max(np.abs(limits)) > SERVO_RATED_CONTINUOUS_TORQUE_NM + 1e-5):
+            raise ValueError('C018 actuator force contract violated: all six motors '
+                             'must be force-limited to <= 0.980665 Nm')
+        # Per-world domain randomization can weaken, never exceed rated.
+        self.servo_actuator_torque_limit_nm = jnp.max(
             jnp.abs(self.mjx_model.actuator_forcerange), axis=-1)
         # The six actuated hinge springs and two passive shin-flex springs.
         # MuJoCo exposes each hinge's spring reference via qpos_spring.
@@ -3584,7 +3600,7 @@ class EmuMJXEnv(TaskSampler):
         # observation or the scalar PPO reward.
         servo_effort = servo_effort_metrics(
             jnp, data.actuator_force[:, :ACTION_DIM],
-            data.qvel[:, self.act_qvel], self.servo_stall_torque_nm)
+            data.qvel[:, self.act_qvel], self.servo_actuator_torque_limit_nm)
         spring_energy = joint_spring_energy(
             jnp, data.qpos[:, self.spring_qpos],
             self.spring_reference, self.spring_stiffness)
@@ -3610,17 +3626,17 @@ class EmuMJXEnv(TaskSampler):
             self.act_joint_viscous_damping *
             data.qvel[:, self.act_qvel]**2, axis=-1)
         # Distinguish exhausted ACTION position range from actual MOTOR
-        # force saturation at the two hip-rolls. The readouts are MJX
-        # position-actuator output, not current, temperature, or passive
-        # joint damping. Do not claim actuator force includes the 0.435
-        # N*m*s/rad viscous term from robot.xml.
+        # force saturation at the two hip-rolls. Values are fractions of
+        # the HARD RATED motor force ceiling (not peak stall torque).
+        # Passive joint damping is separately recorded and is NOT motor
+        # force, current or temperature.
         motor_roll_r = jnp.abs(data.actuator_force[:, 0])
         motor_roll_l = jnp.abs(data.actuator_force[:, 3])
         hip_roll_motor = dict(
             hip_roll_motor_load_frac_right=(
-                motor_roll_r / jnp.maximum(self.servo_stall_torque_nm[..., 0], 1e-6)),
+                motor_roll_r / jnp.maximum(self.servo_actuator_torque_limit_nm[..., 0], 1e-6)),
             hip_roll_motor_load_frac_left=(
-                motor_roll_l / jnp.maximum(self.servo_stall_torque_nm[..., 3], 1e-6)),
+                motor_roll_l / jnp.maximum(self.servo_actuator_torque_limit_nm[..., 3], 1e-6)),
             # Physical joint-centering spring, separately from actuator force.
             hip_roll_spring_abs_nm_right=(
                 jnp.abs(self.spring_stiffness[0] *
