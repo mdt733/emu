@@ -9,6 +9,8 @@ from dataclasses import dataclass, asdict
 from typing import Any
 import math
 
+from .physical_variants import SERVO_RATED_CONTINUOUS_TORQUE_NM
+
 # MJX model-level domain variations; physical topology remains fixed.
 
 
@@ -140,7 +142,15 @@ def build_batched_model(model, *, ids: dict[str, Any], num_envs: int, seed: int,
         # Position actuator: force = kp*ctrl + bias0 - kp*q + ...
         biasprm = biasprm.at[act_ids, 1].set(model.actuator_biasprm[act_ids, 1] * kp_scale)
         biasprm = biasprm.at[act_ids, 0].set(model.actuator_biasprm[act_ids, 0] + new_kp * zero)
-        forcerange = forcerange.at[act_ids].set(model.actuator_forcerange[act_ids] * torque_scale[:, None])
+        # Manufacturing variation may WEAKEN a servo. It must NEVER
+        # strengthen any of the six actuators beyond the rated 12V ceiling,
+        # even if sampled multiplier >1. MuJoCo/MJX enforces this force cap.
+        varied_limits = model.actuator_forcerange[act_ids] * torque_scale[:, None]
+        varied_limits = jnp.clip(
+            varied_limits,
+            -SERVO_RATED_CONTINUOUS_TORQUE_NM,
+            SERVO_RATED_CONTINUOUS_TORQUE_NM)
+        forcerange = forcerange.at[act_ids].set(varied_limits)
 
         return (gravity, body_mass, damping, frictionloss, armature,
                 gainprm, biasprm, forcerange, r, h)
