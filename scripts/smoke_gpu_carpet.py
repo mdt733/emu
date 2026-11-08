@@ -363,10 +363,24 @@ def main():
                 "episode_fell", "episode_done", "support", "bad_contact",
                 "exam_stance_slip_proxy", "virtual_nonfoot_strike",
                 "fall_virtual_contact", "vx", "cmd_vx", "servo_shaft_abs_power_w",
+                "servo_over_rated_frac", "servo_peak_torque_limit_frac",
                 "academy_cross_new", "terrain_cross_new")
             sampled={k:final_steady_metrics[k] for k in physics_keys
                      if k in final_steady_metrics}
             sample_host=jax.device_get(sampled)
+            max_limit_frac=float(np.max(np.asarray(
+                sample_host["servo_peak_torque_limit_frac"])))
+            over_rated=float(np.max(np.asarray(
+                sample_host["servo_over_rated_frac"])))
+            if (not np.isfinite(max_limit_frac) or
+                    max_limit_frac>1.00001 or over_rated>0.0):
+                raise RuntimeError(
+                    "RATED C018 MOTOR LIMIT VIOLATION in real MJX PPO rollout: "
+                    f"max_rated_fraction={max_limit_frac}, "
+                    f"over_rated_fraction={over_rated}")
+            print("rated-torque MJX PASS: all six delivered motor forces "
+                  "within 0.980665 Nm throughout 32-frame PPO rollout",
+                  flush=True)
             physics_summary={f"mean_{k}":float(np.mean(np.asarray(v)))
                              for k,v in sample_host.items()}
             print("PHYSICAL SNAPSHOT (last PPO rollout, untrained policy): "
