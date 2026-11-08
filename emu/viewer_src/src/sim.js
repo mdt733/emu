@@ -9,7 +9,7 @@ import { joystickToCommands, nextYawCommand } from './controls.js';
 import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient } from './terrain.js';
 import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
 import { createSolidCarpet, safeCarpetShift } from './training-solid-carpet.js';
-import { createSensorLabCarpet, LAB_TILE_M, LAB_PRISM_COUNT } from './sensor-lab-carpet.js';
+import { createSensorLabCarpet, sensorLabPrismVertices, LAB_PRISM_FACES, LAB_TILE_M, LAB_PRISM_COUNT } from './sensor-lab-carpet.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
@@ -77,6 +77,7 @@ export class EmuBrowserSim {
     this.grassTexture = createGrassTexture(THREE);
     this.parkGridTexture = createParkGridTexture(THREE);
     this.parkSurface = null;
+    this.sensorLabSurface = null;
     this.parkGridOverlay = null;
     this.treeCrowns = null;
     this.park = null;
@@ -293,6 +294,13 @@ export class EmuBrowserSim {
   }
 
   disposeModel() {
+    if(this.sensorLabSurface){
+      this.scene.remove(this.sensorLabSurface);
+      for(const mesh of this.sensorLabSurface.children){
+        mesh.geometry.dispose();mesh.material.dispose();
+      }
+      this.sensorLabSurface=null;
+    }
     if (this.parkGridOverlay) {
       this.scene.remove(this.parkGridOverlay);
       // Deliberately share parkSurface geometry; dispose only the overlay
@@ -609,6 +617,7 @@ export class EmuBrowserSim {
       // Physical browser geoms render directly, not as decorative heightfields.
       // Do not put a decorative hfield over their real vertical contact faces.
       this.makeCarpetTileOverlay();
+      if(this.sensorLab)this.makeSensorLabSurface();
     }else if(this.park){
       this.parkSurface=createParkSurface(THREE,this.park,this.grassTexture);
       this.scene.add(this.parkSurface);
@@ -636,6 +645,27 @@ export class EmuBrowserSim {
     this.command = { ...this.commandTarget };
     this.requestedYaw = this.commandTarget.yaw;
     this.reset();
+  }
+
+  makeSensorLabSurface(){
+    // Viewer triangles and CPU MuJoCo contact meshes share one vertex source.
+    const group=new THREE.Group();
+    for(const prism of sensorLabPrismVertices(this.park)){
+      const points=[];
+      for(const face of LAB_PRISM_FACES)
+        for(const v of face)points.push(...prism.world[v]);
+      const geom=new THREE.BufferGeometry();
+      geom.setAttribute('position',new THREE.Float32BufferAttribute(points,3));
+      geom.computeVertexNormals();
+      const mesh=new THREE.Mesh(geom,new THREE.MeshStandardMaterial({
+        color:0x599c69,roughness:.92,side:THREE.DoubleSide}));
+      mesh.userData.robotPart=false;
+      mesh.userData.sensorLabPrism=true;
+      mesh.receiveShadow=true;
+      group.add(mesh);
+    }
+    this.sensorLabSurface=group;
+    this.scene.add(group);
   }
 
   name2id(objEnum, name) {
@@ -897,6 +927,25 @@ export class EmuBrowserSim {
     this.carpetTileCenter=key;
     const positions=[];
     const add=(a,b)=>positions.push(...a,...b);
+    if(this.sensorLab){
+      // Fixed 2x2 prism boundary; NEVER draw fictitious recycled tiles.
+      for(let i=0;i<=2;i++){
+        const u=i*size;
+        add([u,0,.008],[u,2*size,.008]);
+        add([0,u,.008],[2*size,u,.008]);
+      }
+      for(let j=0;j<2;j++)for(let i=0;i<2;i++){
+        const a=this.park.at(i,j),corners=a.corners;
+        add([i*size,j*size,corners[0]+.009],
+          [(i+1)*size,(j+1)*size,corners[3]+.009]);
+      }
+      this.carpetTileOverlay.geometry.dispose();
+      this.carpetTileOverlay.geometry=new THREE.BufferGeometry();
+      this.carpetTileOverlay.geometry.setAttribute('position',
+        new THREE.Float32BufferAttribute(positions,3));
+      this.carpetTileOverlay.visible=this.showGrid;
+      return;
+    }
     for(let i=-1;i<=2;i++){
       const xx=(cx+i)*size;
       for(let j=-1;j<=1;j++){
@@ -1321,13 +1370,19 @@ export class EmuBrowserSim {
       // parent body is non-world are visible self-occluders (legs/feet).
       // A contact-visualization or world terrain mesh is not robot geometry.
       const geomId = Number(vg.objid);
+      mesh.userData.footGeom = this.footGeomIds.includes(geomId);
+      mesh.userData.sensorLabPrism = this.carpetGeomIds.has(geomId);
       mesh.userData.robotPart = Number(vg.objtype) === Number(mj.mjtObj.mjOBJ_GEOM.value)
         && Number.isInteger(geomId) && geomId >= 0
         && geomId < Number(this.model.ngeom)
         && Number(this.model.geom_bodyid[geomId]) > 0
         && !this.carpetGeomIds.has(geomId); // mocap tiles are TERRAIN, not self-occlusion
       // Heightfield collision is rendered by the seamless grass mesh above.
-      mesh.visible = !mesh.userData.parkHeightfield;
+      // MuJoCo WASM returns a visual record for each mesh geom, but the
+      // JS geometryFor fallback cannot reconstruct its triangles. The
+      // sensor-lab's eight exact authored triangles are drawn separately.
+      mesh.visible = !mesh.userData.parkHeightfield &&
+        !(this.sensorLab && mesh.userData.sensorLabPrism);
       if (!mesh.userData.floor) mesh.material.color.setRGB(rgba[0], rgba[1], rgba[2]);
       mesh.material.opacity = rgba[3];
       mesh.material.transparent = rgba[3] < 0.999;
@@ -1450,8 +1505,10 @@ export class EmuBrowserSim {
     const pose=depthProbeRays(torso,rotation,this.depthConfig);
     // Shared viewer geometry (including movable robot parts) matches the
     // displayed MuJoCo scene. The park hfield uses its matching grass mesh.
-    const targets=this.meshes.filter(mesh=>mesh.visible);
+    const targets=this.meshes.filter(mesh=>mesh.visible &&
+      !(this.sensorLab&&mesh.userData.sensorLabPrism));
     if(this.parkSurface)targets.push(this.parkSurface);
+    if(this.sensorLabSurface)targets.push(...this.sensorLabSurface.children);
     for(const mesh of targets)mesh.updateMatrixWorld(true);
     const raycaster=this.depthRaycaster;
     raycaster.near=.018;
@@ -1465,7 +1522,10 @@ export class EmuBrowserSim {
       raycaster.set(origin,direction.set(...dir).normalize());
       raycaster.far=maxRange;
       const hit=raycaster.intersectObjects(targets,false)[0];
-      return hit?{distance:hit.distance,kind:hit.object.userData.robotPart?'self':'terrain',surface:hit.object.uuid}:Infinity;
+      return hit?{distance:hit.distance,
+        kind:hit.object.userData.footGeom?'foot':
+          hit.object.userData.robotPart?'self':'terrain',
+        surface:hit.object.uuid}:Infinity;
     },{subrays:sampleCount,noise:this.sensorNoise ? .001 : 0,dropout:0});
     const points=this.depthLinePositions,colors=this.depthLineColors;
     for(let i=0;i<16;i++){
