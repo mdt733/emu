@@ -878,6 +878,11 @@ function updateDepthGrid(){
       ' ms · '+(data.reachNearM==null?'no ground reach':
       'forward hit footprint '+(100*data.reachNearM).toFixed(0)+'–'+
       (100*data.reachFarM).toFixed(0)+' cm')+
+      ' · '+(data.footOccluded
+        ?(data.footOccluded.slice(12,16).join(',')==='false,true,true,false'
+          ? '✓ bottom row: ground / FOOT / FOOT / ground'
+          : 'bottom row foot masks: '+data.footOccluded.slice(12,16).map(v=>v?'F':'·').join(''))
+        :'')+
       ' · '+(mode==='height'?'signed cm from flat z=0 (colour ±15 cm)':'raw slant cm');
 }
 
@@ -1173,6 +1178,11 @@ async function startViewerFeed() {
             policyLibrary.push({fileName:config.sensor_lab?'H40 SENSOR LAB — UNTRAINED':'Preloaded policy',bundle:parsed});
             await activatePolicy(policyLibrary.length-1);
             if(config.sensor_lab){
+              // Start in neutral calibration pose. User can click Run
+              // physics; there is no h40-trained policy on this computer.
+              sim.paused=true;
+              pauseBtn.textContent='Run physics';
+              livePanel.hidden=true;
               updateWorldTabs();
               updateDepthSettings();
               $('modeLabel').textContent='40 cm CPU SENSOR LAB — no trained gait';
