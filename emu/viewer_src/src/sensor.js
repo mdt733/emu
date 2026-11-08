@@ -106,7 +106,7 @@ export function readDepthProbe(pose, cast, {subrays=4, noise=0, dropout=0}={}) {
   // {distance,kind:'self'|'terrain'}; no hidden surface-height lookup.
   if(![1,4,5].includes(subrays))throw new Error('Expected 1, 4 or 5 depth rays per zone');
   const samples=subrays===1?[0]:subrays===4?[1,2,3,4]:[0,1,2,3,4];
-  const ranges=[],valid=[],hitPoints=[],selfOccluded=[],mixed=[];
+  const ranges=[],valid=[],hitPoints=[],selfOccluded=[],footOccluded=[],footHitCounts=[],mixed=[];
   for(const zone of pose.directions){
     const values=[];
     for(const j of samples){
@@ -126,7 +126,10 @@ export function readDepthProbe(pose, cast, {subrays=4, noise=0, dropout=0}={}) {
     ok=ok&&value>=.02&&value<=DEPTH_MAX_M&&Math.random()>=dropout;
     ranges.push(ok?value:0);
     valid.push(ok);
-    selfOccluded.push(ok&&values.some(hit=>hit.kind==='self'));
+    const footCount=values.filter(hit=>hit.kind==='foot').length;
+    footOccluded.push(footCount>0);
+    footHitCounts.push(footCount);
+    selfOccluded.push(ok&&values.some(hit=>hit.kind==='self'||hit.kind==='foot'));
     // Raw slant-range variation happens even on perfectly FLAT ground;
     // a mixed-zone warning instead means rays actually hit different
     // visible objects/surfaces. This flag is diagnostic-only privilege.
@@ -136,7 +139,8 @@ export function readDepthProbe(pose, cast, {subrays=4, noise=0, dropout=0}={}) {
     const length=ok?picked.distance:.55;
     hitPoints.push(pose.origin.map((p,k)=>p+length*direction[k]));
   }
-  return {ranges,valid,origin:pose.origin,hitPoints,selfOccluded,mixed};
+  return {ranges,valid,origin:pose.origin,hitPoints,
+    selfOccluded,footOccluded,footHitCounts,mixed};
 }
 
 
