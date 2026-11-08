@@ -2,16 +2,18 @@
 
 Status: **engineering proposal, NOT a validated physical robot or ready-to-train model**.
 Branch: `research/v5059-40cm-carbon-leg-physical-design`; parent v5058 rated-torque hard cap.
-Preserve `main`, the v5057 200M result, and source/checkpoint hashes. No more mega training
-until the hardware assumptions and MJX load paths pass simple physical tests.
+Preserve `main`, the v5057 200M result, and source/checkpoint hashes. Separate
+exploratory simulator work from physical validation: do not claim hardware
+loads or safe rod sizing until the geometry and mechanical measurements exist.
 
 ## 1. Intended hardware (user sketch/CAD, 2026-11-08)
 
 * Hip neutral height: 0.400 m.
 * Each shin: one long **solid approximately 2 mm carbon rod**, from ball foot
   to the knee, extending about **40 mm beyond the knee** to anchor a spring
-  pulling towards the thigh. This shin is an actual load-carrying column,
-  not only a soft decorative hinge.
+  pulling towards the thigh. This shin is a **deliberately flexible beam**
+  transmitting bending and possibly axial load through the real linkage;
+  it is not a straight, isolated compression column.
 * An unloaded slender reference rod is mounted near the midpoint of the
   shin; a magnet near the knee relative to a Hall sensor measures bending.
   It must NOT become a second structural beam.
@@ -96,17 +98,34 @@ The whole 310 mm cut length of the 2mm rod weighs ≈1.56g at 1600kg/m³,
 BEFORE mount, foot, sensor, magnet and wiring. Never substitute 1.56g for
 the entire leg subassembly.
 
-### Buckling and spring-lever red flags: must prove before selecting 2mm
+### Bending strength versus axial instability: assess the actual load path
 
-Simplified Euler pinned-pinned column estimate:
-`Pcrit = π² EI / (K L)²` with K=1. Boundary stiffness, bows,
-loading angle and bracing change Pcrit. At 0.562kg, 1g weight is
-~5.52N; if **one inclined 45deg member** carried the entire load
-axially, its force might be ~7.8N before landing impulses.
-This is a *stress-case calculation*, NOT a validated load-path prediction.
-Ordinary 2mm C25 with 2.66N Pcrit is therefore a **red flag**.
-A 3mm high-modulus main shin would give much greater buckling margin
-for only ~1.7g more bare rod than 2mm.
+**Important user clarification:** this is a purposefully FLEXING rod in an
+articulated knee mechanism, not a freestanding pinned compression column.
+Carbon rod's ability to withstand substantial elastic curvature is a genuine
+design feature. Do not confuse *bending strength* (stress until damage),
+*bending stiffness* (deflection for applied load), or *buckling* (loss of
+stability in a member subjected to compressive axial force).
+
+The final table column is ONLY the mathematical Euler result for a
+**straight, unsupported, perfectly pin-ended and axially compressed**
+270mm rod: `Pcrit = π² EI / (K L)²` with K=1. It is **not** a measured
+failure threshold for EMU's shin, and does not apply as a failure
+prediction to pure transverse bending without an axial compressive load.
+The user's sketch has multiple force-transmitting members, pivot reaction
+forces, a spring and large intentional bending; all these alter the actual
+axial force distribution and boundary conditions.
+
+A 0.562kg robot weighs about 5.52N at 1g, but assigning all of that
+force (or 7.8N due to 45° orientation) to the carbon shin as axial
+compression was a hypothetical stress case, **not a justified diagram of
+forces for this linkage**. Preserve 2mm as the primary design candidate;
+3mm is merely an optional comparison, NOT a recommended change without
+measuring the hardware. Solve the actual knee/thigh/foot free-body forces
+and bending moment diagram before making a buckling claim. An inclined
+beam carrying compression and flexure can require combined beam-column
+analysis; if it is primarily in flexure/tension, the isolated pinned
+Euler number is not the governing model.
 
 The old h40 knee support gives ~0.52N.m around neutral. If
 transferred via an UNBRACED **40mm** extension of a 2mm shaft,
@@ -119,8 +138,11 @@ may change the local bending moment: obtain exact attachment and
 bearing locations. Prefer a short reinforced lever/sleeve or revised
 knee spring leverage; DO NOT assume the bare rod can take it.
 
-Before training: verify member axial forces, buckling, bending stress
-and pin/adhesive loads under single-leg stance and >1g landings.
+Before real-world deployment, verify member axial forces, bending stress,
+and, *only if significant axial compression is demonstrated*, stability/
+buckling, alongside pin/adhesive loads under single-leg stance and impacts.
+For simulation research, these unknowns should be marked explicitly as
+provisional rather than silently assumed safe.
 Do NOT count the Hall reference rod as structural reinforcement.
 The two upper rods may share loads, but need their actual linkage
 constraints to claim any safety benefit.
@@ -130,7 +152,7 @@ constraints to claim any safety benefit.
 | Parameter | First physical proposal | Confidence / dependency |
 | --- | --- | --- |
 | Hip neutral Z | **0.400 m** | user choice, source-proven |
-| Primary shin rod d | **2.00 mm** for test candidate; include **3.00 mm** safety candidate | user approximate; strength/buckling unresolved |
+| Primary shin rod d | **2.00 mm** primary design candidate; optional **3.00 mm** comparison only | user approximate; stability depends on actual load path |
 | Nominal knee-to-foot length | **0.270 m**, re-solve if foot radius changes | geometry at original 18mm foot |
 | Spring anchor tail | **0.040 m** beyond knee | user approximate; inspect knee moments |
 | Rod material bending modulus | **25, 60, 134 GPa research scenarios**, NOT a declared fitted material | purchase-grade and flex test needed |
@@ -174,7 +196,7 @@ Do not claim acceptance yet; run must be performed on operator GPU.
 load/deflection 2–3 forces, lateral and pitch, return-to-zero,
 free-decay). Record knee pivot/upper-rod linkage CAD coordinates,
 actual spring attachment locations and spring force at 2–3 lengths.
-Check two axes' buckling and permanent deformation. Weigh each
+Check lateral/fore-aft bending, axial force when present, and permanent deformation. Weigh each
 moving part INCLUDING all six servos and battery separately.
 This MUST precede claiming a 2mm 40cm load-bearing design is viable.
 
@@ -214,7 +236,8 @@ the old 200M used excessive available stall torque.
 
 * Do not treat vendor axial modulus as measured flexural modulus.
 * Do not treat Euler buckling as a substitute for full CAD
-  link-load analysis; use it as a critical safety warning.
+  link-load analysis; treat it as an isolated axial-column scenario,
+  not a demonstrated mechanism failure.
 * Do not use the soft Hall reference rod as an extra stiffener.
 * Do not carry old 47.7g simulated shin mass into a 1.36g bare
   spar, nor discard motor/mount/foot mass hidden in that total.
