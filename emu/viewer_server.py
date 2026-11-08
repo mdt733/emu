@@ -230,6 +230,25 @@ def read_terrain_training_snapshot(root: Path) -> dict:
     }
 
 
+def sensor_lab_robot_xml() -> str:
+    """Generate the immutable h40 mechanical body with trainer-style foot contacts.
+
+    Source robot.xml is never edited. The floor is disabled by the viewer's
+    fixture builder; 4-bit prism contacts are accepted only by the feet.
+    """
+    from xml.etree import ElementTree as ET
+    from .physical_variants import generate_xml
+
+    source = (Path(__file__).resolve().parent / 'robot.xml').read_text(encoding='utf-8')
+    root = ET.fromstring(generate_xml(source, 'h40'))
+    for name in ('r_foot_ball', 'l_foot_ball'):
+        geom = root.find(f".//geom[@name='{name}']")
+        if geom is None:
+            raise RuntimeError(f'Sensor lab missing physical foot geom {name}')
+        geom.set('conaffinity', str(int(geom.get('conaffinity', '1')) | 4))
+    return ET.tostring(root, encoding='unicode')
+
+
 def make_sensor_lab_bundle() -> bytes:
     """Untrained h40 MJCF for CPU sensor calibration, never a policy export.
 
@@ -237,12 +256,11 @@ def make_sensor_lab_bundle() -> bytes:
     trained actor in the browser. This mode cannot be exported or resumed.
     """
     import hashlib
-    from .physical_variants import generate_xml, terrain_tof_pitch_deg
+    from .physical_variants import terrain_tof_pitch_deg
 
     template = Path(__file__).resolve().parents[1] / 'showcase' / 'champion.emupolicy'
     b = json.loads(template.read_text(encoding='utf-8'))
-    raw = (Path(__file__).resolve().parent / 'robot.xml').read_text(encoding='utf-8')
-    model = generate_xml(raw, 'h40')
+    model = sensor_lab_robot_xml()
     b['robot_xml'] = model
     b['sensor_lab'] = True
     b['control']['neutral_root_z_m'] = .4

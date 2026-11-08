@@ -76,7 +76,7 @@ export function sensorLabPrismXml(park){
     bodies.push('<body name="sensor_lab_tile_'+k+
       '" mocap="true" pos="'+[tile.x,tile.y,0].map(f).join(' ')+'">'+
       '<geom name="sensor_lab_prism_'+k+'" type="mesh" mesh="sensor_lab_mesh_'+k+
-      '" contype="1" conaffinity="1" friction="1.5 0.005 0.0001" '+
+      '" contype="4" conaffinity="0" friction="1.5 0.005 0.0001" '+
       'rgba="0.39 0.65 0.39 1"/></body>');
   }
   return {assets:assets.join('\n'),bodies:bodies.join('\n')};
