@@ -93,6 +93,7 @@ class LivePolicyWatcher:
                     self._error = ''
                     return
                 try:
+                    from .policy_export import build_bundle
                     bundle = build_bundle(path)
                     # Ensure a writer didn't replace the file while exporting.
                     if inspect_candidate(phase, path) != snap:
@@ -362,6 +363,5 @@ def serve(*, port: int = 8765, policy: Path | None = None,
             pass
     return 0
 
-# All exported-policy validation is in policy_export.py; only the live
-# watcher needs the exporter, never its checkpoint internals.
-from .policy_export import build_bundle, load_exported_actor_for_exam, write_bundle, export_main
+# Lazily import heavy checkpoint/export dependencies only for live playback.
+# The standalone CPU sensor laboratory requires only Python stdlib + npm.
