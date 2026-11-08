@@ -159,7 +159,9 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     # loading and left/right knee passive torque are physical acceptance.
     from emu.physical_variants import (
         PROFILES, generate_xml, profile_numbers, terrain_tof_pitch_deg,
-        FOOT_RADIUS_M, SERVO_RATED_CONTINUOUS_TORQUE_NM)
+        FOOT_RADIUS_M, SERVO_RATED_CONTINUOUS_TORQUE_NM,
+        CARBON_PROFILE, CARBON_FOOT_RADIUS_M,
+        CARBON_KNEE_SPRING_SLACK_M, CARBON_KNEE_SPRING_N_M)
     base_source=(Path(__file__).resolve().parents[1]/'emu'/'robot.xml').read_text()
     for variant in PROFILES:
         row=profile_numbers(variant)
@@ -175,17 +177,19 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
         state=mujoco.MjData(body)
         mujoco.mj_forward(body,state)
         assert body.nu==6 and body.ntendon==2
-        assert body.nq==15 and body.nv==14
+        carbon=(variant==CARBON_PROFILE)
+        assert body.nq==(17 if carbon else 15)
+        assert body.nv==(16 if carbon else 14)
         np.testing.assert_allclose(sum(body.body_mass),
                                    row['mass_kg'], atol=1e-4, rtol=0)
         torso_id=mujoco.mj_name2id(
             body,mujoco.mjtObj.mjOBJ_BODY,'torso')
         # The neutral centre of mass must remain over the same support
         # location: longer folded legs should not quietly bias gravity.
-        expected_com_x=(-.000614)/row['mass_kg']
+        expected_com_x=(0.0 if carbon else -.000614/row['mass_kg'])
         np.testing.assert_allclose(
             state.subtree_com[torso_id,0],expected_com_x,
-            atol=2e-4,rtol=0)
+            atol=1.5e-3 if carbon else 2e-4,rtol=0)
         foot_heights=[]
         knee_loads=[]
         for side in 'rl':
@@ -203,23 +207,62 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
             np.testing.assert_allclose(
                 body.jnt_stiffness[flex],
                 row['shin_flex_stiffness_nm_rad'],atol=1e-5,rtol=0)
-            np.testing.assert_allclose(
-                state.ten_length[ti],.060*(2**-.5),
-                atol=1e-5,rtol=0)
+            if carbon:
+                np.testing.assert_allclose(state.ten_length[ti], .050,
+                                           atol=1e-5,rtol=0)
+                np.testing.assert_allclose(body.tendon_lengthspring[ti],
+                    [0.,CARBON_KNEE_SPRING_SLACK_M],atol=1e-6,rtol=0)
+                roll=mujoco.mj_name2id(body,mujoco.mjtObj.mjOBJ_JOINT,
+                                       f'{side}_shin_flex_roll')
+                assert roll >= 0
+                np.testing.assert_allclose(body.jnt_stiffness[roll],
+                      row['shin_flex_stiffness_nm_rad'],atol=1e-5,rtol=0)
+                np.testing.assert_allclose(body.dof_armature[
+                    body.jnt_dofadr[flex]],0.,atol=1e-8,rtol=0)
+                np.testing.assert_allclose(body.dof_armature[
+                    body.jnt_dofadr[roll]],0.,atol=1e-8,rtol=0)
+                assert body.geom_size[mujoco.mj_name2id(
+                    body,mujoco.mjtObj.mjOBJ_GEOM,
+                    f'{side}_shin_upper'),0] == .001
+            else:
+                np.testing.assert_allclose(state.ten_length[ti],
+                    .060*(2**-.5),atol=1e-5,rtol=0)
+        foot_radius=(CARBON_FOOT_RADIUS_M if carbon else FOOT_RADIUS_M)
         np.testing.assert_allclose(
-            foot_heights,[FOOT_RADIUS_M]*2,atol=2e-5,rtol=0)
+            foot_heights,[foot_radius]*2,atol=2e-5,rtol=0)
         assert all(t>0 for t in knee_loads)
         np.testing.assert_allclose(knee_loads[0],knee_loads[1],
                                    atol=1e-5,rtol=0)
         k=float(row['knee_strut_k_n_m'])
-        expected=k*.060*(1.-2**-.5)*.030*(2**-.5)
+        if carbon:
+            # Analytic derivative of the tensile cable length at neutral:
+            # thigh 30mm anchor, shin 40mm tail, 50mm cable, 24mm lever.
+            assert k == CARBON_KNEE_SPRING_N_M
+            expected=k*(.050-CARBON_KNEE_SPRING_SLACK_M)*.024
+            assert expected > 0
+        else:
+            expected=k*.060*(1.-2**-.5)*.030*(2**-.5)
         np.testing.assert_allclose(knee_loads,[expected]*2,
-                                   atol=.01,rtol=.02)
+                                   atol=.01,rtol=.04 if carbon else .02)
         rated=SERVO_RATED_CONTINUOUS_TORQUE_NM
         np.testing.assert_allclose(body.actuator_forcerange,
              np.tile([-rated,rated],(6,1)),
              atol=1e-6,rtol=0)
         assert np.all(body.actuator_forcelimited == 1)
+        if carbon:
+            # Physical 40cm carbon model: feet are diameter 10mm; mass is
+            # an itemized 478g proxy, not the old 562g thick-rod estimate.
+            np.testing.assert_allclose(row['mass_kg'],.47828,
+                                       atol=.00002,rtol=0)
+            np.testing.assert_allclose(row['shin_flex_stiffness_nm_rad'],
+                                       .0632689,atol=.00001,rtol=0)
+            np.testing.assert_allclose(row['shin_flex_damping_nms_rad'],
+                                       .00059985,atol=1e-6,rtol=0)
+            # The new cable must do NO pushing when shorter than slack.
+            for side_name in ('r','l'):
+                tid=mujoco.mj_name2id(body,mujoco.mjtObj.mjOBJ_TENDON,
+                                        f'{side_name}_knee_support')
+                assert body.tendon_lengthspring[tid,0]==0.0
         # REAL MuJoCo stress: command every servo to both extreme targets.
         # The delivered actuator and 1:1 generalized forces must NOT exceed
         # 10 kgf.cm, regardless of how unreasonable the requested position is.
