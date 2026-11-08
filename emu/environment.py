@@ -1413,6 +1413,17 @@ class EmuMJXEnv(TaskSampler):
         self.act_joint_range = jnp.asarray(self.ids['act_joint_range'], dtype=jnp.float32)
         self.shin_qpos = jnp.asarray(self.ids['shin_qpos'], dtype=jnp.int32)
         self.shin_qvel = jnp.asarray(self.ids['shin_qvel'], dtype=jnp.int32)
+        flex_names=('r_shin_flex','l_shin_flex')
+        if mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_JOINT,
+                             'r_shin_flex_roll')>=0:
+            flex_names+=('r_shin_flex_roll','l_shin_flex_roll')
+        flex_ids=[mujoco.mj_name2id(self.mj_model,
+                    mujoco.mjtObj.mjOBJ_JOINT,name) for name in flex_names]
+        self.shin_all_qpos=jnp.asarray(
+            np.asarray(self.mj_model.jnt_qposadr)[flex_ids],dtype=jnp.int32)
+        self.shin_all_limit_rad=jnp.asarray(
+            np.max(np.abs(np.asarray(self.mj_model.jnt_range)[flex_ids]),axis=1),
+            dtype=jnp.float32)
         self.env_index = jnp.arange(self.num_envs, dtype=jnp.float32)
         self.foot_bodies = jnp.asarray(self.ids['feet_bodies'], dtype=jnp.int32)
         self.bad_bodies = jnp.asarray(self.ids['bad_bodies'], dtype=jnp.int32)
@@ -3611,6 +3622,12 @@ class EmuMJXEnv(TaskSampler):
                 bad_contact,jnp.where(virtual_strike,.80,0.))
         swing_clearance = jnp.maximum(0.0, jnp.max(foot_clearance, axis=1))
         q = data.qpos[:, self.act_qpos]
+        # IMPORTANT: ±25deg carbon hinge limits are provisional. A policy
+        # leaning on those numerical stops is not hardware-feasible walking.
+        shin_angles=jnp.abs(data.qpos[:,self.shin_all_qpos])
+        shin_near_stop=jnp.any(
+            shin_angles >= .90*self.shin_all_limit_rad[None,:],axis=1
+        ).astype(jnp.float32)
         joint_pressure = jnp.mean(jnp.maximum(0.0, jnp.abs(q - self.home_target) / (self.target_span * 1.20) - 0.72), axis=1)
         scissor = jnp.maximum(0.0, jnp.abs(q[:, 0] - q[:, 3]) - 0.62)
         action_delta = jnp.linalg.norm(action - prev_action, axis=1)
@@ -3710,6 +3727,7 @@ class EmuMJXEnv(TaskSampler):
             'fall_roll_rate': fall_roll_rate.astype(jnp.float32),
             'fall_pitch_rate': fall_pitch_rate.astype(jnp.float32),
             'fall_virtual_contact':virtual_hard.astype(jnp.float32),
+            'shin_flex_near_stop':shin_near_stop,
             'virtual_nonfoot_strike':virtual_strike.astype(jnp.float32),
             'virtual_nonfoot_clearance_m':virtual_clearance,
             'regime_steady': (task[:, T.regime] < 0.5).astype(jnp.float32),
