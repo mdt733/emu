@@ -119,7 +119,8 @@ research branches, and source-pinned experiments; main remains frozen.
   silently resuming old v5057 checkpoints.
 * `research/v5059-40cm-carbon-leg-physical-design`: child
   of v5058, **implemented h40_carbon2** model + real physical tests,
-  proposal and this handover. NO GPU run has been attempted on it.
+  proposal and this handover. User completed a 20M GPU cold start,
+  but it fell 100% of final-window episodes; see v5060 failure note.
 
 ## Implemented 40cm research model (v5059)
 
@@ -153,49 +154,16 @@ physical measurement, and start a new source-pinned lineage):
 The *old* heavy/rigid `h40` physical summary below is historical; it
 does not describe the new profile.
 
-### WSL run and cold-start gate
+### WSL status: 20M run FINISHED, failed to stand
 
-```bash
-cd ~/emu &&
-git fetch origin \
-  '+refs/heads/research/v5059-40cm-carbon-leg-physical-design:refs/remotes/origin/research/v5059-40cm-carbon-leg-physical-design' &&
-git worktree add --detach ~/emu-v5059-carbon \
-  refs/remotes/origin/research/v5059-40cm-carbon-leg-physical-design &&
-cd ~/emu-v5059-carbon &&
-test -f emu/physical_variants.py &&
-git rev-parse --short HEAD
-```
+The previous 20M cold-start recipe was run by the user; **do not
+run it again or overwrite its original source identity**. It
+suffered 100% falls and is archived at
+`$HOME/emu-data/runs/v5059-carbon-physical/h40_carbon2-s735`.
 
-```bash
-(
-  set -e
-  cd ~/emu-v5059-carbon
-  source ~/emu/.venv/bin/activate
-  export PYTHONPATH="$PWD"
-  export EMU_PHYSICAL_PROFILE=h40_carbon2
-  export XLA_PYTHON_CLIENT_PREALLOCATE=false
-
-  # Actual generated geometry, mass, torque, spring and left/right checks.
-  python -m pytest -q tests/test_core_physics.py
-  python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
-
-  # GPU physical & PPO gate (requires user's RTX 4060Ti).
-  python scripts/smoke_gpu_carpet.py \
-    --device cuda --worlds 2048 --frames 2 --ppo \
-    --full-update --benchmark-updates 3 --prisms \
-    --solver-iterations 2 --solver-ls-iterations 4
-
-  # Fresh independent 20M carbon-model cold start, no old checkpoint.
-  python scripts/v5057_physical_tournament.py \
-    --root "$HOME/emu-data/runs/v5059-carbon-physical" \
-    --profiles h40_carbon2 --seeds 735 --execute
-)
-```
-
-**Important:** GPU smoke and 20M training are not run/verified here.
-The first 20M run is a **gate**, not evidence of an already capable
-robot. If fall rate stays high, investigate actual shin hinge stop
-occupancy and spring geometry before lengthening the run.
+Use the **v5060 zero-GPU report extraction** documented at the TOP
+of this handover before any spring/stiffness adjustments. It
+reads old `metrics.csv` and rewrites only the summary report.
 
 ## Uncertainty and next engineering refinements
 
@@ -232,12 +200,11 @@ weakened or changed**.
 The CUDA timer warning about delayed warmup and optional missing
 Warp modules are not the cause of this abort.
 
-**Next:** fetch the latest v5059 branch into the *existing*
-`~/emu-v5059-carbon` detached worktree (do not `git worktree
-add` again), then rerun the same CUDA smoke. Only if that passes,
-allow the fresh h40_carbon2 20M independent cold start. Do not
-claim 2048-world acceptance or learned walking from the
-aborted test.
+**Status now:** that initial recycler smoke abort was corrected,
+and the user later ran a complete independent 20M cold start.
+However, the robot failed 100% of episodes and did not learn
+standing. **Do not repeat the old 20M training launch.** See
+v5060 diagnostics at the top of this file.
 
 ## User's physical leg design (see user sketch and CAD in chat)
 
