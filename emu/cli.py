@@ -5,8 +5,10 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from .contracts import VERSION, seed_root, run_base
-from .doctor import doctor
+# The browser sensor lab is a CPU-only calibration instrument. Keep the
+# public CLI importable without NumPy/JAX/MuJoCo; training dependencies are
+# loaded only by the commands that actually require them.
+VERSION = (Path(__file__).resolve().parent / 'VERSION').read_text(encoding='utf-8').strip()
 
 
 def main(argv=None) -> int:
@@ -155,8 +157,11 @@ def main(argv=None) -> int:
     q=sub.add_parser('viewer',help='serve the local-browser MuJoCo viewer'); q.add_argument('policy',nargs='?',default=''); q.add_argument('--port',type=int,default=8765); q.add_argument('--no-open',action='store_true'); q.add_argument('--sensor-lab',action='store_true',help='CPU-only 40cm h40 + 4x1m eight-prism sensor aiming laboratory (no learned actor)'); q.add_argument('--live',action='store_true',help='watch newest validated checkpoint from a training lineage'); q.add_argument('--root',default='',help='experiment run root to watch')
 
     args=p.parse_args(argv)
-    if args.cmd=='doctor': return doctor(args)
+    if args.cmd=='doctor':
+        from .doctor import doctor
+        return doctor(args)
     if args.cmd=='view':
+        from .contracts import seed_root, run_base
         from .capability_viewer import field_main as view
         av=['--port',str(args.port)]
         if args.run_dir: av += ['--run-dir',args.run_dir]
@@ -165,6 +170,7 @@ def main(argv=None) -> int:
         else: av += ['--run-root',str(run_base())]
         return int(view(av) or 0)
     if args.cmd=='posture-report':
+        from .contracts import run_base
         from .results import posture_report
         return posture_report(Path(args.root).expanduser() if args.root else run_base())
     if args.cmd=='prism-exam':
