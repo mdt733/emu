@@ -101,6 +101,17 @@ export function depthGridRays(R,{tilt=70}={}) {
   });
 }
 
+// Geometry-only ray/sphere test for the REAL 36mm foot collision balls.
+// A painted foot image is not sensor occlusion; this uses MuJoCo geom centres.
+export function footSphereHit(origin,dir,centre,radius=.018) {
+  if(!Number.isFinite(radius)||radius<=0)return Infinity;
+  const delta=sub(origin,centre),b=dot(dir,delta);
+  const c=dot(delta,delta)-radius*radius,disc=b*b-c;
+  if(disc<0)return Infinity;
+  const root=Math.sqrt(disc),near=-b-root,far=-b+root;
+  return near>1e-6?near:far>1e-6?far:Infinity;
+}
+
 export function readDepthProbe(pose, cast, {subrays=4, noise=0, dropout=0}={}) {
   // cast() returns a first physical intersection distance or
   // {distance,kind:'self'|'terrain'}; no hidden surface-height lookup.

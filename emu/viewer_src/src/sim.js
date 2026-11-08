@@ -3,7 +3,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
-import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe, terrainActorRays } from './sensor.js';
+import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe, footSphereHit, terrainActorRays } from './sensor.js';
 import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredAttitude, sampleShove, expectedShoveRate } from './sim-math.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
 import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient } from './terrain.js';
@@ -1515,6 +1515,9 @@ export class EmuBrowserSim {
     const origin=new THREE.Vector3(...pose.origin);
     const direction=new THREE.Vector3();
     const n=this.depthConfig.subrays;
+    const footCentres=this.footGeomIds.map(id=>({
+      centre:Array.from(this.data.geom_xpos.slice(3*id,3*id+3)),
+      radius:Number(this.model.geom_size[3*id])}));
     // Auto protects the large hfield mesh from 64 costly triangle casts.
     // Selecting 4 or 5 overrides this and shows the actual cost.
     const sampleCount=n==='auto'?(['park','carpet'].includes(this.terrainMode)?1:4):n;
@@ -1522,6 +1525,11 @@ export class EmuBrowserSim {
       raycaster.set(origin,direction.set(...dir).normalize());
       raycaster.far=maxRange;
       const hit=raycaster.intersectObjects(targets,false)[0];
+      let foot=Infinity;
+      for(const part of footCentres)
+        foot=Math.min(foot,footSphereHit(start,dir,part.centre,part.radius));
+      if(foot<Math.min(hit?.distance??Infinity,maxRange)+1e-4)
+        return {distance:foot,kind:'foot',surface:'physical 36mm foot sphere'};
       return hit?{distance:hit.distance,
         kind:hit.object.userData.footGeom?'foot':
           hit.object.userData.robotPart?'self':'terrain',
