@@ -27,6 +27,9 @@
   Actuators:
     Six Feetech ST-3215-C018 at 12V (6x 55g) use rated 0.980665 N.m,
     peak-stall ±2.941995 N.m and no-load 0.222s/60deg (4.717 rad/s).
+    The six position actuators are HARD-LIMITED to ±0.980665 N.m at
+    the actual MuJoCo/MJX force output, not the 2.941995 N.m stall rating.
+    Stall torque is a data-sheet peak rating, NOT an allowed PPO force.
     A passive viscous damping coefficient of 0.624 is retained as the
     previous SIMPLIFIED motor speed/load proxy; it is NOT a true servo
     velocity-dependent electrical torque limit and damps even unpowered.
@@ -156,11 +159,14 @@
     Manufacturer A/0: stall 30 kgf.cm = 2.941995 N.m, rated 10 kgf.cm
     = 0.980665 N.m, no-load 0.222s/60deg = 4.717 rad/s (45RPM),
     stall 2.7 A per motor, 55g each. DO NOT supply 12V to old C001.
-    Simple position/forcerange + joint damping is NOT a thermally or
-    electrically faithful torque-speed servo model. Measure speed,
+    HARD position-actuator forcerange enforces rated torque at ALL times;
+    it does NOT independently enforce a calibrated velocity-dependent
+    electrical torque-speed envelope or thermal duty limits. Measure speed,
     torque and current before treating this as validated sim2real.
     The 0.624 N.m.s/rad damping is a heuristic (stall / no-load speed)
-    that *also* damps without active drive; report separately.
+    that *also* damps without active drive, and can supply physically
+    unrealistic passive braking. Do not treat it as actuator torque;
+    report it separately and replace only after hardware measurement.
   -->
   <tendon>
     <!-- Site separation 18..60mm as knee folds -55..+90deg; compression
@@ -180,17 +186,17 @@
   </tendon>
   <actuator>
     <position name="r_hip_roll"  joint="r_hip_roll"
-              kp="10" ctrlrange="-25 25"  forcerange="-2.941995 2.941995" />
+              kp="10" ctrlrange="-25 25"  forcelimited="true" forcerange="-0.980665 0.980665" />
     <position name="r_hip_pitch" joint="r_hip_pitch"
-              kp="10" ctrlrange="-50 50"  forcerange="-2.941995 2.941995" />
+              kp="10" ctrlrange="-50 50"  forcelimited="true" forcerange="-0.980665 0.980665" />
     <position name="r_knee"      joint="r_knee"
-              kp="10" ctrlrange="-55 95"  forcerange="-2.941995 2.941995" />
+              kp="10" ctrlrange="-55 95"  forcelimited="true" forcerange="-0.980665 0.980665" />
     <position name="l_hip_roll"  joint="l_hip_roll"
-              kp="10" ctrlrange="-25 25"  forcerange="-2.941995 2.941995" />
+              kp="10" ctrlrange="-25 25"  forcelimited="true" forcerange="-0.980665 0.980665" />
     <position name="l_hip_pitch" joint="l_hip_pitch"
-              kp="10" ctrlrange="-50 50"  forcerange="-2.941995 2.941995" />
+              kp="10" ctrlrange="-50 50"  forcelimited="true" forcerange="-0.980665 0.980665" />
     <position name="l_knee"      joint="l_knee"
-              kp="10" ctrlrange="-55 95"  forcerange="-2.941995 2.941995" />
+              kp="10" ctrlrange="-55 95"  forcelimited="true" forcerange="-0.980665 0.980665" />
   </actuator>
 
   <!-- Thigh and shin rods are non-contacting in the fast seed model; feet are
