@@ -134,7 +134,7 @@ export class EmuBrowserSim {
     this.sensorObstacle = 'flat';
     this.surfaceSlopeDegrees=3;
     this.surfaceStepHeightCm=2;
-    this.depthConfig = {enabled:true,forward:0,height:-.040,tilt:70,showRays:true,showActorRays:true,showFootprint:true,subrays:'auto'};
+    this.depthConfig = {enabled:true,forward:0,lateral:0,height:-.040,tilt:70,yaw:0,showRays:true,showActorRays:true,showFootprint:true,subrays:'auto'};
     this.depthReading = null;
     this.depthLastMs = 0;
     this.depthRaycaster = new THREE.Raycaster();
@@ -545,12 +545,14 @@ export class EmuBrowserSim {
     this.surfaceStepHeightCm=stepHeightCm;
     if(this.terrainMode==='sensor')this.loadModel();
   }
-  setDepthInspector({enabled,forward,tilt,height=-.040,showRays,showActorRays=true,showFootprint=true,subrays='auto'}) {
-    const values={enabled:Boolean(enabled),forward:Number(forward),height:Number(height),tilt:Number(tilt),
+  setDepthInspector({enabled,forward,lateral=0,tilt,yaw=0,height=-.040,showRays,showActorRays=true,showFootprint=true,subrays='auto'}) {
+    const values={enabled:Boolean(enabled),forward:Number(forward),lateral:Number(lateral),height:Number(height),tilt:Number(tilt),yaw:Number(yaw),
       showRays:Boolean(showRays),showActorRays:Boolean(showActorRays),showFootprint:Boolean(showFootprint),subrays};
     if(!['auto',1,4,5].includes(subrays))throw new Error('Depth samples must be auto, 1, 4 or 5');
     // Validation lives with one optical mounting model, not a policy contract.
     if(!Number.isFinite(values.height)||values.height<-.12||values.height>.10||
+       !Number.isFinite(values.lateral)||Math.abs(values.lateral)>.12||
+       !Number.isFinite(values.yaw)||Math.abs(values.yaw)>30||
        values.forward<0||values.forward>.2||values.tilt<0||values.tilt>90)
       throw new Error('Invalid depth mount');
     this.depthConfig=values;

@@ -46,7 +46,8 @@ let carpetFetching=false;
 let carpetLastAppliedSignature='';
 let discoverCarpetFromLive=false;
 const depthOn=$('depthOn'),depthTilt=$('depthTilt'),depthActorRays=$('depthActorRays');
-const depthMount=$('depthMount'),depthHeight=$('depthHeight'),depthRays=$('depthRays'),depthSamples=$('depthSamples'),depthFootprint=$('depthFootprint');
+const depthMount=$('depthMount'),depthHeight=$('depthHeight'),
+      depthLateral=$('depthLateral'),depthYaw=$('depthYaw'),depthRays=$('depthRays'),depthSamples=$('depthSamples'),depthFootprint=$('depthFootprint');
 const depthView=$('depthView');
 const depthCells=Array.from({length:16},()=>{
   const cell=document.createElement('span');
@@ -751,16 +752,27 @@ function updateDepthSettings(){
   $('depthTiltOut').textContent=depthTilt.value+'°';
   $('depthMountOut').textContent=depthMount.value+' mm';
   $('depthHeightOut').textContent=(Number(depthHeight.value)>=0?'+':'')+depthHeight.value+' mm';
+  $('depthLateralOut').textContent=(Number(depthLateral.value)>=0?'+':'')+depthLateral.value+' mm';
+  $('depthYawOut').textContent=(Number(depthYaw.value)>=0?'+':'')+depthYaw.value+'°';
   if(sim)sim.setDepthInspector({
     enabled:depthOn.checked,tilt:Number(depthTilt.value),
-    forward:Number(depthMount.value)/1000,height:Number(depthHeight.value)/1000,showRays:depthRays.checked,
+    forward:Number(depthMount.value)/1000,lateral:Number(depthLateral.value)/1000,
+    height:Number(depthHeight.value)/1000,yaw:Number(depthYaw.value),
+    showRays:depthRays.checked,
     showActorRays:depthActorRays.checked,
     showFootprint:depthFootprint.checked,
     subrays:depthSamples.value==='auto'?'auto':Number(depthSamples.value),
   });
 }
-for(const input of [depthOn,depthTilt,depthMount,depthHeight,depthRays,depthActorRays,depthFootprint,depthSamples])
+for(const input of [depthOn,depthTilt,depthMount,depthHeight,depthLateral,depthYaw,depthRays,depthActorRays,depthFootprint,depthSamples])
   input.addEventListener('input',updateDepthSettings);
+$('depthFootPreset').addEventListener('click',()=>{
+  depthTilt.value='75';depthMount.value='0';depthHeight.value='45';
+  depthLateral.value='0';depthYaw.value='0';
+  depthSamples.value='5';
+  depthOn.checked=true;
+  updateDepthSettings();
+});
 depthView.addEventListener('change',updateDepthGrid);
 $('depthCopy').addEventListener('click',async()=>{
   const reading=sim?.depthReading;
@@ -774,6 +786,8 @@ $('depthCopy').addEventListener('click',async()=>{
     tilt_down_deg:Number(depthTilt.value),
     mount_forward_mm:Number(depthMount.value),
     mount_vertical_mm:Number(depthHeight.value),
+    mount_lateral_mm:Number(depthLateral.value),
+    mount_yaw_deg:Number(depthYaw.value),
     valid_forward_reach_cm:reading.reachNearM==null?null:[
       Number((reading.reachNearM*100).toFixed(1)), Number((reading.reachFarM*100).toFixed(1))],
     depth_sample_rays:reading.subrays*16,
@@ -1166,6 +1180,7 @@ async function startViewerFeed() {
             carpetShoves.checked=false;
             depthOn.checked=true;depthTilt.value='75';
             depthMount.value='0';depthHeight.value='45';
+            depthLateral.value='0';depthYaw.value='0';
             depthSamples.value='5';
             depthActorRays.checked=true;
             depthRays.checked=true;

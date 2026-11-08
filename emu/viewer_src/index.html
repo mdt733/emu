@@ -185,6 +185,11 @@
         <input id="depthMount" type="range" min="0" max="180" value="0" step="5"/></label>
       <label class="depth-row">Vertical mount vs torso <output id="depthHeightOut">−40 mm</output>
         <input id="depthHeight" type="range" min="-120" max="100" value="-40" step="5"/></label>
+      <label class="depth-row">Sideways mount <output id="depthLateralOut">+0 mm</output>
+        <input id="depthLateral" type="range" min="-120" max="120" value="0" step="5"/></label>
+      <label class="depth-row">Yaw aiming <output id="depthYawOut">+0°</output>
+        <input id="depthYaw" type="range" min="-30" max="30" value="0" step="1"/></label>
+      <button id="depthFootPreset" class="depth-copy" type="button">Frame feet (bottom middle zones)</button>
       <label class="depth-row">Ray samples per zone
         <select id="depthSamples">
           <option value="auto" selected>Auto · current Field / Carpet</option>

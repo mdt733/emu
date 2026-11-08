@@ -49,7 +49,7 @@ export const DEPTH_MAX_M = 1.5;
 const DEPTH_HALF = Math.tan(DEPTH_FOV_DEG*Math.PI/360);
 const DEPTH_OFFSETS = [[0,0],[-1,-1],[-1,1],[1,-1],[1,1]];
 
-function opticalRay(R, tilt, u, v) {
+function opticalRay(R, tilt, u, v, yaw=0) {
   const t=tilt*Math.PI/180, c=Math.cos(t), s=Math.sin(t);
   // The sensor looks forward (+X) until pitched down towards -Z.
   // Its horizontal image axis is body Y; vertical image axis is the
@@ -57,21 +57,25 @@ function opticalRay(R, tilt, u, v) {
   // square on horizontal flat ground, not a degenerate V/line.
   const length=1/Math.hypot(1,u,v);
   const x=(c+s*v)*length, y=u*length, z=(-s+c*v)*length;
+  const a=yaw*Math.PI/180,ca=Math.cos(a),sa=Math.sin(a);
+  const fx=x*ca-y*sa,fy=x*sa+y*ca;
   return [
-    R[0]*x+R[1]*y+R[2]*z,
-    R[3]*x+R[4]*y+R[5]*z,
-    R[6]*x+R[7]*y+R[8]*z,
+    R[0]*fx+R[1]*fy+R[2]*z,
+    R[3]*fx+R[4]*fy+R[5]*z,
+    R[6]*fx+R[7]*fy+R[8]*z,
   ];
 }
 
-export function depthProbeRays(torso, R, {forward=0, tilt=70, height=-.040}={}) {
-  if (![forward,tilt,height].every(Number.isFinite) || forward<0 ||
-      forward>.20 || tilt<0 || tilt>90)
-    throw new Error('Depth mount must be forward 0–200 mm, tilt 0–90°');
+export function depthProbeRays(torso, R,
+  {forward=0,lateral=0,tilt=70,yaw=0,height=-.040}={}) {
+  if (![forward,lateral,tilt,yaw,height].every(Number.isFinite) ||
+      forward<0||forward>.20||Math.abs(lateral)>.12||
+      tilt<0||tilt>90||Math.abs(yaw)>30)
+    throw new Error('Depth mount requires forward 0–200mm, lateral ±120mm, tilt 0–90°, yaw ±30°');
   const mounted=[
-    R[0]*forward+R[1]*0+R[2]*height,
-    R[3]*forward+R[4]*0+R[5]*height,
-    R[6]*forward+R[7]*0+R[8]*height,
+    R[0]*forward+R[1]*lateral+R[2]*height,
+    R[3]*forward+R[4]*lateral+R[5]*height,
+    R[6]*forward+R[7]*lateral+R[8]*height,
   ];
   const origin=torso.map((v,i)=>v+mounted[i]);
   const directions=[];
@@ -81,7 +85,7 @@ export function depthProbeRays(torso, R, {forward=0, tilt=70, height=-.040}={}) 
     const v=(1.5-row)*DEPTH_HALF/2;
     for(const [offU,offV] of DEPTH_OFFSETS)
       zone.push(opticalRay(R,tilt,u+offU*DEPTH_HALF/8,
-                          v+offV*DEPTH_HALF/8));
+                          v+offV*DEPTH_HALF/8,yaw));
     directions.push(zone);
   }
   return {origin,directions};
@@ -90,14 +94,15 @@ export function depthProbeRays(torso, R, {forward=0, tilt=70, height=-.040}={}) 
 // Five-by-five BEAM BOUNDARIES outline the true square 4x4 zone footprint.
 // On uneven ground the viewer casts each boundary ray onto actual geoms;
 // edges with no real hit are left open, never drawn as imaginary surfaces.
-export function depthGridRays(R,{tilt=70}={}) {
-  if(!Number.isFinite(tilt)||tilt<0||tilt>90)
+export function depthGridRays(R,{tilt=70,yaw=0}={}) {
+  if(!Number.isFinite(tilt)||tilt<0||tilt>90||
+     !Number.isFinite(yaw)||Math.abs(yaw)>30)
     throw new Error('Depth grid tilt must be 0–90°');
   return Array.from({length:25},(_,i)=>{
     const row=Math.floor(i/5),col=i%5;
     const u=(col/2-1)*DEPTH_HALF;
     const v=(1-row/2)*DEPTH_HALF;
-    return opticalRay(R,tilt,u,v);
+    return opticalRay(R,tilt,u,v,yaw);
   });
 }
 
