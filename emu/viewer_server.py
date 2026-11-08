@@ -195,6 +195,10 @@ def read_terrain_training_snapshot(root: Path) -> dict:
         if not isinstance(meta,dict):meta={}
     except (OSError,ValueError):
         meta={}
+    if not (cfg.get('terrain_carpet') and cfg.get('terrain_carpet_prisms')):
+        raise ValueError(
+            'Current viewer only accepts real 2x2 / eight-prism MJX sources. '
+            'Open historical box-terrain runs from their own source revision.')
     return {
         'schema':'emu_terrain_live_v1',
         'training_step':int(float(row['step'])),
@@ -215,20 +219,12 @@ def read_terrain_training_snapshot(root: Path) -> dict:
             'push_max_force_n':cfg.get('push_max_force_n',0.35),
         },
         'source_sha':(meta.get('source_provenance') or {}).get('git_commit'),
-        'physics_mode':(
-            '8 convex triangular-prism MJX collisions (four 75cm tiles) / illustrative browser nine-box terrain'
-            if cfg.get('terrain_carpet_prisms',False) else
-            'nine-solid-box trainer / browser representative nine-solid-box world'
-            if cfg.get('terrain_carpet',False) else
-            'older training topology / browser illustrative terrain'),
-        'warnings':([
-            'Browser is illustrative, not the 8 actual per-world MJX convex-prism'
-            ' colliders, normals, seeded tiles or changing training birth states.'
-        ] if cfg.get('terrain_carpet_prisms',False) else [
-            'Browser matches the nine-solid-box collision TYPE but not the exact per-world'
-            ' seeded MJX tile arrangement, domain randomisation or training birth states.'
-        ]) + [
-            'Snapshot frontiers are curriculum targets, not independent skill proofs.',
+        'physics_mode':'8 convex triangular-prism MJX collisions '
+                       '(four 75cm tiles); browser terrain is illustrative nine boxes',
+        'warnings':[
+            'Browser nine-box terrain is illustrative, not the 8 actual MJX '
+            'convex-prism colliders, normals, tiles or terrain recycler.',
+            'Curriculum frontiers are teaching targets, not measured capability.'
         ]
     }
 
