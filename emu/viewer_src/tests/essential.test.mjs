@@ -6,6 +6,7 @@ import {parsePolicy} from '../src/policy.js';
 import * as depthLabSensor from '../src/sensor.js';
 import {joystickToCommands,nextYawCommand} from '../src/controls.js';
 import {createSolidCarpet} from '../src/training-solid-carpet.js';
+import {createSensorLabCarpet,sensorLabPrismVertices,sensorLabPrismXml} from '../src/sensor-lab-carpet.js';
 import {withTerrain,solidCarpetXml} from '../src/terrain.js';
 import {trainingLimits} from '../src/training-carpet.js';
 
@@ -183,4 +184,44 @@ test('h40 actor backward rows are exposed beside a 45-degree VL53L8CX preview',(
   assert.equal(depthLabSensor.DEPTH_FOV_DEG,45);
   const lower=depthLabSensor.depthProbeRays([0,0,.4],R,{tilt:70,forward:0,height:-.04});
   assert.ok(Math.abs(lower.origin[2]-.36)<1e-8,'physical mount height is adjustable');
+});
+
+test('sensor lab is a fixed physical 2x2 grid: four 1m tiles, eight real triangular-prism meshes',()=>{
+  const park=createSensorLabCarpet({slopeDeg:0,stepUpM:0,stepDownM:0});
+  assert.equal(park.tiles.length,4);
+  assert.equal(park.tileSizeM,1);
+  assert.equal(park.sampleHeight(.5,.5),0);
+  assert.ok(Number.isNaN(park.sampleHeight(2.5,.5)),'outside fixture is void');
+  const prisms=sensorLabPrismVertices(park);
+  assert.equal(prisms.length,8);
+  assert.ok(prisms.every(p=>p.local.length===6));
+  const xml=sensorLabPrismXml(park);
+  assert.equal((xml.assets.match(/<mesh /g)||[]).length,8);
+  assert.equal((xml.bodies.match(/type="mesh"/g)||[]).length,8);
+  assert.equal((xml.bodies.match(/mocap="true"/g)||[]).length,8);
+  const base='<mujoco><worldbody><geom name="floor" type="plane" size="5 5 .05"/></worldbody></mujoco>';
+  const scene=withTerrain(base,'carpet',{park});
+  assert.equal((scene.match(/type="mesh"/g)||[]).length,8);
+  assert.doesNotMatch(scene,/name="floor"/);
+  assert.doesNotMatch(scene,/viewer_carpet_solid_/);
+});
+
+test('h40 VL53L8CX preview detects lower inner two physical foot spheres but not outer ground zones',()=>{
+  const R=[1,0,0,0,1,0,0,0,1];
+  const pose=depthLabSensor.depthProbeRays([0,0,.4],R,
+    {tilt:75,forward:0,height:.045});
+  const feet=[[0,-.08,.018],[0,.08,.018]];
+  const scan=depthLabSensor.readDepthProbe(pose,(origin,ray,max)=>{
+    const ground=ray[2]<0?-origin[2]/ray[2]:Infinity;
+    const foot=Math.min(...feet.map(centre=>
+      depthLabSensor.footSphereHit(origin,ray,centre,.018)));
+    if(foot<ground&&foot<=max)
+      return {distance:foot,kind:'foot',surface:'foot'};
+    return ground>0&&ground<=max
+      ?{distance:ground,kind:'terrain',surface:'flat'}:Infinity;
+  },{subrays:5});
+  assert.deepEqual(scan.footOccluded.slice(12),[false,true,true,false]);
+  assert.deepEqual(scan.footHitCounts.slice(12),[0,1,1,0]);
+  assert.ok(scan.valid[12]&&scan.valid[15],
+    'bottom corner zones retain real ground measurements');
 });
