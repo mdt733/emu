@@ -360,14 +360,15 @@ def servo_effort_metrics(xp, torque_nm, joint_rate_rad_s, actuator_limit_nm):
 def joint_spring_energy(xp, joint_position_rad, spring_ref_rad, stiffness_nm_rad):
     """Stored elastic potential: sum(0.5 * stiffness * (q - springref)^2).
 
-    Includes six driven hinge springs and both passive shin-flex springs.
+    Includes six driven hinge springs and both passive shin-flex springs,
+    plus the extra two lateral carbon-flex axes when the v5059 body is used.
     This is a *state* in joules, not a net transfer from springs to motion.
     For the nominal XML model, stiffness is not domain-randomised.
     """
     energy = 0.5 * stiffness_nm_rad * (joint_position_rad - spring_ref_rad) ** 2
     return {
         'spring_potential_energy_j': xp.sum(energy, axis=1),
-        'shin_spring_energy_j': xp.sum(energy[:, -2:], axis=1),
+        'shin_spring_energy_j': xp.sum(energy[:, 6:], axis=1),
     }
 
 
@@ -1225,12 +1226,18 @@ class EmuMJXEnv(TaskSampler):
                for g in self.carpet_prism_geom_ids):
             raise RuntimeError('Prisms must be physical bit-4 colliders')
         validate_prism_only_geoms(self.mujoco, self.mj_model)
-        # Only two 18mm ball feet may produce real terrain contact in
+        # Only two spherical feet may produce real terrain contact in
         # the reduced solver. The torso still has its physical mass/inertia,
         # but non-foot ground strikes are diagnosed geometrically below.
         torso_geom=mujoco.mj_name2id(
             self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,'torso_box')
         self.torso_geom=torso_geom
+        self.foot_radius_m = float(self.mj_model.geom_size[
+            mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,
+                               'r_foot_ball'),0])
+        self.rod_radius_m = float(self.mj_model.geom_size[
+            mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_GEOM,
+                               'r_shin_upper'),0])
         self.torso_half_extents=jnp.asarray(
             self.mj_model.geom_size[torso_geom,:3],dtype=jnp.float32)
         self.shin_lower_bodies=jnp.asarray([
@@ -1361,9 +1368,12 @@ class EmuMJXEnv(TaskSampler):
         # Per-world domain randomization can weaken, never exceed rated.
         self.servo_actuator_torque_limit_nm = jnp.max(
             jnp.abs(self.mjx_model.actuator_forcerange), axis=-1)
-        # The six actuated hinge springs and two passive shin-flex springs.
-        # MuJoCo exposes each hinge's spring reference via qpos_spring.
+        # Motor and passive rod springs: the carbon version additionally
+        # bends laterally at the shin midpoint (without new actor channels).
         spring_names = (*ACTUATED_JOINTS, 'r_shin_flex', 'l_shin_flex')
+        if mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_JOINT,
+                             'r_shin_flex_roll') >= 0:
+            spring_names += ('r_shin_flex_roll','l_shin_flex_roll')
         joints = [mujoco.mj_name2id(self.mj_model, mujoco.mjtObj.mjOBJ_JOINT, name)
                   for name in spring_names]
         if any(j < 0 for j in joints):
@@ -1388,9 +1398,18 @@ class EmuMJXEnv(TaskSampler):
         self.knee_strut_k = jnp.asarray(
             np.asarray(self.mj_model.tendon_stiffness)[tendon_ids],
             dtype=jnp.float32)
-        self.knee_strut_rest_m = jnp.asarray(
-            np.asarray(self.mj_model.tendon_lengthspring)[tendon_ids, 0],
-            dtype=jnp.float32)
+        # MuJoCo springlength has TWO limits: for compression springs
+        # both are equal, but [0, L] defines a tension-only cable.
+        spring_limits=np.asarray(self.mj_model.tendon_lengthspring)[tendon_ids]
+        self.knee_strut_rest_m = jnp.asarray(spring_limits[:,0],dtype=jnp.float32)
+        self.knee_strut_rest_max_m = jnp.asarray(spring_limits[:,1],dtype=jnp.float32)
+        flex_joint=mujoco.mj_name2id(self.mj_model,mujoco.mjtObj.mjOBJ_JOINT,
+                                    'r_shin_flex')
+        flex_max=float(self.mj_model.jnt_range[flex_joint,1])
+        # The two existing Hall-load inputs are normalized measured bending
+        # proxies, not privileged torque. Retain historic .10rad mapping.
+        self.shin_sensor_fullscale_rad = (.10 if flex_max<=np.deg2rad(12.)
+                                         else flex_max)
         self.act_joint_range = jnp.asarray(self.ids['act_joint_range'], dtype=jnp.float32)
         self.shin_qpos = jnp.asarray(self.ids['shin_qpos'], dtype=jnp.int32)
         self.shin_qvel = jnp.asarray(self.ids['shin_qvel'], dtype=jnp.int32)
@@ -3526,11 +3545,10 @@ class EmuMJXEnv(TaskSampler):
             bad_z=signed[:,:5]
             foot_ground_distance=signed[:,5:7]
             virtual_z=signed[:,7:]
-            # The non-contacting leg rods have an 8mm physical radius.
-            # Leave an 18mm deep-penetration margin for fast stepping and
-            # steep risers before declaring an unrecoverable hardware strike.
+            # Noncontacting rods may be 8mm legacy proxies or the actual
+            # 1mm-radius carbon shafts. Only their real radius applies here.
             leg_z=jnp.concatenate(
-                (bad_z[:,3:5],virtual_z[:,1:]),axis=1)-.008
+                (bad_z[:,3:5],virtual_z[:,1:]),axis=1)-self.rod_radius_m
             virtual_clearance=jnp.minimum(
                 virtual_z[:,0],jnp.min(leg_z,axis=1))
             virtual_strike=virtual_clearance<-.005
@@ -3573,7 +3591,10 @@ class EmuMJXEnv(TaskSampler):
         attitude_quality = jnp.exp(-8.0 * (pitch_err * pitch_err + roll_err * roll_err))
         # 2. Contact, gait and fall proxies. Foot height indicates nearby
         # ground; it is NOT a verified load-bearing contact impulse.
-        foot_contacts = jnp.sum((foot_ground_distance < 0.036).astype(jnp.float32), axis=1)
+        # The contact proxy uses sole clearance, not a hard-coded 18mm
+        # sphere centre. Otherwise a 10mm foot receives fake support.
+        foot_clearance = foot_ground_distance - self.foot_radius_m
+        foot_contacts = jnp.sum((foot_clearance < .018).astype(jnp.float32), axis=1)
         support = jnp.clip(foot_contacts / 2.0, 0.0, 1.0)
         # This model has no knee/shin sentinel contact geoms, so a blunt
         # body-origin proxy alone is too strict a termination condition --
@@ -3588,7 +3609,7 @@ class EmuMJXEnv(TaskSampler):
             # the knee/thigh/torso is not permitted to produce an MJX impulse.
             bad_contact=jnp.maximum(
                 bad_contact,jnp.where(virtual_strike,.80,0.))
-        swing_clearance = jnp.maximum(0.0, jnp.max(foot_ground_distance, axis=1) - 0.018)
+        swing_clearance = jnp.maximum(0.0, jnp.max(foot_clearance, axis=1))
         q = data.qpos[:, self.act_qpos]
         joint_pressure = jnp.mean(jnp.maximum(0.0, jnp.abs(q - self.home_target) / (self.target_span * 1.20) - 0.72), axis=1)
         scissor = jnp.maximum(0.0, jnp.abs(q[:, 0] - q[:, 3]) - 0.62)
@@ -3604,14 +3625,15 @@ class EmuMJXEnv(TaskSampler):
         spring_energy = joint_spring_energy(
             jnp, data.qpos[:, self.spring_qpos],
             self.spring_reference, self.spring_stiffness)
-        # Compression only: positive force pushes sites apart. This is
-        # stored elastic energy, not electrical motor power or actuator work.
-        strut_compression = jnp.maximum(
-            0.0, self.knee_strut_rest_m -
-            jnp.take(data.ten_length, self.knee_strut_ids, axis=1))
-        strut_force = self.knee_strut_k * strut_compression
-        strut_energy = 0.5 * jnp.sum(
-            self.knee_strut_k * strut_compression**2, axis=1)
+        # Full spatial-tendon spring physics: old [L,L] is compression
+        # support, new [0,L] is a tension-only knee return cable. Account
+        # for each without crediting nonexistent slack-side spring energy.
+        tendon_length=jnp.take(data.ten_length,self.knee_strut_ids,axis=1)
+        strut_compression=jnp.maximum(0.,self.knee_strut_rest_m-tendon_length)
+        strut_extension=jnp.maximum(0.,tendon_length-self.knee_strut_rest_max_m)
+        strut_force=self.knee_strut_k*(strut_compression+strut_extension)
+        strut_energy=.5*jnp.sum(self.knee_strut_k*(
+            strut_compression**2+strut_extension**2),axis=1)
         spring_energy = {
             **spring_energy,
             'spring_potential_energy_j': (
@@ -3619,6 +3641,10 @@ class EmuMJXEnv(TaskSampler):
             'knee_strut_energy_j': strut_energy,
             'knee_strut_compression_m_right': strut_compression[:, 0],
             'knee_strut_compression_m_left': strut_compression[:, 1],
+            'knee_support_extension_m_right':strut_extension[:,0],
+            'knee_support_extension_m_left':strut_extension[:,1],
+            'knee_support_tension_force_n_right':self.knee_strut_k[0]*strut_extension[:,0],
+            'knee_support_tension_force_n_left':self.knee_strut_k[1]*strut_extension[:,1],
             'knee_strut_force_n_right': strut_force[:, 0],
             'knee_strut_force_n_left': strut_force[:, 1],
         }
@@ -3652,7 +3678,7 @@ class EmuMJXEnv(TaskSampler):
         # foot poses estimate tangential speed and only near-floor feet count.
         foot_vel_xy = (data.xpos[:, self.foot_bodies, :2] - prev_foot_pos[:, :, :2]) / CONTROL_DT
         foot_speed = jnp.linalg.norm(foot_vel_xy, axis=2)
-        stance_w = jnp.clip((0.040 - foot_ground_distance) / 0.020, 0.0, 1.0)
+        stance_w = jnp.clip((.022 - foot_clearance) / .020, 0.0, 1.0)
         stance_slip = jnp.sum(foot_speed * stance_w, axis=1) / jnp.maximum(1.0, jnp.sum(stance_w, axis=1))
         # 4. Termination conditions and estimated stepping evidence.
         fall_height = height < 0.145
@@ -3668,8 +3694,8 @@ class EmuMJXEnv(TaskSampler):
         s_phase = jnp.sin(phase)
         r_expected = jnp.maximum(0.0, s_phase)
         l_expected = jnp.maximum(0.0, -s_phase)
-        r_lift = jnp.clip((foot_ground_distance[:, 0] - 0.018) / jnp.maximum(0.008, task[:, T.step_height]), 0.0, 1.0)
-        l_lift = jnp.clip((foot_ground_distance[:, 1] - 0.018) / jnp.maximum(0.008, task[:, T.step_height]), 0.0, 1.0)
+        r_lift = jnp.clip(foot_clearance[:, 0] / jnp.maximum(.008, task[:, T.step_height]), 0.0, 1.0)
+        l_lift = jnp.clip(foot_clearance[:, 1] / jnp.maximum(.008, task[:, T.step_height]), 0.0, 1.0)
         phase_sync = jnp.clip(1.0 - 0.5 * (jnp.abs(r_lift - r_expected) + jnp.abs(l_lift - l_expected)), 0.0, 1.0)
         step_evidence = jnp.clip((jnp.maximum(r_lift, l_lift) - 0.10) / 0.55, 0.0, 1.0)
         alternating_lift = jnp.abs(r_lift - l_lift)
@@ -3762,7 +3788,7 @@ class EmuMJXEnv(TaskSampler):
         ).reshape((self.num_envs,6))
         shin_flex_est=shin_flex+ns[:,None]*.001*jnp.stack((n0,n1),axis=1)
         shin_rate_est=shin_rate+ns[:,None]*.010*jnp.stack((n1,n0),axis=1)
-        shin_load_est=jnp.clip(jnp.abs(shin_flex_est)/.10,0.,1.5)
+        shin_load_est=jnp.clip(jnp.abs(shin_flex_est)/self.shin_sensor_fullscale_rad,0.,1.5)
         sensor=self._sensor_readout(sensor_state,grav_est)
         cmd=task[:,[T.vx,T.vy,T.yaw,T.height,T.pitch,T.roll,T.step_height]]
         phases=jnp.stack((jnp.sin(phase),jnp.cos(phase)),axis=1)
