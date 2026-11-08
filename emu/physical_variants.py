@@ -287,6 +287,9 @@ def generate_xml(source_xml: str, name: str) -> str:
             bend = _get(root, f".//joint[@name='{prefix}shin_flex']")
             bend.set("stiffness",f"{info['shin_flex_stiffness_nm_rad']:.8f}")
             bend.set("damping",f"{info['shin_flex_damping_nms_rad']:.8f}")
+            # Critically, do NOT inherit the old 0.006 kg.m² generic
+            # armature on a passive carbon rod with ~0.000063 kg.m² inertia.
+            bend.set("armature","0")
             bend.set("range",f"{-CARBON_SHIN_FLEX_LIMIT_DEG:.4f} {CARBON_SHIN_FLEX_LIMIT_DEG:.4f}")
             # The real round rod can bend laterally too. This passive DOF
             # does not alter the fixed 360-input actor or six motor count.
@@ -296,7 +299,8 @@ def generate_xml(source_xml: str, name: str) -> str:
                     "axis":"1 0 0",
                     "range":f"{-CARBON_SHIN_FLEX_LIMIT_DEG:.4f} {CARBON_SHIN_FLEX_LIMIT_DEG:.4f}",
                     "stiffness":f"{info['shin_flex_stiffness_nm_rad']:.8f}",
-                    "damping":f"{info['shin_flex_damping_nms_rad']:.8f}"}))
+                    "damping":f"{info['shin_flex_damping_nms_rad']:.8f}",
+                    "armature":"0"}))
             foot_body = _get(root, f".//body[@name='{prefix}foot']")
             ball = _get(root, f".//geom[@name='{prefix}foot_ball']")
             ball.set("size",f"{CARBON_FOOT_RADIUS_M:.8f}")
