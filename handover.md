@@ -6,9 +6,11 @@ Last updated 2026-11-08 (Australia/Sydney).
 
 ## Most important status
 
-This v5059 branch is an **engineering proposal and handover**, NOT
-completed simulator physics, a tested carbon-leg system, or hardware
-validation. The user wants an *honest* 40 cm EMU that walks fast,
+This v5059 branch now contains a **real implemented experimental**
+`EMU_PHYSICAL_PROFILE=h40_carbon2` generated MuJoCo/MJX model, the
+existing tests and GPU smoke entry point. It is NOT a measured hardware
+digital twin or proof of stable 40cm training. No experimental GPU training
+has been executed by the assistant. The user wants an *honest* 40 cm EMU that walks fast,
 remains stable, can handle slopes and recovers from shoves. Multi-lip
 stairs are not the immediate priority. Keep one six-actuator model,
 360-input single actor, one JAX/MJX trainer, eight physical convex
@@ -35,8 +37,95 @@ research branches, and source-pinned experiments; main remains frozen.
   on the user's machine**. The altered physical SHA prevents
   silently resuming old v5057 checkpoints.
 * `research/v5059-40cm-carbon-leg-physical-design`: child
-  of v5058. Stores actual rod-design parameter proposal and
-  this handover. NO 200M run has been attempted on it.
+  of v5058, **implemented h40_carbon2** model + real physical tests,
+  proposal and this handover. NO GPU run has been attempted on it.
+
+## Implemented 40cm research model (v5059)
+
+New named profile: `h40_carbon2`, added to **one**
+`emu/physical_variants.py` parameter bank and content-addressed model cache.
+The older `h40` and all previous checkpoint/model SHA references remain
+intact.
+
+Provisional hardware parameters (replace these estimates on the next
+physical measurement, and start a new source-pinned lineage):
+
+| Parameter | Implementation |
+| --- | --- |
+| Neutral hip Z | 0.400m |
+| Bare rod | solid 2mm nominal, flexural modulus 30 GPa |
+| Knee-to-foot segment | 0.2793m (foot shrunk to 10mm ball diameter) |
+| Shin flex | two passive axes per leg, pitch and lateral roll |
+| Midpoint-hinge k, each axis | 0.063269 N.m/rad (cantilever tip-deflection equivalent) |
+| Shin damping, each axis | ~0.000600 N.m.s/rad (ζ=0.15, assumed distal inertia) |
+| Flex extent | ±25° **assumed modeling guard; do not credit a physical hard stop** |
+| Knee spring | tension-only spatial tendon; tail 40mm beyond knee; 30mm thigh anchor; 450N/m, 31mm slack/rest |
+| Knee spring neutral extensor torque | estimated ~0.205N.m; NOT real measured support |
+| Foot | 5mm sphere radius (10mm diameter), approx 3g ball+mount |
+| Total simulated moving mass | ~0.47828kg itemized proxy |
+| Torso | 0.420kg lump: six 55g C018 motors + 90g chassis/battery/electronics |
+| Thigh | two separate slender mass proxy geoms (one thigh, one knee-drive), NOT an exact four-bar constraint |
+| C018 force | hard rated ±0.980665N.m per motor, inherited from v5058 |
+| Actuated passive damping | 0.018 N.m.s/rad; friction 0.025 N.m; reflected armature 0.003kg.m² (all unmeasured) |
+| Sensors | 360-input actor unchanged, existing pitch-shin flex/rate/load Hall proxies; lateral passive bend is not directly observed |
+
+The *old* heavy/rigid `h40` physical summary below is historical; it
+does not describe the new profile.
+
+### WSL run and cold-start gate
+
+```bash
+cd ~/emu &&
+git fetch origin \
+  '+refs/heads/research/v5059-40cm-carbon-leg-physical-design:refs/remotes/origin/research/v5059-40cm-carbon-leg-physical-design' &&
+git worktree add --detach ~/emu-v5059-carbon \
+  refs/remotes/origin/research/v5059-40cm-carbon-leg-physical-design &&
+cd ~/emu-v5059-carbon &&
+test -f emu/physical_variants.py &&
+git rev-parse --short HEAD
+```
+
+```bash
+(
+  set -e
+  cd ~/emu-v5059-carbon
+  source ~/emu/.venv/bin/activate
+  export PYTHONPATH="$PWD"
+  export EMU_PHYSICAL_PROFILE=h40_carbon2
+  export XLA_PYTHON_CLIENT_PREALLOCATE=false
+
+  # Actual generated geometry, mass, torque, spring and left/right checks.
+  python -m pytest -q tests/test_core_physics.py
+  python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
+
+  # GPU physical & PPO gate (requires user's RTX 4060Ti).
+  python scripts/smoke_gpu_carpet.py \
+    --device cuda --worlds 2048 --frames 2 --ppo \
+    --full-update --benchmark-updates 3 --prisms \
+    --solver-iterations 2 --solver-ls-iterations 4
+
+  # Fresh independent 20M carbon-model cold start, no old checkpoint.
+  python scripts/v5057_physical_tournament.py \
+    --root "$HOME/emu-data/runs/v5059-carbon-physical" \
+    --profiles h40_carbon2 --seeds 735 --execute
+)
+```
+
+**Important:** GPU smoke and 20M training are not run/verified here.
+The first 20M run is a **gate**, not evidence of an already capable
+robot. If fall rate stays high, investigate actual shin hinge stop
+occupancy and spring geometry before lengthening the run.
+
+## Uncertainty and next engineering refinements
+
+The material grade, Hall calibration, motor electrical dynamics, 2mm rod
+end clamps, exact knee-drive four-bar, actual battery mass, rigid flex
+stops, carbon yield, and spring characteristics have not been measured.
+Current model allows **hard ±25° passive flex stops** as a numerical
+guard; if the policy leans against them, it is exploiting an unverified
+mechanism. The second upper rod is a **mass proxy** and does not transfer
+the exact four-bar forces. Update the source (not an untracked editable
+XML cache) as physical parts are measured, keeping the old run immutable.
 
 ## User's physical leg design (see user sketch and CAD in chat)
 
@@ -113,10 +202,10 @@ conversation and are **not committed in Git**.
    linkage. Inspect axial compression only if demonstrated,
    and calculate bending stress / local spring-lever moment;
    do not treat pinned Euler estimate as an observed failure.
-4. Implement one honest, mass-corrected 40cm v5059
-   physical profile, with calibrated shin compliance,
-   tensile knee spring, foot contact, realistic motor
-   damping and unchanged six motor rated hard limits.
+4. Verify the new **estimated** h40_carbon2 40cm v5059
+   physical profile against real MuJoCo/MJX, then improve
+   shin compliance, tensile knee spring and damping with
+   measurements. Six motor rated hard limits remain fixed.
    Prefer direct physical evidence over speculative constants.
 5. Add/adjust only existing essential tests, validate
    with real MuJoCo/MJX physics and 2048-world PPO GPU.
