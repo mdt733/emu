@@ -399,6 +399,23 @@ def test_true_prism_footprint_blocks_sidewall_not_far_foot():
         np.asarray(compiled(jnp.asarray(old),jnp.asarray(new),
                             jnp.asarray(feet))),expected)
 
+    # Preserve this invariant when replacing the old 36mm ball with the
+    # carbon robot's 10mm ball. A 20mm-offset seam probe is *not* contact
+    # for the smaller foot: both safe and unsafe sides must be verified.
+    for radius in (.018,.005):
+        near=TILE_M+radius+.004-.002
+        far=TILE_M+radius+.004+.002
+        positions=jnp.asarray([
+            [[near,TILE_M*.5],[1.5*TILE_M,TILE_M*.5]],
+            [[far,TILE_M*.5],[1.5*TILE_M,TILE_M*.5]],
+        ],dtype=jnp.float32)
+        base=jnp.asarray([[0,0],[0,0]],dtype=jnp.int32)
+        advance=jnp.asarray([[1,0],[1,0]],dtype=jnp.int32)
+        radii=jnp.asarray([radius,radius],dtype=jnp.float32)
+        got=jax.jit(lambda p:feet_clear_of_abandoned_prisms(
+            jnp,base,advance,p,radii))(positions)
+        np.testing.assert_array_equal(np.asarray(got),[False,True])
+
 
 def _check_both_physical_triangle_normals_respect_curriculum(
         slope_deg,transition_deg):
