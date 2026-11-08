@@ -45,19 +45,32 @@ export function createSensorLabCarpet(config={}) {
     features:[],trees:[],limits:config,flatRadius:0,
     at,sampleHeight,window:()=>tiles};
 }
-export function sensorLabPrismXml(park){
+// Render and MuJoCo assets consume identical vertices: no second terrain
+// geometry in the browser's ray-caster.
+export function sensorLabPrismVertices(park) {
   if(park?.physics!=='eight-1m-prisms'||park.tiles?.length!==4)
     throw Error('Sensor lab expects four 1m physical tiles');
-  const assets=[],bodies=[];
+  const prism=[];
   for(const tile of park.tiles)for(let triangle=0;triangle<2;triangle++){
-    const k=tile.slot*2+triangle;
     const vertex=triangles[triangle].map(([x,y])=>{
       const u=x+.5,v=y+.5,[a,b,c,d]=tile.corners;
       const z=triangle===0?a+(b-a)*u+(c-a)*v:
         d+(c-d)*(1-u)+(b-d)*(1-v);
       return [x,y,z];
     });
-    const vert=[...vertex,...vertex.map(([x,y,z])=>[x,y,z-DEPTH])];
+    const local=[...vertex,...vertex.map(([x,y,z])=>[x,y,z-DEPTH])];
+    prism.push({tile,triangle,k:tile.slot*2+triangle,local,
+      world:local.map(([x,y,z])=>[tile.x+x,tile.y+y,z])});
+  }
+  return prism;
+}
+export const LAB_PRISM_FACES = Object.freeze(faces.map(f=>Object.freeze([...f])));
+
+export function sensorLabPrismXml(park){
+  if(park?.physics!=='eight-1m-prisms'||park.tiles?.length!==4)
+    throw Error('Sensor lab expects four 1m physical tiles');
+  const assets=[],bodies=[];
+  for(const {tile,k,local:vert} of sensorLabPrismVertices(park)){
     assets.push('<mesh name="sensor_lab_mesh_'+k+'" vertex="'+
       vert.flat().map(f).join(' ')+'" face="'+faces.flat().join(' ')+'"/>');
     bodies.push('<body name="sensor_lab_tile_'+k+
