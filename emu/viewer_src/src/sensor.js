@@ -16,15 +16,32 @@ function bodyToWorld(R,v){
 }
 
 export function rayHeight(origin, direction, heightAt) {
-  // Browser visual heightfield is not an infinite plane. Bisection gives a
-  // plausible narrow ToF reading against its actual display surface.
+  // Support comes from the REAL park or prism surface, not a ghost z=0
+  // plane. Carpet is finite: outside its 2x2 tiles heightAt returns NaN.
+  // A NaN must NEVER be interpreted as a closer terrain hit.
   const at=t=>origin[2]+direction[2]*t-
     heightAt(origin[0]+direction[0]*t,origin[1]+direction[1]*t);
-  if(direction[2]>-.3 || at(MIN)<0 || at(MAX)>0) return 0;
+  if(direction[2]>-.3) return 0;
+  const near=at(MIN),far=at(MAX);
+  if(!Number.isFinite(near)||near<0)return 0;
   let a=MIN,b=MAX;
+  if(!Number.isFinite(far)){
+    // The ray exits the finite fixture by MAX. Search for an earlier
+    // supported crossing; otherwise report an invalid ToF cell.
+    let found=false,last=MIN;
+    for(let i=1;i<=16;i++){
+      const t=MIN+(MAX-MIN)*i/16;
+      const v=at(t);
+      if(!Number.isFinite(v))return 0;
+      if(v<=0){a=last;b=t;found=true;break;}
+      last=t;
+    }
+    if(!found)return 0;
+  }else if(far>0)return 0;
   for(let i=0;i<19;i++){
-    const m=(a+b)/2;
-    if(at(m)>0)a=m;else b=m;
+    const m=(a+b)/2,v=at(m);
+    if(!Number.isFinite(v))return 0;
+    if(v>0)a=m;else b=m;
   }
   return (a+b)/2;
 }
