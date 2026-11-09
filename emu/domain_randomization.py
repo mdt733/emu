@@ -118,15 +118,17 @@ def build_batched_model(model, *, ids: dict[str, Any], num_envs: int, seed: int,
         body_mass = model.body_mass * global_mass * local_mass
         body_mass = body_mass.at[0].set(model.body_mass[0])  # world body stays exactly zero
 
-        # Joint/servo spread. Only the six actuated DoFs are changed; passive
-        # shin-flex physics remains a separate physical component.
+        # The driven hinges have NO velocity-dependent passive damping.
+        # The same 18% hardware spread now applies to the actively capped
+        # servo kv term (actuator_biasprm[2]), never unbounded dof damping.
+        # Passive shin-flex damping is independent of this sampling.
         damping = model.dof_damping
         frictionloss = model.dof_frictionloss
         armature = model.dof_armature
         damping_scale = 1.0 + h * jax.random.uniform(keys[10], (act_dofs.shape[0],), minval=-JOINT_DAMPING_FRAC, maxval=JOINT_DAMPING_FRAC)
         friction_scale = 1.0 + h * jax.random.uniform(keys[11], (act_dofs.shape[0],), minval=-JOINT_FRICTIONLOSS_FRAC, maxval=JOINT_FRICTIONLOSS_FRAC)
         armature_scale = 1.0 + h * jax.random.uniform(keys[12], (act_dofs.shape[0],), minval=-JOINT_ARMATURE_FRAC, maxval=JOINT_ARMATURE_FRAC)
-        damping = damping.at[act_dofs].set(model.dof_damping[act_dofs] * damping_scale)
+        damping = damping.at[act_dofs].set(model.dof_damping[act_dofs])
         frictionloss = frictionloss.at[act_dofs].set(model.dof_frictionloss[act_dofs] * friction_scale)
         armature = armature.at[act_dofs].set(model.dof_armature[act_dofs] * armature_scale)
 
@@ -141,6 +143,8 @@ def build_batched_model(model, *, ids: dict[str, Any], num_envs: int, seed: int,
         gainprm = gainprm.at[act_ids, 0].set(new_kp)
         # Position actuator: force = kp*ctrl + bias0 - kp*q + ...
         biasprm = biasprm.at[act_ids, 1].set(model.actuator_biasprm[act_ids, 1] * kp_scale)
+        biasprm = biasprm.at[act_ids, 2].set(
+            model.actuator_biasprm[act_ids, 2] * damping_scale)
         biasprm = biasprm.at[act_ids, 0].set(model.actuator_biasprm[act_ids, 0] + new_kp * zero)
         # Manufacturing variation may WEAKEN a servo. It must NEVER
         # strengthen any of the six actuators beyond the rated 12V ceiling,

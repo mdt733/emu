@@ -44,3 +44,16 @@ Updated 2026-11-09. This is the **only active handover**. Completed experiments 
 4. A clean unique run root. No invisible checkpoint resumption, and no change to `main` or published actor.
 
 If a gate fails, fix the single source, rerun the gate, and leave the 120M campaign untouched. Record any remaining fidelity approximations explicitly in this handover rather than claiming hardware equivalence.
+
+## Rated servo damping correction — new h40 source only
+
+The old v5058 motor-joint `damping=0.624` supplied passive braking torque
+outside the ±0.980665Nm rated motor limit; at 2rad/s that added 1.248Nm of
+unbounded viscous force. The successor removes this from driven hinge
+joints and puts the SAME coefficient in each position actuator as `kv`
+(with MuJoCo's rated `forcerange`). The existing 18% hardware variation
+now randomizes `actuator_biasprm[...,2]`, not the removed passive damping.
+This correctly bounds the combined PD motor output but **does not**
+constitute a measured motor torque-speed/thermal curve or validated
+remote-knee transmission; 0.08Nm mechanical frictionloss is still
+uncalibrated. New cold-start model identity; no older checkpoint reuse.

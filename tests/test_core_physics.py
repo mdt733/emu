@@ -241,6 +241,22 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
              np.tile([-rated,rated],(6,1)),
              atol=1e-6,rtol=0)
         assert np.all(body.actuator_forcelimited == 1)
+        # Speed feedback is active actuator torque, inside the hard
+        # rated force limit, not an unlimited passive joint brake.
+        dofs=[body.jnt_dofadr[body.actuator_trnid[i,0]]
+              for i in range(body.nu)]
+        np.testing.assert_allclose(body.dof_damping[dofs],0.,atol=1e-8)
+        np.testing.assert_allclose(body.actuator_biasprm[:,2],
+                                   -.624,atol=1e-6)
+        for rate in (-4.7165,4.7165):
+            mujoco.mj_resetData(body,state)
+            state.ctrl[:] = 0.
+            state.qvel[dofs] = rate
+            mujoco.mj_forward(body,state)
+            assert np.max(np.abs(state.actuator_force)) <= rated+1e-6
+            assert np.max(np.abs(state.actuator_force)) >= rated*.90
+            assert np.max(np.abs(state.qfrc_actuator[dofs])) <= rated+1e-6
+        assert np.all(body.actuator_forcelimited == 1)
         # REAL MuJoCo stress: command every servo to both extreme targets.
         # The delivered actuator and 1:1 generalized forces must NOT exceed
         # 10 kgf.cm, regardless of how unreasonable the requested position is.

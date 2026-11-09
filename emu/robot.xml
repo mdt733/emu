@@ -33,9 +33,10 @@
     The six position actuators are HARD-LIMITED to ±0.980665 N.m at
     the actual MuJoCo/MJX force output, not the 2.941995 N.m stall rating.
     Stall torque is a data-sheet peak rating, NOT an allowed PPO force.
-    A passive viscous damping coefficient of 0.624 is retained as the
-    previous SIMPLIFIED motor speed/load proxy; it is NOT a true servo
-    velocity-dependent electrical torque limit and damps even unpowered.
+    The previous passive 0.624 N.m.s/rad motor-joint damping has been
+    moved INSIDE each active position actuator as kv=0.624. This makes
+    velocity-feedback demand subject to the SAME 0.980665Nm force cap.
+    This is NOT a measured C018 electrical torque-speed envelope.
     kp=10 N.m/rad, armature=0.012 kg.m², frictionloss=0.08 N.m are
     provisional pre-existing controls, not manufacturer-calibrated values.
     Hardware needs its own 12V regulator, adequate bus current margin,
@@ -58,11 +59,12 @@
       Base joint defaults preserve the passive-shin model. The six motor joints
       explicitly override armature/frictionloss below so robot.xml alone fully
       defines the effective physics used by MJX.
-      damping=0.624 is a crude C018 stall/no-load speed proxy; unlike an
-      electrical torque-speed curve it always dissipates. Shin flex joints
-      override damping to 0.08 for the passive carbon-shin compliance.
+      Driven hinge damping is zero: no unbounded speed-proportional brake
+      outside the rated actuator force ceiling. Servo velocity feedback is
+      contained by each position actuator's forcerange instead.
+      Passive shin-flex joints override damping to 0.08 separately.
     -->
-    <joint damping="0.624" armature="0.006" />
+    <joint damping="0" armature="0.006" />
     <geom friction="1.5 0.005 0.0001" />
   </default>
 
@@ -173,10 +175,11 @@
     it does NOT independently enforce a calibrated velocity-dependent
     electrical torque-speed envelope or thermal duty limits. Measure speed,
     torque and current before treating this as validated sim2real.
-    The 0.624 N.m.s/rad damping is a heuristic (stall / no-load speed)
-    that *also* damps without active drive, and can supply physically
-    unrealistic passive braking. Do not treat it as actuator torque;
-    report it separately and replace only after hardware measurement.
+    Actuator kv=0.624 N.m.s/rad remains a provisional speed-feedback
+    model (stall/no-load estimate), but unlike old joint damping it is
+    INSIDE the 0.980665Nm rated force clamp. No large passive motor brake
+    is permitted. Frictionloss=0.08Nm remains a separate, uncalibrated
+    mechanical transmission friction; measured motor curves still needed.
   -->
   <tendon>
     <!-- Site separation 18..60mm as knee folds -55..+90deg; compression
@@ -196,17 +199,17 @@
   </tendon>
   <actuator>
     <position name="r_hip_roll"  joint="r_hip_roll"
-              kp="10" ctrlrange="-25 25"  forcelimited="true" forcerange="-0.980665 0.980665" />
+              kp="10" kv="0.624" ctrlrange="-25 25"  forcelimited="true" forcerange="-0.980665 0.980665" />
     <position name="r_hip_pitch" joint="r_hip_pitch"
-              kp="10" ctrlrange="-50 50"  forcelimited="true" forcerange="-0.980665 0.980665" />
+              kp="10" kv="0.624" ctrlrange="-50 50"  forcelimited="true" forcerange="-0.980665 0.980665" />
     <position name="r_knee"      joint="r_knee"
-              kp="10" ctrlrange="-55 95"  forcelimited="true" forcerange="-0.980665 0.980665" />
+              kp="10" kv="0.624" ctrlrange="-55 95"  forcelimited="true" forcerange="-0.980665 0.980665" />
     <position name="l_hip_roll"  joint="l_hip_roll"
-              kp="10" ctrlrange="-25 25"  forcelimited="true" forcerange="-0.980665 0.980665" />
+              kp="10" kv="0.624" ctrlrange="-25 25"  forcelimited="true" forcerange="-0.980665 0.980665" />
     <position name="l_hip_pitch" joint="l_hip_pitch"
-              kp="10" ctrlrange="-50 50"  forcelimited="true" forcerange="-0.980665 0.980665" />
+              kp="10" kv="0.624" ctrlrange="-50 50"  forcelimited="true" forcerange="-0.980665 0.980665" />
     <position name="l_knee"      joint="l_knee"
-              kp="10" ctrlrange="-55 95"  forcelimited="true" forcerange="-0.980665 0.980665" />
+              kp="10" kv="0.624" ctrlrange="-55 95"  forcelimited="true" forcerange="-0.980665 0.980665" />
   </actuator>
 
   <!-- Thigh and shin rods are non-contacting in the fast seed model; feet are
