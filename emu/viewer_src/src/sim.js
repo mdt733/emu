@@ -1554,11 +1554,9 @@ export class EmuBrowserSim {
     this.depthLines.visible=this.depthConfig.showRays;
     if(this.depthConfig.showActorRays){
       const contract=this.bundle.observation.sensor_contract;
-      const actorRays=terrainActorRays(rotation,
-        contract.tof4x4_rays_body||contract.tof4x4_pitch_from_horizontal_deg,
-        contract.tof4x4_yaw_deg);
+      const actorRays=terrainActorRays(rotation,contract.tof4x4_rays_body);
       const positions=this.actorRayPositions;
-      const bodyMount=contract.tof4x4_mount_body_m||[0,0,0];
+      const bodyMount=contract.tof4x4_mount_body_m;
       const actorOrigin=new THREE.Vector3(
         ...torso.map((v,i)=>v+
           rotation[3*i]*bodyMount[0]+rotation[3*i+1]*bodyMount[1]+

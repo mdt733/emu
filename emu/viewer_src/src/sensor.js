@@ -182,23 +182,18 @@ export function terrainHeightOffsetsCm(reading, referenceZ=0) {
 }
 
 
-// v5023 actor-observed ToF: exactly one geometric ray in each of 16 zones,
-// unlike the optional 5-sample diagnostic depth inspector above. Row order is
-// Physical 4x4 beam pitch/yaw come from the exported sensor contract.
-// Keep the old baseline defaults for legacy/showcase and standalone tests.
-// The OLD contract used torso origin; the current VL53L8CX has an
-// explicit -30mm vertical mount and image-plane centre rays.
-const ORIGINAL_PITCH=[40,60,80,100];
-const ORIGINAL_YAW=[-22.5,-7.5,7.5,22.5];
-export function terrainActorRays(R, pitches=ORIGINAL_PITCH, yaws=ORIGINAL_YAW) {
-  if(Array.isArray(pitches)&&pitches.length===16&&Array.isArray(pitches[0]))
-    return pitches.map(ray=>bodyToWorld(R,ray));
-  const out = [];
-  for (const pitch of pitches) for (const yaw of yaws) {
-    const p=pitch*Math.PI/180,y=yaw*Math.PI/180;
-    out.push(bodyToWorld(R,[Math.cos(p)*Math.cos(y), Math.cos(p)*Math.sin(y), -Math.sin(p)]));
-  }
-  return out;
+// Exact current actor ray geometry, derived from the physical inspector's
+// one image-plane frustum rather than a second pitch/yaw formula.
+const CURRENT_TOF_REV='vl53l8cx_array_plane_square45_below30_v3';
+const IDENTITY=[1,0,0,0,1,0,0,0,1];
+export const CURRENT_RAYS_BODY=depthProbeRays([0,0,0],IDENTITY,
+  {tilt:70,forward:0,height:-.03,lateral:0,yaw:0})
+  .directions.map(zone=>zone[0]);
+export function terrainActorRays(R, rays=CURRENT_RAYS_BODY) {
+  if(!Array.isArray(rays)||rays.length!==16||
+     rays.some(v=>!Array.isArray(v)||v.length!==3))
+    throw Error('Actor requires the 16 physical 4x4 directions');
+  return rays.map(v=>bodyToWorld(R,v));
 }
 
 // First physical floor or world-box intersection, masked by nearest 18mm foot
@@ -265,9 +260,13 @@ export class TerrainActorObserver {
   constructor(contract) {
     if(contract?.schema!=='terrain_360')throw new Error('Schema-9 terrain contract required');
     this.settings=contract.settings;
-    this.pitches=contract.tof4x4_rays_body||contract.tof4x4_pitch_from_horizontal_deg;
-    this.yaws=contract.tof4x4_yaw_deg;
-    this.mount=contract.tof4x4_mount_body_m||[0,0,0];
+    if(contract.sensor_model_revision!==CURRENT_TOF_REV||
+       !Array.isArray(contract.tof4x4_rays_body)||
+       JSON.stringify(contract.tof4x4_mount_body_m)!==
+         JSON.stringify([0,0,-.03]))
+      throw Error('Only the current physical VL53L8CX geometry is supported');
+    this.rays=contract.tof4x4_rays_body;
+    this.mount=contract.tof4x4_mount_body_m;
     this.frame=0;
     this.ring=[];
   }
@@ -276,7 +275,7 @@ export class TerrainActorObserver {
     const h=pose.terrainHeightAt||null;
     const mounted=bodyToWorld(pose.R,this.mount);
     const origin=pose.torso.map((n,i)=>n+mounted[i]);
-    const ranges=terrainActorRays(pose.R,this.pitches,this.yaws).map(ray=>{
+    const ranges=terrainActorRays(pose.R,this.rays).map(ray=>{
       const measured=actorTerrainDistance(origin,ray,model,data,footGeomIds,h);
       return measured ? clamp(measured+scale*.002*gaussian(),.04,1.5) : 0;
     });
@@ -310,10 +309,10 @@ export class TerrainActorObserver {
 // smooth ground-plane estimate from the same delayed 16 rays that the network
 // receives directly. Reject mixed-level/riser fits rather than invent a slope.
 export function fitArrayGround(ranges,valid,gravity,
-                               pitches=ORIGINAL_PITCH,yaws=ORIGINAL_YAW){
+                               raysBody=CURRENT_RAYS_BODY,mountZ=-.03){
   const invalid={valid:false,depth:0,forward:0,side:0,confidence:0,
                  residual:Infinity,count:0};
-  const rays=terrainActorRays([1,0,0,0,1,0,0,0,1],pitches,yaws);
+  const rays=terrainActorRays(IDENTITY,raysBody);
   const G=[[.00005,0,0],[0,.00005,0],[0,0,.0000001]],rhs=[0,0,0];
   let count=0;
   const points=[];
@@ -361,9 +360,11 @@ export function fitArrayGround(ranges,valid,gravity,
     projected.push(ranges[i]*-rays[i][2]);
   const fallback=projected.length>=2?
     projected.reduce((a,b)=>a+b,0)/projected.length:0;
-  const opticalDepth=planeValid?depth:fallback;
-  const depthValid=planeValid||(
-    projected.length>=2&&opticalDepth>=.035&&opticalDepth<=.60);
+  // Fit/fallback samples originate 30mm below the optical-flow camera.
+  // Express both depths in torso coordinates, as the Python trainer does.
+  const opticalDepth=(planeValid?depth:fallback)-mountZ;
+  const depthValid=(planeValid||projected.length>=2)&&
+    opticalDepth>=.035&&opticalDepth<=.60;
   return {valid:planeValid,depthValid,depth:depthValid?opticalDepth:0,
     forward:planeValid?Math.atan2(-dot(n,fwd),cosine):0,
     side:planeValid?Math.atan2(-dot(n,side),cosine):0,
@@ -373,14 +374,12 @@ export function fitArrayGround(ranges,valid,gravity,
 
 export class ArrayFlowObserver {
   constructor(contract){
-    if(!['forward_tof4x4_array_plane_fit_no_tripod_2',
-          'vl53l8cx_array_plane_square45_below30_v3'].includes(
-             contract?.sensor_model_revision))
-      throw new Error('Expected array-only terrain sensor');
+    if(contract?.sensor_model_revision!==CURRENT_TOF_REV||
+       !Array.isArray(contract.tof4x4_rays_body))
+      throw new Error('Expected the current physical 360-input array sensor');
     this.settings=contract.settings;this.ring=[];this.frame=0;this.bias=[0,0,0];
-    this.pitches=contract.tof4x4_rays_body||contract.tof4x4_pitch_from_horizontal_deg;
-    this.yaws=contract.tof4x4_yaw_deg;
-    this.mount=contract.tof4x4_mount_body_m||[0,0,0];
+    this.rays=contract.tof4x4_rays_body;
+    this.mount=contract.tof4x4_mount_body_m;
   }
   synth(pose,model,data,noisy=true){
     const st=this.settings,ns=noisy?st.sensor_noise_scale:0;
@@ -422,14 +421,12 @@ export class ArrayFlowObserver {
   read(gravity,array){
     const s=this.settings,flow=this.ring[3-s.flow_delay_frames];
     const ground=fitArrayGround(array.ranges,array.valid,gravity,
-                               this.pitches,this.yaws);
+                               this.rays,this.mount[2]);
     const good=ground.depthValid&&flow.flowValid;
     const depth=ground.valid?ground.depth:0;
-    // Flow is measured from the torso; the VL53L8CX is 30mm lower.
-    const flowDepth=ground.depth+Math.max(0,-this.mount[2]);
     const velocity=good?[
-      -flowDepth*(flow.flow[0]-flow.flowGyro[1]),
-      -flowDepth*(flow.flow[1]+flow.flowGyro[0])
+      -ground.depth*(flow.flow[0]-flow.flowGyro[1]),
+      -ground.depth*(flow.flow[1]+flow.flowGyro[0])
     ]:[0,0];
     const fresh=clamp(1-.25*(flow.flowAge/s.flow_period_frames),.25,1);
     return {gyro:this.ring[3].gyro,velocity,

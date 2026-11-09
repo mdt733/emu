@@ -745,12 +745,9 @@ renderCarpetValues();
 
 function updateDepthSettings(){
   const c=bundle?.observation?.sensor_contract;
-  const pitches=c?.tof4x4_pitch_from_horizontal_deg;
   $('actorDepthSource').textContent=c?.tof4x4_rays_body?.length===16
-    ? 'Policy ToF: exact physical 45°×45° VL53L8CX zone centres, 70° downward, -30mm below torso (magenta). Adjustable optical field (green) uses the same mount defaults.'
-    : pitches?.length===4
-      ? `Archived policy rays: ${pitches[0].toFixed(1)}°–${pitches[3].toFixed(1)}° down (60° row spread), NOT the new hardware. Magenta = archived actor; green = physical ToF.`
-      : 'Load a policy to compare its physical sensor rays with the 45°×45° optical preview.';
+    ? 'Policy rays: physical 45°×45° VL53L8CX, 70° down and -30mm below torso (magenta). Green: adjustable diagnostic preview.'
+    : 'Load the current h40 policy or sensor fixture to inspect its 16 physical rays.';
   $('depthTiltOut').textContent=depthTilt.value+'°';
   $('depthMountOut').textContent=depthMount.value+' mm';
   $('depthHeightOut').textContent=(Number(depthHeight.value)>=0?'+':'')+depthHeight.value+' mm';
