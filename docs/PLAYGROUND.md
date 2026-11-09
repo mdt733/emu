@@ -41,6 +41,6 @@ For live checkpoint inspection, use `emu viewer --live --root RUN_DIR --no-open`
 
 `scripts/verify_showcase_release.py` checks the exact deployed actor, physical 360-input sensor contract, weight shapes, Git blob, original checkpoint SHA-256 and approval metadata. The manual [Pages workflow](../.github/workflows/emu-playground.yml) refuses an unapproved actor; source merges do **not** deploy.
 
-The [historic graduated park specification](VIEWER_GRADUATED_PARK.md) documents the old v5032 fixture and its obstacles for reference, but its measured successes cannot be ascribed to H40.
+The old v5032 graduated park specification is preserved in the [historical research ledger](RESEARCH_FINDINGS.md), which links to its original Git version. Its measured successes cannot be ascribed to H40.
 
 For current training-vs-viewer differences, source identity and outstanding H40 tests, see the [handover](../handover.md).
