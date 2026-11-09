@@ -15,6 +15,9 @@ concurrency:
 
 jobs:
   build:
+    # workflow_dispatch may be launched against an arbitrary branch.
+    # Never publish an experiment or a stale release branch.
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout reviewed source and actor

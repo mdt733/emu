@@ -1,12 +1,12 @@
 # EMU — clean Windows 11 / WSL2 installation and recovery
 
-This is the **single maintained Windows 11 / WSL2 setup guide**.
-It describes a future-main-ready installation, not a source-pinned
-experiment launcher. Installing never starts PPO, changes the current
-public actor, or overwrites an existing run. Until a separate release
-decision is approved, `main` still ships the 260M Pinnacle actor.
-Use the exact experiment branch/SHA only for an already-approved
-research run; never switch that checkout mid-training.
+This is the **single maintained Windows 11 / WSL2 setup guide** for
+the **H40 120M mainline** (promoted in [PR #53](https://github.com/mdt733/emu/pull/53)).
+Installing never starts PPO, changes the public GitHub Pages deployment,
+or overwrites a run. The current `main` includes the actual H40
+`showcase/champion.emupolicy`; the public site remains independently
+gated on a release approval. Preserve source-pinned training worktrees
+and checkpoints when updating the ordinary `~/emu` checkout.
 
 ## 0. Before wiping a WSL distro (optional, your decision)
 
@@ -63,7 +63,7 @@ inside WSL. **Never install Linux `nvidia-driver`, `cuda-drivers`
 or generic driver meta-packages in WSL**. Pip CUDA wheels normally
 need no additional Ubuntu CUDA toolkit.
 
-## 2. Ubuntu: ONE Python, ONE EMU checkout, ONE venv
+## 2. Ubuntu: one main checkout, frozen training worktrees, one maintained venv
 
 Ubuntu versions differ in bundled Python; the repo requires
 **Python 3.13+**. Use `uv` to install user-local 3.13 rather than
@@ -119,6 +119,56 @@ campaign scripts are **not production dependencies**; each original
 recipe remains recoverable at its research Git SHA. GPU compilation and
 frozen physical examinations are separate from ordinary Python checks.
 
+### Existing checkout: safely recover from a diverged pre-squash `main`
+
+The H40 promotion was **squash merged**. An existing local `main` may report
+130 local commits and one different remote commit even though the desired
+H40 source is now on GitHub. **Do not** force-pull, rebase the old 130 commits
+on top of H40, or delete those commits. The following guarded one-time
+recovery saves a named backup branch, an external self-contained Git bundle
+and a comparison report **before** moving local `main`.
+
+Run from WSL only, with no uncommitted or untracked working files:
+
+```bash
+(
+  set -euo pipefail
+  cd "$HOME/emu"
+  git fetch origin
+  if [[ "$(git branch --show-current)" != "main" ]]; then
+    echo "STOP: ~/emu must be on local main" >&2; exit 1
+  fi
+  if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
+    echo "STOP: stash/commit/inspect local changes first" >&2
+    git status --short
+    exit 1
+  fi
+
+  stamp="$(date +%Y%m%d-%H%M%S)"
+  backup="backup/main-before-h40-$stamp"
+  dir="$HOME/emu-data/git-backups"
+  mkdir -p "$dir"
+  git branch "$backup" main
+  git bundle create "$dir/$stamp.bundle" "$backup"
+  git log --oneline "origin/main..$backup" > "$dir/$stamp-local-only.log"
+  git diff --stat "$backup" origin/main > "$dir/$stamp-tree-diff.txt"
+
+  # Local-only commits remain on the backup branch AND in the bundle.
+  git reset --hard origin/main
+  git log -1 --oneline
+  git status -sb
+)
+```
+
+This operation **does not** alter `~/emu-h40-120m`,
+`~/emu-h40-viewer` or any directory in `~/emu-data/runs`.
+The before/after diff report is for reviewing whether any *local-only*
+changes deserve a new, narrow PR. GitHub cannot examine commits held
+only on this machine; retain the backup until reviewed. After alignment,
+the expected `main` ancestor is H40 commit
+`1b796144b128b326be1ac54f6a289ad87857cde6`, or a later
+documented maintenance commit.
+
 ## 3. Prepare the next source-pinned training run
 
 Do not create a second Python virtualenv named `emu-graduation` or
@@ -162,10 +212,12 @@ The deployment/release review is documented in
 
 ## 4. Recovery, viewer and clean project layout
 
-**Canonical v5046+ layout (three types of paths, two home-level roots):**
+**Canonical H40+ layout (two home-level roots, optional frozen worktrees):**
 
 ```text
-~/emu/                           # ONE Git checkout and its .venv; no run data
+~/emu/                           # maintained main checkout + .venv; no run data
+~/emu-h40-120m/                 # frozen training source (do not pull/reset)
+~/emu-h40-viewer/               # optional separate viewer worktree
 ~/emu-data/
     runs/
         <study>-s<seed>/          # ONE directory owns ALL of a training run:
@@ -181,7 +233,8 @@ The deployment/release review is documented in
 ```
 
 A run identifier is a **specific immutable experiment recipe**, for example
-`v5047-early-lips-s735` or `v5047-early-lips-control-s735`.
+the preserved `h40-1m-tof70-120m-s735` training run. New studies get
+new names; never overwrite the H40 baseline.
 Never put the Git branch name, a second virtualenv or arbitrary `results/`
 folder inside the run root. Existing `emu train --run-dir`,
 `emu report --root` and `emu prism-exam --output` accept explicit paths;
@@ -213,7 +266,7 @@ emu viewer showcase/champion.emupolicy --no-open --port 8765
 # Open http://127.0.0.1:8765/ in Windows.
 ```
 
-Use the checked-in `main` champion only as an unchanged baseline.
+Use the checked-in H40 actor as the unchanged current baseline.
 A `.pkl` checkpoint includes learned weights, normalizer, optimizer
 and curriculum state; an `.emupolicy` is an inference export.
 Never treat Git clone or a results CSV as a checkpoint backup.

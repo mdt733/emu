@@ -1,6 +1,6 @@
 # EMU maintenance contract
 
-The [core skeleton](CORE_SKELETON.md) owns architecture; [handover](../handover.md) owns the current experimental decision.
+The [core skeleton](CORE_SKELETON.md) owns architecture; the [H40 handover](../handover.md) owns the current baseline and release boundary.
 
 ## One authority per concept
 
@@ -15,12 +15,12 @@ The [core skeleton](CORE_SKELETON.md) owns architecture; [handover](../handover.
 
 1. **One implementation.** Do not leave alternate simulator geometries, duplicate learner paths or experimental flags after an experiment is resolved. Git is the historical archive.
 2. **One run identity.** Full checkpoints include optimiser, normalization, teacher/health and source/model/observation identity. A different XML or sensor geometry requires a genuinely new run.
-3. **Do not destabilise an existing experiment.** Preserve v5058 as the frozen old-geometry baseline. The new 1m tile and 45°×45° ToF changes are source-pinned to draft PR #52, with no warm start from older checkpoints and no GPU run until physical/CUDA acceptance.
+3. **Freeze trained lineage.** H40 120M is the `main` baseline. Preserve its exact source commit `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`, full `final.pkl`, training logs and actor export. Historical v5058/v5059 experiments remain in Git. A new robot/sensor/actuator variant requires a distinct cold start and matched exams, never silent checkpoint reuse.
 4. **Tests prove boundaries.** At most 24 core pytest cases, plus real MJX prism checks, GPU PPO/checkpoint smoke and browser tests. Keep tests for failure modes; retire superseded per-version test scaffolding.
-5. **Proof before promotion.** Training reward, curriculum frontiers and viewer animation are not held-out capability. Review physically supported motion, command tracking, actual torque saturation, solver parity, falls and safe recovery.
+5. **Evidence before capability claims.** Owner approval made H40 the software mainline despite unresolved steps. Training reward, curriculum frontiers and viewer animation are not held-out capability. For future improvements, measure physically supported motion, command tracking, torque saturation, solver parity, falls and recovery.
 6. **No stale roadmap.** One root `handover.md`, one skeleton, one install page. Completed findings may stay in release records or the Git commit that produced them; don't present experiment runbooks as current.
 
-Quick validation: `bash scripts/check.sh --quick`; full CPU/browser checks: `bash scripts/check.sh --full`. GPU acceptance requires the operator's CUDA system and must not be claimed from source review alone.
+Quick validation: `bash scripts/check.sh --quick`; full Python/browser checks: `bash scripts/check.sh --full`. Both always validate the checked-in H40 actor. The separate GitHub Pages approval is verified only when `showcase/release_approval.json` exists, and Pages itself **always** requires it. Real CPU/MJX contact CI and operator-side GPU acceptance are separate; a passing unit test is not proof of CUDA or real hardware.
 
 ### Current hardware placement contract
 

@@ -1,8 +1,10 @@
 # EMU physical quality: what is a good robot?
 
-**Examiner contract v1 · 31 October 2026.** Independent, read-only physical
-evidence; NOT a PPO reward function or training schedule. The released
-v5032 260M actor remains untouched.
+**Independent examiner contract (originating 31 October 2026).** Read-only
+physical evidence; **not** a PPO reward function or training schedule.
+The current H40 120M `main` actor has **not** yet passed matched
+held-out signed-step exams. Historical v5032/v5048 results remain
+research baselines, not evidence for H40.
 
 ## The north-star definition
 

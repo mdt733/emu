@@ -8,7 +8,7 @@ Updated 2026-11-09. **This is the one active handover.** Git history preserves a
 - **Complete cold-start run:** `h40-1m-tof70-120m-s735`, seed 735, **120,061,952** world-steps, trained at exact commit `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`. Source, final checkpoint, metrics, and intermediate checkpoints in `~/emu-h40-120m` and `~/emu-data/runs/h40-1m-tof70-120m-s735/` must remain frozen.
 - **Proven policy export:** `showcase/champion.emupolicy`, uploaded owner-supplied bytes SHA-256 `178c201af661d3172d701a7d1d8a7711f9b2106e1f7058bc4902aa9c64a37c7a`, Git blob `eef79b1010f2a9561d0b72dd7aae3e0fcef512ae`; 360→256→256→6 network; actor SHA-256 `d4e35f814baef5e46afa6e96e942c86ab100ef25a4ae1913c76bbdb22615e673`.
 - **Research code:** [PR #52](https://github.com/mdt733/emu/pull/52) at `f7e3fc851c2942b5f2785aaf068882c6fd7d32c5`; training physics used for the 120M policy was frozen at the earlier exact source commit. Subsequent code includes CPU/browser fixture improvements and must not be represented as having retrained the policy.
-- **Promotion:** Release-branch code may go to `main` after CI and owner's acceptance. Public GitHub Pages deployment is a separate manual step requiring exact actor approval, retained checkpoint SHA-256, and `python scripts/verify_showcase_release.py`. Do **not** silently deploy on source merge.
+- **Promotion completed:** H40 source and the byte-identical 120M export entered `main` via [PR #53](https://github.com/mdt733/emu/pull/53), commit `1b796144b128b326be1ac54f6a289ad87857cde6`; its 24 Python tests, CPU MJX checks and browser CI passed. Public GitHub Pages deployment is **still separate** and requires exact actor approval, retained checkpoint SHA-256, and `python scripts/verify_showcase_release.py`. A source merge must not deploy the site.
 
 ### What is demonstrated
 
@@ -37,7 +37,7 @@ sha256sum ~/emu-data/runs/h40-1m-tof70-120m-s735/checkpoints/final.pkl
 
 ## Next work: no branch explosion
 
-1. Check the promotion PR's **Python/physics and browser CI** against `main`; preserve the source and trained actor identities.
+1. **Complete:** H40 promotion PR #53 passed Python/physics and browser CI; source and trained actor identities remained unchanged. Continue to run these checks on future maintenance changes.
 2. Measure the frozen `final.pkl` SHA-256 and create exact `showcase/release_approval.json`; run `python scripts/verify_showcase_release.py` before triggering the **manual** Pages workflow. Keep the old public site untouched until this passes.
 3. Keep the H40 baseline stable. Future step experiments start from a new feature branch **after** promotion; do not rewrite its source, checkpoint or weights.
 4. For stairs, use a **source-pinned independent MJX exam** with successful actual up/down lip crossing, controlled post-step movement, and command/heading survival. Browser footage is not a valid pass condition.

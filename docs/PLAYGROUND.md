@@ -1,94 +1,46 @@
-# EMU Playground — public browser demo
+# EMU Playground — H40 local viewer and separately gated public site
 
-**[Open the EMU Playground](https://mdt733.github.io/emu/)**
+[Public playground](https://mdt733.github.io/emu/) · [H40 handover](../handover.md) · [Release gate](RELEASE_READINESS.md)
 
-EMU's public MuJoCo/WASM viewer runs the real six-servo policy locally
-in the browser. The approved `showcase/champion.emupolicy` is now the
-**260,046,848-step v5032 Pinnacle actor** (360 observation inputs;
-six actions), pinned by `showcase/release_approval.json`.
-The actual public URL may still serve the previous build until the
-manually approved GitHub Pages workflow finishes deployment.
+The **H40 120M** actor is now checked into GitHub `main` as `showcase/champion.emupolicy`. Its source is a 40 cm, six-servo physical model with a 360-input learned policy and 45°×45° VL53L8CX approximation. **Do not assume the public Pages URL is updated:** Pages is manual and still requires the original checkpoint-backed `showcase/release_approval.json`, which has not yet been supplied.
 
-## What the demo does
+## What the local browser can show
 
-On loading, the viewer starts **pose-lattice autonomous navigation**.
-A Web Worker chooses a reachable target pose and plans a route; a
-feedback controller follows the continuous line, anticipates sideways
-drift, slows as tracking error grows, and performs the final pose correction.
-The trained actor, its observation contract, and MuJoCo physics remain
-unchanged.
+The local MuJoCo/WASM viewer runs frozen inference, not GPU PPO. The same deployed 360-input actor receives commands from the manual sticks and demo navigation through one command path.
 
-The left stick controls forward/reverse and sideways velocity. The right
-stick controls yaw rate and chassis pitch. While autonomous navigation is
-active, the stick knobs show the **requested** control inputs (not measured
-motion), without pretending a human touched them.
+- **Field/Park:** a larger walking demonstration, long-run gait/slope exploration and adjustable park challenges. This is not the MJX trainer's 2×2 rolling terrain. Autonomous route planning may choose paths around obstacles; choose manual control for a direct terrain challenge.
+- **Training Carpet:** a **static** 2×2 m fixture of four 1 m tiles and eight real triangular-prism CPU colliders. Slope and signed-step settings are configurable, but it is not an endless recycler, an exact stochastic training replay or an independent physics exam. Reset before the robot leaves the fixture.
+- **Sensor inspection:** a 4×4 visualization for checking the 70° downward, 30 mm below-torso mount and foot occlusion. A centre ray per zone is still a sensor approximation.
+- **Separate untrained lab:** physical H40 geometry and ray calibration with no neural policy. Its motion must not be mislabelled learned locomotion.
 
-Touch either stick or use WASD / Q-E / R-F to take manual control.
-Navigation resumes from the current pose after **30 seconds of no human
-input**; holding a key or stick prevents the handoff. The settings drawer
-holds optional terrain, camera, grid, heading-assist, policy, and evaluation
-controls. There is one autonomous demo—not multiple experimental planners.
+Viewer success on one CPU scene is **not** proof of autonomous step traversal or real hardware feasibility.
 
-## Local viewer
+## Start the actual trained H40
 
-For a CPU-only WSL viewer (no CUDA/JAX required):
+From an updated checkout of `main` on WSL/Ubuntu, with Node/npm installed:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mdt733/emu/main/scripts/install_viewer_wsl.sh \
-  -o /tmp/emu-viewer-install.sh
-bash /tmp/emu-viewer-install.sh --destination "$HOME/emu-viewer-cpu-clean"
+cd ~/emu
+bash scripts/start_sensor_lab_wsl.sh --policy showcase/champion.emupolicy
 ```
 
-Open `http://127.0.0.1:8767/`. The installer now checks out `main` by default. Supply
-`--branch feature/your-experiment` to explicitly test another branch. It installs viewer dependencies and runs exactly
-**twelve** maintained browser contract tests.
+Open [http://127.0.0.1:8765/](http://127.0.0.1:8765/).
 
-For live training inspection, `emu viewer --live --root RUN_DIR --no-open`
-continues serving validated checkpoints independently of the public demo.
+The separate calibration-only viewer uses the same script **without** `--policy`:
 
-### Graduated obstacle park
+```bash
+bash scripts/start_sensor_lab_wsl.sh
+```
 
-On the **`main`** branch the browser
-has eight real-collision challenges, numbered 1–8 in the world,
-with Settings → Challenge difficulty:
-**Gentle**, **Balanced** (default, mostly 1–2.5 cm), and **Stretch**
-(up to 5 cm). The upgraded park retains the optical-flow fix on
-heightfields and the fully supported crest top. Read the
-[graded course guide](VIEWER_GRADUATED_PARK.md) for exact obstacles,
-training-versus-browser limitations and Tailscale launch commands.
+You may instead run `python -m emu.cli viewer-build` followed by
+`python -m emu.cli viewer showcase/champion.emupolicy --no-open --port 8765`.
 
-The optical-flow/crest repairs and graduated park are now part
-of the released baseline. They do not alter the immutable 260M
-actor weights or count as proof of an independent MJX exam.
+For live checkpoint inspection, use `emu viewer --live --root RUN_DIR --no-open` from the source-compatible checkout. Never resume or mutate the frozen H40 training run merely to see it in the viewer.
 
-## The current 360-input release
+## Publishing
 
-The portable v5032 schema-3 actor and its exact sensor contract,
-trained-source SHA, actor hash and checkpoint hash are approved by
-`showcase/release_approval.json`. The previous 232-input actor remains
-recoverable from Git commit
-`2ec9e9db0a816c658131311129ef89ec7a595a12`.
+`scripts/verify_showcase_release.py` checks the exact deployed actor, physical 360-input sensor contract, weight shapes, Git blob, original checkpoint SHA-256 and approval metadata. The manual [Pages workflow](../.github/workflows/emu-playground.yml) refuses an unapproved actor; source merges do **not** deploy.
 
-The 360-input release is a measured baseline, not a perfect robot:
-read [real supported terrain and heading results](V5032_PINNACLE_RELEASE.md)
-and [deferred research](https://github.com/mdt733/emu/issues/17).
-The old zero-action fallback is not used by the public builder.
+The [historic graduated park specification](VIEWER_GRADUATED_PARK.md) documents the old v5032 fixture and its obstacles for reference, but its measured successes cannot be ascribed to H40.
 
-## Publishing safeguards
-
-The approved champion is **not automatically replaced** when Python training
-or browser code changes. The GitHub Pages workflow
-`.github/workflows/emu-playground.yml` supports manual dispatch and a
-specific owner-approved `showcase/deployment_request.json` update on
-`main`. Ordinary main merges without that request do not publish.
-
-The workflow verifies the exact champion release approval and provenance,
-runs the twelve browser checks, builds static WASM/JS, validates bundled
-assets, and deploys GitHub Pages. Check the workflow deployment status
-before considering the new public site live. The training checkpoint
-(.pkl) is never shipped to browsers.
-
-Release approval and public deployment remain enforced by
-`showcase/release_approval.json` and the existing GitHub Pages workflow.
-Historical navigation/release design notes remain in Git history. Neither a
-successful browser build nor a visually stable walk proves servo safety on hardware.
+For current training-vs-viewer differences, source identity and outstanding H40 tests, see the [handover](../handover.md).
