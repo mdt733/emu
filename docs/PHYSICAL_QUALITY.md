@@ -142,8 +142,11 @@ two-slab fixed-angle pass rates as though they were identical exams.
 
 For installation, the frozen-actor validation gate and new v5045
 usage, see [the current physical release gates](RELEASE_READINESS.md).
-The shipped 260M public champion must retain its original,
-source-specific physical baseline; do not fabricate matched prism results.
+The **current H40 120M** source and inference actor are on `main`; do
+not transfer the previous 260M actor's independent exam scores to it or
+fabricate matched-prism results.
 
-See [issue #17](https://github.com/mdt733/emu/issues/17) for proposed
-diagnostics and the [released 260M profile](V5032_PINNACLE_RELEASE.md).
+See [issue #17](https://github.com/mdt733/emu/issues/17) for research
+questions and the [retained research findings](RESEARCH_FINDINGS.md) for
+the earlier 260M physical baseline and release card (linked by immutable
+Git source).

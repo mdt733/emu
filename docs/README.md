@@ -11,8 +11,9 @@ The maintained entry points are the [core skeleton](CORE_SKELETON.md), [H40 hand
 | What actually counts as physical competence? | [Physical quality](PHYSICAL_QUALITY.md) |
 | What is live in the browser versus the MJX trainer? | [Playground](PLAYGROUND.md) |
 | What still separates source promotion from GitHub Pages publication? | [Release readiness](RELEASE_READINESS.md) |
+| What did earlier experiments actually prove or disprove? | [Research findings](RESEARCH_FINDINGS.md) |
 
-**Current source:** H40 120M was promoted to `main` via [PR #53](https://github.com/mdt733/emu/pull/53), commit `1b796144b128b326be1ac54f6a289ad87857cde6`. The policy is checked into `showcase/champion.emupolicy`; the GitHub Pages site remains independently gated pending the original training checkpoint SHA-256 and release approval.
+**Current source:** H40 120M was promoted to `main` via [PR #53](https://github.com/mdt733/emu/pull/53), commit `1b796144b128b326be1ac54f6a289ad87857cde6`. The policy is checked into `showcase/champion.emupolicy`; its original training checkpoint SHA-256 and strict release approval are recorded. Actual GitHub Pages publication remains a separate manual workflow.
 
 **Known limitation:** the owner reports a good gait and about 15° slopes in the viewer, but robust stair traversal and held-out equivalent MJX physical exams remain open.
 
