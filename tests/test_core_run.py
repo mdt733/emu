@@ -98,7 +98,9 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert float(_gait_maturity(m,np,allow_zero_command_balance=True)[1][0])==pytest.approx(1.)
     m["cmd_vx"]=np.asarray([.12],np.float32)
     assert float(_gait_maturity(m,np,allow_zero_command_balance=True)[1][0])==pytest.approx(.30)
-    assert cfg.cloud_probes_per_eval==0 and cfg.cloud_final_probes==0
+    assert cfg.physical_profile=="h40"
+    assert not {"cloud_probes_per_eval","cloud_final_probes",
+                "science_reset_step_evidence_on_fork"} & asdict(cfg).keys()
     assert training_sensor_contract(cfg) is not None
 
 
