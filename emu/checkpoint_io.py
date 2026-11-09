@@ -18,14 +18,13 @@ from typing import Any
 import numpy as np
 
 from .capability_field import FIELD_VERSION
-from .contracts import (ACTION_DIM, OBS_DIM, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN,
-                        SENSOR_OBS_DIM, TERRAIN_OBS_DIM, TERRAIN_ARRAY_ONLY_REVISION, sensor_observation_contract)
+from .contracts import (ACTION_DIM, OBS_DIM, OBS_SCHEMA_TERRAIN,
+                        TERRAIN_OBS_DIM, sensor_observation_contract)
 from .contracts import ROBOT_XML, VERSION
 from .ppo import PPO_HIDDEN_SIZES, expected_param_shapes
 
-CHECKPOINT_SCHEMA = 7  # Historical Pitch15 pickle format, never renumber.
-SENSOR_CHECKPOINT_SCHEMA = 8
-TERRAIN_CHECKPOINT_SCHEMA = 9
+CHECKPOINT_SCHEMA = 9
+TERRAIN_CHECKPOINT_SCHEMA = CHECKPOINT_SCHEMA
 ROBOT_MODEL_SHA256 = hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest()
 
 
@@ -69,47 +68,23 @@ def _validate_policy_param_shapes(params: Any, where: str = '', *, obs_dim: int 
 
 
 def _validate_observation_meta(meta: dict[str, Any], where: str = '',
-                               *, expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+                               *, expected_observation_schema: str = OBS_SCHEMA_TERRAIN,
                                expected_sensor_contract: dict | None = None) -> int:
-    """Fail closed on width, meaning, and acquisition parameters.
-
-    A legacy 7 checkpoint has no sensor metadata; it can ONLY mean Pitch15.
-    A v5016 8 checkpoint requires the full independently regenerated physical
-    sensor contract and explicit caller opt-in before even inspecting weights.
-    """
-    schema = meta.get('observation_schema', OBS_SCHEMA_LEGACY)
-    disk_schema = meta.get('checkpoint_schema', -1)
-    if expected_observation_schema == OBS_SCHEMA_LEGACY:
-        if disk_schema != CHECKPOINT_SCHEMA or schema != OBS_SCHEMA_LEGACY:
-            raise ValueError(f"checkpoint observation schema mismatch{where}: expected legacy Pitch15 schema 7")
-        if 'sensor_contract' in meta:
-            raise ValueError(f"checkpoint{where} has sensor metadata inside legacy schema 7")
-        return OBS_DIM
-    schema_versions = {OBS_SCHEMA_SENSOR:(SENSOR_CHECKPOINT_SCHEMA,SENSOR_OBS_DIM),
-                       OBS_SCHEMA_TERRAIN:(TERRAIN_CHECKPOINT_SCHEMA,TERRAIN_OBS_DIM)}
-    if expected_observation_schema not in schema_versions:
-        raise ValueError(f"unknown expected checkpoint observation schema {expected_observation_schema!r}")
-    expected_version, expected_dim = schema_versions[expected_observation_schema]
-    if disk_schema != expected_version or schema != expected_observation_schema:
-        raise ValueError(f"checkpoint observation schema mismatch{where}: expected {expected_observation_schema} schema {expected_version}")
-    supplied = meta.get('sensor_contract')
-    if not isinstance(supplied, dict) or not isinstance(supplied.get('settings'), dict):
-        raise ValueError(f"checkpoint{where} missing complete sensor contract")
-    # The legacy tripod+array and the new array-only terrain actors both
-    # contain 360 observations, but their physical sensor meanings differ.
-    # Reconstruct the *declared* geometry independently before trusting a
-    # hash or ever opening the optimizer state. The explicit caller's
-    # expected_sensor_contract below still forbids cross-lineage resume.
-    array_only = (expected_observation_schema == OBS_SCHEMA_TERRAIN
-                  and supplied.get('sensor_model_revision') == TERRAIN_ARRAY_ONLY_REVISION)
-    canonical = sensor_observation_contract(
-        supplied['settings'],schema=expected_observation_schema,
-        array_only=array_only)
+    """Only physical schema-9 360-input checkpoints, without migration."""
+    if (expected_observation_schema != OBS_SCHEMA_TERRAIN or
+            meta.get('observation_schema') != OBS_SCHEMA_TERRAIN or
+            meta.get('checkpoint_schema') != CHECKPOINT_SCHEMA):
+        raise ValueError(
+            f'checkpoint observation schema mismatch{where}: terrain_360 schema 9 only')
+    supplied=meta.get('sensor_contract')
+    if not isinstance(supplied,dict) or not isinstance(supplied.get('settings'),dict):
+        raise ValueError(f'checkpoint{where} missing physical sensor identity')
+    canonical=sensor_observation_contract(supplied['settings'])
     if supplied != canonical:
-        raise ValueError(f"checkpoint{where} sensor contract fingerprint/geometry mismatch")
+        raise ValueError(f'checkpoint{where} has obsolete or tampered sensor geometry')
     if expected_sensor_contract is None or expected_sensor_contract != canonical:
-        raise ValueError(f"checkpoint{where} sensor contract differs from requested run")
-    return expected_dim
+        raise ValueError(f'checkpoint{where} belongs to another sensor lineage')
+    return TERRAIN_OBS_DIM
 
 
 def _validate_rewind_meta(meta: dict[str, Any], where: str = '') -> None:
@@ -162,13 +137,10 @@ def save_checkpoint(path: Path, state: Any, meta: dict[str, Any], obs_norm: dict
     meta.setdefault('policy_hidden_sizes', list(PPO_HIDDEN_SIZES))
     meta.setdefault('robot_model_sha256', ROBOT_MODEL_SHA256)
     meta.setdefault('created_unix', float(time.time()))
-    schema = meta.get('observation_schema', OBS_SCHEMA_LEGACY)
-    if schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN):
-        dimension = _validate_observation_meta(
-            meta, f" at {path}", expected_observation_schema=schema,
-            expected_sensor_contract=meta.get('sensor_contract'))
-    else:
-        dimension = _validate_observation_meta(meta, f" at {path}")
+    meta.setdefault('observation_schema',OBS_SCHEMA_TERRAIN)
+    dimension=_validate_observation_meta(
+        meta,f' at {path}',expected_observation_schema=OBS_SCHEMA_TERRAIN,
+        expected_sensor_contract=meta.get('sensor_contract'))
     if meta.get('obs_dim') != dimension or meta.get('action_dim') != ACTION_DIM:
         raise ValueError('checkpoint observation/action width mismatch at save')
     _validate_policy_param_shapes(host_params, f" at {path}", obs_dim=dimension)
@@ -215,7 +187,7 @@ def save_checkpoint(path: Path, state: Any, meta: dict[str, Any], obs_norm: dict
 
 
 def load_checkpoint(path: Path, *, validate: bool = True,
-                    expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+                    expected_observation_schema: str = OBS_SCHEMA_TERRAIN,
                     expected_sensor_contract: dict | None = None) -> dict[str, Any]:
     with path.open('rb') as f:
         payload = pickle.load(f)
@@ -225,7 +197,7 @@ def load_checkpoint(path: Path, *, validate: bool = True,
 
 
 def validate_resume_payload(payload: Any, path: Path | None = None, *,
-                            expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+                            expected_observation_schema: str = OBS_SCHEMA_TERRAIN,
                             expected_sensor_contract: dict | None = None) -> dict[str, Any]:
     """Validate the exact-resume contract; never reinterpret a partial checkpoint."""
     where = f" at {path}" if path is not None else ""
@@ -327,7 +299,7 @@ def find_resume(run_dir: Path) -> Path | None:
 
 
 def find_valid_resume(run_dir: Path, *,
-                      expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+                      expected_observation_schema: str = OBS_SCHEMA_TERRAIN,
                       expected_sensor_contract: dict | None = None) -> Path | None:
     """Best current-schema continuation checkpoint, skipping corrupt/incompatible files."""
 
@@ -366,7 +338,7 @@ def update_boundary_at_or_after(target_steps: int, envs: int) -> int:
 
 
 def checkpoint_step(path: Path, *,
-                    expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+                    expected_observation_schema: str = OBS_SCHEMA_TERRAIN,
                     expected_sensor_contract: dict | None = None) -> int:
     return int(load_checkpoint(path, validate=True,
         expected_observation_schema=expected_observation_schema,
@@ -409,7 +381,7 @@ def finish_if_target_reached(
 
 def resume_training_lineage(
     run_dir: Path, *, resume: str, target_steps: int, envs: int,
-    expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+    expected_observation_schema: str = OBS_SCHEMA_TERRAIN,
     expected_sensor_contract: dict | None = None,
 ) -> tuple[dict[str, Any] | None, int, bool]:
     """Load exact resume state; identify completed runs without a new PPO update.
@@ -558,7 +530,7 @@ def try_restore_recovery(
 
         payload = load_checkpoint(
             recovery_path,
-            expected_observation_schema=getattr(env, 'observation_schema', OBS_SCHEMA_LEGACY),
+            expected_observation_schema=getattr(env, 'observation_schema', OBS_SCHEMA_TERRAIN),
             expected_sensor_contract=getattr(env, 'sensor_contract', None))
         active_source = source_provenance_from_env().get('git_commit')
         snapshot_source = ((payload['meta'].get('source_provenance') or {})
@@ -622,7 +594,7 @@ def try_restore_recovery(
 
 
 def resolve_target_checkpoint(run_dir: Path, *, target_steps: int, envs: int, label: str,
-                              expected_observation_schema: str = OBS_SCHEMA_LEGACY,
+                              expected_observation_schema: str = OBS_SCHEMA_TERRAIN,
                               expected_sensor_contract: dict | None = None) -> tuple[Path | None, Path | None, int]:
     """Return (complete_final, resumable_partial, expected_update_boundary).
 
