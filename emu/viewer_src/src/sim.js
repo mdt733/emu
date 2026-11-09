@@ -134,7 +134,7 @@ export class EmuBrowserSim {
     this.sensorObstacle = 'flat';
     this.surfaceSlopeDegrees=3;
     this.surfaceStepHeightCm=2;
-    this.depthConfig = {enabled:true,forward:0,lateral:0,height:-.040,tilt:70,yaw:0,showRays:true,showActorRays:true,showFootprint:true,subrays:'auto'};
+    this.depthConfig = {enabled:true,forward:0,lateral:0,height:-.030,tilt:70,yaw:0,showRays:true,showActorRays:true,showFootprint:true,subrays:'auto'};
     this.depthReading = null;
     this.depthLastMs = 0;
     this.depthRaycaster = new THREE.Raycaster();
@@ -1554,17 +1554,22 @@ export class EmuBrowserSim {
     this.depthLines.visible=this.depthConfig.showRays;
     if(this.depthConfig.showActorRays){
       const contract=this.bundle.observation.sensor_contract;
-      const actorRays=terrainActorRays(
-        rotation,contract.tof4x4_pitch_from_horizontal_deg,contract.tof4x4_yaw_deg);
+      const actorRays=terrainActorRays(rotation,
+        contract.tof4x4_rays_body||contract.tof4x4_pitch_from_horizontal_deg,
+        contract.tof4x4_yaw_deg);
       const positions=this.actorRayPositions;
-      const actorOrigin=new THREE.Vector3(...torso); // actor uses torso origin, not preview offset
+      const bodyMount=contract.tof4x4_mount_body_m||[0,0,0];
+      const actorOrigin=new THREE.Vector3(
+        ...torso.map((v,i)=>v+
+          rotation[3*i]*bodyMount[0]+rotation[3*i+1]*bodyMount[1]+
+          rotation[3*i+2]*bodyMount[2]));
       for(let i=0;i<actorRays.length;i++){
         raycaster.set(actorOrigin,direction.set(...actorRays[i]).normalize());
         raycaster.far=1.5;
         const hit=raycaster.intersectObjects(targets,false)[0];
         const endpoint=hit?.point || actorOrigin.clone().addScaledVector(direction,.65);
         for(let k=0;k<3;k++){
-          positions[i*6+k]=torso[k];
+          positions[i*6+k]=actorOrigin.getComponent(k);
           positions[i*6+3+k]=endpoint.getComponent(k);
         }
       }

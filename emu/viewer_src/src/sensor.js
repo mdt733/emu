@@ -67,7 +67,7 @@ function opticalRay(R, tilt, u, v, yaw=0) {
 }
 
 export function depthProbeRays(torso, R,
-  {forward=0,lateral=0,tilt=70,yaw=0,height=-.040}={}) {
+  {forward=0,lateral=0,tilt=70,yaw=0,height=-.030}={}) {
   if (![forward,lateral,tilt,yaw,height].every(Number.isFinite) ||
       forward<0||forward>.20||Math.abs(lateral)>.12||
       tilt<0||tilt>90||Math.abs(yaw)>30)
@@ -186,10 +186,13 @@ export function terrainHeightOffsetsCm(reading, referenceZ=0) {
 // unlike the optional 5-sample diagnostic depth inspector above. Row order is
 // Physical 4x4 beam pitch/yaw come from the exported sensor contract.
 // Keep the old baseline defaults for legacy/showcase and standalone tests.
-// The contract uses the torso origin (no forward/height mount offset).
+// The OLD contract used torso origin; the current VL53L8CX has an
+// explicit -30mm vertical mount and image-plane centre rays.
 const ORIGINAL_PITCH=[40,60,80,100];
 const ORIGINAL_YAW=[-22.5,-7.5,7.5,22.5];
 export function terrainActorRays(R, pitches=ORIGINAL_PITCH, yaws=ORIGINAL_YAW) {
+  if(Array.isArray(pitches)&&pitches.length===16&&Array.isArray(pitches[0]))
+    return pitches.map(ray=>bodyToWorld(R,ray));
   const out = [];
   for (const pitch of pitches) for (const yaw of yaws) {
     const p=pitch*Math.PI/180,y=yaw*Math.PI/180;
@@ -262,16 +265,19 @@ export class TerrainActorObserver {
   constructor(contract) {
     if(contract?.schema!=='terrain_360')throw new Error('Schema-9 terrain contract required');
     this.settings=contract.settings;
-    this.pitches=contract.tof4x4_pitch_from_horizontal_deg;
+    this.pitches=contract.tof4x4_rays_body||contract.tof4x4_pitch_from_horizontal_deg;
     this.yaws=contract.tof4x4_yaw_deg;
+    this.mount=contract.tof4x4_mount_body_m||[0,0,0];
     this.frame=0;
     this.ring=[];
   }
   sample(pose,model,data,footGeomIds,noisy=true) {
     const scale=noisy?this.settings.sensor_noise_scale:0;
     const h=pose.terrainHeightAt||null;
+    const mounted=bodyToWorld(pose.R,this.mount);
+    const origin=pose.torso.map((n,i)=>n+mounted[i]);
     const ranges=terrainActorRays(pose.R,this.pitches,this.yaws).map(ray=>{
-      const measured=actorTerrainDistance(pose.torso,ray,model,data,footGeomIds,h);
+      const measured=actorTerrainDistance(origin,ray,model,data,footGeomIds,h);
       return measured ? clamp(measured+scale*.002*gaussian(),.04,1.5) : 0;
     });
     return {ranges,valid:ranges.map(x=>x>0)};
@@ -367,11 +373,14 @@ export function fitArrayGround(ranges,valid,gravity,
 
 export class ArrayFlowObserver {
   constructor(contract){
-    if(contract?.sensor_model_revision!=='forward_tof4x4_array_plane_fit_no_tripod_2')
+    if(!['forward_tof4x4_array_plane_fit_no_tripod_2',
+          'vl53l8cx_array_plane_square45_below30_v3'].includes(
+             contract?.sensor_model_revision))
       throw new Error('Expected array-only terrain sensor');
     this.settings=contract.settings;this.ring=[];this.frame=0;this.bias=[0,0,0];
-    this.pitches=contract.tof4x4_pitch_from_horizontal_deg;
+    this.pitches=contract.tof4x4_rays_body||contract.tof4x4_pitch_from_horizontal_deg;
     this.yaws=contract.tof4x4_yaw_deg;
+    this.mount=contract.tof4x4_mount_body_m||[0,0,0];
   }
   synth(pose,model,data,noisy=true){
     const st=this.settings,ns=noisy?st.sensor_noise_scale:0;
@@ -416,9 +425,11 @@ export class ArrayFlowObserver {
                                this.pitches,this.yaws);
     const good=ground.depthValid&&flow.flowValid;
     const depth=ground.valid?ground.depth:0;
+    // Flow is measured from the torso; the VL53L8CX is 30mm lower.
+    const flowDepth=ground.depth+Math.max(0,-this.mount[2]);
     const velocity=good?[
-      -depth*(flow.flow[0]-flow.flowGyro[1]),
-      -depth*(flow.flow[1]+flow.flowGyro[0])
+      -flowDepth*(flow.flow[0]-flow.flowGyro[1]),
+      -flowDepth*(flow.flow[1]+flow.flowGyro[0])
     ]:[0,0];
     const fresh=clamp(1-.25*(flow.flowAge/s.flow_period_frames),.25,1);
     return {gyro:this.ring[3].gyro,velocity,

@@ -1,3 +1,7 @@
+import {depthProbeRays} from './sensor.js';
+const PHYSICAL_ARRAY_REV='vl53l8cx_array_plane_square45_below30_v3';
+const LEGACY_ARRAY_REV='forward_tof4x4_array_plane_fit_no_tripod_2';
+const IDENTITY_ROTATION=[1,0,0,0,1,0,0,0,1];
 function clamp(x, lo, hi) { return Math.max(lo, Math.min(hi, x)); }
 
 export function decodeF32(blob) {
@@ -36,7 +40,7 @@ export function parsePolicy(text) {
     throw Error('Invalid 360-input observation fields');
   if(b.source?.checkpoint_schema!==9||
      !c||c.schema!=='terrain_360'||
-     c.sensor_model_revision!=='forward_tof4x4_array_plane_fit_no_tripod_2'||
+     ![LEGACY_ARRAY_REV,PHYSICAL_ARRAY_REV].includes(c.sensor_model_revision)||
      c.history_len!==4||c.action_dim!==6||
      JSON.stringify(c.base_fields)!==JSON.stringify(f)||
      c.tripod_mounts_body_m!==undefined||
@@ -58,6 +62,24 @@ export function parsePolicy(text) {
   // rotating all four pitch rows together with the model's hip height.
   // Accept only these explicitly supported physical morphologies;
   // never trust arbitrary policy-supplied sensor angles.
+  const physical=c.sensor_model_revision===PHYSICAL_ARRAY_REV;
+  if(physical){
+    const canonical=depthProbeRays([0,0,0],IDENTITY_ROTATION,
+      {tilt:70,forward:0,height:-.03,lateral:0,yaw:0});
+    const expected=canonical.directions.map(zone=>zone[0]);
+    const actual=c.tof4x4_rays_body;
+    if(!Array.isArray(actual)||actual.length!==16 ||
+       actual.some((ray,i)=>!Array.isArray(ray)||ray.length!==3||
+         ray.some((n,j)=>!Number.isFinite(n)||Math.abs(n-expected[i][j])>1e-6))||
+       JSON.stringify(c.tof4x4_mount_body_m)!==JSON.stringify([0,0,-.03])||
+       c.tof4x4_fov_horizontal_deg!==45||
+       c.tof4x4_fov_vertical_deg!==45||
+       c.tof4x4_tilt_down_deg!==70||
+       c.tof4x4_mount_yaw_deg!==0||
+       c.tof4x4_pitch_from_horizontal_deg!==undefined||
+       c.tof4x4_yaw_deg!==undefined)
+      throw Error('New 45-degree ToF rays or mount differ from the actual hardware');
+  }
   const pitch=c.tof4x4_pitch_from_horizontal_deg;
   const legacy=JSON.stringify(pitch)===JSON.stringify([40,60,80,100]);
   const heights=[.2584,.30,.34,.40];
@@ -72,9 +94,10 @@ export function parsePolicy(text) {
   if(!legacy&&matchedHeight!==undefined&&neutral!==undefined&&
      (!Number.isFinite(neutral)||Math.abs(neutral-matchedHeight)>.00002))
     throw Error('ToF mount height differs from exported robot neutral pose');
-  if(JSON.stringify(c.tof4x4_mount_body_m)!==JSON.stringify([0,0,0])||
-     (!legacy&&matchedHeight===undefined)||
-     JSON.stringify(c.tof4x4_yaw_deg)!==JSON.stringify([-22.5,-7.5,7.5,22.5])||
+  if((!physical&&(
+        JSON.stringify(c.tof4x4_mount_body_m)!==JSON.stringify([0,0,0])||
+        (!legacy&&matchedHeight===undefined)||
+        JSON.stringify(c.tof4x4_yaw_deg)!==JSON.stringify([-22.5,-7.5,7.5,22.5])))||
      JSON.stringify(c.tof4x4_range_limits_m)!==JSON.stringify([.04,1.5])||
      c.tof4x4_occlusion!=='nearest ray-sphere foot hit masks terrain return'||
      c.tof4x4_validity!=='one bit per cell, delayed, zero on dropout'||
