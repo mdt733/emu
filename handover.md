@@ -5,7 +5,7 @@ Updated 2026-11-09. This is the **only active handover**. Completed experiments 
 ## Repositories / promotion boundary
 
 - `main` is the frozen proven v5050-lineage champion until physical exams justify replacement.
-- The original rated-torque **v5058** source (`research/v5058-c018-rated-torque-hardcap`, PR #49) is the **untouched 75cm/old-sensor/old-heavy-rod baseline**. Its checkpoints cannot resume on this branch.
+- Historical v5058 results/checkpoints live in the previous Git revisions and data folders; the successor does **not** carry old policy format or sensor compatibility.
 - The **candidate** is [draft PR #52](https://github.com/mdt733/emu/pull/52), branch `maintenance/v5058-clean-skeleton-sensor-audit`. This creates an entirely new physical/sensor/terrain model and must train **from zero**, with an independent checkpoint identity.
 - Never merge directly to `main` without an equivalent signed step/slope/command/recovery physical exam and evidence of real torque limits.
 
@@ -57,3 +57,14 @@ This correctly bounds the combined PD motor output but **does not**
 constitute a measured motor torque-speed/thermal curve or validated
 remote-knee transmission; 0.08Nm mechanical frictionloss is still
 uncalibrated. New cold-start model identity; no older checkpoint reuse.
+
+## One successor; Git is the archive
+
+The active parser, exporter and public release verifier admit **only the
+physical 360-input VL53L8CX actor**. The CPU sensor laboratory is generated
+without any retired champion weights. The former Pinnacle exported policy,
+release approval and version-named 20M launcher are removed from this
+candidate branch; they remain recoverable from older Git revisions. Manual
+GitHub Pages deployment requires a NEW trained 120M actor, verified
+checkpoint, source SHA and separate release approval. No code-level
+backward compatibility and no automatically deployed stale champion.

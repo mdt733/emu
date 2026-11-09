@@ -29,7 +29,7 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: python -m pip install -e ".[dev]"
-      - name: Syntax, public actor and CLI contract
+      - name: Syntax, current 360 actor and CLI contract
         run: |
           # A new, package-free CPU-only WSL installation must be able to
           # parse and serve the sensor lab, without importing NumPy/JAX.
@@ -45,7 +45,9 @@ jobs:
           print('DEPENDENCY-FREE h40 LAB STARTUP: PASS')
           PY
           python -m compileall -q emu scripts tests
-          python scripts/verify_showcase_release.py
+          # No committed old champion asset belongs in the replacement branch.
+          # The only current actor release validator is exercised with a
+          # synthetic physical-360 contract in test_core_delivery.py.
           if ! python scripts/audit_core_dependencies.py --json > /tmp/emu-core-inventory.json; then
             python -c 'import json; j=json.load(open("/tmp/emu-core-inventory.json")); print("OWNERSHIP:",j["ownership_errors"]); print("IMPORTS:",j["missing_emu_module_imports"]); print("BAD DOC LINKS:",j["broken_markdown_links"])'
             exit 1
@@ -135,18 +137,14 @@ jobs:
           cache-dependency-path: emu/viewer_src/package-lock.json
       - name: Install locked dependencies
         run: npm ci --prefix emu/viewer_src --no-audit --no-fund
-      - name: Run browser controls and packaging checks
+      - name: Run current browser controls and physics-inspector checks
         run: npm test --prefix emu/viewer_src
-      - name: Prepare protected champion
-        run: python3 scripts/prepare_showcase.py
       - name: Build browser
         run: npm run build --prefix emu/viewer_src
       - name: Reject modifications to tracked source
         run: |
           git diff --exit-code
           test -z "$(git ls-files --others --exclude-standard)"
-      - name: Verify policy and WASM assets
-        run: python3 scripts/verify_showcase_release.py --verify-dist
       # The deleted experimental browser harness is not invoked here.
       # The six essential viewer contracts run above. Full manual
       # MuJoCo browser acceptance remains a release-review step.

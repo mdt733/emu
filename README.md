@@ -271,3 +271,13 @@ the original 75cm v5058 branch remains unchanged.
 PR #52 is a new training model, not a resumed v5058-rated checkpoint.
 All six motors are in the torso and the knee transmissions are idealised;
 old checkpoints remain valid only for their own source and XML hash.
+
+### New champion boundary (no backwards compatibility)
+
+This source supports **one 360-input physical sensor contract** for training,
+export and browser playback. The old champion and its release approval are
+preserved in Git history, **not checked into this candidate**. The CPU sensor
+lab generates a tiny untrained fixture directly from the current h40 source,
+without copying a published policy. Pages publication is explicitly manual;
+a new `showcase/champion.emupolicy` and its signed release approval are only
+added after the cold 120M evaluation has proven the robot.

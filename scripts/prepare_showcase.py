@@ -16,21 +16,21 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def prepare(*, output_dir: Path, policy_path: Path | None = None,
+def prepare(*, output_dir: Path, policy_path: Path,
             source_url: str = '', source_commit: str = '') -> dict:
-    champion = ROOT / 'showcase' / 'champion.emupolicy'
-    # Release builds always require a real trained policy. The old
-    # zero-action fallback was misleading and had no publishing use.
-    selected = policy_path.expanduser().resolve() if policy_path is not None else champion
+    # No implicit checked-in champion. The source must identify the
+    # explicitly reviewed physical 360-input actor at release time.
+    selected = policy_path.expanduser().resolve()
     if not selected.is_file():
         raise FileNotFoundError(f'Trained policy not found: {selected}')
     trained = True
 
     # The public site bundles only a trained, validated browser-native
     # .emupolicy. Python checkpoints are never served.
-    from verify_showcase_release import validate_browser_bundle
+    from verify_showcase_release import verify_approved_release
+    verify_approved_release(
+        selected, ROOT / 'showcase' / 'release_approval.json')
     bundle = json.loads(selected.read_text(encoding='utf-8'))
-    validate_browser_bundle(bundle, require_trained=trained)
     source = bundle.get('source') or {}
     if int(source.get('step') or 0) <= 0:
         raise ValueError('Refusing to publish a zero-step policy as a trained champion')
@@ -72,7 +72,7 @@ def prepare(*, output_dir: Path, policy_path: Path | None = None,
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--policy', type=Path, default=None, help='Optional trained exported policy (otherwise showcase/champion.emupolicy)')
+    parser.add_argument('--policy', type=Path, required=True, help='Reviewed physical 360-input trained actor to publish')
     parser.add_argument('--source-url', default='', help='Public GitHub repository URL')
     parser.add_argument('--source-commit', default='', help='Full Git commit used to build this static frontend')
     args = parser.parse_args()

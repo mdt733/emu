@@ -1,8 +1,0 @@
-{
-  "schema": 1,
-  "release": "v5048-temporal-speed-200M",
-  "approved_feature_commit": "088a29be47f624be9e2c322c504ec98049b3f9bf",
-  "policy_git_blob": "020bd17ab0efa84d97b68c7a4f43b759097bdfbb",
-  "viewer_git_blob": "8c78f1650efc76e96ee249f42f9f6496e6f2fe68",
-  "note": "Owner-approved 2026-11-05 public v5048 temporal-speed policy after viewer inspection. 200,015,872 PPO steps; source SHA 088a29b; actual supported sub-3cm transitions; no 3cm fixed mission or source-matched v5032 gait parity claim. Training final.pkl not archived in supplied evidence: approval release_schema 2 explicitly records null checkpoint hash, locks exact inference actor/sensor Git blob and user-uploaded 148-panel evaluation bundle SHA256. v5032 policy recoverable from prior main."
-}
