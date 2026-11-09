@@ -14,7 +14,7 @@ Updated 2026-11-09. **This is the one active handover.** Git history preserves a
 
 The operator reports a good fast gait and roughly **15° slopes** while inspecting the exported trained actor. This is a qualitative owner observation, not a controlled held-out MJX examination. **Up/down step traversal remains unreliable**, including the baseline's historical limitations; no successful 3–4 cm stair capability can be claimed. No robot has been physically built or electrically/thermally validated.
 
-The original `final.pkl` is **not in this repository or in the chat upload**. It is not interchangeable with the 863 KiB inference-only `.emupolicy`. The checkpoint checksum must be measured on the training PC and recorded in `showcase/release_approval.json`; do not invent a hash or loosen the release gate.
+The original `final.pkl` is **not in this repository or in the chat upload**. It is not interchangeable with the 863 KiB inference-only `.emupolicy`. The checkpoint checksum was measured on the original training PC as `632c09788613e0e5fdc077637efd0a4bf4fc1be7ae0c07dc3662087c6c12970b` and recorded in strict `showcase/release_approval.json`. The checkpoint bytes remain private/off GitHub; do not loosen the release gate.
 
 ```bash
 sha256sum ~/emu-data/runs/h40-1m-tof70-120m-s735/checkpoints/final.pkl
@@ -38,7 +38,7 @@ sha256sum ~/emu-data/runs/h40-1m-tof70-120m-s735/checkpoints/final.pkl
 ## Next work: no branch explosion
 
 1. **Complete:** H40 promotion PR #53 passed Python/physics and browser CI; source and trained actor identities remained unchanged. Continue to run these checks on future maintenance changes.
-2. Measure the frozen `final.pkl` SHA-256 and create exact `showcase/release_approval.json`; run `python scripts/verify_showcase_release.py` before triggering the **manual** Pages workflow. Keep the old public site untouched until this passes.
+2. **Checksum and release approval supplied:** the original `final.pkl` SHA-256 is recorded in strict `showcase/release_approval.json`. Verify it against the policy and the final compiled site in CI before triggering the **manual** Pages workflow; the old public site stays untouched until a successful deployment.
 3. Keep the H40 baseline stable. Future step experiments start from a new feature branch **after** promotion; do not rewrite its source, checkpoint or weights.
 4. For stairs, use a **source-pinned independent MJX exam** with successful actual up/down lip crossing, controlled post-step movement, and command/heading survival. Browser footage is not a valid pass condition.
 
