@@ -1,7 +1,6 @@
 import test from 'node:test';
 import {measuredAttitude,sampleEpisodeCadence,smoothFactor,chasePose,sampleShove} from '../src/sim-math.js';
 import assert from 'node:assert/strict';
-import {readFileSync} from 'node:fs';
 import {parsePolicy} from '../src/policy.js';
 import * as depthLabSensor from '../src/sensor.js';
 import {joystickToCommands,nextYawCommand} from '../src/controls.js';
@@ -24,17 +23,25 @@ const data=step=>trainingLimits({training_step:step,
     foundation_steps:20000000,academy_intro_steps:60000000,
     push_max_force_n:.7}});
 
-test('array-only 360 terrain policy keeps legacy actors separate and derives ground from rays',()=>{
-  const fields=Array.from({length:55},(_,i)=>'legacy_'+i).concat(
+test('only the current physical 360-input policy contract is accepted',()=>{
+  const fields=Array.from({length:55},(_,i)=>'base_'+i).concat(
     ['ground_forward_grade_rad','ground_sideways_grade_rad','ground_visibility_confidence']);
   for(let i=0;i<16;i++)fields.push(`tof4x4_range_${Math.floor(i/4)}${i%4}_m`);
   for(let i=0;i<16;i++)fields.push(`tof4x4_valid_${Math.floor(i/4)}${i%4}`);
-  const c={schema:'terrain_360',sensor_model_revision:'forward_tof4x4_array_plane_fit_no_tripod_2',
+  const identity=[1,0,0,0,1,0,0,0,1];
+  const rays=depthLabSensor.depthProbeRays([0,0,0],identity,
+    {tilt:70,forward:0,height:-.03,lateral:0,yaw:0}).directions.map(z=>z[0]);
+  const c={
+    schema:'terrain_360',
+    sensor_model_revision:'vl53l8cx_array_plane_square45_below30_v3',
     base_fields:fields,history_len:4,action_dim:6,
     array_ground_estimator:'weighted_4x4_plane_residual_8mm_v1',
     array_ground_max_fit_residual_m:.008,array_ground_min_valid_cells:6,
-    tof4x4_mount_body_m:[0,0,0],tof4x4_pitch_from_horizontal_deg:[40,60,80,100],
-    tof4x4_yaw_deg:[-22.5,-7.5,7.5,22.5],tof4x4_range_limits_m:[.04,1.5],
+    tof4x4_mount_body_m:[0,0,-.03],tof4x4_fov_horizontal_deg:45,
+    tof4x4_fov_vertical_deg:45,tof4x4_tilt_down_deg:70,
+    tof4x4_mount_yaw_deg:0,tof4x4_rays_body:rays,
+    tof4x4_hardware_zone_ids:[3,2,1,0,7,6,5,4,11,10,9,8,15,14,13,12],
+    tof4x4_range_limits_m:[.04,1.5],
     tof4x4_occlusion:'nearest ray-sphere foot hit masks terrain return',
     tof4x4_validity:'one bit per cell, delayed, zero on dropout',
     settings:{tof_period_frames:2,flow_period_frames:1,tof_delay_frames:1,flow_delay_frames:1,
@@ -43,27 +50,33 @@ test('array-only 360 terrain policy keeps legacy actors separate and derives gro
     robot_xml:'<mujoco/>',policy:{action_dim:6,history_len:4,base_obs_dim:90,
       obs_dim:360,layers:[{},{},{}]},observation:{base_fields:fields,sensor_contract:c},control:{}};
   assert.equal(parsePolicy(JSON.stringify(bundle)).policy.obs_dim,360);
-  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,schema:2})),/schema-3/);
+  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,schema:2})),/current 360-input/);
   assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
-    source:{checkpoint_schema:8}})),/schema-9/);
-  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
-    observation:{...bundle.observation,sensor_contract:{...c,
-      sensor_model_revision:'tripod_tof_flow_async_v1'}}})),/array-only/);
+    source:{checkpoint_schema:8}})),/current 360-input/);
   assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
     observation:{...bundle.observation,sensor_contract:{...c,
-      tripod_mounts_body_m:[[0,0,0]]}}})),/array-only/);
-  const dirs=depthLabSensor.terrainActorRays([1,0,0,0,1,0,0,0,1]);
-  const ranges=dirs.map(v=>-.25/v[2]);
-  const fit=depthLabSensor.fitArrayGround(ranges,Array(16).fill(true),[0,0,-1]);
+      sensor_model_revision:'forward_tof4x4_array_plane_fit_no_tripod_2'}}})),/current physical/);
+  assert.throws(()=>parsePolicy(JSON.stringify({...bundle,
+    observation:{...bundle.observation,sensor_contract:{...c,
+      tof4x4_mount_body_m:[0,0,0]}}})),/Policy rays/);
+  const lab={...bundle,sensor_lab:true,source:{checkpoint_schema:9,step:0,
+      actor_sha256:'not-applicable-sensor-lab'},
+    policy:{...bundle.policy,layers:[]}};
+  assert.equal(parsePolicy(JSON.stringify(lab)).sensor_lab,true);
+  assert.throws(()=>parsePolicy(JSON.stringify({...lab,
+    policy:{...lab.policy,layers:[{},{},{}]}})),/cannot carry an actor/);
+
+  const ranges=rays.map(v=>-.37/v[2]);
+  const fit=depthLabSensor.fitArrayGround(ranges,Array(16).fill(true),[0,0,-1],rays,-.03);
   assert.equal(fit.valid,true);
-  assert.ok(Math.abs(fit.depth-.25)<1e-3,fit.depth);
+  assert.ok(Math.abs(fit.depth-.4)<1e-3,fit.depth);
   assert.ok(Math.abs(fit.forward)<1e-3);
   assert.ok(Math.abs(fit.side)<1e-3);
   const broken=ranges.slice();
   broken[0]-=.065;broken[1]-=.065;broken[2]-=.065;broken[3]-=.065;
-  assert.equal(depthLabSensor.fitArrayGround(broken,Array(16).fill(true),[0,0,-1]).valid,false);
+  assert.equal(depthLabSensor.fitArrayGround(
+    broken,Array(16).fill(true),[0,0,-1],rays,-.03).valid,false);
 });
-
 
 test('physical ST 45-degree policy rays agree with inspector and reject wrong mount',()=>{
   const physical=depthLabSensor.depthProbeRays([0,0,0],[1,0,0,0,1,0,0,0,1],
@@ -102,6 +115,9 @@ test('schema-9 4x4 rays intersect physical floor/box and foot occlusion',()=>{
   data.geom_xpos.splice(6,3,...footHit);
   assert.equal(actorTerrainDistance(origin,ray,model,data,[2]),0);
   const contract={schema:'terrain_360',
+    sensor_model_revision:'vl53l8cx_array_plane_square45_below30_v3',
+    tof4x4_mount_body_m:[0,0,-.03],
+    tof4x4_rays_body:depthLabSensor.CURRENT_RAYS_BODY,
     settings:{tof_period_frames:2,tof_delay_frames:1,tof_dropout_prob:0,sensor_noise_scale:0}};
   const observer=new TerrainActorObserver(contract);
   const pose={R,torso:origin};
@@ -132,18 +148,6 @@ test('manual axes and heading hold obey the trained command envelope',()=>{
   }
   assert.equal(request,0);
   assert.ok(Math.abs(target-heading)<.04);
-});
-
-
-test('published Pinnacle 260M is compatible with the lean 360-input viewer',()=>{
-  const archived=readFileSync(new URL('../../../showcase/champion.emupolicy',
-    import.meta.url),'utf8');
-  const b=parsePolicy(archived);
-  assert.equal(b.schema,3);
-  assert.equal(b.policy.obs_dim,360);
-  assert.equal(b.source.checkpoint_schema,9);
-  assert.equal(b.observation.sensor_contract.sensor_model_revision,
-    'forward_tof4x4_array_plane_fit_no_tripod_2');
 });
 
 
