@@ -557,8 +557,8 @@ function renderCarpetValues(){
     `Source: ${carpetDifficulty.source==='training'?carpetDifficulty.run:'Illustrative defaults'}`,
     `Age ${Number(carpetDifficulty.step||0).toLocaleString()} steps · phase: ${phase}`,
     (carpetDifficulty.trainingCarpetPrisms
-      ? 'SOURCE PHYSICS: 18 MJX prisms. THIS BROWSER: 9 tilted-box approximation, not collision-equivalent.'
-      : 'SOURCE PHYSICS: representative 9-box MJX carpet (browser birth differs).'),
+      ? 'SOURCE: rolling 4×1m / 8 MJX prisms. BROWSER: fixed 2×2m / 8 MuJoCo prisms, no recycling.'
+      : 'BROWSER: fixed 2×2m / 8 MuJoCo prisms; no claim of historical replay.'),
     `Global grade ${Number(carpetDifficulty.slopeDeg||0).toFixed(2)}°; physical role ${lesson.terrain.slopeDeg.toFixed(3)}°`,
     `Physical up/down ${(lesson.terrain.stepUpM*1000).toFixed(3)} / ${(lesson.terrain.stepDownM*1000).toFixed(3)} mm`,
     `Role velocity ${f.speed} · strafe ${f.lateral} · yaw ${f.yaw}`,

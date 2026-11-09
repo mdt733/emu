@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# One clean CPU-only Ubuntu/WSL launch. No Python ML venv and no CUDA.
+# One clean CPU-only Ubuntu/WSL viewer launcher.
+# No Python ML venv or CUDA. With --policy PATH it previews a frozen actor;
+# without arguments it starts the untrained sensor-mount laboratory.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -10,7 +12,7 @@ fi
 python3 - <<'PY'
 import sys
 if sys.version_info < (3, 10):
-    raise SystemExit("Sensor lab requires Python 3.10+")
+    raise SystemExit("EMU browser viewer requires Python 3.10+")
 print("Python:", sys.version.split()[0])
 PY
 
@@ -44,4 +46,16 @@ if [[ "${1:-}" == "--build-only" ]]; then
   exit 0
 fi
 echo "Open in your Windows browser: http://127.0.0.1:8765/"
+if [[ "${1:-}" == "--policy" ]]; then
+  if [[ "$#" -ne 2 || ! -f "$2" ]]; then
+    echo "Usage: bash scripts/start_sensor_lab_wsl.sh --policy /path/to/robot.emupolicy" >&2
+    exit 2
+  fi
+  echo "FROZEN POLICY PREVIEW: $2 (CPU browser inference, no CUDA)"
+  exec python3 -m emu.cli viewer "$2" --port 8765 --no-open
+fi
+if [[ "$#" -ne 0 ]]; then
+  echo "Usage: bash scripts/start_sensor_lab_wsl.sh [--build-only|--policy PATH]" >&2
+  exit 2
+fi
 exec python3 -m emu.cli viewer --sensor-lab --port 8765 --no-open

@@ -264,8 +264,8 @@ recycler or proof of walking. The trainer's corrected physical ToF contract
 uses the same 16 zone-centre directions; the browser additionally shows
 five diagnostic sample rays per zone.
 The new maintenance source now uses four 1m MJX tiles and the 45°×45°
-sensor contract. It still requires CUDA/MJX acceptance before any 120M training;
-the original 75cm v5058 branch remains unchanged.
+sensor contract; the new 120M cold-start run is complete and the exported
+actor is undergoing independent acceptance. The original v5058 branch is unchanged.
 
 **Mechanical identity warning:** the new central-servo h40 geometry in
 PR #52 is a new training model, not a resumed v5058-rated checkpoint.
@@ -285,3 +285,47 @@ added after the cold 120M evaluation has proven the robot.
 Current actor/PPO/checkpoints use only `terrain_360` (schema 9). There is no
 schema-7/8 resume, no tripod-sensor export and no legacy public actor parser
 in this candidate. Old source and assets can be recovered from Git.
+
+## Preview the 120M h40 actor before promoting to main
+
+Use the **original training source/worktree** to export the actual validated
+`final.pkl` with `EMU_PHYSICAL_PROFILE=h40`. Run inside the CUDA/Python
+environment used for PPO (exporting needs its checkpoint dependencies):
+
+```bash
+cd ~/emu-h40-120m
+export PYTHONPATH="$PWD" EMU_PHYSICAL_PROFILE=h40
+mkdir -p ~/emu-data/actors
+python -m emu.cli export-policy \
+  ~/emu-data/runs/h40-1m-tof70-120m-s735/checkpoints/final.pkl \
+  ~/emu-data/actors/emu-h40-120m.emupolicy
+```
+
+The export includes the **generated h40 MuJoCo model** (not the 26cm
+source template), sensor extrinsics, actor weights and observation
+normalizer. Keep the immutable trained source and checkpoint. Any later
+viewer-only commits do not change that physical training identity.
+
+On the CPU/WSL viewer computer, copy the single `.emupolicy` file into
+`~/emu-data/actors/`, update this maintenance viewer checkout and run:
+
+```bash
+cd ~/emu
+git pull --ff-only
+bash scripts/start_sensor_lab_wsl.sh --policy \
+  ~/emu-data/actors/emu-h40-120m.emupolicy
+```
+
+Open `http://127.0.0.1:8765/`. **Field** is the long-run gait/slope
+preview (adjust Park max slope to 15°). **Training Carpet** has exactly
+**four 1m source-sized tiles and eight real convex triangle-prism CPU
+colliders** with independently set slope/steps. It is a **fixed 2×2m**
+diagnostic world, **not** a replay of MJX's endless recycler or source
+random births; reset before walking off the edge. Neither browser mode
+replaces the independent frozen physical exam. Do **not** set
+`--sensor-lab` when loading an actual trained policy; that mode explicitly
+disables neural inference.
+
+Retire the old champion on `main` only after viewing the actual export
+and reviewing physical exam evidence. The previous 120M checkpoints and
+`main` remain unchanged by any viewer-only patch.
