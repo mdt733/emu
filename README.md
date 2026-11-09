@@ -77,11 +77,9 @@ Training starts from scratch; historical models and incompatible sensor contract
 
 The active code supports **one 360-input physical actor**, not old 220/232-input policies or retired sensor geometries. Git is the archive: do not keep duplicate experiments or compatibility scaffolding in the current source.
 
-## Historical milestones
+## Historical research and measured limitations
 
-- [Original 260M Pinnacle](docs/V5032_PINNACLE_RELEASE.md): early 360-input champion, physically crossed 2 cm steps but not reliable 3 cm ascent.
-- [v5048 200M tournament](docs/V5048_SHARED_PARENT_RESULTS_20261105.md): faster software-playground milestone, but still inadequate real step climbing.
-- [v5057 physical matrix](docs/V5057_HEIGHT_PHYSICAL_MATRIX.md) and [v5058 torque hardcap](docs/V5058_C018_RATED_TORQUE_HARDCAP.md): research that informed the H40 build.
+[Retained research findings](docs/RESEARCH_FINDINGS.md) distills the measured v5032–v5058 experiments, GPU performance, stair scoring pitfalls, gait-incentive hypotheses and rated-torque correction. The original complete reports and old run commands remain at the [pre-cleanup Git snapshot](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs), **not** in current `main`.
 
 Old checkpoints belong to their original source/model hashes; never warm-start the new physical configuration using an incompatible checkpoint.
 
