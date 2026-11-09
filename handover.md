@@ -1,75 +1,56 @@
-# EMU current handover — 40cm central-servo physical build
+# EMU handover — H40 120M mainline
 
-Updated 2026-11-09. This is the **only active handover**. Completed experiments and superseded recipes live in Git history; do not read their launch commands as current instructions.
+Updated 2026-11-09. **This is the one active handover.** Git history preserves all retired experiments and runbooks; the canonical source maintains just one physical robot, 360-input actor, terrain generator, and modern browser.
 
-## Repositories / promotion boundary
+## Status and lineage
 
-- `main` is the frozen proven v5050-lineage champion until physical exams justify replacement.
-- Historical v5058 results/checkpoints live in the previous Git revisions and data folders; the successor does **not** carry old policy format or sensor compatibility.
-- The **candidate** is [draft PR #52](https://github.com/mdt733/emu/pull/52), branch `maintenance/v5058-clean-skeleton-sensor-audit`. This creates an entirely new physical/sensor/terrain model and must train **from zero**, with an independent checkpoint identity.
-- Never merge directly to `main` without an equivalent signed step/slope/command/recovery physical exam and evidence of real torque limits.
+- **Chosen successor:** H40, 400 mm nominal root height, six central C018 actuators, new VL53L8CX sensor contract, four 1 m terrain tiles.
+- **Complete cold-start run:** `h40-1m-tof70-120m-s735`, seed 735, **120,061,952** world-steps, trained at exact commit `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`. Source, final checkpoint, metrics, and intermediate checkpoints in `~/emu-h40-120m` and `~/emu-data/runs/h40-1m-tof70-120m-s735/` must remain frozen.
+- **Proven policy export:** `showcase/champion.emupolicy`, uploaded owner-supplied bytes SHA-256 `178c201af661d3172d701a7d1d8a7711f9b2106e1f7058bc4902aa9c64a37c7a`, Git blob `eef79b1010f2a9561d0b72dd7aae3e0fcef512ae`; 360→256→256→6 network; actor SHA-256 `d4e35f814baef5e46afa6e96e942c86ab100ef25a4ae1913c76bbdb22615e673`.
+- **Research code:** [PR #52](https://github.com/mdt733/emu/pull/52) at `f7e3fc851c2942b5f2785aaf068882c6fd7d32c5`; training physics used for the 120M policy was frozen at the earlier exact source commit. Subsequent code includes CPU/browser fixture improvements and must not be represented as having retrained the policy.
+- **Promotion:** Release-branch code may go to `main` after CI and owner's acceptance. Public GitHub Pages deployment is a separate manual step requiring exact actor approval, retained checkpoint SHA-256, and `python scripts/verify_showcase_release.py`. Do **not** silently deploy on source merge.
 
-## Physical h40 robot: one authoritative generator
+### What is demonstrated
 
-`emu/robot.xml` plus `emu/physical_variants.py` produce the actual MuJoCo robot; the CPU browser sensor lab loads **that identical generated h40 XML**, not a painted substitute.
+The operator reports a good fast gait and roughly **15° slopes** while inspecting the exported trained actor. This is a qualitative owner observation, not a controlled held-out MJX examination. **Up/down step traversal remains unreliable**, including the baseline's historical limitations; no successful 3–4 cm stair capability can be claimed. No robot has been physically built or electrically/thermally validated.
 
-- Nominal hip/root height: **400mm**, six actively controlled joints and two passive shin-flex hinges. Ball feet diameter **36mm**.
-- All **six Feetech C018 12V motors are chassis-mounted** (330g combined); both knees are driven by remote transmissions, provisionally idealized by joint-space actuators. No knee motor mass.
-- Chassis: **460g estimated**, centred **5mm forward** of hip axes. Its rear face overlaps the hip attachment points; no visual braces. Additional original hip carriers and spherical feet ~40g.
-- Each thigh: **one solid 2×2mm square-section carbon rod**. Each shin: **one 2mm round rod** split at the existing passive flex hinge. Approximately 6g total carbon at h40, subject to measured density.
-- Total about **506g estimated**, *not a weighed bill of materials*. Three batteries are provisionally AA/14500-sized, not AAA/10440; regulators and servo bus current remain unverified.
-- Rated actuator hardcap **±0.980665 Nm**. Original compression-knee support, passive shin flex and hip-roll centring retained. The 0.624 Nm·s/rad heuristic joint damping and remote transmission loss/backlash need calibration.
+The original `final.pkl` is **not in this repository or in the chat upload**. It is not interchangeable with the 863 KiB inference-only `.emupolicy`. The checkpoint checksum must be measured on the training PC and recorded in `showcase/release_approval.json`; do not invent a hash or loosen the release gate.
 
-## Terrain / eyes: one physical contract
+```bash
+sha256sum ~/emu-data/runs/h40-1m-tof70-120m-s735/checkpoints/final.pkl
+```
 
-- MJX **four 1m tiles** in a 2×2 rolling window; **eight actual convex triangular prism colliders**. Every support measurement, height sample, lip, sidewall and step exam derives from that generator. Recycler waits for feet to clear abandoned tiles.
-- ST **VL53L8CX** model: **4×4**, **45°×45° square FoV**, **70° downward**, **0mm forward**, **−30mm vertical**, zero lateral/yaw, with 16 *centre-of-zone* rays, nearest foot-sphere occlusion and delayed/noisy range validity.
-- Full 360-input (90×4) actor architecture unchanged, but the new ray and mounting geometry has a **new hashed sensor contract**, not a compatible old checkpoint.
-- ST **4×4 SPAD-array** physical layout shows IDs 12–15 on its top row and 0–3 on its bottom row, but the *receiving lens reverses BOTH axes*. In the nominal package orientation, the actor's scene rows map to raw IDs `3,2,1,0 | 7,6,5,4 | 11,10,9,8 | 15,14,13,12` (ST UM3109 §2.2). Hardware code must check actual board rotation and apply the corresponding transform; raw zone 0 observes the scene's **top-right**.
-- The user originally preferred bottom **inner** zones occluded by the feet. Geometric preview of this actual 70°/−30mm mount suggests **outer** bottom corners instead. DO NOT fabricate occlusion by remapping values. Confirm with the real sensor before hardware finalization.
-- The CPU sensor lab is a **fixed** 2×2 1m eight-prism calibration fixture; the trainer is *recycling* MJX terrain. The generic trained-policy browser carpet is still an illustrative nine-box world; only independent MJX exam can prove terrain capability. Each real ToF zone collects more than one optical measurement: training's one central ray is an approximation.
+## The one H40 physical design
 
-## Learning and evidence
+`emu/robot.xml` + `emu/physical_variants.py` generate the model, used identically by the local sensor laboratory. No separate painted browser-only robot or fake structural braces.
 
-- Exactly **one 360→256→256→6 actor**, one critic and PPO. Six teaching roles share that actor: command, resilience, slope, step, transition, control.
-- Future target: **120 million cold world-steps**, seed 735, 2048 environments; **20M foundation**. Existing mature recipe introduces Academy after 20M and ramps births from 40M toward 60% by 55M. This has not been launched.
-- Freeze and report at 20/40/60/80/100/120M (run with `--fixed-eval-every-steps 20000000`); keep metrics, source SHA, XML and sensor hashes, exact checkpoints, independent signed-step course and viewer export outside Git at `~/emu-data/runs`.
-- NO warm-start from v5057, v5058 or v5059. NO `v5057_physical_tournament.py` 20M launcher for this new 120M recipe.
+- Six **12 V Feetech ST-3215-C018** motors are inside the **460 g estimated chassis** (330 g of motors included), centered 5 mm forward of hip axes. Remote knee transmissions are represented by idealized joint-space actuators. No knee-mounted servo mass.
+- Two original small hip carriers, 36 mm-diameter ball feet, one 2×2 mm square carbon thigh rod and one split 2 mm round carbon shin per leg. Total estimated mass **~506 g**. Batteries and mass distribution are estimates; real BOM, backlash, transmission friction, electronics and cooling are unverified.
+- Passive compression-knee support, shin-flex hinges and hip-roll centering remain. Position actuator `kv=0.624` is **inside** each ±0.980665 N·m `forcerange`; it is not unlimited passive joint braking. Motor torque-speed/thermal curve and 0.08 N·m joint friction are not characterized.
 
-## Required gates **before** 120M
+## The one sensor and world
 
-1. `bash scripts/check.sh --full` plus browser build/tests.
-2. CPU compiled true-prism 1m geometry, exact h40 mass/contacts, two-triangle normal agreement, signed lip exam, midpoint recycler and occlusion contract tests.
-3. GPU on the operator's 4060Ti: 2048-world 2-frame full PPO/update smoke; physical sensor probe, checkpoint restore/source-identity check, throughput/VRAM measurement.
-4. A clean unique run root. No invisible checkpoint resumption, and no change to `main` or published actor.
+- VL53L8CX 4×4 approximation: 45°×45° FoV, 70° down, 0 mm forward, 30 mm below torso, no lateral/yaw offset. Sixteen centre-of-zone rays, delayed/noisy confidence and nearest foot-sphere occlusion.
+- ST receiving lens inverts both axes. Nominal scene-to-raw zone order: `3,2,1,0 | 7,6,5,4 | 11,10,9,8 | 15,14,13,12`; real PCB orientation and which bottom zones feet occlude still need hardware checks.
+- Canonical sensor SHA-256: `d8f559641d240f6eb4bd54a3dc7e96f414994682ebc1b478209df202cc903995`. Older sensor/checkpoint schemas are rejected.
+- MJX trainer uses rolling 2×2 four **1 m** tiles, eight true convex triangular prisms, with recycler support safety and signed step goals. CPU browser **Training Carpet** uses a static eight-prism fixture, not an infinite/stochastic terrain replay. **Field** mode is a separate longer gait/slope diagnostic.
 
-If a gate fails, fix the single source, rerun the gate, and leave the 120M campaign untouched. Record any remaining fidelity approximations explicitly in this handover rather than claiming hardware equivalence.
+## Next work: no branch explosion
 
-## Rated servo damping correction — new h40 source only
+1. Check the promotion PR's **Python/physics and browser CI** against `main`; preserve the source and trained actor identities.
+2. Measure the frozen `final.pkl` SHA-256 and create exact `showcase/release_approval.json`; run `python scripts/verify_showcase_release.py` before triggering the **manual** Pages workflow. Keep the old public site untouched until this passes.
+3. Keep the H40 baseline stable. Future step experiments start from a new feature branch **after** promotion; do not rewrite its source, checkpoint or weights.
+4. For stairs, use a **source-pinned independent MJX exam** with successful actual up/down lip crossing, controlled post-step movement, and command/heading survival. Browser footage is not a valid pass condition.
 
-The old v5058 motor-joint `damping=0.624` supplied passive braking torque
-outside the ±0.980665Nm rated motor limit; at 2rad/s that added 1.248Nm of
-unbounded viscous force. The successor removes this from driven hinge
-joints and puts the SAME coefficient in each position actuator as `kv`
-(with MuJoCo's rated `forcerange`). The existing 18% hardware variation
-now randomizes `actuator_biasprm[...,2]`, not the removed passive damping.
-This correctly bounds the combined PD motor output but **does not**
-constitute a measured motor torque-speed/thermal curve or validated
-remote-knee transmission; 0.08Nm mechanical frictionloss is still
-uncalibrated. New cold-start model identity; no older checkpoint reuse.
+## Run it
 
-## One successor; Git is the archive
+```bash
+# CPU browser with the trained export (not the untrained sensor-lab flag)
+python -m emu.cli viewer-build
+python -m emu.cli viewer showcase/champion.emupolicy --no-open --port 8765
 
-The active parser, exporter and public release verifier admit **only the
-physical 360-input VL53L8CX actor**. The CPU sensor laboratory is generated
-without any retired champion weights. The former Pinnacle exported policy,
-release approval and version-named 20M launcher are removed from this
-candidate branch; they remain recoverable from older Git revisions. Manual
-GitHub Pages deployment requires a NEW trained 120M actor, verified
-checkpoint, source SHA and separate release approval. No code-level
-backward compatibility and no automatically deployed stale champion.
+# Separate geometry and ray diagnostic: untrained
+bash scripts/start_sensor_lab_wsl.sh
+```
 
-Core trainer cleanup now enforces schema-9/360 everywhere: no schema-7/8
-checkpoint decoding, no schema-220/232 observation selection, and no tripod
-mount metadata in the current sensor math. Keep the new robot's model hash,
-sensor hash and six-actuator limit strict before any 120M run.
+The local trained actor may also be loaded directly from `~/emu-data/actors/emu-h40-120m.emupolicy`. Do not invoke `--sensor-lab` to view neural inference. The old champion, older compatible interfaces and research data stay available through Git history, not active code.
