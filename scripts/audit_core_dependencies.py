@@ -18,6 +18,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # Two dozen core test cases maximum. Keep high-value physical acceptance
 # independent rather than growing a permanent test-per-experiment archive.
 CORE_TEST_LIMIT = 24
+# Eight navigational pages, not a new research report per experiment.
+# To create another permanent page, make an explicit ownership decision
+# and update this list in review. Historical trials belong in Git.
+CANONICAL_DOCS = frozenset({
+    "CORE_SKELETON.md", "INSTALL.md", "MAINTENANCE.md",
+    "PHYSICAL_QUALITY.md", "PLAYGROUND.md", "README.md",
+    "RELEASE_READINESS.md", "RESEARCH_FINDINGS.md",
+})
 MARKDOWN_LINK = re.compile(r'!?\[[^\]]*\]\(([^)]+)\)')
 
 # Keep this short on purpose: one explicit owner for each Python runtime
@@ -119,6 +127,17 @@ def reachable(graph: dict[str, list[str]], roots: tuple[str, ...]) -> list[str]:
 
 
 def inventory(root: Path = REPO_ROOT) -> dict:
+    doc_files = {
+        p.relative_to(root / "docs").as_posix()
+        for p in (root / "docs").rglob("*.md") if p.is_file()
+    }
+    doc_policy = {
+        "max_pages": len(CANONICAL_DOCS),
+        "pages": len(doc_files),
+        "extra": sorted(doc_files - CANONICAL_DOCS),
+        "missing": sorted(CANONICAL_DOCS - doc_files),
+        "within_budget": doc_files == CANONICAL_DOCS,
+    }
     modules = {path.stem: path for path in (root / "emu").glob("*.py")}
     local = set(modules)
     expected_list = [name for group in OWNED_BACKEND.values() for name in group]
@@ -180,15 +199,14 @@ def inventory(root: Path = REPO_ROOT) -> dict:
             "untracked_expansions": sorted(expanded_test_operators),
             "names": sorted(test_cases),
         },
+        "documentation_policy": doc_policy,
         "backend_module_count": len(modules),
         "backend_python_lines": sum(lines.values()),
         "browser_javascript_files": sum(
             path.suffix in (".js", ".mjs", ".ts", ".tsx")
             for path in (root / "emu" / "viewer_src").rglob("*") if path.is_file()
         ),
-        "documentation_pages": sum(
-            1 for path in (root / "docs").rglob("*.md") if path.is_file()
-        ),
+        "documentation_pages": len(doc_files),
         "modules": {
             name: {
                 "lines": lines[name],
@@ -247,7 +265,9 @@ def markdown(data: dict) -> str:
         f"cases in {data['core_test_budget']['files']} files; "
         f"untracked expanded cases: {len(data['core_test_budget']['untracked_expansions'])}.",
         "",
-        "## Stages", "",
+        "## Documentation ownership (must match the eight canonical pages)", "",
+        json.dumps(data["documentation_policy"], sort_keys=True),
+        "", "## Stages", "",
     ]
     for name, modules in data["stage_reachable"].items():
         out.append(f"- **{name}**: {len(modules)} statically connected modules "
@@ -281,6 +301,7 @@ def main(argv: list[str] | None = None) -> int:
     return int(bool(data["missing_emu_module_imports"]) or
                bool(data["broken_markdown_links"]) or
                any(data["ownership_errors"].values()) or
+               not data["documentation_policy"]["within_budget"] or
                not data["core_test_budget"]["within_budget"])
 
 
