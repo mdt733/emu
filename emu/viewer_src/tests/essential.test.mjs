@@ -1,12 +1,12 @@
 import test from 'node:test';
-import {measuredAttitude,sampleEpisodeCadence,smoothFactor,chasePose,sampleShove} from '../src/sim-math.js';
+import {measuredAttitude,sampleEpisodeCadence,smoothFactor,chasePose,sampleShove,clearanceAboveSupport} from '../src/sim-math.js';
 import assert from 'node:assert/strict';
 import {parsePolicy} from '../src/policy.js';
 import * as depthLabSensor from '../src/sensor.js';
 import {joystickToCommands,nextYawCommand} from '../src/controls.js';
 import {terrainRoleEnvelope} from '../src/training-solid-carpet.js';
-import {createSensorLabCarpet,sensorLabPrismVertices,sensorLabPrismXml} from '../src/sensor-lab-carpet.js';
-import {withTerrain} from '../src/terrain.js';
+import {createSensorLabCarpet,sensorLabPrismVertices,sensorLabPrismXml,carpetSpawnSoleLift} from '../src/sensor-lab-carpet.js';
+import {withTerrain,terrainSensorHeightFallback} from '../src/terrain.js';
 import {trainingLimits} from '../src/training-carpet.js';
 
 const limits={vx_min:-.53,vx_max:1.04,vy_abs:.22,yaw_abs:1.5,pitch_abs_rad:.08};
@@ -163,6 +163,70 @@ test('trained-policy Carpet uses exactly eight real 1m prism contacts',()=>{
   assert.equal(carpet.tiles.length,4);
   assert.equal(carpet.tileSizeM,1);
   assert.equal(carpet.physics,'eight-1m-prisms');
+
+  // This is a MESH-only contact world, but the JS fast raycaster handles
+  // only box/plane geoms. Until Carpet passed its actual terrain surface as
+  // a fallback, all 16 ToF cells and optical-flow depth read as zero.
+  const surface=terrainSensorHeightFallback('carpet',carpet);
+  assert.equal(typeof surface,'function');
+  assert.equal(terrainSensorHeightFallback('sensor',carpet),null);
+  const meshModel={ngeom:1,geom_type:new Int32Array([7]),
+    geom_bodyid:new Int32Array([0]),geom_size:new Float64Array(3)};
+  const meshData={geom_xpos:new Float64Array(3),
+    geom_xmat:new Float64Array(9)};
+  const sensorOrigin=[.5,.5,.4],down=[0,0,-1];
+  const blind=depthLabSensor.actorTerrainDistance(
+    sensorOrigin,down,meshModel,meshData,[],null);
+  assert.equal(blind,0,'mesh is invisible to the old plane/box raycaster');
+  const visible=depthLabSensor.actorTerrainDistance(
+    sensorOrigin,down,meshModel,meshData,[],surface);
+  assert.ok(Math.abs(visible-(.4-carpet.sampleHeight(.5,.5)))<1e-5,
+    'Carpet prism surface must provide physical terrain to all 360-input sensors');
+  const contract={
+    schema:'terrain_360',sensor_model_revision:'vl53l8cx_array_plane_square45_below30_v3',
+    tof4x4_mount_body_m:[0,0,-.03],
+    tof4x4_rays_body:depthLabSensor.CURRENT_RAYS_BODY,
+    settings:{sensor_noise_scale:0},
+  };
+  const pose={R:[1,0,0,0,1,0,0,0,1],torso:sensorOrigin,
+    terrainHeightAt:surface,vbody:[.20,0,0],gyro:[0,0,0]};
+  const tof=new depthLabSensor.TerrainActorObserver(contract)
+    .sample(pose,meshModel,meshData,[],false);
+  assert.ok(tof.valid.filter(Boolean).length>=6,
+    'H40 4x4 ToF must see enough real prism returns to fit terrain');
+  const flow=new depthLabSensor.ArrayFlowObserver(contract)
+    .synth(pose,meshModel,meshData,false);
+  assert.ok(flow.flowValid&&Math.abs(flow.flow[0])>.1,
+    'optical-flow velocity must not become zero just because ground is mesh');
+  const finite=createSensorLabCarpet({slopeDeg:0,stepUpM:0,stepDownM:0});
+  assert.equal(depthLabSensor.rayHeight([1.95,.5,.4],[.5,0,-Math.sqrt(.75)],
+    terrainSensorHeightFallback('carpet',finite)),0,
+    'rays exiting the finite 2x2 fixture must not invent a ghost floor');
+
+  // Real regression: original viewer started H40 at flat-floor qpos0
+  // on a raised physical tile. Feet buried in the top collision surface
+  // produced huge impulses and an immediate fall despite a working actor.
+  const raisedSpawn=createSensorLabCarpet({slopeDeg:10,stepUpM:0,stepDownM:0});
+  const geomPos=new Float64Array(9), geomSize=new Float64Array(9);
+  geomPos.set([.5,.42,.018],3);   // right 18mm ball foot
+  geomPos.set([.48,.58,.018],6);  // left ball foot slightly behind
+  geomSize[3]=geomSize[6]=.018;
+  const lift=carpetSpawnSoleLift(raisedSpawn,geomPos,geomSize,[1,2]);
+  assert.ok(lift>.08,'a 10-degree tile needs a substantial positive spawn lift');
+  for(const id of [1,2]){
+    const i=id*3;
+    const tangent=geomPos[i+2]+lift-
+      geomSize[i]*Math.hypot(1,Math.tan(10*Math.PI/180));
+    const height=raisedSpawn.sampleHeight(geomPos[i],geomPos[i+1]);
+    assert.ok(tangent>=height-1e-9,
+      'both spherical feet must clear the inclined contact plane');
+  }
+  assert.ok(Math.abs(
+    carpetSpawnSoleLift(createSensorLabCarpet({slopeDeg:0,stepUpM:0,stepDownM:0}),
+      geomPos,geomSize,[1,2]))<1e-9,'flat fixture needs no lift');
+  geomPos[3]=2.5;
+  assert.throws(()=>carpetSpawnSoleLift(raisedSpawn,geomPos,geomSize,[1,2]),
+    /valid prism support/,'no invisible floor outside the finite fixture');
 });
 test('15-degree slope preview is physically 15 degrees, not a 10-degree approximation',()=>{
   const slope=createSensorLabCarpet({slopeDeg:15,stepUpM:0,stepDownM:0});
@@ -188,6 +252,9 @@ test('simulation helper consolidation preserves independent physics/UI functions
   const p=chasePose([0,0,.2],0);
   assert.equal(p.position.length,3);
   assert.equal(sampleShove({intensity:0,maxForceN:0}),null);
+  assert.ok(Math.abs(clearanceAboveSupport(.42,.08)-.34)<1e-9);
+  assert.equal(clearanceAboveSupport(.22,NaN),-Infinity,
+    'carpet void must never masquerade as flat ground');
 });
 
 test('sensor lab is a fixed physical 2x2 grid: four 1m tiles, eight real triangular-prism meshes',()=>{

@@ -1,6 +1,13 @@
 // Small pure geometry and timing helpers shared by the MuJoCo viewer.
 // Keep rendering, navigation controls and the physical simulator separate.
 
+// Height-based fall detection is relative to the surface under the robot,
+// not absolute world Z. A missing finite support represents void, not a
+// ghost flat floor underneath the finite 2x2 prism fixture.
+export function clearanceAboveSupport(bodyHeight,groundHeight) {
+  return Number.isFinite(groundHeight) ? bodyHeight-groundHeight : -Infinity;
+}
+
 // Two different geometric questions. The IMU is rigidly attached to the torso;
 // whole-robot lean also depends on where the feet are relative to that torso.
 export function measuredAttitude(torsoRotation, torsoPosition, rightFoot, leftFoot) {

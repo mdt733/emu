@@ -4,12 +4,12 @@ import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
 import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe, footSphereHit, terrainActorRays } from './sensor.js';
-import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredAttitude, sampleShove, expectedShoveRate } from './sim-math.js';
+import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredAttitude, sampleShove, expectedShoveRate, clearanceAboveSupport } from './sim-math.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
-import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient } from './terrain.js';
+import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient, terrainSensorHeightFallback } from './terrain.js';
 import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
 import { terrainRoleEnvelope } from './training-solid-carpet.js';
-import { createSensorLabCarpet, sensorLabPrismVertices, LAB_PRISM_FACES, LAB_TILE_M, LAB_PRISM_COUNT } from './sensor-lab-carpet.js';
+import { createSensorLabCarpet, sensorLabPrismVertices, carpetSpawnSoleLift, LAB_PRISM_FACES, LAB_TILE_M, LAB_PRISM_COUNT } from './sensor-lab-carpet.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
@@ -746,6 +746,15 @@ export class EmuBrowserSim {
       this.carpetWindowCenter=[0,0];
     }
     mj.mj_forward(this.model, this.data);
+    if(this.park?.physics==='eight-1m-prisms'){
+      // qpos0 is neutral on the original z=0 floor, but this tile may be
+      // raised by a slope or a signed step. Align actual 18mm foot spheres
+      // against the true CPU MuJoCo prism surface BEFORE starting inference
+      // and sensor histories. Never alter the policy or terrain geometry.
+      this.data.qpos[2] += carpetSpawnSoleLift(
+        this.park,this.data.geom_xpos,this.model.geom_size,this.footGeomIds);
+      mj.mj_forward(this.model,this.data);
+    }
     this.headingTarget=this.actualHeading();
     // Training samples cadence at birth, then holds it through command changes.
     this.episodePhaseHz = sampleEpisodeCadence(this.command, this.bundle.control);
@@ -1107,13 +1116,10 @@ export class EmuBrowserSim {
       }
       return 0;
     };
-    // The park replaces the MuJoCo plane with a heightfield. The array-only
-    // optical-flow sensor raycaster handles planes/boxes, so it needs the same
-    // terrain-height fallback that the 4x4 ToF raycaster already receives.
-    // Only provide it for the park: adding a fictitious z=0 fallback to sloped
-    // finite-box diagnostics would make downhill optical flow read a ghost floor.
-    const terrainHeightAt=this.terrainMode==='park'&&this.park ?
-      (x,y)=>this.park.sampleHeight(x,y):null;
+    // Neither the park heightfield nor the Carpet's eight convex meshes is
+    // a supported plane/box in our pure 360-observation raycaster. Supply
+    // the ACTUAL world surface to optical flow; never fake z=0 ground.
+    const terrainHeightAt=terrainSensorHeightFallback(this.terrainMode,this.park);
     return {R,torso,vbody,gyro,heightAt,terrainHeightAt};
   }
 
@@ -1122,11 +1128,10 @@ export class EmuBrowserSim {
     // shared height surface rather than pretending it is a flat plane.
     const R=this.bodyRotation(),offset=this.torsoId*3;
     return {R,torso:Array.from(this.data.xpos.slice(offset,offset+3)),
-      // v5041 uses nine actual moving solid MuJoCo boxes. Never let a
-      // future-terrain preview ray (or a ghost flat surface) override
-      // the true collision raycast in actor observations.
-      terrainHeightAt:this.terrainMode==='park'&&this.park ?
-        (x,y)=>this.park.sampleHeight(x,y):null};
+      // Convex mesh geoms (Carpet) are not recognized by the fast JS
+      // raycaster. The exact CPU prism-height surface must supply the
+      // physical ToF return, just as the park heightfield already does.
+      terrainHeightAt:terrainSensorHeightFallback(this.terrainMode,this.park)};
   }
 
   buildBaseObs() {
@@ -1216,8 +1221,11 @@ export class EmuBrowserSim {
     const grade=this.terrainMode==='sensor' ?
       surfaceLabGradient(this.sensorObstacle,this.surfaceSlopeDegrees) : null;
     const root=this.data.qpos;
-    const supportZ=grade ? grade.gx*root[0]+grade.gy*root[1] : 0;
-    return this.heightM()-supportZ < 0.145 || gravityZ < 0.35;
+    const supportZ=grade ? grade.gx*root[0]+grade.gy*root[1] :
+      ['park','carpet'].includes(this.terrainMode)&&this.park
+        ? this.park.sampleHeight(root[0],root[1]) : 0;
+    return clearanceAboveSupport(this.heightM(),supportZ) < 0.145 ||
+      gravityZ < 0.35;
   }
 
   heightM() { return Number(this.data.xpos[this.torsoId * 3 + 2]); }
