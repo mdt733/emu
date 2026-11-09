@@ -35,7 +35,7 @@ C018 motors + knee support + shin flex + two spherical feet
 | Layer | Current owner |
 | --- | --- |
 | Physical model and morphology | `emu/robot.xml`, `emu/physical_variants.py` |
-| Deployment contract, coordinate conventions | `emu/contracts.py`, `emu/directional.py` |
+| Deployment contract, sensor geometry, coordinate conventions | `emu/contracts.py`, `emu/tof_geometry.py`, `emu/directional.py` |
 | Physics, reset, sensors, rewards' measurements | `emu/environment.py` |
 | 2×2 rolling terrain, triangular-prism collisions | `emu/terrain_carpet_mjx.py`, `emu/carpet_prism_mjx.py` |
 | Mass/friction/servo domain variation | `emu/domain_randomization.py` |
@@ -66,9 +66,9 @@ Every run lives outside Git at `~/emu-data/runs/<name>/` and includes resolved c
 
 ## Known fidelity boundaries
 
-1. **ToF mismatch to intended ST VL53L8CX:** present policy ray spread uses **60° vertical** and **45° horizontal** despite the sensor's **45°×45°** physical FoV. At h40, two rows aim partly behind the robot. The dedicated CPU `viewer --sensor-lab` shows the h40 robot and adjustable 45°×45° physical sensor preview (foot occlusion included) alongside the old actor-ray contract; the training sensor contract remains unchanged.
-2. **Viewer geometry is illustrative:** current browser terrain uses a separate nine-box/50 cm preview, not the trainer's four 1 m / eight real prisms. Do not call it a physics-fidelity exam.
-3. **1 m tile option not yet accepted:** a 2×2 window of four 1 m tiles may improve preview margin for the taller robot, but changes contact geometry/recycler and therefore needs new source and acceptance. Preserve the rated v5058 20M baseline.
+1. **VL53L8CX physical contract updated:** current h40 training and viewer use one 45°×45° square optical frustum (16 zone-centre rays), 70° down, 30mm below torso, zero forward/lateral/yaw; the 360 observation width is unchanged but its cryptographically-pinned geometry revision is new. The ST 4×4 hardware zone-ID orientation is recorded, not silently assumed from flattened arrays. A zone-centre ray is still an approximation of the sensor's multi-return optical histogram; validate foot occlusion against actual hardware.
+2. **Terrain upgraded:** current MJX uses four 1m rolling source tiles, exactly eight triangular convex prism colliders, midpoint recycling with real foot-clearance hold, shared teacher/raycast surface source. The CPU sensor-lab has the same 1m tile geometry but a fixed 2×2 testing fixture, not MJX recycling. The **old generic policy viewer** still uses an illustrative nine-box carpet and cannot certify prism stepping.
+3. **New cold-start required:** the v5058 baseline was 75cm/old sensor and heavier rods; previous checkpoints and published actor must never load as the new central-servo/carbon 1m/physical-FoV model. Do not train 120M until the solver and sensor-integration acceptance is complete.
 4. **Contact acceleration:** non-foot colliders are disabled in the fast solver and monitored by virtual safety probes. 2/4 solver iterations is experimental, not a certified physically faithful engine.
 5. **Software debt:** `environment.py`, `training.py`, `curriculum.py`, `ppo.py`, `results.py` contain historical experimental options. Remove *proven unreachable* branches as their last source-pinned study finishes, without changing this active baseline's arithmetic.
 
@@ -87,8 +87,8 @@ Pi Zero, ~60g three AA/14500 cells, ~18g wiring/regulators, ~40g structure),
 with its centre 5mm ahead of the hip axes and rear edge at x=-45mm. Both
 hip pivots are physically within the chassis, with no cosmetic brackets.
 
-Each 40cm leg has **two solid 2mm carbon thigh rods** and **one solid 2mm
-carbon shin rod** split at the pre-existing passive flex joint. The
+Each 40cm leg has **one solid 2×2mm square-section carbon thigh rod** and **one solid 2mm
+round carbon shin rod** split at the pre-existing passive flex joint. The
 nominal all-up robot is ~506g including the unchanged 10g hip
 carrier and 10g ball foot per side. All masses and material density are
 estimates requiring direct measurement. The electrical/servo drive is still

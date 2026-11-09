@@ -65,6 +65,20 @@ test('array-only 360 terrain policy keeps legacy actors separate and derives gro
 });
 
 
+test('physical ST 45-degree policy rays agree with inspector and reject wrong mount',()=>{
+  const physical=depthLabSensor.depthProbeRays([0,0,0],[1,0,0,0,1,0,0,0,1],
+    {forward:0,lateral:0,height:-.03,tilt:70,yaw:0});
+  const centres=physical.directions.map(zone=>zone[0]);
+  assert.equal(centres.length,16);
+  assert.ok(centres.every(ray=>ray[0]>0&&ray[2]<0),'all physical zone centres aim ahead and down');
+  const identity=[1,0,0,0,1,0,0,0,1];
+  const actor=depthLabSensor.terrainActorRays(identity,centres);
+  actor.forEach((dir,i)=>dir.forEach((val,j)=>
+    assert.ok(Math.abs(val-centres[i][j])<1e-8)));
+  assert.deepEqual([12,13,14,15,8,9,10,11,4,5,6,7,0,1,2,3].slice(12),
+    [0,1,2,3],'hardware bottom row is raw IDs 0-3');
+});
+
 test('schema-9 4x4 rays intersect physical floor/box and foot occlusion',()=>{
   const {terrainActorRays,actorTerrainDistance,TerrainActorObserver}=depthLabSensor;
   const R=[1,0,0,0,1,0,0,0,1];

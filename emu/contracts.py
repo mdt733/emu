@@ -74,7 +74,8 @@ TERRAIN_TOF_MIN_M, TERRAIN_TOF_MAX_M = 0.04, 1.5
 # Physical 4x4 optical array. The shape is unchanged; its MEANING is new.
 from .tof_geometry import (TOF_MOUNT_BODY_M as TERRAIN_TOF_MOUNT_BODY_M,
                            TOF_RAYS_BODY as TERRAIN_TOF_RAYS_BODY,
-                           TOF_FOV_DEG, TOF_TILT_DOWN_DEG, TOF_YAW_DEG)
+                           TOF_FOV_DEG, TOF_TILT_DOWN_DEG, TOF_YAW_DEG,
+                           TOF_HARDWARE_ZONE_IDS)
 # Observation schema identifies meanings, not merely array widths. A hash
 # also covers timing and physical sensor extrinsics when using sim2real_232.
 SENSOR_MODEL_REVISION = "tripod_tof_flow_async_v1"
@@ -149,6 +150,7 @@ def sensor_observation_contract(settings: dict | None = None, *,
             tof4x4_tilt_down_deg=TOF_TILT_DOWN_DEG,
             tof4x4_mount_yaw_deg=TOF_YAW_DEG,
             tof4x4_rays_body=[list(v) for v in TERRAIN_TOF_RAYS_BODY],
+            tof4x4_hardware_zone_ids=list(TOF_HARDWARE_ZONE_IDS),
             tof4x4_range_limits_m=[TERRAIN_TOF_MIN_M,TERRAIN_TOF_MAX_M],
             tof4x4_occlusion="nearest ray-sphere foot hit masks terrain return",
             tof4x4_validity="one bit per cell, delayed, zero on dropout",

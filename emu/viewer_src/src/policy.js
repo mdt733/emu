@@ -76,6 +76,8 @@ export function parsePolicy(text) {
        c.tof4x4_fov_vertical_deg!==45||
        c.tof4x4_tilt_down_deg!==70||
        c.tof4x4_mount_yaw_deg!==0||
+       JSON.stringify(c.tof4x4_hardware_zone_ids)!==
+         JSON.stringify([12,13,14,15,8,9,10,11,4,5,6,7,0,1,2,3])||
        c.tof4x4_pitch_from_horizontal_deg!==undefined||
        c.tof4x4_yaw_deg!==undefined)
       throw Error('New 45-degree ToF rays or mount differ from the actual hardware');

@@ -14,6 +14,11 @@ TOF_TILT_DOWN_DEG = 70.0
 TOF_YAW_DEG = 0.0
 TOF_MOUNT_BODY_M = (0.0, 0.0, -0.030)
 TOF_ZONE_SIDE = 4
+# ST datasheet 4x4 raw zone IDs, in top-to-bottom ROW-MAJOR image order
+# for upright module orientation. Rotate/reorder if the real PCB is mounted
+# differently; never feed raw ascending IDs directly to this actor layout.
+TOF_HARDWARE_ZONE_IDS = tuple(4*(3-row)+col
+                              for row in range(4) for col in range(4))
 
 def tof4x4_rays_body() -> tuple[tuple[float, float, float], ...]:
     """Match the browser's physical square-frustum zone CENTRE directions."""
