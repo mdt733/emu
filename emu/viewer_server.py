@@ -238,27 +238,61 @@ def sensor_lab_robot_xml() -> str:
 
 
 def make_sensor_lab_bundle() -> bytes:
-    """Untrained h40 MJCF for CPU sensor calibration, never a policy export.
+    """A tiny untrained physical fixture, independently of any old champion.
 
-    Reuse the public bundle's validated observation *shape*, but disable its
-    trained actor in the browser. This mode cannot be exported or resumed.
+    No checkpoint, fake zero-weight neural network, numpy or showcase policy.
+    All actual robot parts and ToF directions are generated from current
+    trainer source. Browser simulation never calls the neural actor here.
     """
     import hashlib
-    from .contracts import sensor_observation_contract, OBS_SCHEMA_TERRAIN
+    from .contracts import (ACTUATED_JOINTS, TERRAIN_OBS_FIELDS,
+                            OBS_SCHEMA_TERRAIN, sensor_observation_contract)
 
-    template = Path(__file__).resolve().parents[1] / 'showcase' / 'champion.emupolicy'
-    b = json.loads(template.read_text(encoding='utf-8'))
     model = sensor_lab_robot_xml()
-    b['robot_xml'] = model
-    b['sensor_lab'] = True
-    b['control']['neutral_root_z_m'] = .4
-    # Use the one active Python sensor contract, not the showcase's old
-    # pitch rows with a manually changed hash.
-    b['observation']['sensor_contract'] = sensor_observation_contract(
-        schema=OBS_SCHEMA_TERRAIN,array_only=True)
-    b['source'].update(run_name='40 cm sensor laboratory — NO TRAINED ACTOR',
-                       step=0, actor_sha256='not-applicable-sensor-lab',
-                       robot_model_sha256=hashlib.sha256(model.encode()).hexdigest())
+    identity = sensor_observation_contract(
+        schema=OBS_SCHEMA_TERRAIN, array_only=True)
+    b = {
+        'format': 'emu-policy',
+        'schema': 3,
+        'sensor_lab': True,
+        'source': {
+            'checkpoint_schema': 9,
+            'run_name': 'H40 SENSOR LAB — UNTRAINED',
+            'step': 0,
+            'actor_sha256': 'not-applicable-sensor-lab',
+            'robot_model_sha256': hashlib.sha256(model.encode()).hexdigest(),
+        },
+        'policy': {
+            'obs_dim': 360, 'base_obs_dim': 90, 'history_len': 4,
+            'action_dim': 6, 'layers': [],
+        },
+        'observation': {
+            'base_fields': list(TERRAIN_OBS_FIELDS),
+            'sensor_contract': identity,
+        },
+        'control': {
+            'sim_dt': .005, 'control_substeps': 4, 'control_dt': .020,
+            'neutral_root_z_m': .4,
+            'actuated_joints': list(ACTUATED_JOINTS),
+            'target_span_rad': [.38,.48,.58,.38,.48,.58],
+            'one_control_frame_actuation_delay': True,
+            'sensor_noise_scale': 1.5,
+            'phase_base_hz': 1.025,
+            'phase_speed_gain': .75,
+            'phase_rate_max_hz': 2.6,
+            'default_commands': {
+                'vx': 0., 'vy': 0., 'yaw': 0., 'height': 0.,
+                'pitch': 0., 'roll': 0., 'step_height': .012,
+            },
+            'command_limits': {
+                'vx_min': -.4, 'vx_max': .65, 'vy_abs': .3,
+                'yaw_abs': 1.5, 'pitch_abs_rad': .14,
+                'height_abs_m': .018, 'roll_abs_rad': .055,
+                'step_height_min_m': .008, 'step_height_max_m': .042,
+            },
+        },
+        'robot_xml': model,
+    }
     return json.dumps(b, separators=(',', ':')).encode('utf-8')
 
 
