@@ -1,6 +1,7 @@
 """One true cross-language test: deployed 360 actor is numerically the Python actor."""
 from __future__ import annotations
 import base64
+import hashlib
 import json
 import shutil
 import subprocess
@@ -51,6 +52,20 @@ def test_exported_360_actor_matches_browser_inference():
                      'sensor_contract':contract,'mean':_float_blob(mean),
                      'std':_float_blob(std),'normalize_mask':_float_blob(mask)},
       'control':{}}
+
+    # Public-release approval must independently verify the new physical
+    # 16-ray geometry and ST's two-axis zone inversion, not just a hash.
+    # This is inside the existing delivery test; no new permanent test.
+    from scripts.verify_showcase_release import validate_browser_bundle
+    assert validate_browser_bundle(bundle,require_trained=False)['obs_dim']==360
+    tampered=json.loads(json.dumps(bundle))
+    zone=tampered['observation']['sensor_contract']
+    zone['tof4x4_hardware_zone_ids'][0]=12
+    unsigned={k:v for k,v in zone.items() if k!='sha256'}
+    zone['sha256']=hashlib.sha256(json.dumps(
+        unsigned,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    with pytest.raises(ValueError,match='zone order'):
+        validate_browser_bundle(tampered,require_trained=False)
     observations=[np.zeros(TERRAIN_OBS_DIM,dtype=np.float32),
         rng.normal(0,1,TERRAIN_OBS_DIM).astype(np.float32),
         np.where(np.arange(TERRAIN_OBS_DIM)%2==0,50.,-50.).astype(np.float32)]

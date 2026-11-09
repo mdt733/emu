@@ -19,7 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
 REVISION = "tripod_tof_flow_async_v1"
-TERRAIN_REVISION = "forward_tof4x4_array_plane_fit_no_tripod_2"
+LEGACY_TERRAIN_REVISION = "forward_tof4x4_array_plane_fit_no_tripod_2"
+PHYSICAL_TERRAIN_REVISION = "vl53l8cx_array_plane_square45_below30_v3"
 SENSOR_SETTING_KEYS = frozenset({
     'tof_period_frames', 'flow_period_frames', 'tof_delay_frames',
     'flow_delay_frames', 'tof_dropout_prob', 'flow_dropout_prob',
@@ -123,26 +124,30 @@ def validate_browser_bundle(bundle: dict, *, require_trained: bool = True) -> di
                   for row in range(4) for col in range(4))
         )
         if (c.get('schema') != 'terrain_360' or
-                c.get('sensor_model_revision') != TERRAIN_REVISION or
+                c.get('sensor_model_revision') not in (LEGACY_TERRAIN_REVISION, PHYSICAL_TERRAIN_REVISION) or
                 c.get('base_fields') != fields or
                 c.get('history_len') != 4 or c.get('action_dim') != 6 or
                 c.get('control_dt') != 0.02 or
                 tuple(fields[55:]) != expected_fields):
             raise ValueError('unsupported 360-input observation contract')
-        expected_sensor = {
+        common = {
             'schema', 'sensor_model_revision', 'base_fields', 'history_len',
             'action_dim', 'control_dt', 'settings', 'sha256',
-            'tof4x4_mount_body_m', 'tof4x4_pitch_from_horizontal_deg',
-            'tof4x4_yaw_deg', 'tof4x4_range_limits_m', 'tof4x4_occlusion',
+            'tof4x4_mount_body_m', 'tof4x4_range_limits_m', 'tof4x4_occlusion',
             'tof4x4_validity', 'array_ground_estimator',
             'array_ground_max_fit_residual_m', 'array_ground_min_valid_cells',
         }
-        if set(c) != expected_sensor:
+        physical = c['sensor_model_revision'] == PHYSICAL_TERRAIN_REVISION
+        geometry = ({
+            'tof4x4_fov_horizontal_deg', 'tof4x4_fov_vertical_deg',
+            'tof4x4_tilt_down_deg', 'tof4x4_mount_yaw_deg',
+            'tof4x4_rays_body', 'tof4x4_hardware_zone_ids',
+        } if physical else {
+            'tof4x4_pitch_from_horizontal_deg', 'tof4x4_yaw_deg',
+        })
+        if set(c) != common | geometry:
             raise ValueError('unexpected 360-input sensor fields or old tripod')
-        if (c.get('tof4x4_mount_body_m') != [0, 0, 0] or
-                c.get('tof4x4_pitch_from_horizontal_deg') != [40, 60, 80, 100] or
-                c.get('tof4x4_yaw_deg') != [-22.5, -7.5, 7.5, 22.5] or
-                c.get('tof4x4_range_limits_m') != [.04, 1.5] or
+        if (c.get('tof4x4_range_limits_m') != [.04, 1.5] or
                 c.get('tof4x4_occlusion') !=
                     'nearest ray-sphere foot hit masks terrain return' or
                 c.get('tof4x4_validity') !=
@@ -152,6 +157,41 @@ def validate_browser_bundle(bundle: dict, *, require_trained: bool = True) -> di
                 c.get('array_ground_max_fit_residual_m') != .008 or
                 c.get('array_ground_min_valid_cells') != 6):
             raise ValueError('unapproved 4x4 array extrinsics or estimator')
+        if physical:
+            # Independent stdlib-only derivation: refuse a self-signed but
+            # physically different geometry. Compare all 16 directions,
+            # mounting, FoV AND ST's two-axis lens inversion.
+            import math
+            half = math.tan(math.radians(45.) / 2.)
+            cs = math.cos(math.radians(70.))
+            sn = math.sin(math.radians(70.))
+            rays = []
+            for row in range(4):
+                for col in range(4):
+                    u = (col - 1.5) * half / 2.
+                    v = (1.5 - row) * half / 2.
+                    x, y, z = cs + sn * v, u, -sn + cs * v
+                    norm = math.sqrt(x*x + y*y + z*z)
+                    rays.append([x/norm, y/norm, z/norm])
+            actual = c.get('tof4x4_rays_body')
+            if (c.get('tof4x4_mount_body_m') != [0, 0, -.03] or
+                    c.get('tof4x4_fov_horizontal_deg') != 45 or
+                    c.get('tof4x4_fov_vertical_deg') != 45 or
+                    c.get('tof4x4_tilt_down_deg') != 70 or
+                    c.get('tof4x4_mount_yaw_deg') != 0 or
+                    c.get('tof4x4_hardware_zone_ids') !=
+                        [3,2,1,0,7,6,5,4,11,10,9,8,15,14,13,12] or
+                    not isinstance(actual, list) or len(actual) != 16 or
+                    any(not isinstance(a,list) or len(a)!=3 or
+                        any(type(n) not in (int,float) or
+                            not math.isfinite(n) or abs(n-b)>1e-6
+                            for n,b in zip(a,expect))
+                        for a,expect in zip(actual,rays))):
+                raise ValueError('unapproved VL53L8CX physical rays, zone order or mounting')
+        elif (c.get('tof4x4_mount_body_m') != [0,0,0] or
+                c.get('tof4x4_pitch_from_horizontal_deg') != [40,60,80,100] or
+                c.get('tof4x4_yaw_deg') != [-22.5,-7.5,7.5,22.5]):
+            raise ValueError('unapproved legacy 4x4 ray geometry')
         settings = c.get('settings')
         if not isinstance(settings, dict) or set(settings) != SENSOR_SETTING_KEYS:
             raise ValueError('invalid 360-input sensor timing/noise settings')
