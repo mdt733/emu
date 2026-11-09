@@ -9,6 +9,11 @@ from __future__ import annotations
 
 import math
 
+# Downward flow camera's usable ground-distance interval; independent of the
+# VL53L8CX's 4cm-1.5m slant-range contract.
+FLOW_DEPTH_MIN_M = .035
+FLOW_DEPTH_MAX_M = .60
+
 
 def heading_rate_request(xp, requested_rate, target_heading, estimated_heading,
                          *, kp, max_rate):
@@ -82,7 +87,7 @@ def fit_forward_array_ground(xp, ranges, valid, gravity_body):
     # At least six non-collinear returns. Planar residual <= 8mm avoids
     # interpreting a step riser and upper platform as one smooth slope.
     good=(count>=6.) & (residual<.008) & (cosine>.25) & (
-        depth>=.035) & (depth<=.60) & (
+        depth>=FLOW_DEPTH_MIN_M) & (depth<=FLOW_DEPTH_MAX_M) & (
         xp.linalg.norm(gravity,axis=1)>.1)
     # A real step can invalidate the *single-plane slope*, yet optical flow
     # still needs a depth scale. Infer it from the four steep central array
@@ -97,7 +102,7 @@ def fit_forward_array_ground(xp, ranges, valid, gravity_body):
     from .tof_geometry import TOF_MOUNT_BODY_M
     optical_depth=xp.where(good,depth,central)-TOF_MOUNT_BODY_M[2]
     depth_valid=(good | (central_count>=2)) & (
-        optical_depth>=.035)&(optical_depth<=.60)
+        optical_depth>=FLOW_DEPTH_MIN_M)&(optical_depth<=FLOW_DEPTH_MAX_M)
     confidence=xp.where(good,
         xp.clip(count/12.,0.,1.)*xp.clip(1.-residual/.008,0.,1.),0.)
     return dict(
@@ -129,10 +134,10 @@ def simulate_downward_optical_flow(xp, body_velocity_mps, body_gyro_rad_s,
     v=xp.asarray(body_velocity_mps)
     w=xp.asarray(body_gyro_rad_s)
     depth=xp.asarray(optical_depth_m)
-    valid=(xp.isfinite(depth)&(depth>=TOF_MIN_RANGE_M)
-           &(depth<=TOF_MAX_RANGE_M)
+    valid=(xp.isfinite(depth)&(depth>=FLOW_DEPTH_MIN_M)
+           &(depth<=FLOW_DEPTH_MAX_M)
            &xp.all(xp.isfinite(v),axis=-1)&xp.all(xp.isfinite(w),axis=-1))
-    safe=xp.maximum(depth,TOF_MIN_RANGE_M)
+    safe=xp.maximum(depth,FLOW_DEPTH_MIN_M)
     angular=xp.stack((-v[:,0]/safe+w[:,1],
                       -v[:,1]/safe-w[:,0]),axis=-1)
     if flow_error_rad_s is not None:
@@ -147,7 +152,7 @@ def estimate_flow_velocity(xp, flow_rad_s, imu_gyro_body_rad_s,
     """Invert a gyro-compensated downward optical-flow measurement.
 
     Returns *body-frame* horizontal vxy, never world velocity. The estimator
-    receives measured angular image flow, gyro and tripod-derived distance,
+    receives measured angular image flow, gyro and array-derived distance,
     NOT the MuJoCo velocity or true floor normal used by the forward model.
     Invalid sources produce zero velocity AND false validity; a policy must
     not mistake this for a confident zero-speed measurement.
@@ -155,15 +160,15 @@ def estimate_flow_velocity(xp, flow_rad_s, imu_gyro_body_rad_s,
     flow=xp.asarray(flow_rad_s)
     gyro=xp.asarray(imu_gyro_body_rad_s)
     depth=xp.asarray(tof_estimated_optical_depth_m)
-    valid=(xp.isfinite(depth)&(depth>=TOF_MIN_RANGE_M)
-           &(depth<=TOF_MAX_RANGE_M)
+    valid=(xp.isfinite(depth)&(depth>=FLOW_DEPTH_MIN_M)
+           &(depth<=FLOW_DEPTH_MAX_M)
            &xp.all(xp.isfinite(flow),axis=-1)
            &xp.all(xp.isfinite(gyro),axis=-1))
     if flow_valid is not None:
         valid=valid&xp.asarray(flow_valid)
     if tof_valid is not None:
         valid=valid&xp.asarray(tof_valid)
-    scale=xp.maximum(depth,TOF_MIN_RANGE_M)
+    scale=xp.maximum(depth,FLOW_DEPTH_MIN_M)
     vxy=xp.stack((-scale*(flow[:,0]-gyro[:,1]),
                   -scale*(flow[:,1]+gyro[:,0])),axis=-1)
     return dict(velocity_body_xy_mps=xp.where(valid[:,None],vxy,0.),

@@ -159,11 +159,13 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     first.save(cfg_path)
     assert TrainingConfig.load(cfg_path) == first
     partial = json.loads(cfg_path.read_text(encoding="utf-8"))
-    # Historical v5052 source could never enable the new v5054 finish
-    # flag. Only that one missing default-off flag may be migrated.
+    # The new physical lineage has no pre-v5054 migration exceptions.
+    # A missing teaching field is a different recipe, not a compatible run.
     partial.pop("science_step_finish_on_transfer")
     cfg_path.write_text(json.dumps(partial), encoding="utf-8")
-    assert TrainingConfig.load(cfg_path) == first
+    with pytest.raises(ValueError,match="training config keys mismatch"):
+        TrainingConfig.load(cfg_path)
+    partial = json.loads(json.dumps(__import__('dataclasses').asdict(first)))
     partial.pop("terrain_carpet_prisms")
     cfg_path.write_text(json.dumps(partial), encoding="utf-8")
     with pytest.raises(ValueError,match="training config keys mismatch"):
