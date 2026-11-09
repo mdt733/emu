@@ -151,8 +151,22 @@ jobs:
         run: npm ci --prefix emu/viewer_src --no-audit --no-fund
       - name: Run current browser controls and physics-inspector checks
         run: npm test --prefix emu/viewer_src
+      - name: Prepare approved Pages actor (only when reviewed)
+        run: |
+          if test -f showcase/release_approval.json; then
+            python scripts/prepare_showcase.py \
+              --policy showcase/champion.emupolicy \
+              --source-url "https://github.com/$GITHUB_REPOSITORY" \
+              --source-commit "$GITHUB_SHA"
+          fi
       - name: Build browser
         run: npm run build --prefix emu/viewer_src
+      - name: Verify approved Pages bundle (only when reviewed)
+        run: |
+          if test -f showcase/release_approval.json; then
+            python scripts/verify_showcase_release.py \
+              --verify-dist --expect-source-commit "$GITHUB_SHA"
+          fi
       - name: Reject modifications to tracked source
         run: |
           git diff --exit-code

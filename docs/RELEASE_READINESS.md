@@ -29,12 +29,12 @@ The owner reports a pleasing fast gait and approximately 15° slopes in the **vi
 ## Public GitHub Pages gate (not complete)
 
 - [x] The new actor bytes are committed unmodified.
-- [ ] Compute **SHA-256 of the original full `final.pkl`** in `~/emu-data/runs/h40-1m-tof70-120m-s735/checkpoints/final.pkl` on the operator's training computer.
-- [ ] Generate a reviewable `showcase/release_approval.json` from that exact SHA-256 and the checked-in trained export. Do not manufacture a checkpoint hash or silently fall back to a weaker historical approval format.
-- [ ] Run `python scripts/verify_showcase_release.py` and prepare/build/verify the exact approved `dist` assets.
+- [x] Operator measured the original full `final.pkl` SHA-256 on the training computer: `632c09788613e0e5fdc077637efd0a4bf4fc1be7ae0c07dc3662087c6c12970b` (checkpoint file itself remains private/off GitHub).
+- [x] Created strict schema-1 `showcase/release_approval.json` from the operator's checkpoint checksum and exact existing policy, with the actor/sensor/training-source/Git blob identities verified.
+- [ ] Pass `python scripts/verify_showcase_release.py` and prepare/build/verify the exact approved `dist` assets in release PR CI (publication remains blocked if it fails).
 - [ ] Explicitly dispatch the protected/manual GitHub Pages workflow **from `main`**; verify the deployed artifact and actual browser gait. A normal source merge must never publish an actor automatically.
 
-Until the approval exists, `bash scripts/check.sh --quick` and `--full` validate the current actor contract and source independently, while **publication remains blocked**.
+With approval checked in, `bash scripts/check.sh --quick` and `--full` validate both the physical actor and its immutable release manifest. Source/PR CI also verifies the final static website; publication itself remains **manual**.
 
 The frozen training source, complete checkpoint, results and stats are not altered by viewer-only commits or docs maintenance. A new step-solving experiment must use a new source-pinned branch and its own checkpoints rather than silently rewriting H40.
 

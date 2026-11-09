@@ -2,7 +2,7 @@
 
 [Public playground](https://mdt733.github.io/emu/) · [H40 handover](../handover.md) · [Release gate](RELEASE_READINESS.md)
 
-The **H40 120M** actor is now checked into GitHub `main` as `showcase/champion.emupolicy`. Its source is a 40 cm, six-servo physical model with a 360-input learned policy and 45°×45° VL53L8CX approximation. **Do not assume the public Pages URL is updated:** Pages is manual and still requires the original checkpoint-backed `showcase/release_approval.json`, which has not yet been supplied.
+The **H40 120M** actor is now checked into GitHub `main` as `showcase/champion.emupolicy`. Its source is a 40 cm, six-servo physical model with a 360-input learned policy and 45°×45° VL53L8CX approximation. **Do not assume the public Pages URL is updated:** Pages is manual. The checkpoint-backed `showcase/release_approval.json` has now been supplied, but a successful CI verification and explicit workflow dispatch are required before declaring the site updated.
 
 ## What the local browser can show
 

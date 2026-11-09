@@ -4,8 +4,9 @@ This is the **single maintained Windows 11 / WSL2 setup guide** for
 the **H40 120M mainline** (promoted in [PR #53](https://github.com/mdt733/emu/pull/53)).
 Installing never starts PPO, changes the public GitHub Pages deployment,
 or overwrites a run. The current `main` includes the actual H40
-`showcase/champion.emupolicy`; the public site remains independently
-gated on a release approval. Preserve source-pinned training worktrees
+`showcase/champion.emupolicy`; its release approval is now recorded, but
+public GitHub Pages deployment still needs successful verification and a
+separate manual workflow dispatch. Preserve source-pinned training worktrees
 and checkpoints when updating the ordinary `~/emu` checkout.
 
 ## 0. Before wiping a WSL distro (optional, your decision)
