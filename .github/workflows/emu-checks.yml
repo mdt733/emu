@@ -2,9 +2,9 @@ name: EMU source and browser checks
 
 on:
   pull_request:
-    branches: [main, research/v5058-c018-rated-torque-hardcap]
+    branches: [main]
   push:
-    branches: [main, research/v5058-c018-rated-torque-hardcap]
+    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -45,9 +45,21 @@ jobs:
           print('DEPENDENCY-FREE h40 LAB STARTUP: PASS')
           PY
           python -m compileall -q emu scripts tests
-          # No committed old champion asset belongs in the replacement branch.
-          # The only current actor release validator is exercised with a
-          # synthetic physical-360 contract in test_core_delivery.py.
+          # Main carries one real H40 inference actor. Validate its full
+          # observation contract independently of manual Pages approval.
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from scripts.verify_showcase_release import validate_browser_bundle
+          actor = Path('showcase/champion.emupolicy')
+          info = validate_browser_bundle(json.loads(actor.read_text(encoding='utf-8')))
+          assert info['step'] > 0 and info['obs_dim'] == 360
+          print(f"H40 POLICY CONTRACT PASS: {info['step']:,} steps")
+          PY
+          # The release approval remains a separate explicit manual gate.
+          if test -f showcase/release_approval.json; then
+            python scripts/verify_showcase_release.py
+          fi
           if ! python scripts/audit_core_dependencies.py --json > /tmp/emu-core-inventory.json; then
             python -c 'import json; j=json.load(open("/tmp/emu-core-inventory.json")); print("OWNERSHIP:",j["ownership_errors"]); print("IMPORTS:",j["missing_emu_module_imports"]); print("BAD DOC LINKS:",j["broken_markdown_links"])'
             exit 1
@@ -55,7 +67,7 @@ jobs:
           emu doctor --no-require-gpu --no-mjx-smoke
           python -m emu.cli train --help > /dev/null
           python -m emu.cli prism-exam --help > /dev/null
-          # Experiment wrappers are intentionally retired in the future
+          # Experiment wrappers are intentionally retired in the active
           # main tree. Test the stable public CLI and physical contracts.
           test ! -e scripts/run_prism_140m.py
           test ! -e scripts/run_v5046_20m.py
