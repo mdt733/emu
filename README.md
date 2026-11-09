@@ -195,7 +195,7 @@ achieved **0.595m/s** at a requested 0.70m/s, with **31/32**
 fast-survival worlds, but retained ~12cm zero-command drift
 over ~10 seconds and no gain in ≥2cm uphill incidence after 100M.
 
-The new runtime has four recycled **75cm** squares, each with two
+The new runtime has four recycled **1m** squares, each with two
 actual convex triangular-prism colliders (**eight** in all),
 six specialist teaching cohorts and one 360-input neural policy.
 A v5046 34-arm solver investigation measured steady throughput
@@ -227,7 +227,7 @@ and 148-panel examination archive instead.
 
 The h40 sensor laboratory is a **local browser/MuJoCo-WASM** preview; it does
 not require a CUDA GPU, a Python ML installation, a training checkpoint, or a
-separate exported actor. It loads the actual rated-torque h40 robot geometry
+separate exported actor. It loads the current central-servo h40 robot geometry
 from `robot.xml` via `physical_variants.py`, with **no neural inference**.
 
 ```bash
@@ -260,9 +260,12 @@ mounting position. **Restore chosen mount** sets 70° downward tilt / 30mm BELOW
 foot-blocked cells and copy the raw scan/configuration back for calibration.
 
 This is a geometry/occlusion inspection instrument, **not** an MJX terrain
-recycler, a corrected training sensor contract or a proof of walking.
-Training continues on the original 75 cm v5058 source until explicitly
-revised and independently retrained.
+recycler or proof of walking. The trainer's corrected physical ToF contract
+uses the same 16 zone-centre directions; the browser additionally shows
+five diagnostic sample rays per zone.
+The new maintenance source now uses four 1m MJX tiles and the 45°×45°
+sensor contract. It still requires CUDA/MJX acceptance before any 120M training;
+the original 75cm v5058 branch remains unchanged.
 
 **Mechanical identity warning:** the new central-servo h40 geometry in
 PR #52 is a new training model, not a resumed v5058-rated checkpoint.

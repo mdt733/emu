@@ -15,7 +15,7 @@ The [core skeleton](CORE_SKELETON.md) owns architecture; [handover](../handover.
 
 1. **One implementation.** Do not leave alternate simulator geometries, duplicate learner paths or experimental flags after an experiment is resolved. Git is the historical archive.
 2. **One run identity.** Full checkpoints include optimiser, normalization, teacher/health and source/model/observation identity. A different XML or sensor geometry requires a genuinely new run.
-3. **Do not destabilise an active experiment.** Keep v5058's rated-torque 75 cm terrain/source pinned through its first 20M baseline. Trial 1 m terrain or 45° ToF corrections in a separate reviewed source, with explicit 20M retraining.
+3. **Do not destabilise an existing experiment.** Preserve v5058 as the frozen old-geometry baseline. The new 1m tile and 45°×45° ToF changes are source-pinned to draft PR #52, with no warm start from older checkpoints and no GPU run until physical/CUDA acceptance.
 4. **Tests prove boundaries.** At most 24 core pytest cases, plus real MJX prism checks, GPU PPO/checkpoint smoke and browser tests. Keep tests for failure modes; retire superseded per-version test scaffolding.
 5. **Proof before promotion.** Training reward, curriculum frontiers and viewer animation are not held-out capability. Review physically supported motion, command tracking, actual torque saturation, solver parity, falls and safe recovery.
 6. **No stale roadmap.** One root `handover.md`, one skeleton, one install page. Completed findings may stay in release records or the Git commit that produced them; don't present experiment runbooks as current.

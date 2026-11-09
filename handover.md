@@ -1,181 +1,46 @@
-# EMU handover — ONE 40 cm successor candidate (2026-11-08)
+# EMU current handover — 40cm central-servo physical build
 
-## Decision: stabilize the 40 cm robot before any other hardware research
+Updated 2026-11-09. This is the **only active handover**. Completed experiments and superseded recipes live in Git history; do not read their launch commands as current instructions.
 
-User priority: **one trustworthy 40 cm, six-servo C018 12V EMU capable of
-replacing main**, then revisit carbon-flex, feet and further step-specialist
-work. No more stacked research PRs until one successor is proven.
+## Repositories / promotion boundary
 
-**Active stabilization base:** `research/v5058-c018-rated-torque-hardcap`,
-PR #49, which INHERITS the proven h40 geometry from v5057 but enforces
-C018 rated output torque. No additional branch created to implement
-this decision. **Main stays frozen at v5050 champion** until replacement
-passes common held-out exams.
+- `main` is the frozen proven v5050-lineage champion until physical exams justify replacement.
+- The original rated-torque **v5058** source (`research/v5058-c018-rated-torque-hardcap`, PR #49) is the **untouched 75cm/old-sensor/old-heavy-rod baseline**. Its checkpoints cannot resume on this branch.
+- The **candidate** is [draft PR #52](https://github.com/mdt733/emu/pull/52), branch `maintenance/v5058-clean-skeleton-sensor-audit`. This creates an entirely new physical/sensor/terrain model and must train **from zero**, with an independent checkpoint identity.
+- Never merge directly to `main` without an equivalent signed step/slope/command/recovery physical exam and evidence of real torque limits.
 
-https://github.com/mdt733/emu/pull/49
-https://github.com/mdt733/emu/pull/48
+## Physical h40 robot: one authoritative generator
 
-## Why v5058, not v5059/v5060
+`emu/robot.xml` plus `emu/physical_variants.py` produce the actual MuJoCo robot; the CPU browser sensor lab loads **that identical generated h40 XML**, not a painted substitute.
 
-- v5057 h40, seed 735, 200M athletic run: 0.258m/s average forward
-  vs 0.314m/s command; final training fall rate 16%; an independent
-  350-frame exam survived 200/200 fast trials, 199/200 uphill and
-  200/200 downhill up to 12 degrees. This is genuine simulated
-  capability, but **NOT rated-torque hardware-feasible**, since
-  57.7% of actuated samples exceeded rated torque and MuJoCo
-  allowed 2.941995N.m PEAK STALL for unlimited time.
-- v5058 **same original tall morphology and 36mm-diameter feet**,
-  same 2.517 N.m/rad midpoint shin pitch spring, same scaled
-  compressive knee-support tendon, six C018 servos at 12V.
-  Change vs v5057: hard 0.980665N.m rated output force,
-  and randomized motor limits cannot exceed that. Existing
-  uncalibrated passive damping remains at 0.624N.m.s/rad:
-  this is a sim-to-real LIMITATION and must be reported,
-  not silently treated as realistic motor resistance.
-- v5059 tried to make a realistic carbon-leg structure by CHANGING
-  MANY physical assumptions simultaneously: light 478g body,
-  10mm ball foot, 0.0633N.m/rad shin spring in two axes,
-  0.0006N.m.s/rad shin damping, low powered-joint damping,
-  new tensile knee cable, and inertia placement.
-  Its 20M seed 735 cold start FAILED: 100% falls at 5/10/20M,
-  26.5 frame mean episodes at 20M; measured vx ~0.638m/s
-  vs requested ~0.043m/s. This cannot isolate shin stiffness.
-- v5060 PR #51 contains analysis-only tooling and reports
-  for that failed carbon body. Keep as an archive, not
-  as the parent of the main replacement.
+- Nominal hip/root height: **400mm**, six actively controlled joints and two passive shin-flex hinges. Ball feet diameter **36mm**.
+- All **six Feetech C018 12V motors are chassis-mounted** (330g combined); both knees are driven by remote transmissions, provisionally idealized by joint-space actuators. No knee motor mass.
+- Chassis: **460g estimated**, centred **5mm forward** of hip axes. Its rear face overlaps the hip attachment points; no visual braces. Additional original hip carriers and spherical feet ~40g.
+- Each thigh: **one solid 2×2mm square-section carbon rod**. Each shin: **one 2mm round rod** split at the existing passive flex hinge. Approximately 6g total carbon at h40, subject to measured density.
+- Total about **506g estimated**, *not a weighed bill of materials*. Three batteries are provisionally AA/14500-sized, not AAA/10440; regulators and servo bus current remain unverified.
+- Rated actuator hardcap **±0.980665 Nm**. Original compression-knee support, passive shin flex and hip-roll centring retained. The 0.624 Nm·s/rad heuristic joint damping and remote transmission loss/backlash need calibration.
 
-**Important:** 40cm geometry and rated torque HAVE NOT YET been
-demonstrated together to learn a stable 20M cold-start gait.
-Do NOT claim v5058 inherits the v5057 200M performance: actuator
-physics differs. Do not resume a v5057 checkpoint silently under
-the v5058 model hash.
+## Terrain / eyes: one physical contract
 
-## One-source acceptance ladder — do not skip cheap gates
+- MJX **four 1m tiles** in a 2×2 rolling window; **eight actual convex triangular prism colliders**. Every support measurement, height sample, lip, sidewall and step exam derives from that generator. Recycler waits for feet to clear abandoned tiles.
+- ST **VL53L8CX** model: **4×4**, **45°×45° square FoV**, **70° downward**, **0mm forward**, **−30mm vertical**, zero lateral/yaw, with 16 *centre-of-zone* rays, nearest foot-sphere occlusion and delayed/noisy range validity.
+- Full 360-input (90×4) actor architecture unchanged, but the new ray and mounting geometry has a **new hashed sensor contract**, not a compatible old checkpoint.
+- ST hardware **4×4 raw zone IDs run top row 12–15 to bottom row 0–3** in the nominal upright orientation; hardware code must transform zone order for actual PCB orientation.
+- The user originally preferred bottom **inner** zones occluded by the feet. Geometric preview of this actual 70°/−30mm mount suggests **outer** bottom corners instead. DO NOT fabricate occlusion by remapping values. Confirm with the real sensor before hardware finalization.
+- The CPU sensor lab is a **fixed** 2×2 1m eight-prism calibration fixture; the trainer is *recycling* MJX terrain. The generic trained-policy browser carpet is still an illustrative nine-box world; only independent MJX exam can prove terrain capability. Each real ToF zone collects more than one optical measurement: training's one central ray is an approximation.
 
-1. **Source and CPU check.** In an isolated v5058 worktree:
-   `EMU_PHYSICAL_PROFILE=h40` and `PYTHONPATH=$PWD`;
-   execute `python -m pytest -q tests/test_core_physics.py`.
-   Check six actuator force limits and left/right mirrored
-   knee torque. The special generated h40 robot XML is cached
-   by immutable source-profile SHA outside Git.
-2. **2048 GPU PPO smoke.** Run existing
-   `scripts/smoke_gpu_carpet.py --device cuda --worlds 2048
-   --frames 2 --ppo --full-update --benchmark-updates 3
-   --prisms --solver-iterations 2 --solver-ls-iterations 4`.
-   Require `rated-torque MJX PASS`, recycler/physics pass,
-   actual PPO updates, finite state. This is NOT a gait test.
-3. **Early diagnostic only; 20M is our standard minimum judgement.**
-   Start ONE new, totally independent rated h40 seed 735 run,
-   observe growth around 5M, but normally complete the full
-   **20M**, which is cheap enough on our GPU to judge a new gait.
-   Interrupt early only for proven physical divergence/invalid state;
-   a novice still falling at 5M is not enough evidence to abandon it.
-   For a failed 20M, investigate four-world neutral stance/torque,
-   passive support, roll balance, fixed feet and fall reasons.
-4. **20M cold start, same physical source.** A successful
-   seed 735 20M foundation must show standing and sustained,
-   real command tracking, not just apparent rapid fall velocity.
-   Report `fall_rate`, `ep_len_mean`, `vx/cmd`,
-   `servo_over_rated_frac=0`, `servo_peak_torque_limit_frac<=1`,
-   `servo_speed_over_noload_frac`, spring/passive damping
-   energy. Keep exact actor/model/source hashes.
-5. **Grow same candidate** to 50–100M only if the earlier
-   gates pass. Match held-out physical trials against current
-   main actor: sustained standing, realistic forward/lateral
-   speeds, ±10–12deg slopes, yaw, shoves, symmetric hip-roll,
-   and honest rated-force output. Stairs not a promotion gate
-   right now.
-6. **Promote only with evidence.** Main currently has a
-   trained v5050 actor and viewer; do not replace either
-   with an untrained robot. When one rated h40 actor matches
-   or beats the main actor on meaningful frozen exams,
-   prepare a SINGLE clean review/promotion PR that removes
-   the accumulated superseded stair/research scaffolding.
-   Do NOT merge the entire cumulative v5053→v5058 chain
-   unchecked; it includes unrelated experimental training
-   changes. Follow the user's ~24 core-test discipline.
+## Learning and evidence
 
-## One maintained research branch during stabilization
+- Exactly **one 360→256→256→6 actor**, one critic and PPO. Six teaching roles share that actor: command, resilience, slope, step, transition, control.
+- Future target: **120 million cold world-steps**, seed 735, 2048 environments; **20M foundation**. Existing mature recipe introduces Academy after 20M and ramps births from 40M toward 60% by 55M. This has not been launched.
+- Freeze and report at 20/40/60/80/100/120M (run with `--fixed-eval-every-steps 20000000`); keep metrics, source SHA, XML and sensor hashes, exact checkpoints, independent signed-step course and viewer export outside Git at `~/emu-data/runs`.
+- NO warm-start from v5057, v5058 or v5059. NO `v5057_physical_tournament.py` 20M launcher for this new 120M recipe.
 
-- **Use v5058 / PR #49** as the stabilization source.
-- Leave v5057 / PR #48 as the overpowered positive reference.
-- Leave v5059 / PR #50 and v5060 / PR #51 archived/unmerged.
-  Their first carbon mechanics attempt is research evidence, not
-  part of the immediate promotion candidate.
-- Leave v5053–v5056 PRs unmerged; independent exams and
-  useful diagnosis may be selectively retained when building
-  the final clean promotion PR.
-- No `v5061` branch just to change another parameter.
-  Any necessary v5058 bugfix should be justified by a
-  failing cheap check and use an existing test.
+## Required gates **before** 120M
 
-## WSL operator recipe (initial validation; NO training automatically)
+1. `bash scripts/check.sh --full` plus browser build/tests.
+2. CPU compiled true-prism 1m geometry, exact h40 mass/contacts, two-triangle normal agreement, signed lip exam, midpoint recycler and occlusion contract tests.
+3. GPU on the operator's 4060Ti: 2048-world 2-frame full PPO/update smoke; physical sensor probe, checkpoint restore/source-identity check, throughput/VRAM measurement.
+4. A clean unique run root. No invisible checkpoint resumption, and no change to `main` or published actor.
 
-```bash
-cd ~/emu
-git fetch origin
-if [ ! -e "$HOME/emu-v5058-rated/.git" ]; then
-  git worktree add --detach "$HOME/emu-v5058-rated" \
-    origin/research/v5058-c018-rated-torque-hardcap
-fi
-cd ~/emu-v5058-rated
-test -z "$(git status --porcelain)" || { echo "Dirty checkout: stop"; exit 1; }
-git switch --detach origin/research/v5058-c018-rated-torque-hardcap
-source ~/emu/.venv/bin/activate
-export PYTHONPATH="$PWD" EMU_PHYSICAL_PROFILE=h40
-export XLA_PYTHON_CLIENT_PREALLOCATE=false
-python -m pytest -q tests/test_core_physics.py
-python scripts/smoke_gpu_carpet.py \
-  --device cuda --worlds 2048 --frames 2 --ppo --full-update \
-  --benchmark-updates 3 --prisms \
-  --solver-iterations 2 --solver-ls-iterations 4
-```
-
-After cheap gates pass, launch an independent source-pinned
-h40 rated 20M cold start with
-`python scripts/v5057_physical_tournament.py
- --root "$HOME/emu-data/runs/v5058-h40-rated-cold"
- --profiles h40 --seeds 735 --execute`.
-This recipe's built-in 20M goal cannot itself stop at 2–5M;
-the operator should monitor early CSV/console and manually
-interrupt if the robot does not begin standing.
-It may resume safely with its built-in checkpoint rules.
-Never reuse the failed carbon or overpowered v5057 run folder.
-
-## Future: genuine rod-based hardware changes
-
-Only **after** a stable h40 rated candidate is established:
-recover or remeasure carbon shin flex; real 2mm rod and
-10mm ball-foot design; accurate 40mm shin-tail *tension*
-spring lever and upper-leg double-rod linkage; actual
-servo current/thermal/load-speed and passive backdrive;
-calibrated Hall sensor. Make one physical change at a
-time on the established 40cm baseline and retain its
-independent exam results.
-
-## Hygiene
-
-This is the current source-of-truth handover for the
-40cm main-replacement effort. The v5059/v5060 handovers
-are **historical context for the failed carbon run**,
-not competing active roadmaps.
-
-## Sensor/terrain candidate (NOT applied to v5058 20M baseline)
-
-The intended ST VL53L8CX in 4×4 mode has a **45° horizontal × 45° vertical** detection field (65° diagonal); the current 360-input MJX ray contract uses **45° columns × 60° rows**. At 40 cm two lower actor rows look backwards. The browser now overlays its exact actor rays (magenta) and independent adjustable 45° square physical ray preview (green). Adjust mounting aim visually, then make any corrected actor/sensor contract a **new source-identified** cold start.
-
-Similarly, four **1 m** tiles in a 2×2 window may give the taller robot more forward visibility than the frozen four **75 cm** tiles. It is a hypothesis, **not** a silent edit to the active rated-torque run: validate recycler coverage, genuine eight-prism mesh normals/collisions, independent signed-step exam, ToF visibility and GPU PPO first. Do not mix 1 m terrain and FOV changes into the source of the first rated-torque 20M baseline.
-
-## 2026-11-09 — newer physical model, separate from the frozen baseline
-
-Hardware correction: all **six 55g C018 motors are chassis-mounted**.
-The previous v5058 physics distributed ~140g into thick rods and shifted
-the 300g torso forward at h40 to make COM neutral, leaving hip mounts
-visually disconnected. The newer model in draft PR #52 uses a single
-460g central torso at x=+5mm, physically embracing hip pivots; one 2×2mm square carbon thigh rod and one 2mm round split carbon shin per leg; and original
-small hip-carrier and ball-foot masses. Calculated all-up ~506g at 40cm,
-pending actual weighing and remote-knee-transmission validation. It
-preserves old spring constants and rated torque but is a **new robot
-model/COM/inertia identity**, incompatible with the frozen old-h40
-checkpoints. The sensor preview defaults 70° down, 0mm forward, -30mm
-below torso, zero sideways/yaw; PPO's old sensor contract is unchanged.
+If a gate fails, fix the single source, rerun the gate, and leave the 120M campaign untouched. Record any remaining fidelity approximations explicitly in this handover rather than claiming hardware equivalence.

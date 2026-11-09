@@ -74,7 +74,7 @@ Every run lives outside Git at `~/emu-data/runs/<name>/` and includes resolved c
 
 ## Quality gates
 
-Run `bash scripts/check.sh --full`, then real CPU prism/recycler checks; on the operator's GPU require 2048-world full PPO smoke, restart/checkpoint validation and a full **20M** cold start. Compare frozen-policy performance against an equivalent independent exam of the current `main` actor before any promotion. `main` and published actor stay frozen until explicit review.
+Run `bash scripts/check.sh --full`, then real CPU prism/recycler checks; on the operator's GPU require 2048-world full PPO smoke, restart/checkpoint validation, and then the proposed **120M** cold start with a 20M foundation. Compare frozen-policy performance against an equivalent independent exam of the current `main` actor before any promotion. `main` and published actor stay frozen until explicit review.
 
 Find the detailed work discipline in [MAINTENANCE](MAINTENANCE.md).
 
