@@ -127,7 +127,7 @@ class TrainingConfig:
     # Source-pinned experimental physics: None keeps robot.xml defaults.
     solver_iterations: int | None = None
     solver_ls_iterations: int | None = None
-    physical_profile: str = "base26"  # robot XML hash also pinned in checkpoint
+    physical_profile: str = "h40"  # single current robot; XML hash pinned in checkpoint
 
     # Tunable PPO economics. Original doctrine values are the defaults;
     # only an explicitly versioned experiment changes them. Rollout length,
@@ -201,7 +201,6 @@ class TrainingConfig:
     science_step_promotion_mm: float = 0.0  # zero = max(1mm, 18%) rule
     science_step_retreat_mm: float = 0.0    # zero = 0.82 multiplier
     science_step_min_attempts: int = 4     # per direction / near or easy
-    science_reset_step_evidence_on_fork: bool = False
     # Streaming three-platform teaching from scratch; share ramps through births.
     terrain_carpet: bool = False  # v5041 opt-in: 3x3 real two-triangle MJX terrain
     terrain_carpet_prisms: bool = False  # v5043 research-only 18 true convex dynamic prisms
@@ -235,10 +234,6 @@ class TrainingConfig:
     # Observation normalisation / PPO health.
     freeze_obs_norm_after_steps: int = 0
     allow_rollback: bool = True
-
-    # Held-out evaluation.
-    cloud_probes_per_eval: int = 0
-    cloud_final_probes: int = 0
 
     # Capability-field teaching.  These are the deliberately narrow experiment
     # surface for v5013: dose, family, evidence feedback, and schedule.  They

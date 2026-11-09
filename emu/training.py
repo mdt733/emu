@@ -226,11 +226,6 @@ def train(args: TrainingConfig) -> int:
     3. collect the next rollout and update PPO.
     The first rollout is collected before entering the loop.
     """
-    # The old independent sparse cloud was only built for archived
-    # non-unified policies. The current prism actor is evaluated with the
-    # fixed real-MJX panel and separate frozen-policy prism examiner.
-    if args.cloud_probes_per_eval or args.cloud_final_probes:
-        raise ValueError("retired sparse capability-cloud probes are unavailable in v5045")
     launch_mode = unified_launch_mode(args)
     bounded_acceptance = launch_mode == 'bounded'
     continuous_growth = launch_mode == 'continuous'
@@ -380,11 +375,6 @@ def train(args: TrainingConfig) -> int:
                     print(f'{LOG_PREFIX} new or unverified step-success recipe: '
                           'reset inherited Academy/STEP evidence '
                           '(height frontiers retained)',flush=True)
-            if (args.science_reset_step_evidence_on_fork and
-                    ancestor_sha != source_provenance_from_env().get('git_commit')):
-                governor.terrain_evidence = governor._empty_terrain_evidence()
-                print(f'{LOG_PREFIX} science: reset inherited step evidence once '
-                      '(learned frontiers preserved)', flush=True)
             health.load_state_dict(resumed_payload['health_state'])
             print(f"{LOG_PREFIX} --resume: restored curriculum + training health "
                   f"(updates={governor._updates_done_total}, core_bad_streak={governor.core_bad_streak}, "

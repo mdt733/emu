@@ -219,7 +219,6 @@ def one_run_config(args) -> TrainingConfig:
                    vy_max_mps=(.22 if growth_recipe=='main-mature' else .14),
                    yaw_max_rad_s=(1.50 if growth_recipe=='main-mature' else .90),
                    freeze_obs_norm_after_steps=0,
-                   cloud_probes_per_eval=0, cloud_final_probes=0,
                    combo_probe_frac=(.12 if growth_recipe=='main-mature' else .08),
                    phase_speed_gain=(1.25 if growth_recipe=='main-mature' else .75),
                    regime_command_frac=(.85 if growth_recipe=='main-mature' else .60),

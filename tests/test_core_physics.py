@@ -7,6 +7,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 import jax
 import jax.numpy as jnp
 import mujoco
@@ -154,13 +155,24 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     np.testing.assert_array_equal(light.body_mass,reference.body_mass)
     np.testing.assert_array_equal(light.body_inertia,reference.body_inertia)
     np.testing.assert_array_equal(light.geom_size,reference.geom_size)
-    # v5057: compile every taller *real* model on CPU, never merely
-    # compare XML strings. Neutral sole contact, leg inertia, scaled spring
-    # loading and left/right knee passive torque are physical acceptance.
+    # Only the approved H40 is active. Its generated XML must still
+    # compile as genuine MuJoCo hardware with the same actuator limits,
+    # support forces, contact geometry and sensor array.
     from emu.physical_variants import (
-        PROFILES, generate_xml, profile_numbers,
+        PROFILES, selected_profile, generate_xml, profile_numbers,
         FOOT_RADIUS_M, SERVO_RATED_CONTINUOUS_TORQUE_NM)
     base_source=(Path(__file__).resolve().parents[1]/'emu'/'robot.xml').read_text()
+    assert tuple(PROFILES) == ("h40",)
+    assert selected_profile() == "h40"
+    # Regression fence: this exact MJCF is what the frozen 120M actor saw.
+    # Changing this hash makes a different robot, even if it looks similar.
+    from hashlib import sha256
+    training_h40_xml_sha = (
+        "b513bb3326a73d9ca661f761f1352b22c36d0f1b6d51be72c2eca15d8712ef5b"
+    )
+    assert sha256(generate_xml(base_source, "h40").encode()).hexdigest() == training_h40_xml_sha
+    with pytest.raises(ValueError,match="Unsupported physical model"):
+        generate_xml(base_source,"h34")
     for variant in PROFILES:
         row=profile_numbers(variant)
         from emu.tof_geometry import (TOF_MOUNT_BODY_M, TOF_RAYS_BODY,
