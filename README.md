@@ -240,6 +240,13 @@ machine use the [sensor-audit maintenance branch](https://github.com/mdt733/emu/
 `python` only needs the standard library for this mode. Visit
 `http://127.0.0.1:8765/` if your browser does not open automatically.
 
+The lab's rear chassis-to-hip bracket geometry is shown as three red rails
+that cover the original **19 mm** visual gap introduced by the h40
+centre-of-mass compensation. They have **zero added mass and no contacts**;
+they illustrate required mechanical mounting rather than silently changing
+the baseline physics. Real brackets must eventually have measured mass
+and inertia.
+
 The lab opens a **static 2×2 arrangement of four 1 m tiles**, with eight
 *real convex triangular-prism* CPU collision meshes, and a 40 cm neutral-pose
 robot. The scene starts paused for stable measurement; **Run physics** enables

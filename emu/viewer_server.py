@@ -246,6 +246,37 @@ def sensor_lab_robot_xml() -> str:
         if geom is None:
             raise RuntimeError(f'Sensor lab missing physical foot geom {name}')
         geom.set('conaffinity', str(int(geom.get('conaffinity', '1')) | 4))
+
+    # v5057 compensated for longer-leg COM by moving the 300g torso box
+    # forward, leaving its REAR face ~19mm ahead of the x=0 hip pivots
+    # in h40. The dynamics are linked through the torso body, but the
+    # screenshot correctly shows a physically impossible open-air joint.
+    #
+    # Draw the two rear chassis-to-hip mounting rails plus their crossbar
+    # only in this untrained sensor laboratory. These are massless,
+    # collisionless VISUAL fixtures, not an assertion about finished
+    # hardware mass/inertia or a change to v5058 training physics.
+    torso = root.find(".//body[@name='torso']")
+    box = root.find(".//geom[@name='torso_box']")
+    if torso is None or box is None:
+        raise RuntimeError('Sensor lab missing torso and chassis geometry')
+    box_x = float(box.get('pos', '0 0 0').split()[0])
+    half_x = float(box.get('size', '0.05 0.09 0.025').split()[0])
+    rear_x = box_x - half_x
+    # Overlap the box by 20mm; terminate 8mm behind the hip axis.
+    front_x = rear_x + .020
+    common = {'type': 'capsule', 'size': '.011', 'mass': '0',
+              'contype': '0', 'conaffinity': '0',
+              'rgba': '0.7 0.19 0.19 1'}
+    for side, y in (('r', -.08), ('l', .08)):
+        ET.SubElement(torso, 'geom', {
+            **common, 'name': f'sensor_lab_{side}_hip_mount',
+            'fromto': f'-0.008 {y:.3f} 0 {front_x:.8f} {y:.3f} 0',
+        })
+    ET.SubElement(torso, 'geom', {
+        **common, 'name': 'sensor_lab_hip_mount_crossbar',
+        'fromto': '-0.008 -0.080 0 -0.008 0.080 0',
+    })
     return ET.tostring(root, encoding='unicode')
 
 
