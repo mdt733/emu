@@ -182,6 +182,22 @@ test('trained-policy Carpet uses exactly eight real 1m prism contacts',()=>{
     sensorOrigin,down,meshModel,meshData,[],surface);
   assert.ok(Math.abs(visible-(.4-carpet.sampleHeight(.5,.5)))<1e-5,
     'Carpet prism surface must provide physical terrain to all 360-input sensors');
+  const contract={
+    schema:'terrain_360',sensor_model_revision:'vl53l8cx_array_plane_square45_below30_v3',
+    tof4x4_mount_body_m:[0,0,-.03],
+    tof4x4_rays_body:depthLabSensor.CURRENT_RAYS_BODY,
+    settings:{sensor_noise_scale:0},
+  };
+  const pose={R:[1,0,0,0,1,0,0,0,1],torso:sensorOrigin,
+    terrainHeightAt:surface,vbody:[.20,0,0],gyro:[0,0,0]};
+  const tof=new depthLabSensor.TerrainActorObserver(contract)
+    .sample(pose,meshModel,meshData,[],false);
+  assert.ok(tof.valid.filter(Boolean).length>=6,
+    'H40 4x4 ToF must see enough real prism returns to fit terrain');
+  const flow=new depthLabSensor.ArrayFlowObserver(contract)
+    .synth(pose,meshModel,meshData,false);
+  assert.ok(flow.flowValid&&Math.abs(flow.flow[0])>.1,
+    'optical-flow velocity must not become zero just because ground is mesh');
   const finite=createSensorLabCarpet({slopeDeg:0,stepUpM:0,stepDownM:0});
   assert.equal(depthLabSensor.rayHeight([1.95,.5,.4],[.5,0,-Math.sqrt(.75)],
     terrainSensorHeightFallback('carpet',finite)),0,
