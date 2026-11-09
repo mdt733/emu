@@ -767,7 +767,7 @@ function updateDepthSettings(){
 for(const input of [depthOn,depthTilt,depthMount,depthHeight,depthLateral,depthYaw,depthRays,depthActorRays,depthFootprint,depthSamples])
   input.addEventListener('input',updateDepthSettings);
 $('depthFootPreset').addEventListener('click',()=>{
-  depthTilt.value='75';depthMount.value='0';depthHeight.value='45';
+  depthTilt.value='70';depthMount.value='0';depthHeight.value='-30';
   depthLateral.value='0';depthYaw.value='0';
   depthSamples.value='5';
   depthOn.checked=true;
@@ -1178,8 +1178,8 @@ async function startViewerFeed() {
             autoResetToggle.checked=true;
             carpetDrive.value='manual';
             carpetShoves.checked=false;
-            depthOn.checked=true;depthTilt.value='75';
-            depthMount.value='0';depthHeight.value='45';
+            depthOn.checked=true;depthTilt.value='70';
+            depthMount.value='0';depthHeight.value='-30';
             depthLateral.value='0';depthYaw.value='0';
             depthSamples.value='5';
             depthActorRays.checked=true;
@@ -1203,7 +1203,7 @@ async function startViewerFeed() {
               $('modeLabel').textContent='40 cm CPU SENSOR LAB — no trained gait';
               setStatus('40cm h40 · 4×1m / 8 real CPU prisms · neural actor OFF','ok');
               $('depthNote').textContent=
-                'Default aims for FOOT in bottom middle zones. Pause physics to inspect the neutral pose; sliders change the physical sensor preview only.';
+                'Mount: 70° down, 0mm forward, -30mm below torso, zero yaw/sideways. Scan actual feet and terrain to confirm your zone pattern.';
             }
           }
         }

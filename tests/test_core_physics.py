@@ -143,7 +143,7 @@ def test_batched_mocaps_match_old_birth_and_recycling():
 
 
 def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
-    """Remove solver contact PAIRS, not the 300g chassis or its inertia."""
+    """Remove solver contacts, not the 460g central chassis or its inertia."""
     from pathlib import Path
     from mujoco import mjx
     source=(Path(__file__).resolve().parents[1]/'emu'/'robot.xml').read_text()
@@ -180,12 +180,22 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
                                    row['mass_kg'], atol=1e-4, rtol=0)
         torso_id=mujoco.mj_name2id(
             body,mujoco.mjtObj.mjOBJ_BODY,'torso')
-        # The neutral centre of mass must remain over the same support
-        # location: longer folded legs should not quietly bias gravity.
-        expected_com_x=(-.000614)/row['mass_kg']
+        # All six 55g servos are carried by the torso. No knee motors.
+        # COM is based on light carbon mass, not an invisible compensating
+        # translation of the chassis at different robot heights.
         np.testing.assert_allclose(
-            state.subtree_com[torso_id,0],expected_com_x,
+            state.subtree_com[torso_id,0],row['neutral_com_x_m'],
             atol=2e-4,rtol=0)
+        torso_geom=mujoco.mj_name2id(
+            body,mujoco.mjtObj.mjOBJ_GEOM,'torso_box')
+        np.testing.assert_allclose(body.geom_pos[torso_geom,0],.005,atol=1e-7)
+        assert body.geom_pos[torso_geom,0]-body.geom_size[torso_geom,0]<-.01
+        assert .49 <= body.body_mass.sum() <= .52
+        for side in 'rl':
+            assert mujoco.mj_name2id(
+                body,mujoco.mjtObj.mjOBJ_GEOM,f'{side}_thigh_rod_b')>=0
+            assert mujoco.mj_name2id(
+                body,mujoco.mjtObj.mjOBJ_GEOM,f'{side}_knee_servo')==-1
         foot_heights=[]
         knee_loads=[]
         for side in 'rl':

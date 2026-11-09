@@ -88,29 +88,21 @@ jobs:
                                 '</asset><worldbody>')
           robot = robot.replace('</worldbody>', fixture['bodies'] + '</worldbody>')
           model = mujoco.MjModel.from_xml_string(robot)
-          # The visual h40 hip bridge must not invent motors, contact
-          # geometry, added mass or an inertial change to the rated trainer.
-          from emu.physical_variants import generate_xml
-          raw = Path('emu/robot.xml').read_text(encoding='utf-8')
-          unbridged = mujoco.MjModel.from_xml_string(generate_xml(raw, 'h40'))
-          original_torso = mujoco.mj_name2id(
-              unbridged, mujoco.mjtObj.mjOBJ_BODY, 'torso')
-          viewer_torso = mujoco.mj_name2id(
-              model, mujoco.mjtObj.mjOBJ_BODY, 'torso')
-          import numpy as np
-          np.testing.assert_allclose(
-              model.body_mass[viewer_torso],
-              unbridged.body_mass[original_torso], atol=1e-7)
-          np.testing.assert_allclose(
-              model.body_inertia[viewer_torso],
-              unbridged.body_inertia[original_torso], atol=1e-7)
-          for name in ('sensor_lab_r_hip_mount',
-                       'sensor_lab_l_hip_mount',
-                       'sensor_lab_hip_mount_crossbar'):
-              gid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_GEOM, name)
-              assert gid >= 0, name
-              assert model.geom_contype[gid] == 0
-              assert model.geom_conaffinity[gid] == 0
+          # Exact trainer h40 source: no visual braces or knee motor cases.
+          from emu.physical_variants import generate_xml, profile_numbers
+          source = Path('emu/robot.xml').read_text(encoding='utf-8')
+          assert sensor_lab_robot_xml() == generate_xml(source, 'h40')
+          assert 'sensor_lab_hip_mount' not in robot
+          assert 'knee_servo' not in robot
+          mass = float(model.body_mass.sum())
+          assert .49 <= mass <= .52, mass
+          assert abs(mass-float(profile_numbers('h40')['mass_kg']))<1e-4
+          chassis=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_GEOM,'torso_box')
+          assert abs(model.geom_pos[chassis,0]-.005)<1e-7
+          assert model.geom_pos[chassis,0]-model.geom_size[chassis,0]<-.01
+          for side in 'rl':
+              assert mujoco.mj_name2id(
+                  model,mujoco.mjtObj.mjOBJ_GEOM,side+'_thigh_rod_b')>=0
           assert model.nu == 6
           assert sum(mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i)
                      .startswith('sensor_lab_prism_')
