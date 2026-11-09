@@ -2,7 +2,8 @@
 <!--
   robot.xml — EMU v3017 Clean Blob fast training model
   ═══════════════════════════════════════════════════════
-  ~0.48 kg ball-foot biped, 6 actuated DoF, 2 passive mid-shin flex DoF.
+  ~0.5kg provisional ball-foot design: six chassis-mounted servo motors,
+  six driven joints via physical transmission, two passive shin flex joints.
 
   Kinematic chain per leg:
     torso → hip_roll → hip_pitch → knee → passive mid-shin flex → ball foot
@@ -25,7 +26,9 @@
     CPU/MJX parity, thermal loads and actual hardware before building.
 
   Actuators:
-    Six Feetech ST-3215-C018 at 12V (6x 55g) use rated 0.980665 N.m,
+    Six Feetech ST-3215-C018 at 12V (6x 55g) are ALL chassis mounted;
+    knee joint torque is transmitted remotely (linkage mass, backlash and
+    mechanical efficiency remain unmodelled). Rated torque is 0.980665 N.m,
     peak-stall ±2.941995 N.m and no-load 0.222s/60deg (4.717 rad/s).
     The six position actuators are HARD-LIMITED to ±0.980665 N.m at
     the actual MuJoCo/MJX force output, not the 2.941995 N.m stall rating.
@@ -69,10 +72,11 @@
     <geom name="floor" type="plane" size="5 5 0.05" rgba="0.2 0.25 0.3 1" />
     <body name="torso" pos="0 0 0.2584">
       <freejoint name="root" />
-      <!-- v3017: torso mass is shifted 26 mm forward so the neutral < stance
-           has COM over/just ahead of the ball feet. v3002 had the leg rods
-           pulling COM behind the contact point, causing immediate backward falls. -->
-      <geom name="torso_box" type="box" size="0.05 0.09 0.025" pos="0.026 0 0" mass="0.30"
+      <!-- Six chassis-mounted C018 motors 330g, Pi Zero ~12g, 3x14500 cells
+           ~60g, electronics ~18g, chassis ~40g = 460g torso budget.
+           Chassis centre x=5mm, rear face x=-45mm overlaps x=0 hip
+           pivots. All component mass estimates need measurement. -->
+      <geom name="torso_box" type="box" size="0.05 0.09 0.025" pos="0.005 0 0" mass="0.460"
             rgba="0.8 0.1 0.1 1" />
       <site name="imu" pos="0 0 0" />
 
@@ -86,8 +90,12 @@
           <joint name="r_hip_pitch" type="hinge" armature="0.012" frictionloss="0.08" axis="0 1 0"
                  range="-50 50" stiffness="0" springref="0" />
           <site name="r_knee_strut_thigh" pos="-0.0989868 0 -0.0989868" size="0.003" rgba="0 0.7 0.6 1" />
-          <geom name="r_thigh_rod" type="capsule" size="0.008"
-                fromto="0 0 0 -0.1202 0 -0.1202" mass="0.04"
+          <!-- Two parallel solid 2mm carbon thigh rods; no knee motor mass. -->
+          <geom name="r_thigh_rod" type="capsule" size="0.001"
+                fromto="0 -0.006 0 -0.1202 -0.006 -0.1202" mass="0.000828"
+                contype="0" conaffinity="0" />
+          <geom name="r_thigh_rod_b" type="capsule" size="0.001"
+                fromto="0 0.006 0 -0.1202 0.006 -0.1202" mass="0.000828"
                 contype="0" conaffinity="0" />
           <body name="r_shin" pos="-0.1202 0 -0.1202">
             <!-- Knee support comes from a two-site compressive spatial tendon. -->
@@ -97,14 +105,14 @@
             <!-- Carbon shin compliance is modelled at the rod midpoint so the
                  virtual flex angle has the same semantics as the magnet/Hall
                  pair on the real shin. -->
-            <geom name="r_shin_upper" type="capsule" size="0.008"
-                  fromto="0 0 0 0.0601 0 -0.0601" mass="0.015"
+            <geom name="r_shin_upper" type="capsule" size="0.001"
+                  fromto="0 0 0 0.0601 0 -0.0601" mass="0.000414"
                   contype="0" conaffinity="0" />
             <body name="r_shin_lower" pos="0.0601 0 -0.0601">
               <joint name="r_shin_flex" type="hinge" axis="0 1 0" range="-10 10"
                      stiffness="4.0" damping="0.08" />
-              <geom name="r_shin_lower_rod" type="capsule" size="0.008"
-                    fromto="0 0 0 0.0601 0 -0.0601" mass="0.015"
+              <geom name="r_shin_lower_rod" type="capsule" size="0.001"
+                    fromto="0 0 0 0.0601 0 -0.0601" mass="0.000414"
                     contype="0" conaffinity="0" />
               <body name="r_foot" pos="0.0601 0 -0.0601">
                 <geom name="r_foot_ball" type="sphere" size="0.018" pos="0 0 0"
@@ -124,8 +132,12 @@
           <joint name="l_hip_pitch" type="hinge" armature="0.012" frictionloss="0.08" axis="0 1 0"
                  range="-50 50" stiffness="0" springref="0" />
           <site name="l_knee_strut_thigh" pos="-0.0989868 0 -0.0989868" size="0.003" rgba="0 0.7 0.6 1" />
-          <geom name="l_thigh_rod" type="capsule" size="0.008"
-                fromto="0 0 0 -0.1202 0 -0.1202" mass="0.04"
+          <!-- Two parallel solid 2mm carbon thigh rods; no knee motor mass. -->
+          <geom name="l_thigh_rod" type="capsule" size="0.001"
+                fromto="0 -0.006 0 -0.1202 -0.006 -0.1202" mass="0.000828"
+                contype="0" conaffinity="0" />
+          <geom name="l_thigh_rod_b" type="capsule" size="0.001"
+                fromto="0 0.006 0 -0.1202 0.006 -0.1202" mass="0.000828"
                 contype="0" conaffinity="0" />
           <body name="l_shin" pos="-0.1202 0 -0.1202">
             <joint name="l_knee" type="hinge" armature="0.012" frictionloss="0.08" axis="0 1 0"
@@ -134,14 +146,14 @@
             <!-- Carbon shin compliance is modelled at the rod midpoint so the
                  virtual flex angle has the same semantics as the magnet/Hall
                  pair on the real shin. -->
-            <geom name="l_shin_upper" type="capsule" size="0.008"
-                  fromto="0 0 0 0.0601 0 -0.0601" mass="0.015"
+            <geom name="l_shin_upper" type="capsule" size="0.001"
+                  fromto="0 0 0 0.0601 0 -0.0601" mass="0.000414"
                   contype="0" conaffinity="0" />
             <body name="l_shin_lower" pos="0.0601 0 -0.0601">
               <joint name="l_shin_flex" type="hinge" axis="0 1 0" range="-10 10"
                      stiffness="4.0" damping="0.08" />
-              <geom name="l_shin_lower_rod" type="capsule" size="0.008"
-                    fromto="0 0 0 0.0601 0 -0.0601" mass="0.015"
+              <geom name="l_shin_lower_rod" type="capsule" size="0.001"
+                    fromto="0 0 0 0.0601 0 -0.0601" mass="0.000414"
                     contype="0" conaffinity="0" />
               <body name="l_foot" pos="0.0601 0 -0.0601">
                 <geom name="l_foot_ball" type="sphere" size="0.018" pos="0 0 0"

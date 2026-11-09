@@ -40,15 +40,29 @@ BASE_NEUTRAL_M = .2584
 BASE_HALF_LINK_M = .1202
 BASE_SHIN_QUARTER_M = .0601
 FOOT_RADIUS_M = .018
-REFERENCE_TOTAL_MASS_KG = .48
-REFERENCE_LINK_MASS_KG = .14
+# Provisional physical hardware budget: ALL SIX C018 servos live in the
+# chassis (6*55g=330g); Pi Zero ~12g, three 14500 cells ~60g, wiring/
+# regulator ~18g, structure/brackets ~40g. Weigh actual components later.
+TORSO_MASS_KG = .460
+BASE_TORSO_X_M = .005
+HIP_MOUNT_MASS_KG = .010  # each existing hip carrier, not motor
+FOOT_MASS_KG = .010       # each existing spherical foot
+CARBON_DENSITY_KG_M3 = 1550.
+CARBON_ROD_RADIUS_M = .001
+BASE_CARBON_THIGH_ROD_MASS_KG = (
+    CARBON_DENSITY_KG_M3*math.pi*CARBON_ROD_RADIUS_M**2*
+    math.sqrt(2.)*BASE_HALF_LINK_M)
+BASE_CARBON_SHIN_HALF_MASS_KG = (
+    CARBON_DENSITY_KG_M3*math.pi*CARBON_ROD_RADIUS_M**2*
+    math.sqrt(2.)*BASE_SHIN_QUARTER_M)
+REFERENCE_LINK_MASS_KG = 2.*(
+    2.*BASE_CARBON_THIGH_ROD_MASS_KG + 2.*BASE_CARBON_SHIN_HALF_MASS_KG)
+REFERENCE_TOTAL_MASS_KG = (TORSO_MASS_KG + 2.*HIP_MOUNT_MASS_KG +
+                           2.*FOOT_MASS_KG + REFERENCE_LINK_MASS_KG)
 REFERENCE_KNEE_STIFFNESS_N_M = 750.
-TORSO_MASS_KG = .30
-BASE_TORSO_X_M = .026
-# Two folded thighs (40g), two upper shins (15g), two lower shins (15g).
-# Each link's mass grows as s and its rear COM offset as s: moment ~s².
-BASE_LINK_REAR_MOMENT_KG_M = 2. * (
-    .040 * .0601 + .015 * .09015 + .015 * .03005)
+# Preserve original source-pinned height-dependent knee spring stiffness;
+# mass placement changes are isolated from passive-spring tuning.
+KNEE_SPRING_HEIGHT_GAIN = .14/.48
 STRUT_HALF_LEVER_M = .0212132  # 30 mm from knee pivot along 45 deg link
 STRUT_REST_M = .060
 SERVO_RATED_CONTINUOUS_TORQUE_NM = 0.980665  # C018 12V, hard actuator ceiling
@@ -72,22 +86,22 @@ def profile_numbers(name: str) -> dict[str, float | str]:
     scale = (p.hip_height_m - FOOT_RADIUS_M) / (
         BASE_NEUTRAL_M - FOOT_RADIUS_M)
     mass = REFERENCE_TOTAL_MASS_KG + REFERENCE_LINK_MASS_KG * (scale - 1.)
-    # Same 30mm knee lever/cartridge travel across profiles. Keep neutral
-    # spring support approximately matched to the *real new link mass* and
-    # moment arm; do not accidentally make the 40cm model under-sprung.
     stiffness = REFERENCE_KNEE_STIFFNESS_N_M * (
-        mass / REFERENCE_TOTAL_MASS_KG) * scale * p.knee_support
-    # Keep the neutral horizontal COM over the same contact point, otherwise
-    # increasing length quietly makes the body back-heavy. This implies
-    # a real payload/chassis placement change, particularly for 40cm legs.
-    torso_x = (BASE_TORSO_X_M + BASE_LINK_REAR_MOMENT_KG_M
-               * (scale * scale - 1.) / TORSO_MASS_KG)
+        1. + KNEE_SPRING_HEIGHT_GAIN*(scale-1.)) * scale * p.knee_support
+    # No height-dependent chassis translation; all six servo masses
+    # remain at torso, while light rods move with the legs.
+    torso_x = BASE_TORSO_X_M
+    rear_moment = REFERENCE_LINK_MASS_KG*scale*(BASE_HALF_LINK_M*scale*.5)
+    neutral_com_x = (TORSO_MASS_KG*torso_x - rear_moment)/mass
     return dict(profile=name, hip_height_m=p.hip_height_m,
                 fully_straight_leg_m=2 * (2 ** .5) * BASE_HALF_LINK_M * scale,
                 thigh_length_m=(2 ** .5) * BASE_HALF_LINK_M * scale,
                 shin_length_m=(2 ** .5) * BASE_HALF_LINK_M * scale,
                 mass_kg=mass, link_scale=scale, knee_strut_k_n_m=stiffness,
                 torso_payload_x_m=torso_x,
+                neutral_com_x_m=neutral_com_x,
+                torso_mass_kg=TORSO_MASS_KG,
+                carbon_rod_mass_kg=REFERENCE_LINK_MASS_KG*scale,
                 spring_support_fraction=p.knee_support,
                 shin_flex_stiffness_nm_rad=4.0 / scale,
                 hip_roll_stiffness_nm_rad=p.hip_roll_stiffness)
@@ -119,9 +133,9 @@ def _get(root: ET.Element, xpath: str) -> ET.Element:
 def generate_xml(source_xml: str, name: str) -> str:
     """Deterministic linked geometry + mass + passive-spring variant.
 
-    Topology, actuator count, contact colliders, sensors, servo/phase control
-    and foot sphere radius are intentionally UNCHANGED. Only experimental
-    physical dimensions, rod masses, knee-strut force, hip-roll spring vary.
+    Joint topology, motors, contact masks, servo torque, sensor channels and
+    spring constants follow one shared model. All six servo masses stay in
+    the chassis, while only carbon rods move with the legs.
     """
     if name not in PROFILES:
         raise ValueError(f"Unsupported physical model: {name}")
@@ -134,8 +148,10 @@ def generate_xml(source_xml: str, name: str) -> str:
     root.set("model", f"emu-{name}")
     _set_xyz(_get(root, ".//body[@name='torso']"), "pos",
              (0., 0., p.hip_height_m))
-    _set_xyz(_get(root, ".//geom[@name='torso_box']"), "pos",
-             (float(info["torso_payload_x_m"]), 0., 0.))
+    chassis = _get(root, ".//geom[@name='torso_box']")
+    rear = float(chassis.get("pos").split()[0])-float(chassis.get("size").split()[0])
+    if rear > -.010:
+        raise ValueError("Chassis must physically overlap the x=0 hip joints")
     for side in "rl":
         prefix = f"{side}_"
         _set_xyz(_get(root, f".//body[@name='{prefix}shin']"), "pos",
@@ -144,15 +160,16 @@ def generate_xml(source_xml: str, name: str) -> str:
             _set_xyz(_get(root, f".//body[@name='{prefix}{body}']"), "pos",
                      (BASE_SHIN_QUARTER_M * s, 0.,
                       -BASE_SHIN_QUARTER_M * s))
-        thigh = _get(root, f".//geom[@name='{prefix}thigh_rod']")
-        thigh.set("fromto",
-                   f"0 0 0 {-BASE_HALF_LINK_M*s:.8f} 0 {-BASE_HALF_LINK_M*s:.8f}")
-        thigh.set("mass", f"{.040*s:.8f}")
+        for rod,y in (("thigh_rod",-.006),("thigh_rod_b",.006)):
+            thigh = _get(root, f".//geom[@name='{prefix}{rod}']")
+            thigh.set("fromto",
+                f"0 {y:.3f} 0 {-BASE_HALF_LINK_M*s:.8f} {y:.3f} {-BASE_HALF_LINK_M*s:.8f}")
+            thigh.set("mass", f"{BASE_CARBON_THIGH_ROD_MASS_KG*s:.8f}")
         for part in ("shin_upper", "shin_lower_rod"):
             geom = _get(root, f".//geom[@name='{prefix}{part}']")
             geom.set("fromto",
                      f"0 0 0 {BASE_SHIN_QUARTER_M*s:.8f} 0 {-BASE_SHIN_QUARTER_M*s:.8f}")
-            geom.set("mass", f"{.015*s:.8f}")
+            geom.set("mass", f"{BASE_CARBON_SHIN_HALF_MASS_KG*s:.8f}")
         knee_pin = -BASE_HALF_LINK_M*s + STRUT_HALF_LEVER_M
         _set_xyz(_get(root, f".//site[@name='{prefix}knee_strut_thigh']"),
                  "pos", (knee_pin, 0., knee_pin))
