@@ -163,9 +163,14 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     base_source=(Path(__file__).resolve().parents[1]/'emu'/'robot.xml').read_text()
     for variant in PROFILES:
         row=profile_numbers(variant)
-        from emu.tof_geometry import TOF_MOUNT_BODY_M, TOF_RAYS_BODY
+        from emu.tof_geometry import (TOF_MOUNT_BODY_M, TOF_RAYS_BODY,
+                                      TOF_HARDWARE_ZONE_IDS)
         assert TOF_MOUNT_BODY_M==(0.,0.,-.030)
         assert len(TOF_RAYS_BODY)==16
+        # ST UM3109 scene top-right is raw zone 0 after lens flip;
+        # raw SPAD array location is NOT the observed scene location.
+        assert TOF_HARDWARE_ZONE_IDS==(3,2,1,0,7,6,5,4,
+                                       11,10,9,8,15,14,13,12)
         np.testing.assert_allclose(
             np.linalg.norm(np.asarray(TOF_RAYS_BODY),axis=1),
             np.ones(16),atol=1e-6)

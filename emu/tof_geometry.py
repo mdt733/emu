@@ -14,10 +14,14 @@ TOF_TILT_DOWN_DEG = 70.0
 TOF_YAW_DEG = 0.0
 TOF_MOUNT_BODY_M = (0.0, 0.0, -0.030)
 TOF_ZONE_SIDE = 4
-# ST datasheet 4x4 raw zone IDs, in top-to-bottom ROW-MAJOR image order
-# for upright module orientation. Rotate/reorder if the real PCB is mounted
-# differently; never feed raw ascending IDs directly to this actor layout.
-TOF_HARDWARE_ZONE_IDS = tuple(4*(3-row)+col
+# ST UM3109 §2.2: the receiving lens flips BOTH physical image axes.
+# SPAD zone 0 is at array bottom-left but observes scene TOP-RIGHT;
+# therefore, for the nominal package orientation shown in the datasheet,
+# our actor's scene row-major [top-left..bottom-right] maps to raw IDs:
+# [3,2,1,0; 7,6,5,4; 11,10,9,8; 15,14,13,12].
+# A differently rotated sensor PCB requires a measured remap; do NOT
+# silently treat ascending hardware indices as scene row-major.
+TOF_HARDWARE_ZONE_IDS = tuple(4*row+(3-col)
                               for row in range(4) for col in range(4))
 
 def tof4x4_rays_body() -> tuple[tuple[float, float, float], ...]:

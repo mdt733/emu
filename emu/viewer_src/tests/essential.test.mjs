@@ -75,8 +75,11 @@ test('physical ST 45-degree policy rays agree with inspector and reject wrong mo
   const actor=depthLabSensor.terrainActorRays(identity,centres);
   actor.forEach((dir,i)=>dir.forEach((val,j)=>
     assert.ok(Math.abs(val-centres[i][j])<1e-8)));
-  assert.deepEqual([12,13,14,15,8,9,10,11,4,5,6,7,0,1,2,3].slice(12),
-    [0,1,2,3],'hardware bottom row is raw IDs 0-3');
+  // Lens reversal is physical, not a cosmetic UI flip. In ST UM3109
+  // raw SPAD zone 0 (array bottom-left) observes scene top-right.
+  const sceneToHardware=[3,2,1,0,7,6,5,4,11,10,9,8,15,14,13,12];
+  assert.equal(sceneToHardware[3],0);
+  assert.deepEqual(sceneToHardware.slice(12),[15,14,13,12]);
 });
 
 test('schema-9 4x4 rays intersect physical floor/box and foot occlusion',()=>{
