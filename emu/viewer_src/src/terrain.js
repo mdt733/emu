@@ -364,6 +364,15 @@ export function withTerrain(robotXml,mode='flat',options={}) {
 }
 export const withGentleCourse=xml=>withTerrain(xml,'ramp');
 
+// Park uses a heightfield; Carpet uses convex meshes. The browser's
+// 360-input raycaster knows planes and boxes but cannot raycast mesh geoms.
+// Both worlds must provide their actual rendered/Cpu-contact surface to the
+// SAME 4x4 ToF and optical-flow sensor path. Missing support remains NaN/void.
+export function terrainSensorHeightFallback(mode,park) {
+  return park && (mode==='park'||mode==='carpet')
+    ? (x,y)=>park.sampleHeight(x,y) : null;
+}
+
 // Read the *actual generated ground* below the midpoint between the feet.
 // This is terrain grade, NOT chassis pitch, commanded attitude, or a
 // physically estimated IMU angle. The arrow points uphill RELATIVE to the
