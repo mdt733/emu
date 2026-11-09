@@ -67,6 +67,30 @@ export function sensorLabPrismVertices(park) {
 }
 export const LAB_PRISM_FACES = Object.freeze(faces.map(f=>Object.freeze([...f])));
 
+// MuJoCo starts the model in its source flat-floor qpos0. The prism carpet
+// has an independently generated surface elevation; leaving qpos0 unchanged
+// buries the soles inside the first tile on an uphill spawn. That creates
+// immediate collision impulses which a trained policy cannot correct.
+//
+// Use the ACTUAL MuJoCo sphere positions and radii, not a hardcoded body
+// height or a torso-centre terrain sample. Place the lower sole on its prism
+// top while keeping the other sole out of solid collision geometry.
+export function carpetSpawnSoleLift(park,geomXpos,geomSize,footGeomIds){
+  if(park?.physics!=='eight-1m-prisms'||footGeomIds?.length!==2)
+    throw Error('Carpet spawn requires the two actual H40 foot spheres');
+  const lifts=footGeomIds.map(id=>{
+    const offset=3*id;
+    const x=Number(geomXpos[offset]),y=Number(geomXpos[offset+1]);
+    const sole=Number(geomXpos[offset+2])-Number(geomSize[offset]);
+    const ground=park.sampleHeight(x,y);
+    if(![x,y,sole,ground].every(Number.isFinite)||
+       !(Number(geomSize[offset])>0))
+      throw Error('Carpet spawn feet must be above valid prism support');
+    return ground-sole;
+  });
+  return Math.max(...lifts);
+}
+
 export function sensorLabPrismXml(park){
   if(park?.physics!=='eight-1m-prisms'||park.tiles?.length!==4)
     throw Error('Sensor lab expects four 1m physical tiles');
