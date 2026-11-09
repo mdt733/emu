@@ -164,6 +164,13 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     base_source=(Path(__file__).resolve().parents[1]/'emu'/'robot.xml').read_text()
     assert tuple(PROFILES) == ("h40",)
     assert selected_profile() == "h40"
+    # Regression fence: this exact MJCF is what the frozen 120M actor saw.
+    # Changing this hash makes a different robot, even if it looks similar.
+    from hashlib import sha256
+    training_h40_xml_sha = (
+        "b513bb3326a73d9ca661f761f1352b22c36d0f1b6d51be72c2eca15d8712ef5b"
+    )
+    assert sha256(generate_xml(base_source, "h40").encode()).hexdigest() == training_h40_xml_sha
     with pytest.raises(ValueError,match="Unsupported physical model"):
         generate_xml(base_source,"h34")
     for variant in PROFILES:
