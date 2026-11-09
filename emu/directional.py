@@ -38,18 +38,6 @@ def contact_pair_mask(xp, contact_geom1, contact_geom2, contact_distance,
     return xp.stack(result, axis=-1)
 
 
-# Legacy tripod *metadata only*: schema-2 policy hashes still require these
-# constants, even though v5045 never simulates a tripod or trains a 232 actor.
-TOF_TRIPOD_MOUNTS_BODY_M = (
-    (.035, -.050, -.025),
-    (.035,  .050, -.025),
-    (-.040, .000, -.025),
-)
-TOF_TRIPOD_BEAMS_BODY = ((0.,0.,-1.),)*3
-TOF_MIN_RANGE_M = .035
-TOF_MAX_RANGE_M = .60
-
-
 def fit_forward_array_ground(xp, ranges, valid, gravity_body):
     """Estimate grade, depth and *visibility*, solely from a 4x4 range array.
 

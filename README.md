@@ -281,3 +281,7 @@ lab generates a tiny untrained fixture directly from the current h40 source,
 without copying a published policy. Pages publication is explicitly manual;
 a new `showcase/champion.emupolicy` and its signed release approval are only
 added after the cold 120M evaluation has proven the robot.
+
+Current actor/PPO/checkpoints use only `terrain_360` (schema 9). There is no
+schema-7/8 resume, no tripod-sensor export and no legacy public actor parser
+in this candidate. Old source and assets can be recovered from Git.

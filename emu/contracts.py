@@ -198,7 +198,7 @@ FIELD_EDGE_FRAC = FIELD_NODE_START + FIELD_NODE_ANCHORS * FIELD_NODE_STRIDE
 FIELD_EDGE_START = FIELD_EDGE_FRAC + 1
 TASK_PARAM_DIM = FIELD_EDGE_START + FIELD_EDGE_ANCHORS * FIELD_EDGE_STRIDE
 
-# G4: the existing flat/220/232 task vector is an immutable legacy contract.
+# The 55 physical base channels are only a prefix of the current 90-wide actor.
 # Only the opt-in finite-terrain environment appends this v1 extension AFTER
 # all field anchors. No existing P indices or actor columns move.
 TERRAIN_TASK_FIELDS = (("terrain_exposure", 0.0), ("terrain_height_m", 0.0))

@@ -68,3 +68,8 @@ candidate branch; they remain recoverable from older Git revisions. Manual
 GitHub Pages deployment requires a NEW trained 120M actor, verified
 checkpoint, source SHA and separate release approval. No code-level
 backward compatibility and no automatically deployed stale champion.
+
+Core trainer cleanup now enforces schema-9/360 everywhere: no schema-7/8
+checkpoint decoding, no schema-220/232 observation selection, and no tripod
+mount metadata in the current sensor math. Keep the new robot's model hash,
+sensor hash and six-actuator limit strict before any 120M run.
