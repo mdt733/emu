@@ -1,11 +1,11 @@
 import test from 'node:test';
-import {measuredAttitude,sampleEpisodeCadence,smoothFactor,chasePose,sampleShove} from '../src/sim-math.js';
+import {measuredAttitude,sampleEpisodeCadence,smoothFactor,chasePose,sampleShove,clearanceAboveSupport} from '../src/sim-math.js';
 import assert from 'node:assert/strict';
 import {parsePolicy} from '../src/policy.js';
 import * as depthLabSensor from '../src/sensor.js';
 import {joystickToCommands,nextYawCommand} from '../src/controls.js';
 import {terrainRoleEnvelope} from '../src/training-solid-carpet.js';
-import {createSensorLabCarpet,sensorLabPrismVertices,sensorLabPrismXml} from '../src/sensor-lab-carpet.js';
+import {createSensorLabCarpet,sensorLabPrismVertices,sensorLabPrismXml,carpetSpawnSoleLift} from '../src/sensor-lab-carpet.js';
 import {withTerrain} from '../src/terrain.js';
 import {trainingLimits} from '../src/training-carpet.js';
 
@@ -163,6 +163,29 @@ test('trained-policy Carpet uses exactly eight real 1m prism contacts',()=>{
   assert.equal(carpet.tiles.length,4);
   assert.equal(carpet.tileSizeM,1);
   assert.equal(carpet.physics,'eight-1m-prisms');
+
+  // Real regression: original viewer started H40 at flat-floor qpos0
+  // on a raised physical tile. Feet buried in the top collision surface
+  // produced huge impulses and an immediate fall despite a working actor.
+  const raisedSpawn=createSensorLabCarpet({slopeDeg:10,stepUpM:0,stepDownM:0});
+  const geomPos=new Float64Array(9), geomSize=new Float64Array(9);
+  geomPos.set([.5,.42,.018],3);   // right 18mm ball foot
+  geomPos.set([.48,.58,.018],6);  // left ball foot slightly behind
+  geomSize[3]=geomSize[6]=.018;
+  const lift=carpetSpawnSoleLift(raisedSpawn,geomPos,geomSize,[1,2]);
+  assert.ok(lift>.08,'a 10-degree tile needs a substantial positive spawn lift');
+  for(const id of [1,2]){
+    const i=id*3;
+    const sole=geomPos[i+2]+lift-geomSize[i];
+    const height=raisedSpawn.sampleHeight(geomPos[i],geomPos[i+1]);
+    assert.ok(sole>=height-1e-9,'both soles must clear real terrain');
+  }
+  assert.ok(Math.abs(
+    carpetSpawnSoleLift(createSensorLabCarpet({slopeDeg:0,stepUpM:0,stepDownM:0}),
+      geomPos,geomSize,[1,2]))<1e-9,'flat fixture needs no lift');
+  geomPos[3]=2.5;
+  assert.throws(()=>carpetSpawnSoleLift(raisedSpawn,geomPos,geomSize,[1,2]),
+    /valid prism support/,'no invisible floor outside the finite fixture');
 });
 test('15-degree slope preview is physically 15 degrees, not a 10-degree approximation',()=>{
   const slope=createSensorLabCarpet({slopeDeg:15,stepUpM:0,stepDownM:0});
@@ -188,6 +211,9 @@ test('simulation helper consolidation preserves independent physics/UI functions
   const p=chasePose([0,0,.2],0);
   assert.equal(p.position.length,3);
   assert.equal(sampleShove({intensity:0,maxForceN:0}),null);
+  assert.ok(Math.abs(clearanceAboveSupport(.42,.08)-.34)<1e-9);
+  assert.equal(clearanceAboveSupport(.22,NaN),-Infinity,
+    'carpet void must never masquerade as flat ground');
 });
 
 test('sensor lab is a fixed physical 2x2 grid: four 1m tiles, eight real triangular-prism meshes',()=>{
