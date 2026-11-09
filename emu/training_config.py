@@ -15,7 +15,8 @@ from pathlib import Path
 from .contracts import (COMBO_P, PHASE_RATE_MAX_HZ, RECOVERY_TILT_MAX_DEG, RECOVERY_POSITION_MAX_M,
                         RECOVERY_LINVEL_MAX_MPS, RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG)
 from .ppo import PPO_DOCTRINE
-from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, SENSOR_SETTINGS_DEFAULTS, sensor_observation_contract
+from .contracts import (OBS_SCHEMA_TERRAIN, SENSOR_SETTINGS_DEFAULTS,
+                        sensor_observation_contract)
 
 
 # Current EMU doctrine. These are intentionally not experiment knobs: every
@@ -99,16 +100,13 @@ DOCTRINE = {
 }
 
 
-def training_sensor_contract(config) -> dict | None:
-    """Shared checkpoint/evaluator identity of the simulated sensor package."""
-    if config.observation_schema == OBS_SCHEMA_LEGACY:
-        return None
-    if config.observation_schema not in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN):
-        raise ValueError(f"unsupported training observation schema {config.observation_schema!r}")
-    settings = dict(SENSOR_SETTINGS_DEFAULTS)
-    settings['sensor_noise_scale'] = SENSOR_NOISE_SCALE
-    return sensor_observation_contract(settings,schema=config.observation_schema,
-                                       array_only=bool(config.unified_capability_focus))
+def training_sensor_contract(config) -> dict:
+    """One source-pinned, array-only physical 360-input sensor identity."""
+    if config.observation_schema != OBS_SCHEMA_TERRAIN:
+        raise ValueError('Only physical terrain_360 training is supported')
+    settings=dict(SENSOR_SETTINGS_DEFAULTS)
+    settings['sensor_noise_scale']=SENSOR_NOISE_SCALE
+    return sensor_observation_contract(settings)
 
 
 def doctrine_dict() -> dict[str, object]:
@@ -125,7 +123,7 @@ class TrainingConfig:
     device: str = "auto"
     run_dir: str = ""
     resume: str = ""
-    observation_schema: str = OBS_SCHEMA_LEGACY  # opt in to 232 or G5 360 actor
+    observation_schema: str = OBS_SCHEMA_TERRAIN  # the only actor
     # Source-pinned experimental physics: None keeps robot.xml defaults.
     solver_iterations: int | None = None
     solver_ls_iterations: int | None = None
@@ -264,12 +262,6 @@ class TrainingConfig:
     def load(cls, path: Path) -> "TrainingConfig":
         data = json.loads(path.read_text(encoding="utf-8"))
         expected = {f.name for f in dataclass_fields(cls)}
-        # One narrowly scoped compatibility allowance for immutable
-        # v5052 checkpoint parents. That source could not have enabled a
-        # v5054-only episode termination, so the historical value is
-        # provably False. All other unknown/missing keys still fail closed.
-        if set(data)==expected-{"science_step_finish_on_transfer"}:
-            data["science_step_finish_on_transfer"]=False
         missing, extra = expected - set(data), set(data) - expected
         # No source-pinned v5045 run can accept an incomplete historical
         # config: re-creating defaults would change teacher and sensor meaning.
@@ -316,7 +308,7 @@ def verify_existing_phase_config(
         run_dir: Path, expected, *, allow_target_extension: bool = False) -> None:
     """Refuse a same-path continuation with a different physical/learning contract.
 
-    A perfectly valid schema-7 checkpoint can still be from a different seed,
+    A perfectly valid schema-9 checkpoint can still be from a different seed,
     env count, field teacher or hidden physical distribution. Prevent accidental
     reuse before `resolve_target_checkpoint` decides that an old phase is done.
     Hardware choice, source checkout location and resume pathname are not

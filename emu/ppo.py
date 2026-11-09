@@ -13,7 +13,10 @@ from typing import Any, NamedTuple
 
 import numpy as np
 
-from .contracts import ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN, OBS_NORMALIZED_FIELDS, OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, TERRAIN_RANGE_FIELDS, TERRAIN_VALID_FIELDS, actor_observation_fields
+from .contracts import (ACTION_DIM, OBS_DIM, BASE_OBS_FIELDS, HISTORY_LEN,
+                        OBS_NORMALIZED_FIELDS, OBS_SCHEMA_TERRAIN,
+                        TERRAIN_RANGE_FIELDS, TERRAIN_VALID_FIELDS,
+                        actor_observation_fields)
 from .environment import T
 from .directional import contact_pair_mask
 from .directional import heading_rate_request
@@ -141,24 +144,18 @@ def normalize_obs(obs, obs_mean, obs_std, obs_norm_mask=None):
     return jnp.where(obs_norm_mask > 0.5, z, obs)
 
 
-def build_obs_norm_mask(observation_schema: str = OBS_SCHEMA_LEGACY):
-    """Normalise physical-scale channels; keep bounded/categorical channels raw.
-
-    Pitch15's historic mask is unchanged. Sensor grades are physical angles,
-    but visibility and valid/confidence flags remain unnormalised.
-    """
+def build_obs_norm_mask(observation_schema: str = OBS_SCHEMA_TERRAIN):
+    """The ONE 360-input actor: normalize physical scales, not valid bits."""
     import numpy as _np
-    fields = actor_observation_fields(observation_schema)
-    normalised = OBS_NORMALIZED_FIELDS
-    if observation_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN):
-        normalised = normalised | {"ground_forward_grade_rad", "ground_sideways_grade_rad"}
-    if observation_schema == OBS_SCHEMA_TERRAIN:
-        normalised = normalised | set(TERRAIN_RANGE_FIELDS)
-    base = _np.asarray(
+    fields=actor_observation_fields(observation_schema)
+    normalised=(OBS_NORMALIZED_FIELDS |
+                {'ground_forward_grade_rad','ground_sideways_grade_rad'} |
+                set(TERRAIN_RANGE_FIELDS))
+    base=_np.asarray(
         [1.0 if name in normalised else 0.0 for name in fields],
-        dtype=_np.float32,
-    )
-    return _np.tile(base, HISTORY_LEN)
+        dtype=_np.float32)
+    return _np.tile(base,HISTORY_LEN)
+
 
 # ---------------------------------------------------------------------------
 # PPO implementation.
@@ -198,7 +195,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
     import jax.numpy as jnp
     import optax
 
-    obs_norm_mask = jnp.asarray(build_obs_norm_mask(getattr(env, 'observation_schema', OBS_SCHEMA_LEGACY)), dtype=jnp.float32)
+    obs_norm_mask = jnp.asarray(build_obs_norm_mask(getattr(env, 'observation_schema', OBS_SCHEMA_TERRAIN)), dtype=jnp.float32)
 
     _tmp_state, _tmp_obs = env.reset({})
     obs_dim = int(_tmp_obs.shape[-1])
