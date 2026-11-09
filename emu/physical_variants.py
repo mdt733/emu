@@ -1,9 +1,9 @@
-"""v5057 source-pinned physical models: ONE skeleton, eight cold-start bodies.
+"""The single H40 physical robot, generated from one canonical MJCF source.
 
-No alternate terrain/actor/trainer, mutable checkout XML, or extra test files.
-EMU_PHYSICAL_PROFILE selects one complete mechanical build *before importing emu*.
-The generated MJCF lives in an immutable content-addressed user cache; the exact
-XML SHA256 is already pinned by checkpoint_io and the .emupolicy exporter.
+H40 is the default model for new source-pinned runs. The 26/30/34cm
+factorial variants remain available at their original Git commits, not in
+this current trainer. Generated H40 XML lives in a content-addressed cache;
+its bytes and model SHA256 are unchanged by removing unused profile choices.
 """
 from __future__ import annotations
 
@@ -23,18 +23,8 @@ class Profile:
     hip_roll_stiffness: float = 2.0
 
 
-# Paired-seed factorial-ish screen. h40 is an intentionally risky upper bound,
-# not a claimed optimum. Source XML is the ONE physical authority for all bodies.
-PROFILES = {
-    "base26": Profile(.2584),
-    "h30": Profile(.30),
-    "h34": Profile(.34),
-    "h40": Profile(.40),
-    "h34_k75": Profile(.34, knee_support=.75),
-    "h34_k125": Profile(.34, knee_support=1.25),
-    "h34_roll1": Profile(.34, hip_roll_stiffness=1.0),
-    "h40_k75": Profile(.40, knee_support=.75),
-}
+# One trained physical model. Alternatives belong in source-pinned research.
+PROFILES = {"h40": Profile(.40)}
 
 BASE_NEUTRAL_M = .2584
 BASE_HALF_LINK_M = .1202
@@ -72,7 +62,7 @@ SERVO_NOLOAD_RAD_S = (60. / .222) * (3.141592653589793 / 180.)  # 4.7165 rad/s
 
 
 def selected_profile() -> str:
-    name = os.environ.get("EMU_PHYSICAL_PROFILE", "base26")
+    name = os.environ.get("EMU_PHYSICAL_PROFILE", "h40")
     if name not in PROFILES:
         raise ValueError(f"Unknown EMU_PHYSICAL_PROFILE={name!r}; allowed: {', '.join(PROFILES)}")
     return name
@@ -115,7 +105,7 @@ def _set_xyz(element: ET.Element, key: str, xyz: tuple[float, float, float]):
 def _get(root: ET.Element, xpath: str) -> ET.Element:
     item = root.find(xpath)
     if item is None:
-        raise ValueError(f"v5057 model missing required physical link: {xpath}")
+        raise ValueError(f"H40 model missing required physical link: {xpath}")
     return item
 
 
@@ -129,8 +119,6 @@ def generate_xml(source_xml: str, name: str) -> str:
     """
     if name not in PROFILES:
         raise ValueError(f"Unsupported physical model: {name}")
-    if name == "base26":
-        return source_xml
     p = PROFILES[name]
     info = profile_numbers(name)
     s = float(info["link_scale"])
@@ -182,8 +170,6 @@ def generate_xml(source_xml: str, name: str) -> str:
 def robot_xml_path(package_dir: Path) -> Path:
     name = selected_profile()
     original = package_dir / "robot.xml"
-    if name == "base26":
-        return original
     source = original.read_text(encoding="utf-8")
     xml = generate_xml(source, name)
     sha = hashlib.sha256(xml.encode("utf-8")).hexdigest()
@@ -191,7 +177,7 @@ def robot_xml_path(package_dir: Path) -> Path:
         "EMU_PHYSICAL_MODEL_CACHE",
         Path.home() / ".cache" / "emu" / "physical_models")).expanduser()
     cache.mkdir(parents=True, exist_ok=True)
-    target = cache / f"v5057-{name}-{sha[:20]}.xml"
+    target = cache / f"h40-{sha[:20]}.xml"
     if target.is_file():
         if hashlib.sha256(target.read_bytes()).hexdigest() != sha:
             raise RuntimeError(f"Corrupt immutable EMU model cache: {target}")
