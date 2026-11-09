@@ -6,7 +6,7 @@ import { PolicyRunner } from './policy.js';
 import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe, footSphereHit, terrainActorRays } from './sensor.js';
 import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredAttitude, sampleShove, expectedShoveRate, clearanceAboveSupport } from './sim-math.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
-import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient } from './terrain.js';
+import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient, terrainSensorHeightFallback } from './terrain.js';
 import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
 import { terrainRoleEnvelope } from './training-solid-carpet.js';
 import { createSensorLabCarpet, sensorLabPrismVertices, carpetSpawnSoleLift, LAB_PRISM_FACES, LAB_TILE_M, LAB_PRISM_COUNT } from './sensor-lab-carpet.js';
@@ -1116,13 +1116,10 @@ export class EmuBrowserSim {
       }
       return 0;
     };
-    // The park replaces the MuJoCo plane with a heightfield. The array-only
-    // optical-flow sensor raycaster handles planes/boxes, so it needs the same
-    // terrain-height fallback that the 4x4 ToF raycaster already receives.
-    // Only provide it for the park: adding a fictitious z=0 fallback to sloped
-    // finite-box diagnostics would make downhill optical flow read a ghost floor.
-    const terrainHeightAt=this.terrainMode==='park'&&this.park ?
-      (x,y)=>this.park.sampleHeight(x,y):null;
+    // Neither the park heightfield nor the Carpet's eight convex meshes is
+    // a supported plane/box in our pure 360-observation raycaster. Supply
+    // the ACTUAL world surface to optical flow; never fake z=0 ground.
+    const terrainHeightAt=terrainSensorHeightFallback(this.terrainMode,this.park);
     return {R,torso,vbody,gyro,heightAt,terrainHeightAt};
   }
 
@@ -1131,11 +1128,10 @@ export class EmuBrowserSim {
     // shared height surface rather than pretending it is a flat plane.
     const R=this.bodyRotation(),offset=this.torsoId*3;
     return {R,torso:Array.from(this.data.xpos.slice(offset,offset+3)),
-      // v5041 uses nine actual moving solid MuJoCo boxes. Never let a
-      // future-terrain preview ray (or a ghost flat surface) override
-      // the true collision raycast in actor observations.
-      terrainHeightAt:this.terrainMode==='park'&&this.park ?
-        (x,y)=>this.park.sampleHeight(x,y):null};
+      // Convex mesh geoms (Carpet) are not recognized by the fast JS
+      // raycaster. The exact CPU prism-height surface must supply the
+      // physical ToF return, just as the park heightfield already does.
+      terrainHeightAt:terrainSensorHeightFallback(this.terrainMode,this.park)};
   }
 
   buildBaseObs() {
