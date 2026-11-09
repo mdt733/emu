@@ -59,8 +59,8 @@ from .directional import (fit_forward_array_ground,
 )
 from .contracts import (
     SIM_DT, CONTROL_SUBSTEPS, CONTROL_DT, ACTION_DIM, ACTUATED_JOINTS,
-    HISTORY_LEN, OBS_SCHEMA_TERRAIN, TERRAIN_TOF_PITCH_DEG,
-    TERRAIN_TOF_YAW_DEG, TERRAIN_TOF_MIN_M,
+    HISTORY_LEN, OBS_SCHEMA_TERRAIN, TERRAIN_TOF_RAYS_BODY,
+    TERRAIN_TOF_MOUNT_BODY_M, TERRAIN_TOF_MIN_M,
     TERRAIN_TOF_MAX_M, actor_observation_fields, sensor_observation_contract, COMBO_P,
     PHASE_RATE_MAX_HZ, FIELD_EDGE_SCALES, SEED_VX_LO, SEED_VX_HI,
     FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS, FIELD_NODE_STRIDE, FIELD_EDGE_STRIDE,
@@ -3068,15 +3068,12 @@ class EmuMJXEnv(TaskSampler):
         The 17th ray is never exposed as an actor ToF channel.
         """
         jnp = self.jnp
-        beam_dirs = jnp.asarray([
-            [math.cos(math.radians(p))*math.cos(math.radians(y)),
-             math.cos(math.radians(p))*math.sin(math.radians(y)),
-             -math.sin(math.radians(p))]
-            for p in TERRAIN_TOF_PITCH_DEG for y in TERRAIN_TOF_YAW_DEG],
-            dtype=jnp.float32)
+        beam_dirs = jnp.asarray(TERRAIN_TOF_RAYS_BODY,dtype=jnp.float32)
         R = self._rotation_body_to_world(data)
-        origin = data.xpos[:, self.torso_id, :]
-        ray = jnp.einsum('eij,kj->eki', R, beam_dirs)
+        torso_origin = data.xpos[:, self.torso_id, :]
+        origin = torso_origin + jnp.einsum('eij,j->ei', R,
+            jnp.asarray(TERRAIN_TOF_MOUNT_BODY_M,dtype=jnp.float32))
+        ray = jnp.einsum('eij,kj->eki',R,beam_dirs)
         # The same two physical triangles and vertical prism sidewall
         # used by MJX contacts. Never substitute a box or infinite plane.
         # Both sensors sample identical physical prisms. Intersect 16+1

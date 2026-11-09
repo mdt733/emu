@@ -50,9 +50,7 @@ TOF_MIN_RANGE_M = .035
 TOF_MAX_RANGE_M = .60
 
 
-def fit_forward_array_ground(xp, ranges, valid, gravity_body,
-                             pitch_deg=(40.,60.,80.,100.),
-                             yaw_deg=(-22.5,-7.5,7.5,22.5)):
+def fit_forward_array_ground(xp, ranges, valid, gravity_body):
     """Estimate grade, depth and *visibility*, solely from a 4x4 range array.
 
     One least-squares plane fit to the actual returned ray endpoints, with
@@ -63,11 +61,8 @@ def fit_forward_array_ground(xp, ranges, valid, gravity_body,
 
     Works in NumPy and JAX. Invalid rays cannot bias plane fitting.
     """
-    rays=xp.asarray([
-        (math.cos(math.radians(p))*math.cos(math.radians(y)),
-         math.cos(math.radians(p))*math.sin(math.radians(y)),
-         -math.sin(math.radians(p)))
-        for p in pitch_deg for y in yaw_deg],dtype=xp.float32)
+    from .tof_geometry import TOF_RAYS_BODY
+    rays=xp.asarray(TOF_RAYS_BODY,dtype=xp.float32)
     d=xp.asarray(ranges)
     mask=xp.asarray(valid,dtype=xp.bool_) & xp.isfinite(d) & (d>=.04) & (d<=1.5)
     weight=mask.astype(xp.float32)

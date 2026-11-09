@@ -29,7 +29,7 @@ from .contracts import (
     OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN,
     SENSOR_OBS_DIM, SENSOR_BASE_OBS_DIM, SENSOR_OBS_FIELDS,
     TERRAIN_OBS_DIM,TERRAIN_BASE_OBS_DIM,TERRAIN_OBS_FIELDS,
-    sensor_observation_contract,
+    TERRAIN_ARRAY_ONLY_REVISION, sensor_observation_contract,
     SIM_DT,
 )
 from .environment import TARGET_SPAN, NEUTRAL_ROOT_Z
@@ -86,7 +86,7 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
         # may be examined, but never interpreted as each other.
         array_only = (schema==3 and
             provided.get('sensor_model_revision') ==
-                'forward_tof4x4_array_plane_fit_no_tripod_2')
+                TERRAIN_ARRAY_ONLY_REVISION)
         expected = sensor_observation_contract(
             provided.get('settings'),schema=actor_schema,array_only=array_only)
         if provided != expected:
@@ -175,7 +175,7 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
         'sensor_settings': dict(observation['sensor_contract']['settings']) if schema in (2,3) else {},
         'array_only': bool(schema==3 and
             observation['sensor_contract'].get('sensor_model_revision') ==
-                'forward_tof4x4_array_plane_fit_no_tripod_2'),
+                TERRAIN_ARRAY_ONLY_REVISION),
         'obs_dim': obs_dim,
     }
 

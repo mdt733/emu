@@ -68,17 +68,13 @@ TERRAIN_VALID_FIELDS = tuple(f"tof4x4_valid_{r}{c}" for r in range(4) for c in r
 TERRAIN_OBS_FIELDS = SENSOR_OBS_FIELDS + TERRAIN_RANGE_FIELDS + TERRAIN_VALID_FIELDS
 TERRAIN_BASE_OBS_DIM = len(TERRAIN_OBS_FIELDS)
 TERRAIN_OBS_DIM = TERRAIN_BASE_OBS_DIM * HISTORY_LEN
-TERRAIN_SENSOR_REVISION = "forward_tof4x4_real_plane_box_foot_1"
-TERRAIN_ARRAY_ONLY_REVISION = "forward_tof4x4_array_plane_fit_no_tripod_2"
+TERRAIN_SENSOR_REVISION = "vl53l8cx_square45_mount70_below30_v1"
+TERRAIN_ARRAY_ONLY_REVISION = "vl53l8cx_array_plane_square45_below30_v3"
 TERRAIN_TOF_MIN_M, TERRAIN_TOF_MAX_M = 0.04, 1.5
-# Row-major far-to-near ray centres. Sensor is at torso site, 0mm ahead,
-# pitched 70 degrees below horizontal with 60-degree vertical spread.
-# Horizontal fan spans 45 degrees. These physical extrinsics are hashed.
-from .physical_variants import terrain_tof_pitch_deg
-# Rigid sensor assembly tilt per body, selected once before Python imports.
-# At neutral the shallowest beam hits ~25cm ahead, inside the loaded tiles.
-TERRAIN_TOF_PITCH_DEG = terrain_tof_pitch_deg()
-TERRAIN_TOF_YAW_DEG = (-22.5, -7.5, 7.5, 22.5)
+# Physical 4x4 optical array. The shape is unchanged; its MEANING is new.
+from .tof_geometry import (TOF_MOUNT_BODY_M as TERRAIN_TOF_MOUNT_BODY_M,
+                           TOF_RAYS_BODY as TERRAIN_TOF_RAYS_BODY,
+                           TOF_FOV_DEG, TOF_TILT_DOWN_DEG, TOF_YAW_DEG)
 # Observation schema identifies meanings, not merely array widths. A hash
 # also covers timing and physical sensor extrinsics when using sim2real_232.
 SENSOR_MODEL_REVISION = "tripod_tof_flow_async_v1"
@@ -147,9 +143,12 @@ def sensor_observation_contract(settings: dict | None = None, *,
             schema=OBS_SCHEMA_TERRAIN,
             sensor_model_revision=TERRAIN_SENSOR_REVISION,
             base_fields=list(TERRAIN_OBS_FIELDS),
-            tof4x4_mount_body_m=[0., 0., 0.],
-            tof4x4_pitch_from_horizontal_deg=list(TERRAIN_TOF_PITCH_DEG),
-            tof4x4_yaw_deg=list(TERRAIN_TOF_YAW_DEG),
+            tof4x4_mount_body_m=list(TERRAIN_TOF_MOUNT_BODY_M),
+            tof4x4_fov_horizontal_deg=TOF_FOV_DEG,
+            tof4x4_fov_vertical_deg=TOF_FOV_DEG,
+            tof4x4_tilt_down_deg=TOF_TILT_DOWN_DEG,
+            tof4x4_mount_yaw_deg=TOF_YAW_DEG,
+            tof4x4_rays_body=[list(v) for v in TERRAIN_TOF_RAYS_BODY],
             tof4x4_range_limits_m=[TERRAIN_TOF_MIN_M,TERRAIN_TOF_MAX_M],
             tof4x4_occlusion="nearest ray-sphere foot hit masks terrain return",
             tof4x4_validity="one bit per cell, delayed, zero on dropout",

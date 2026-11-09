@@ -158,18 +158,24 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     # compare XML strings. Neutral sole contact, leg inertia, scaled spring
     # loading and left/right knee passive torque are physical acceptance.
     from emu.physical_variants import (
-        PROFILES, generate_xml, profile_numbers, terrain_tof_pitch_deg,
+        PROFILES, generate_xml, profile_numbers,
         FOOT_RADIUS_M, SERVO_RATED_CONTINUOUS_TORQUE_NM)
     base_source=(Path(__file__).resolve().parents[1]/'emu'/'robot.xml').read_text()
     for variant in PROFILES:
         row=profile_numbers(variant)
-        # Rigidly re-aim the 4x4 array to keep the 40cm robot's sensor
-        # from looking beyond the 37.5cm guaranteed loaded carpet.
-        pitch=terrain_tof_pitch_deg(variant)
-        np.testing.assert_allclose(np.diff(pitch),[20.,20.,20.],
-                                   atol=2e-5,rtol=0)
-        reach=row["hip_height_m"]/np.tan(np.deg2rad(pitch[0]))
-        np.testing.assert_allclose(reach,.25,atol=1e-6,rtol=0)
+        from emu.tof_geometry import TOF_MOUNT_BODY_M, TOF_RAYS_BODY
+        assert TOF_MOUNT_BODY_M==(0.,0.,-.030)
+        assert len(TOF_RAYS_BODY)==16
+        np.testing.assert_allclose(
+            np.linalg.norm(np.asarray(TOF_RAYS_BODY),axis=1),
+            np.ones(16),atol=1e-6)
+        # At a 40cm chassis height the 45° FoV stays forward of its
+        # own mount, and can reach level ground inside a 1m half tile.
+        assert all(v[2]<0 for v in TOF_RAYS_BODY)
+        assert all(v[0]>0 for v in TOF_RAYS_BODY)
+        max_forward=max((row['hip_height_m']-.030)*v[0]/-v[2]
+                        for v in TOF_RAYS_BODY)
+        assert max_forward<.5, max_forward
         body=mujoco.MjModel.from_xml_string(
             generate_xml(base_source, variant))
         state=mujoco.MjData(body)

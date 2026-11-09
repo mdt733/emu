@@ -244,7 +244,7 @@ def make_sensor_lab_bundle() -> bytes:
     trained actor in the browser. This mode cannot be exported or resumed.
     """
     import hashlib
-    from .physical_variants import terrain_tof_pitch_deg
+    from .contracts import sensor_observation_contract, OBS_SCHEMA_TERRAIN
 
     template = Path(__file__).resolve().parents[1] / 'showcase' / 'champion.emupolicy'
     b = json.loads(template.read_text(encoding='utf-8'))
@@ -252,11 +252,10 @@ def make_sensor_lab_bundle() -> bytes:
     b['robot_xml'] = model
     b['sensor_lab'] = True
     b['control']['neutral_root_z_m'] = .4
-    sensor = b['observation']['sensor_contract']
-    sensor['tof4x4_pitch_from_horizontal_deg'] = list(terrain_tof_pitch_deg('h40'))
-    identity = {k:v for k,v in sensor.items() if k != 'sha256'}
-    sensor['sha256'] = hashlib.sha256(
-        json.dumps(identity, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    # Use the one active Python sensor contract, not the showcase's old
+    # pitch rows with a manually changed hash.
+    b['observation']['sensor_contract'] = sensor_observation_contract(
+        schema=OBS_SCHEMA_TERRAIN,array_only=True)
     b['source'].update(run_name='40 cm sensor laboratory — NO TRAINED ACTOR',
                        step=0, actor_sha256='not-applicable-sensor-lab',
                        robot_model_sha256=hashlib.sha256(model.encode()).hexdigest())
