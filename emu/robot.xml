@@ -90,12 +90,11 @@
           <joint name="r_hip_pitch" type="hinge" armature="0.012" frictionloss="0.08" axis="0 1 0"
                  range="-50 50" stiffness="0" springref="0" />
           <site name="r_knee_strut_thigh" pos="-0.0989868 0 -0.0989868" size="0.003" rgba="0 0.7 0.6 1" />
-          <!-- Two parallel solid 2mm carbon thigh rods; no knee motor mass. -->
-          <geom name="r_thigh_rod" type="capsule" size="0.001"
-                fromto="0 -0.006 0 -0.1202 -0.006 -0.1202" mass="0.000828"
-                contype="0" conaffinity="0" />
-          <geom name="r_thigh_rod_b" type="capsule" size="0.001"
-                fromto="0 0.006 0 -0.1202 0.006 -0.1202" mass="0.000828"
+          <!-- ONE solid 2x2mm square-section carbon thigh rod, diagonal,
+               from hip (0,0,0) to knee (-0.1202,0,-0.1202).
+               No knee-mounted motor; all motors are chassis-mounted. -->
+          <geom name="r_thigh_rod" type="box" size="0.001 0.001 0.084994"
+                pos="-0.0601 0 -0.0601" euler="0 45 0" mass="0.001054"
                 contype="0" conaffinity="0" />
           <body name="r_shin" pos="-0.1202 0 -0.1202">
             <!-- Knee support comes from a two-site compressive spatial tendon. -->
@@ -132,12 +131,11 @@
           <joint name="l_hip_pitch" type="hinge" armature="0.012" frictionloss="0.08" axis="0 1 0"
                  range="-50 50" stiffness="0" springref="0" />
           <site name="l_knee_strut_thigh" pos="-0.0989868 0 -0.0989868" size="0.003" rgba="0 0.7 0.6 1" />
-          <!-- Two parallel solid 2mm carbon thigh rods; no knee motor mass. -->
-          <geom name="l_thigh_rod" type="capsule" size="0.001"
-                fromto="0 -0.006 0 -0.1202 -0.006 -0.1202" mass="0.000828"
-                contype="0" conaffinity="0" />
-          <geom name="l_thigh_rod_b" type="capsule" size="0.001"
-                fromto="0 0.006 0 -0.1202 0.006 -0.1202" mass="0.000828"
+          <!-- ONE solid 2x2mm square-section carbon thigh rod, diagonal,
+               from hip (0,0,0) to knee (-0.1202,0,-0.1202).
+               No knee-mounted motor; all motors are chassis-mounted. -->
+          <geom name="l_thigh_rod" type="box" size="0.001 0.001 0.084994"
+                pos="-0.0601 0 -0.0601" euler="0 45 0" mass="0.001054"
                 contype="0" conaffinity="0" />
           <body name="l_shin" pos="-0.1202 0 -0.1202">
             <joint name="l_knee" type="hinge" armature="0.012" frictionloss="0.08" axis="0 1 0"

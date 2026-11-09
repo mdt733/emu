@@ -48,15 +48,16 @@ BASE_TORSO_X_M = .005
 HIP_MOUNT_MASS_KG = .010  # each existing hip carrier, not motor
 FOOT_MASS_KG = .010       # each existing spherical foot
 CARBON_DENSITY_KG_M3 = 1550.
-CARBON_ROD_RADIUS_M = .001
+CARBON_ROD_RADIUS_M = .001  # shin: 2mm diameter ROUND
+CARBON_THIGH_SIDE_M = .002  # thigh: ONE 2mm x 2mm SQUARE rod
 BASE_CARBON_THIGH_ROD_MASS_KG = (
-    CARBON_DENSITY_KG_M3*math.pi*CARBON_ROD_RADIUS_M**2*
+    CARBON_DENSITY_KG_M3*CARBON_THIGH_SIDE_M**2*
     math.sqrt(2.)*BASE_HALF_LINK_M)
 BASE_CARBON_SHIN_HALF_MASS_KG = (
     CARBON_DENSITY_KG_M3*math.pi*CARBON_ROD_RADIUS_M**2*
     math.sqrt(2.)*BASE_SHIN_QUARTER_M)
 REFERENCE_LINK_MASS_KG = 2.*(
-    2.*BASE_CARBON_THIGH_ROD_MASS_KG + 2.*BASE_CARBON_SHIN_HALF_MASS_KG)
+    BASE_CARBON_THIGH_ROD_MASS_KG + 2.*BASE_CARBON_SHIN_HALF_MASS_KG)
 REFERENCE_TOTAL_MASS_KG = (TORSO_MASS_KG + 2.*HIP_MOUNT_MASS_KG +
                            2.*FOOT_MASS_KG + REFERENCE_LINK_MASS_KG)
 REFERENCE_KNEE_STIFFNESS_N_M = 750.
@@ -135,7 +136,8 @@ def generate_xml(source_xml: str, name: str) -> str:
 
     Joint topology, motors, contact masks, servo torque, sensor channels and
     spring constants follow one shared model. All six servo masses stay in
-    the chassis, while only carbon rods move with the legs.
+    the chassis. Each thigh is one 2x2mm square carbon rod; each shin is
+    one 2mm round carbon rod split at the passive flex joint.
     """
     if name not in PROFILES:
         raise ValueError(f"Unsupported physical model: {name}")
@@ -160,11 +162,14 @@ def generate_xml(source_xml: str, name: str) -> str:
             _set_xyz(_get(root, f".//body[@name='{prefix}{body}']"), "pos",
                      (BASE_SHIN_QUARTER_M * s, 0.,
                       -BASE_SHIN_QUARTER_M * s))
-        for rod,y in (("thigh_rod",-.006),("thigh_rod_b",.006)):
-            thigh = _get(root, f".//geom[@name='{prefix}{rod}']")
-            thigh.set("fromto",
-                f"0 {y:.3f} 0 {-BASE_HALF_LINK_M*s:.8f} {y:.3f} {-BASE_HALF_LINK_M*s:.8f}")
-            thigh.set("mass", f"{BASE_CARBON_THIGH_ROD_MASS_KG*s:.8f}")
+        thigh = _get(root, f".//geom[@name='{prefix}thigh_rod']")
+        # Local box long-axis is Z. Rotate 45deg about Y to align along
+        # the folded hip-to-knee diagonal (negative X and negative Z).
+        _set_xyz(thigh, "pos", (-BASE_HALF_LINK_M*s*.5, 0.,
+                                -BASE_HALF_LINK_M*s*.5))
+        thigh.set("size",
+                  f"0.00100000 0.00100000 {BASE_HALF_LINK_M*s/math.sqrt(2.):.8f}")
+        thigh.set("mass", f"{BASE_CARBON_THIGH_ROD_MASS_KG*s:.8f}")
         for part in ("shin_upper", "shin_lower_rod"):
             geom = _get(root, f".//geom[@name='{prefix}{part}']")
             geom.set("fromto",

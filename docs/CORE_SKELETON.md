@@ -50,7 +50,7 @@ C018 motors + knee support + shin flex + two spherical feet
 
 ## Hardware and timing
 
-- `h40` selects ~400 mm neutral height, ~508 g provisional total (460 g chassis with all six C018 servos, ~40 g hip carriers/feet, ~8 g carbon rods), 36 mm ball-foot diameter, six position actuators and two unpowered shin-flex hinges.
+- `h40` selects ~400 mm neutral height, ~506 g provisional total (460 g chassis with all six C018 servos, ~40 g hip carriers/feet, ~6 g carbon rods), 36 mm ball-foot diameter, six position actuators and two unpowered shin-flex hinges.
 - C018 12 V rated actuator force limit: **±0.980665 N·m**; stall torque is *not* continuously available. Actual torque-speed, thermal behaviour and the existing 0.624 N·m·s/rad powered-joint damping are **not yet hardware calibrated**.
 - Each knee uses a scaled **compression** support strut; passive shin bending and 2 N·m/rad hip-roll centring are separate from the motor force limit.
 - Physics timestep 5 ms, four substeps per 20 ms actor frame (200 Hz physics / 50 Hz control). A one-frame servo-command delivery delay is modelled.
@@ -89,7 +89,7 @@ hip pivots are physically within the chassis, with no cosmetic brackets.
 
 Each 40cm leg has **two solid 2mm carbon thigh rods** and **one solid 2mm
 carbon shin rod** split at the pre-existing passive flex joint. The
-nominal all-up robot is ~508g including the unchanged 10g hip
+nominal all-up robot is ~506g including the unchanged 10g hip
 carrier and 10g ball foot per side. All masses and material density are
 estimates requiring direct measurement. The electrical/servo drive is still
 an ideal joint-space actuator; mechanical remote-knee transmission losses,

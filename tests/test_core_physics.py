@@ -193,7 +193,12 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
         assert .49 <= body.body_mass.sum() <= .52
         for side in 'rl':
             assert mujoco.mj_name2id(
-                body,mujoco.mjtObj.mjOBJ_GEOM,f'{side}_thigh_rod_b')>=0
+                body,mujoco.mjtObj.mjOBJ_GEOM,f'{side}_thigh_rod_b')==-1
+            thigh_id=mujoco.mj_name2id(
+                body,mujoco.mjtObj.mjOBJ_GEOM,f'{side}_thigh_rod')
+            assert body.geom_type[thigh_id]==mujoco.mjtGeom.mjGEOM_BOX
+            np.testing.assert_allclose(body.geom_size[thigh_id,:2],
+                                       [.001,.001],atol=1e-7)
             assert mujoco.mj_name2id(
                 body,mujoco.mjtObj.mjOBJ_GEOM,f'{side}_knee_servo')==-1
         foot_heights=[]

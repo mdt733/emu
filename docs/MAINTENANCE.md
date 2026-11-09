@@ -29,5 +29,5 @@ act through an unmodelled transmission. No explicit knee-mounted motors,
 motor masses, fake viewer braces or height-dependent chassis translations.
 A source change to `robot.xml` changes all generated physical profiles
 and demands new checkpoint ancestry. Retain 24 tests plus physical CPU/GPU
-acceptance. Nominal h40 ~508g is a measured-value TODO, not a certified
+acceptance. Nominal h40 ~506g is a measured-value TODO, not a certified
 parts BOM.

@@ -95,7 +95,7 @@ jobs:
           assert 'sensor_lab_hip_mount' not in robot
           assert 'knee_servo' not in robot
           # Eight kinematic terrain prisms have enormous compiled mesh
-          # masses; those belong to the WORLD, not the 508g robot. Only
+          # masses; those belong to the WORLD, not the ~506g robot. Only
           # count non-mocap physical bodies in this assertion.
           mass = float(model.body_mass[model.body_mocapid < 0].sum())
           assert .49 <= mass <= .52, mass
@@ -105,7 +105,10 @@ jobs:
           assert model.geom_pos[chassis,0]-model.geom_size[chassis,0]<-.01
           for side in 'rl':
               assert mujoco.mj_name2id(
-                  model,mujoco.mjtObj.mjOBJ_GEOM,side+'_thigh_rod_b')>=0
+                  model,mujoco.mjtObj.mjOBJ_GEOM,side+'_thigh_rod_b')==-1
+              gid=mujoco.mj_name2id(
+                  model,mujoco.mjtObj.mjOBJ_GEOM,side+'_thigh_rod')
+              assert model.geom_type[gid]==mujoco.mjtGeom.mjGEOM_BOX
           assert model.nu == 6
           assert sum(mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i)
                      .startswith('sensor_lab_prism_')

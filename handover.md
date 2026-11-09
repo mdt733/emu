@@ -172,9 +172,8 @@ Hardware correction: all **six 55g C018 motors are chassis-mounted**.
 The previous v5058 physics distributed ~140g into thick rods and shifted
 the 300g torso forward at h40 to make COM neutral, leaving hip mounts
 visually disconnected. The newer model in draft PR #52 uses a single
-460g central torso at x=+5mm, physically embracing hip pivots; two 2mm
-carbon thigh rods and one 2mm split carbon shin per leg; and original
-small hip-carrier and ball-foot masses. Calculated all-up ~508g at 40cm,
+460g central torso at x=+5mm, physically embracing hip pivots; one 2×2mm square carbon thigh rod and one 2mm round split carbon shin per leg; and original
+small hip-carrier and ball-foot masses. Calculated all-up ~506g at 40cm,
 pending actual weighing and remote-knee-transmission validation. It
 preserves old spring constants and rated torque but is a **new robot
 model/COM/inertia identity**, incompatible with the frozen old-h40
