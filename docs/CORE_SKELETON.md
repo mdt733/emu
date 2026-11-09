@@ -50,7 +50,7 @@ C018 motors + knee support + shin flex + two spherical feet
 
 ## Hardware and timing
 
-- `h40` selects ~400 mm neutral height, ~506 g provisional total (460 g chassis with all six C018 servos, ~40 g hip carriers/feet, ~6 g carbon rods), 36 mm ball-foot diameter, six position actuators and two unpowered shin-flex hinges.
+- `h40` is the sole active and default model (~400 mm neutral height, ~506 g provisional total (460 g chassis with all six C018 servos, ~40 g hip carriers/feet, ~6 g carbon rods), 36 mm ball-foot diameter, six position actuators and two unpowered shin-flex hinges).
 - C018 12 V rated actuator force limit: **±0.980665 N·m**; stall torque is *not* continuously available. Actual torque-speed, thermal behaviour and the provisional actuator kv=0.624 N·m·s/rad speed-feedback term are **not yet hardware calibrated**. Unlike the retired passive motor-joint damping, kv is now inside the ±0.980665 N·m actuator force cap.
 - Each knee uses a scaled **compression** support strut; passive shin bending and 2 N·m/rad hip-roll centring are separate from the motor force limit.
 - Physics timestep 5 ms, four substeps per 20 ms actor frame (200 Hz physics / 50 Hz control). A one-frame servo-command delivery delay is modelled.
