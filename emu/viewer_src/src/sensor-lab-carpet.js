@@ -81,12 +81,17 @@ export function carpetSpawnSoleLift(park,geomXpos,geomSize,footGeomIds){
   const lifts=footGeomIds.map(id=>{
     const offset=3*id;
     const x=Number(geomXpos[offset]),y=Number(geomXpos[offset+1]);
-    const sole=Number(geomXpos[offset+2])-Number(geomSize[offset]);
+    const radius=Number(geomSize[offset]);
+    const centreZ=Number(geomXpos[offset+2]);
     const ground=park.sampleHeight(x,y);
-    if(![x,y,sole,ground].every(Number.isFinite)||
-       !(Number(geomSize[offset])>0))
+    if(![x,y,centreZ,radius,ground].every(Number.isFinite)||!(radius>0))
       throw Error('Carpet spawn feet must be above valid prism support');
-    return ground-sole;
+    // On an inclined plane a sphere needs r/cos(theta) VERTICAL
+    // clearance. r alone leaves a small tangential penetration even
+    // when the very bottom of the ball is level with the sampled tile.
+    const slope=Math.tan(clamp(num(park.limits.slopeDeg),0,15)*Math.PI/180);
+    const verticalRadius=radius*Math.hypot(1,slope);
+    return ground+verticalRadius-centreZ;
   });
   return Math.max(...lifts);
 }
