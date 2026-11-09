@@ -1,6 +1,6 @@
-# EMU — core skeleton (v5058 research source)
+# EMU — core skeleton (H40 mainline)
 
-**Purpose:** one page for understanding which piece owns what. This describes the executable system, not the history of experiments. The only active successor candidate is the **h40 / six C018 12V / rated-torque** robot; `main` remains protected. See [current handover](../handover.md).
+**Purpose:** one page for understanding which piece owns what. The **H40 / six C018 12 V / rated-torque** robot is the active `main` implementation, promoted through [PR #53](https://github.com/mdt733/emu/pull/53). Its exact 120M actor is checked in; publication to GitHub Pages remains a separate approval. See [current handover](../handover.md).
 
 ## Loop
 
@@ -70,37 +70,22 @@ Every run lives outside Git at `~/emu-data/runs/<name>/` and includes resolved c
 2. **Terrain upgraded:** current MJX uses four 1m rolling source tiles, exactly eight triangular convex prism colliders, midpoint recycling with real foot-clearance hold, shared teacher/raycast surface source. The CPU sensor-lab has the same 1m tile geometry but a fixed 2×2 testing fixture, not MJX recycling. The current trained-policy browser Carpet uses the same eight convex prism
 contact topology and 1m tile dimensions, but is a **fixed** 2×2m
 CPU MuJoCo fixture, NOT a rolling MJX course; it cannot certify steps.
-3. **New cold start completed:** seed 735, 2048 worlds, 120M on the
-central-servo/carbon 1m/physical-ToF model. Inspect its exported
-`.emupolicy` and independent real-prism exams before considering promotion
-to `main`; earlier h40 checkpoints are incompatible.
+3. **New cold start completed and source promoted:** seed 735, 2048 worlds,
+120,061,952 steps on the central-servo/carbon/1m/physical-ToF model.
+The frozen `.emupolicy` is current in `main`. Independent matched
+real-prism exams have **not** been supplied; stepping remains unsolved.
+Earlier h40 checkpoints are incompatible.
 4. **Contact acceleration:** non-foot colliders are disabled in the fast solver and monitored by virtual safety probes. 2/4 solver iterations is experimental, not a certified physically faithful engine.
 5. **Software debt:** `environment.py`, `training.py`, `curriculum.py`, `ppo.py`, `results.py` contain historical experimental options. Remove *proven unreachable* branches as their last source-pinned study finishes, without changing this active baseline's arithmetic.
 
 ## Quality gates
 
-Run `bash scripts/check.sh --full`, then real CPU prism/recycler checks; on the operator's GPU require 2048-world full PPO smoke, restart/checkpoint validation, and then the proposed **120M** cold start with a 20M foundation. Compare frozen-policy performance against an equivalent independent exam of the current `main` actor before any promotion. `main` and published actor stay frozen until explicit review.
+Run `bash scripts/check.sh --full` for Python, actual H40 policy contract and browser tests; CI additionally runs CPU prism/contact checks. Before modifying physical training, require 2048-world GPU PPO smoke, source-pinned restore/export and independent matched MJX exams. The 120M campaign **already completed**; do not rerun it to validate documentation changes. Publication of the new actor to GitHub Pages requires a separate checkpoint-backed release approval; no merge triggers deployment.
 
 Find the detailed work discipline in [MAINTENANCE](MAINTENANCE.md).
 
-## v5058-successor h40 physical mass correction (new model identity)
+## Physical identity and history
 
-**All six C018 servos are chassis-mounted**, including both remotely driven
-knees. Former 300g torso plus massive old training rods was not representative.
-The shared `robot.xml` now uses a **460g chassis box** (330g servos, ~12g
-Pi Zero, ~60g three AA/14500 cells, ~18g wiring/regulators, ~40g structure),
-with its centre 5mm ahead of the hip axes and rear edge at x=-45mm. Both
-hip pivots are physically within the chassis, with no cosmetic brackets.
+The currently trained H40 has all six servos in the chassis (not two knee-mounted motors), a provisional ~506 g all-up mass, its rated actuator output enforced inside the servo controller, and one 45°×45° sensor contract. Its complete mass/actuator ledger, original 120M source SHA, policy hash, outstanding real-hardware assumptions and release status live in the [H40 handover](../handover.md). Do not duplicate that ledger or launch historical experiments from this architecture page.
 
-Each 40cm leg has **one solid 2×2mm square-section carbon thigh rod** and **one solid 2mm
-round carbon shin rod** split at the pre-existing passive flex joint. The
-nominal all-up robot is ~506g including the unchanged 10g hip
-carrier and 10g ball foot per side. All masses and material density are
-estimates requiring direct measurement. The electrical/servo drive is still
-an ideal joint-space actuator; mechanical remote-knee transmission losses,
-backlash and inertia have not been validated.
-
-The previous v5058-rated 20M experimental lineage remains pinned to its
-old physical model hash. This new model requires a fresh cold-start and
-separate exams before `main` promotion. The legacy knee compression spring,
-shin-flex stiffness, and rated torque limit are unchanged intentionally.
+Older v5058 and v5059 research remains in Git and its original PR discussions. Different morphology/ToF/actuator models require new checkpoint identities.
