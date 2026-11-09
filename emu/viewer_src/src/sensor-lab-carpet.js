@@ -1,6 +1,6 @@
-// One four-tile, eight-convex-prism CPU MuJoCo sensor calibration fixture.
-// Geometry is a fixed 2x2 metre square (four 1m tiles) rather than the
-// streaming 75cm MJX curriculum. Real mesh contacts and triangles, not boxes.
+// Shared CPU MuJoCo geometry for trained actor preview AND sensor calibration.
+// Fixed 2x2 metre fixture: four 1m tiles and eight real triangular prisms.
+// The GPU MJX implementation recycles its four tiles; this fixture does not.
 // Source of the prism topology: emu/carpet_prism_mjx.py.
 export const LAB_TILE_M = 1;
 export const LAB_TILE_COUNT = 4;
@@ -19,10 +19,11 @@ const heightsFor=(i,j,config)=>{
   const slope=Math.tan(clamp(num(config.slopeDeg),0,15)*Math.PI/180);
   const rise=clamp(num(config.stepUpM),0,.15);
   const drop=clamp(num(config.stepDownM),0,.15);
-  // A genuine vertical seam; right tile is raised, back tile depressed.
-  // Local plane is continuous inside each triangular half.
-  const base=(i?rise:0)-(j?drop:0);
-  const gx=slope*.65,gy=slope*.15;
+  // Exact grade: on level transitions the four tiles form ONE continuous
+  // x-aligned slope. Any deliberate rise/drop is a real vertical seam.
+  // No multiplier that turns a requested 15-degree slope into 10 degrees.
+  const base=slope*(i+.5)+(i?rise:0)-(j?drop:0);
+  const gx=slope,gy=0;
   return [base-gx*.5-gy*.5,base+gx*.5-gy*.5,
           base-gx*.5+gy*.5,base+gx*.5+gy*.5];
 };

@@ -211,24 +211,6 @@ function createParkFeatures(challengeLevel='balanced') {
   ];
 }
 
-// Unlike the historical browser hfield preview, these are actual MuJoCo
-// solid boxes with vertical side faces. All nine are mocap bodies, allowing
-// the 3x3 ring to recycle as the biped crosses 50cm cell boundaries. They
-// deliberately use ordinary robot-compatible collision bits; the training
-// model uses bit 4 with extra foot affinity, but the contact topology matches.
-export function solidCarpetXml(park) {
-  if(park?.physics!=='nine-solid-boxes'||park.tiles?.length!==9)
-    throw Error('Expected exactly nine physical carpet tiles');
-  const n=x=>Number(x).toFixed(8);
-  return park.tiles.map((t,index)=>{
-    if(t.slot!==index)throw Error('Carpet solid slots must be ordered 0..8');
-    return `<body name="viewer_carpet_body_${index}" mocap="true" pos="${t.center.map(n).join(' ')}" quat="${t.quat.map(n).join(' ')}">
-      <geom name="viewer_carpet_solid_${index}" type="box" size="0.258 0.258 0.270"
-        contype="1" conaffinity="1" friction="1.5 0.005 0.0001" rgba="0.39 0.65 0.39 1"/>
-    </body>`;
-  }).join('\n');
-}
-
 function parkXml(park) {
   const {resolution,radius,maxHeight,heights,trees,features=[]}=park;
   // The hfield parser normalizes the inline elevation itself. All elevations
@@ -342,7 +324,7 @@ function depthCourseXml(kind,{slopeDegrees=3,stepHeightCm=2}={}) {
 export function withTerrain(robotXml,mode='flat',options={}) {
   if(typeof robotXml!=='string'||!robotXml.includes('</worldbody>'))
     throw new Error('Cannot locate worldbody in policy robot XML');
-  if(/viewer_ramp_up|viewer_park_hfield|viewer_carpet_solid_|sensor_lab_prism_|viewer_tree_trunk_|surface_lab_plane|depth_(?:approach|log|rise|landing|angled_ridge)/.test(robotXml))
+  if(/viewer_ramp_up|viewer_park_hfield|sensor_lab_prism_|viewer_tree_trunk_|surface_lab_plane|depth_(?:approach|log|rise|landing|angled_ridge)/.test(robotXml))
     throw new Error('Viewer terrain already inserted');
   if(mode==='flat')return robotXml;
   if(mode==='sensor'){
@@ -357,26 +339,19 @@ export function withTerrain(robotXml,mode='flat',options={}) {
   if(mode==='ramp')return robotXml.replace('</worldbody>',ramp+'\n</worldbody>');
   if(!['park','carpet'].includes(mode))throw new Error('Unknown terrain mode');
   const park=options.park||generateTerrainPark(options);
-  if(mode==='carpet'&&park?.physics==='eight-1m-prisms'){
-    // Four 1m tiles and eight TRUE convex triangular-prism CPU MuJoCo
-    // contacts. This is a static calibration fixture, not MJX recycling.
+  if(mode==='carpet'){
+    if(park?.physics!=='eight-1m-prisms')
+      throw Error('Current EMU carpet must use exactly eight 1m triangular prisms');
+    // The same MuJoCo convex meshes and exact vertices serve the trained
+    // policy and the untrained sensor lab. Fixed 2x2 playback is NOT an
+    // implementation of MJX terrain recycling.
     const geom=sensorLabPrismXml(park);
     let xml=robotXml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
-    if(xml===robotXml)throw Error('Sensor lab requires the named source floor');
+    if(xml===robotXml)throw Error('Prism carpet needs source ground plane');
     if(xml.includes('</asset>'))
       xml=xml.replace('</asset>',geom.assets+'\n</asset>');
     else xml=xml.replace('<worldbody>','<asset>'+geom.assets+'</asset>\n<worldbody>');
     return xml.replace('</worldbody>',geom.bodies+'\n</worldbody>');
-  }
-  if(mode==='carpet'){
-    // Old procedural hfield-carpet preview has been deleted. The new
-    // prism-trained actor MUST get actual browser solid contacts, not
-    // silently switch to a heightfield with rounded-off vertical lips.
-    if(park?.physics!=='nine-solid-boxes')
-      throw Error('Carpet requires explicit real browser solid-box contacts');
-    const noFloor=robotXml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
-    if(noFloor===robotXml)throw Error('Carpet requires source robot ground plane');
-    return noFloor.replace('</worldbody>',solidCarpetXml(park)+'\n</worldbody>');
   }
   const {asset,geometry}=parkXml(park);
   // The source floor must not overlap the hfield at the spawn point: that

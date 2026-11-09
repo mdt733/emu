@@ -8,7 +8,7 @@ import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredA
 import { joystickToCommands, nextYawCommand } from './controls.js';
 import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient } from './terrain.js';
 import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
-import { createSolidCarpet, safeCarpetShift } from './training-solid-carpet.js';
+import { terrainRoleEnvelope } from './training-solid-carpet.js';
 import { createSensorLabCarpet, sensorLabPrismVertices, LAB_PRISM_FACES, LAB_TILE_M, LAB_PRISM_COUNT } from './sensor-lab-carpet.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
@@ -147,7 +147,7 @@ export class EmuBrowserSim {
     this.depthLines.frustumCulled=false;
     this.depthLines.visible=false;
     this.scene.add(this.depthLines);
-    // The training policy's rays are drawn independently from the optional
+    // The frozen training policy's rays are drawn independently from the optional
     // VL53L8CX square-FoV probe. This shows the actual serialized contract,
     // including any backwards-pointing rows. No NN inputs are modified.
     this.actorRayPositions=new Float32Array(16*6);
@@ -604,9 +604,8 @@ export class EmuBrowserSim {
                              trees:this.parkTreesEnabled,features:this.parkFeaturesEnabled,
                              challengeLevel:this.parkChallengeLevel})
       : this.terrainMode==='carpet'
-        ? (this.sensorLab
-          ? createSensorLabCarpet(this.carpetDifficulty)
-          : createSolidCarpet(this.carpetDifficulty,this.carpetRole))
+        ? createSensorLabCarpet(terrainRoleEnvelope(
+            this.carpetDifficulty,this.carpetRole))
         : null;
     const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park,obstacle:this.sensorObstacle,
       slopeDegrees:this.surfaceSlopeDegrees,stepHeightCm:this.surfaceStepHeightCm});
@@ -615,11 +614,11 @@ export class EmuBrowserSim {
     this.data = new this.mujoco.MjData(this.model);
     this.mjvScene = new this.mujoco.MjvScene(this.model, this.maxGeoms);
     this.resolveIds();
-    if(['nine-solid-boxes','eight-1m-prisms'].includes(this.park?.physics)){
+    if(this.park?.physics==='eight-1m-prisms'){
       // Physical browser geoms render directly, not as decorative heightfields.
       // Do not put a decorative hfield over their real vertical contact faces.
       this.makeCarpetTileOverlay();
-      if(this.sensorLab)this.makeSensorLabSurface();
+      this.makeSensorLabSurface();
     }else if(this.park){
       this.parkSurface=createParkSurface(THREE,this.park,this.grassTexture);
       this.scene.add(this.parkSurface);
@@ -694,50 +693,7 @@ export class EmuBrowserSim {
       this.carpetGeomIds=new Set(Array.from({length:LAB_PRISM_COUNT},(_,i)=>
         this.name2id(mj.mjtObj.mjOBJ_GEOM,'sensor_lab_prism_'+i)));
     }
-    if(this.park?.physics==='nine-solid-boxes'){
-      this.carpetMocapIds=Array.from({length:9},(_,i)=>{
-        const body=this.name2id(mj.mjtObj.mjOBJ_BODY,'viewer_carpet_body_'+i);
-        const mocap=Number(this.model.body_mocapid[body]);
-        if(!Number.isInteger(mocap)||mocap<0)
-          throw Error('Physical training box is missing a MuJoCo mocap ID');
-        return mocap;
-      });
-      this.carpetGeomIds=new Set(Array.from({length:9},(_,i)=>
-        this.name2id(mj.mjtObj.mjOBJ_GEOM,'viewer_carpet_solid_'+i)));
-    }
-  }
 
-  writeCarpetMocap(tiles,prior=null){
-    if(this.carpetMocapIds.length!==9||tiles.length!==9)
-      throw Error('Nine physical MuJoCo carpet tiles required');
-    for(let slot=0;slot<9;slot++){
-      const t=tiles[slot],p=prior?.[slot];
-      if(p&&p.i===t.i&&p.j===t.j)continue;
-      const m=this.carpetMocapIds[slot];
-      for(let k=0;k<3;k++)this.data.mocap_pos[3*m+k]=t.center[k];
-      for(let k=0;k<4;k++)this.data.mocap_quat[4*m+k]=t.quat[k];
-    }
-  }
-
-  recycleCarpetWindow(){
-    if(this.sensorLab)return; // fixed 2x2 calibration fixture, no collision teleport
-    if(this.terrainMode!=='carpet'||!this.data||!this.carpetWindowCenter)return;
-    const current=this.carpetWindowCenter;
-    const next=[Math.floor(this.data.qpos[0]/.5),
-                Math.floor(this.data.qpos[1]/.5)];
-    if(next[0]===current[0]&&next[1]===current[1])return;
-    if(Math.abs(next[0]-current[0])>1||Math.abs(next[1]-current[1])>1)
-      return; // never teleport tiles after anomalous leaps
-    const tiles=this.park.window(next[0],next[1]);
-    const footPositions=this.footGeomIds.map(id=>
-      [this.data.geom_xpos[3*id],this.data.geom_xpos[3*id+1]]);
-    if(!safeCarpetShift(this.park.tiles,tiles,footPositions))return;
-    this.writeCarpetMocap(tiles,this.park.tiles);
-    this.park.tiles=tiles;
-    this.carpetWindowCenter=next;
-    this.carpetTileCenter=null;
-    // Rebuild contacts against the new real positions before sensor reads.
-    this.mujoco.mj_forward(this.model,this.data);
   }
 
   createParkMarkers() {
@@ -788,15 +744,6 @@ export class EmuBrowserSim {
       this.data.qpos[0]=LAB_TILE_M*.5;
       this.data.qpos[1]=LAB_TILE_M*.5;
       this.carpetWindowCenter=[0,0];
-    }
-    if(this.park?.physics==='nine-solid-boxes'){
-      // Spawn at the centre of the first 50cm support, not the four-lip
-      // intersection at world (0,0). The trainer also uses supported births.
-      this.data.qpos[0]=.25;
-      this.data.qpos[1]=.25;
-      this.carpetWindowCenter=[0,0];
-      this.park.tiles=this.park.window(0,0);
-      this.writeCarpetMocap(this.park.tiles);
     }
     mj.mj_forward(this.model, this.data);
     this.headingTarget=this.actualHeading();
@@ -929,7 +876,7 @@ export class EmuBrowserSim {
     this.carpetTileCenter=key;
     const positions=[];
     const add=(a,b)=>positions.push(...a,...b);
-    if(this.sensorLab){
+    if(this.park.physics==='eight-1m-prisms'){
       // Fixed 2x2 prism boundary; NEVER draw fictitious recycled tiles.
       for(let i=0;i<=2;i++){
         const u=i*size;
@@ -1103,7 +1050,6 @@ export class EmuBrowserSim {
     for (let k = 0; k < nsub; k++) this.mujoco.mj_step(this.model, this.data);
     for(let i=0;i<this.actQpos.length;i++)
       this.motorTravelRad+=Math.abs(Number(this.data.qpos[this.actQpos[i]])-beforeJoints[i]);
-    this.recycleCarpetWindow();
 
     for (let i = 0; i < 6; i++) {
       const raw = clamp(action[i] * span[i], -span[i], span[i]);
@@ -1384,7 +1330,7 @@ export class EmuBrowserSim {
       // JS geometryFor fallback cannot reconstruct its triangles. The
       // sensor-lab's eight exact authored triangles are drawn separately.
       mesh.visible = !mesh.userData.parkHeightfield &&
-        !(this.sensorLab && mesh.userData.sensorLabPrism);
+        !mesh.userData.sensorLabPrism;
       if (!mesh.userData.floor) mesh.material.color.setRGB(rgba[0], rgba[1], rgba[2]);
       mesh.material.opacity = rgba[3];
       mesh.material.transparent = rgba[3] < 0.999;
@@ -1508,7 +1454,7 @@ export class EmuBrowserSim {
     // Shared viewer geometry (including movable robot parts) matches the
     // displayed MuJoCo scene. The park hfield uses its matching grass mesh.
     const targets=this.meshes.filter(mesh=>mesh.visible &&
-      !(this.sensorLab&&mesh.userData.sensorLabPrism));
+      !mesh.userData.sensorLabPrism);
     if(this.parkSurface)targets.push(this.parkSurface);
     if(this.sensorLabSurface)targets.push(...this.sensorLabSurface.children);
     for(const mesh of targets)mesh.updateMatrixWorld(true);

@@ -4,9 +4,9 @@ import assert from 'node:assert/strict';
 import {parsePolicy} from '../src/policy.js';
 import * as depthLabSensor from '../src/sensor.js';
 import {joystickToCommands,nextYawCommand} from '../src/controls.js';
-import {createSolidCarpet} from '../src/training-solid-carpet.js';
+import {terrainRoleEnvelope} from '../src/training-solid-carpet.js';
 import {createSensorLabCarpet,sensorLabPrismVertices,sensorLabPrismXml} from '../src/sensor-lab-carpet.js';
-import {withTerrain,solidCarpetXml} from '../src/terrain.js';
+import {withTerrain} from '../src/terrain.js';
 import {trainingLimits} from '../src/training-carpet.js';
 
 const limits={vx_min:-.53,vx_max:1.04,vy_abs:.22,yaw_abs:1.5,pitch_abs_rad:.08};
@@ -151,31 +151,29 @@ test('manual axes and heading hold obey the trained command envelope',()=>{
 });
 
 
-test('browser MuJoCo sees nine literal contact boxes, no hfield or buried floor',()=>{
-  const carpet=createSolidCarpet(measured(90_000_000));
-  const raw='<mujoco><asset></asset><worldbody><geom name="floor" type="plane" size="5 5 0.05"/></worldbody></mujoco>';
+test('trained-policy Carpet uses exactly eight real 1m prism contacts',()=>{
+  const envelope=terrainRoleEnvelope(measured(90_000_000),'step');
+  const carpet=createSensorLabCarpet(envelope);
+  const raw='<mujoco><asset></asset><worldbody><geom name="floor" type="plane" size="5 5 .05"/></worldbody></mujoco>';
   const xml=withTerrain(raw,'carpet',{park:carpet});
-  assert.equal((xml.match(/mocap="true"/g)||[]).length,9);
-  assert.equal((xml.match(/viewer_carpet_solid_\d+" type="box"/g)||[]).length,9);
+  assert.equal((xml.match(/mocap="true"/g)||[]).length,8);
+  assert.equal((xml.match(/sensor_lab_prism_\\d+" type="mesh"/g)||[]).length,8);
   assert.doesNotMatch(xml,/name="floor"/);
-  assert.doesNotMatch(xml,/type="hfield"/);
-  assert.doesNotMatch(xml,/viewer_park_hfield/);
-  assert.equal((solidCarpetXml(carpet).match(/size="0.258 0.258 0.270"/g)||[]).length,9);
+  assert.doesNotMatch(xml,/viewer_carpet_solid_/);
+  assert.equal(carpet.tiles.length,4);
+  assert.equal(carpet.tileSizeM,1);
+  assert.equal(carpet.physics,'eight-1m-prisms');
 });
-
-
-test('live true-prism origin explicitly warns about nine-box browser replay',()=>{
-  const b=trainingLimits({
-    training_step:60000000,
-    latest_metrics:{step:60000000,slope_max_deg:.7,terrain_height_m:.004},
-    training_config:{terrain_carpet:true,terrain_carpet_prisms:true,
-      academy_stream:true,seed:735,foundation_steps:20000000}
-  });
-  assert.equal(b.trainingCarpet,true);
-  assert.equal(b.trainingCarpetPrisms,true);
-  assert.match(b.physicsMode,/8-prism MJX training/);
-  const boxSource=data(60000000);
-  assert.equal(boxSource.trainingCarpetPrisms,false);
+test('15-degree slope preview is physically 15 degrees, not a 10-degree approximation',()=>{
+  const slope=createSensorLabCarpet({slopeDeg:15,stepUpM:0,stepDownM:0});
+  const delta=slope.sampleHeight(1.50,.50)-slope.sampleHeight(.50,.50);
+  assert.ok(Math.abs(delta-Math.tan(Math.PI/12))<1e-6,delta);
+  const left=slope.sampleHeight(1-1e-6,.50);
+  const right=slope.sampleHeight(1+1e-6,.50);
+  assert.ok(Math.abs(left-right)<1e-5,'no unrequested seam on a slope');
+  const raised=createSensorLabCarpet({slopeDeg:0,stepUpM:.03,stepDownM:0});
+  assert.ok(Math.abs(raised.sampleHeight(1+.001,.50)-
+    raised.sampleHeight(1-.001,.50)-.03)<1e-7);
 });
 
 test('simulation helper consolidation preserves independent physics/UI functions',()=>{

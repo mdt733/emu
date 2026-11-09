@@ -510,7 +510,9 @@ function renderCarpetValues(){
     'multi-lip':'multi-lip Academy',illustrative:'illustrative'
   }[stage];
   $('carpetContext').textContent=`${lesson.heading}: ${lesson.description}.
-    ${measured?'Training targets (not achieved skill).':'Editable viewer scenario; NOT live training difficulty.'}`;
+    ${measured?'Training targets (not achieved skill).':'Editable viewer scenario; NOT live training difficulty.'}
+    FIXED 2×2m / 8 true-prism CPU fixture; not the GPU rolling recycler.
+    Use Field for sustained fast gait and slopes.`;
   if(terrainMode.value==='carpet')$('viewerExercise').textContent=lesson.heading;
   const values=roleSliders(base,carpetRole.value);
   for(const [key,id,unit,,digits] of SLIDER_FIELDS){
@@ -1210,9 +1212,9 @@ async function startViewerFeed() {
         }
         if (config.live) {
           discoverCarpetFromLive=true;
-          // Source-tagged historical nine-box AND current eight-prism runs auto-enter Carpet,
-          // with the prism-versus-browser geometry mismatch stated in the UI.
-          // The published champion and older/legacy live runs keep the
+          // Current physical 8-prism sources auto-enter the fixed CPU Carpet;
+          // the infinite MJX recycler isn't replayed in the browser.
+          // The frozen champion and older runs keep the
           // original Terrain Park until the user explicitly selects it.
           await refreshCarpetLive(true);
           if(carpetDifficulty.trainingCarpet){
