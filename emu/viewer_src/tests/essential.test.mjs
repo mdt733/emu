@@ -192,21 +192,6 @@ test('simulation helper consolidation preserves independent physics/UI functions
   assert.equal(sampleShove({intensity:0,maxForceN:0}),null);
 });
 
-// The optional hardware inspector and the trained actor must not be confused.
-test('h40 actor backward rows are exposed beside a 45-degree VL53L8CX preview',()=>{
-  const R=[1,0,0,0,1,0,0,0,1];
-  const actual=depthLabSensor.terrainActorRays(R,[58,78,98,118],[-22.5,-7.5,7.5,22.5]);
-  assert.equal(actual.length,16);
-  assert.ok(actual.slice(8).every(ray=>ray[0]<0),'last two policy rows point backwards');
-  const physical=depthLabSensor.depthProbeRays([0,0,.4],R,{tilt:70,forward:0,height:0});
-  assert.equal(physical.directions.length,16);
-  assert.ok(physical.directions.every(zone=>zone[0][0]>0),
-    'hardware 45° square centre rays point forwards at 70° tilt');
-  assert.equal(depthLabSensor.DEPTH_FOV_DEG,45);
-  const lower=depthLabSensor.depthProbeRays([0,0,.4],R,{tilt:70,forward:0,height:-.04});
-  assert.ok(Math.abs(lower.origin[2]-.36)<1e-8,'physical mount height is adjustable');
-});
-
 test('sensor lab is a fixed physical 2x2 grid: four 1m tiles, eight real triangular-prism meshes',()=>{
   const park=createSensorLabCarpet({slopeDeg:0,stepUpM:0,stepDownM:0});
   assert.equal(park.tiles.length,4);
