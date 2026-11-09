@@ -94,7 +94,10 @@ jobs:
           assert sensor_lab_robot_xml() == generate_xml(source, 'h40')
           assert 'sensor_lab_hip_mount' not in robot
           assert 'knee_servo' not in robot
-          mass = float(model.body_mass.sum())
+          # Eight kinematic terrain prisms have enormous compiled mesh
+          # masses; those belong to the WORLD, not the 508g robot. Only
+          # count non-mocap physical bodies in this assertion.
+          mass = float(model.body_mass[model.body_mocapid < 0].sum())
           assert .49 <= mass <= .52, mass
           assert abs(mass-float(profile_numbers('h40')['mass_kg']))<1e-4
           chassis=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_GEOM,'torso_box')

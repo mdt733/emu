@@ -21,3 +21,13 @@ The [core skeleton](CORE_SKELETON.md) owns architecture; [handover](../handover.
 6. **No stale roadmap.** One root `handover.md`, one skeleton, one install page. Completed findings may stay in release records or the Git commit that produced them; don't present experiment runbooks as current.
 
 Quick validation: `bash scripts/check.sh --quick`; full CPU/browser checks: `bash scripts/check.sh --full`. GPU acceptance requires the operator's CUDA system and must not be claimed from source review alone.
+
+### Current hardware placement contract
+
+**All six servo motors are mounted in the chassis.** The two knee drives
+act through an unmodelled transmission. No explicit knee-mounted motors,
+motor masses, fake viewer braces or height-dependent chassis translations.
+A source change to `robot.xml` changes all generated physical profiles
+and demands new checkpoint ancestry. Retain 24 tests plus physical CPU/GPU
+acceptance. Nominal h40 ~508g is a measured-value TODO, not a certified
+parts BOM.

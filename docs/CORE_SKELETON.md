@@ -50,7 +50,7 @@ C018 motors + knee support + shin flex + two spherical feet
 
 ## Hardware and timing
 
-- `h40` selects ~400 mm neutral height, ~562 g nominal calculated mass, 36 mm ball-foot diameter, six position actuators and two unpowered shin-flex hinges.
+- `h40` selects ~400 mm neutral height, ~508 g provisional total (460 g chassis with all six C018 servos, ~40 g hip carriers/feet, ~8 g carbon rods), 36 mm ball-foot diameter, six position actuators and two unpowered shin-flex hinges.
 - C018 12 V rated actuator force limit: **±0.980665 N·m**; stall torque is *not* continuously available. Actual torque-speed, thermal behaviour and the existing 0.624 N·m·s/rad powered-joint damping are **not yet hardware calibrated**.
 - Each knee uses a scaled **compression** support strut; passive shin bending and 2 N·m/rad hip-roll centring are separate from the motor force limit.
 - Physics timestep 5 ms, four substeps per 20 ms actor frame (200 Hz physics / 50 Hz control). A one-frame servo-command delivery delay is modelled.
@@ -77,3 +77,25 @@ Every run lives outside Git at `~/emu-data/runs/<name>/` and includes resolved c
 Run `bash scripts/check.sh --full`, then real CPU prism/recycler checks; on the operator's GPU require 2048-world full PPO smoke, restart/checkpoint validation and a full **20M** cold start. Compare frozen-policy performance against an equivalent independent exam of the current `main` actor before any promotion. `main` and published actor stay frozen until explicit review.
 
 Find the detailed work discipline in [MAINTENANCE](MAINTENANCE.md).
+
+## v5058-successor h40 physical mass correction (new model identity)
+
+**All six C018 servos are chassis-mounted**, including both remotely driven
+knees. Former 300g torso plus massive old training rods was not representative.
+The shared `robot.xml` now uses a **460g chassis box** (330g servos, ~12g
+Pi Zero, ~60g three AA/14500 cells, ~18g wiring/regulators, ~40g structure),
+with its centre 5mm ahead of the hip axes and rear edge at x=-45mm. Both
+hip pivots are physically within the chassis, with no cosmetic brackets.
+
+Each 40cm leg has **two solid 2mm carbon thigh rods** and **one solid 2mm
+carbon shin rod** split at the pre-existing passive flex joint. The
+nominal all-up robot is ~508g including the unchanged 10g hip
+carrier and 10g ball foot per side. All masses and material density are
+estimates requiring direct measurement. The electrical/servo drive is still
+an ideal joint-space actuator; mechanical remote-knee transmission losses,
+backlash and inertia have not been validated.
+
+The previous v5058-rated 20M experimental lineage remains pinned to its
+old physical model hash. This new model requires a fresh cold-start and
+separate exams before `main` promotion. The legacy knee compression spring,
+shin-flex stiffness, and rated torque limit are unchanged intentionally.

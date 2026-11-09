@@ -263,3 +263,8 @@ This is a geometry/occlusion inspection instrument, **not** an MJX terrain
 recycler, a corrected training sensor contract or a proof of walking.
 Training continues on the original 75 cm v5058 source until explicitly
 revised and independently retrained.
+
+**Mechanical identity warning:** the new central-servo h40 geometry in
+PR #52 is a new training model, not a resumed v5058-rated checkpoint.
+All six motors are in the torso and the knee transmissions are idealised;
+old checkpoints remain valid only for their own source and XML hash.

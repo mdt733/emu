@@ -165,3 +165,18 @@ not competing active roadmaps.
 The intended ST VL53L8CX in 4×4 mode has a **45° horizontal × 45° vertical** detection field (65° diagonal); the current 360-input MJX ray contract uses **45° columns × 60° rows**. At 40 cm two lower actor rows look backwards. The browser now overlays its exact actor rays (magenta) and independent adjustable 45° square physical ray preview (green). Adjust mounting aim visually, then make any corrected actor/sensor contract a **new source-identified** cold start.
 
 Similarly, four **1 m** tiles in a 2×2 window may give the taller robot more forward visibility than the frozen four **75 cm** tiles. It is a hypothesis, **not** a silent edit to the active rated-torque run: validate recycler coverage, genuine eight-prism mesh normals/collisions, independent signed-step exam, ToF visibility and GPU PPO first. Do not mix 1 m terrain and FOV changes into the source of the first rated-torque 20M baseline.
+
+## 2026-11-09 — newer physical model, separate from the frozen baseline
+
+Hardware correction: all **six 55g C018 motors are chassis-mounted**.
+The previous v5058 physics distributed ~140g into thick rods and shifted
+the 300g torso forward at h40 to make COM neutral, leaving hip mounts
+visually disconnected. The newer model in draft PR #52 uses a single
+460g central torso at x=+5mm, physically embracing hip pivots; two 2mm
+carbon thigh rods and one 2mm split carbon shin per leg; and original
+small hip-carrier and ball-foot masses. Calculated all-up ~508g at 40cm,
+pending actual weighing and remote-knee-transmission validation. It
+preserves old spring constants and rated torque but is a **new robot
+model/COM/inertia identity**, incompatible with the frozen old-h40
+checkpoints. The sensor preview defaults 70° down, 0mm forward, -30mm
+below torso, zero sideways/yaw; PPO's old sensor contract is unchanged.
