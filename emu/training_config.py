@@ -15,7 +15,8 @@ from pathlib import Path
 from .contracts import (COMBO_P, PHASE_RATE_MAX_HZ, RECOVERY_TILT_MAX_DEG, RECOVERY_POSITION_MAX_M,
                         RECOVERY_LINVEL_MAX_MPS, RECOVERY_ANGVEL_MAX_RAD_S, RECOVERY_JOINT_MAX_DEG)
 from .ppo import PPO_DOCTRINE
-from .contracts import OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN, SENSOR_SETTINGS_DEFAULTS, sensor_observation_contract
+from .contracts import (OBS_SCHEMA_TERRAIN, SENSOR_SETTINGS_DEFAULTS,
+                        sensor_observation_contract)
 
 
 # Current EMU doctrine. These are intentionally not experiment knobs: every
@@ -99,16 +100,13 @@ DOCTRINE = {
 }
 
 
-def training_sensor_contract(config) -> dict | None:
-    """Shared checkpoint/evaluator identity of the simulated sensor package."""
-    if config.observation_schema == OBS_SCHEMA_LEGACY:
-        return None
-    if config.observation_schema not in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN):
-        raise ValueError(f"unsupported training observation schema {config.observation_schema!r}")
-    settings = dict(SENSOR_SETTINGS_DEFAULTS)
-    settings['sensor_noise_scale'] = SENSOR_NOISE_SCALE
-    return sensor_observation_contract(settings,schema=config.observation_schema,
-                                       array_only=bool(config.unified_capability_focus))
+def training_sensor_contract(config) -> dict:
+    """One source-pinned, array-only physical 360-input sensor identity."""
+    if config.observation_schema != OBS_SCHEMA_TERRAIN:
+        raise ValueError('Only physical terrain_360 training is supported')
+    settings=dict(SENSOR_SETTINGS_DEFAULTS)
+    settings['sensor_noise_scale']=SENSOR_NOISE_SCALE
+    return sensor_observation_contract(settings)
 
 
 def doctrine_dict() -> dict[str, object]:
@@ -125,10 +123,11 @@ class TrainingConfig:
     device: str = "auto"
     run_dir: str = ""
     resume: str = ""
-    observation_schema: str = OBS_SCHEMA_LEGACY  # opt in to 232 or G5 360 actor
+    observation_schema: str = OBS_SCHEMA_TERRAIN  # the only actor
     # Source-pinned experimental physics: None keeps robot.xml defaults.
     solver_iterations: int | None = None
     solver_ls_iterations: int | None = None
+    physical_profile: str = "base26"  # robot XML hash also pinned in checkpoint
 
     # Tunable PPO economics. Original doctrine values are the defaults;
     # only an explicitly versioned experiment changes them. Rollout length,
@@ -180,6 +179,23 @@ class TrainingConfig:
     temporal_vx_reward_share: float = 0.0  # v5030 B, 0=bitwise original tracking
     # v5047 one isolated slow-balance teaching hypothesis; 0 keeps old sampler.
     stillness_birth_frac: float = 0.0
+    # v5051 controlled *training* science: default preserves parent economics.
+    # All are in checkpoint configuration identity, not deployment inputs.
+    science_gate_mode: str = "legacy"  # legacy / zero-only / off
+    science_phase_lowcmd_scale: float = 1.0  # clock at 0 request, 0..1
+    science_phase_sync_strength: float = 1.0  # organic lift shaping, 0..1
+    science_crouch_allowance_m: float = 0.0  # only STEP-focused worlds
+    science_stride_efficiency_weight: float = 0.0  # bounded useful-distance proxy
+    science_supported_cross_bonus: float = 0.0  # one-time authentic lip crossing
+    science_foothold_bonus: float = 0.0  # authentic first upper foothold
+    science_bilateral_support_bonus: float = 0.0  # 5-frame both-feet top support
+    science_followthrough_bonus: float = 0.0  # 50cm post-transfer heading-controlled travel
+    science_sensor_teacher_bonus: float = 0.0  # sensor-visible upper foothold
+    # v5052 stair task: separate destination-style progress from velocity tracking.
+    science_step_goal_weight: float = 0.0  # bounded real forward motion, Academy only
+    science_step_velocity_relief: float = 0.0  # Academy-only speed-tracking relief [0,1]
+    science_step_approach_m: float = 0.0  # Academy birth metres before next physical 1m lip; 0=legacy
+    science_step_finish_on_transfer: bool = False  # v5054: absorbing success + reset after real two-foot climb
     force_program: str = 'aggressive'  # matched gentle vs high-push experiments
     # Post-Pinnacle science switches: default values reproduce the released 260M source.
     science_step_promotion_mm: float = 0.0  # zero = max(1mm, 18%) rule
@@ -292,7 +308,7 @@ def verify_existing_phase_config(
         run_dir: Path, expected, *, allow_target_extension: bool = False) -> None:
     """Refuse a same-path continuation with a different physical/learning contract.
 
-    A perfectly valid schema-7 checkpoint can still be from a different seed,
+    A perfectly valid schema-9 checkpoint can still be from a different seed,
     env count, field teacher or hidden physical distribution. Prevent accidental
     reuse before `resolve_target_checkpoint` decides that an old phase is done.
     Hardware choice, source checkout location and resume pathname are not

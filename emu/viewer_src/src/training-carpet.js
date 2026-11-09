@@ -2,7 +2,7 @@
 // as Terrain Park, different seeded curriculum-driven surface. Park unchanged.
 
 export const CARPET_ROLES = Object.freeze(['standing','command','resilience','slope','step','transition','control']);
-export const CARPET_TILE_M = .5;
+export const CARPET_TILE_M = 1;
 export const CARPET_DEFAULT = Object.freeze({
   seed:735,slopeDeg:5,transitionDeg:2,stepUpM:.012,stepDownM:.016
 });
@@ -101,7 +101,7 @@ export function trainingLimits(data){
     transitionMeasured,transitionConfigured,
     source:'training',physicsMode:data.physics_mode||(
       cfg.terrain_carpet_prisms===true
-        ? '18-prism MJX training / representative nine-box browser'
+        ? '8-prism MJX training (four 1m tiles) / fixed 2×2 eight-prism CPU viewer'
         : 'source curriculum metrics'),
     warnings:data.warnings||[]};
 }

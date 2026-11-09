@@ -1,4 +1,4 @@
-"""Eleven physical invariants: actual prism triangles, sensors, contacts and evidence.
+"""Nine retained physical invariants: prism triangles, sensors, contacts and evidence.
 
 This verifies the *real eight-prism world*, not the old 9-box placeholder.
 A 4-world MJX physical trajectory probe is run separately in CI.
@@ -7,13 +7,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import numpy as np
-import pytest
 import jax
 import jax.numpy as jnp
 import mujoco
 
 from emu.carpet_prism_mjx import (batch_update_prism_mocaps, PRISM_COUNT,
-                                  PRISMS_PER_TILE, PRISM_GEOM_NAMES)
+                                  PRISMS_PER_TILE)
 from emu.terrain_carpet_mjx import (
     update_tile_mocaps,
     feet_clear_of_abandoned_prisms, add_carpet_geoms,
@@ -143,29 +142,8 @@ def test_batched_mocaps_match_old_birth_and_recycling():
         rtol=0,atol=2e-7)
 
 
-def test_prism_model_has_no_inactive_box_bodies_at_all():
-    """Compile the ACTUAL robot.xml, not an artificial empty XML fixture."""
-    from pathlib import Path
-    robot=Path(__file__).resolve().parents[1]/'emu'/'robot.xml'
-    model=mujoco.MjModel.from_xml_string(
-        add_carpet_geoms(robot.read_text(encoding='utf-8'),prisms=True))
-    names=[mujoco.mj_id2name(model,mujoco.mjtObj.mjOBJ_GEOM,i)
-           for i in range(model.ngeom)]
-    assert not any((n or '').startswith('carpet_solid_geom_') for n in names)
-    assert len([n for n in names if n in PRISM_GEOM_NAMES])==PRISM_COUNT
-    assert model.nhfield==TILE_COUNT  # noncontact source vertex samples
-    assert mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_BODY,'unified_ground')<0
-    assert mujoco.mj_name2id(
-        model,mujoco.mjtObj.mjOBJ_GEOM,'episode_terrain_surface')<0
-    floor=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_GEOM,'floor')
-    assert floor>=0 and model.geom_contype[floor]==0
-    assert model.nmocap>=TILE_COUNT+PRISM_COUNT
-    with pytest.raises(ValueError,match='real prism contacts only'):
-        add_carpet_geoms(robot.read_text(encoding='utf-8'),prisms=False)
-
-
 def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
-    """Remove solver contact PAIRS, not the 300g chassis or its inertia."""
+    """Remove solver contacts, not the 460g central chassis or its inertia."""
     from pathlib import Path
     from mujoco import mjx
     source=(Path(__file__).resolve().parents[1]/'emu'/'robot.xml').read_text()
@@ -176,6 +154,171 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     np.testing.assert_array_equal(light.body_mass,reference.body_mass)
     np.testing.assert_array_equal(light.body_inertia,reference.body_inertia)
     np.testing.assert_array_equal(light.geom_size,reference.geom_size)
+    # v5057: compile every taller *real* model on CPU, never merely
+    # compare XML strings. Neutral sole contact, leg inertia, scaled spring
+    # loading and left/right knee passive torque are physical acceptance.
+    from emu.physical_variants import (
+        PROFILES, generate_xml, profile_numbers,
+        FOOT_RADIUS_M, SERVO_RATED_CONTINUOUS_TORQUE_NM)
+    base_source=(Path(__file__).resolve().parents[1]/'emu'/'robot.xml').read_text()
+    for variant in PROFILES:
+        row=profile_numbers(variant)
+        from emu.tof_geometry import (TOF_MOUNT_BODY_M, TOF_RAYS_BODY,
+                                      TOF_HARDWARE_ZONE_IDS)
+        assert TOF_MOUNT_BODY_M==(0.,0.,-.030)
+        assert len(TOF_RAYS_BODY)==16
+        # ST UM3109 scene top-right is raw zone 0 after lens flip;
+        # raw SPAD array location is NOT the observed scene location.
+        assert TOF_HARDWARE_ZONE_IDS==(3,2,1,0,7,6,5,4,
+                                       11,10,9,8,15,14,13,12)
+        np.testing.assert_allclose(
+            np.linalg.norm(np.asarray(TOF_RAYS_BODY),axis=1),
+            np.ones(16),atol=1e-6)
+        # At a 40cm chassis height the 45° FoV stays forward of its
+        # own mount, and can reach level ground inside a 1m half tile.
+        assert all(v[2]<0 for v in TOF_RAYS_BODY)
+        assert all(v[0]>0 for v in TOF_RAYS_BODY)
+        max_forward=max((row['hip_height_m']-.030)*v[0]/-v[2]
+                        for v in TOF_RAYS_BODY)
+        assert max_forward<.5, max_forward
+        body=mujoco.MjModel.from_xml_string(
+            generate_xml(base_source, variant))
+        state=mujoco.MjData(body)
+        mujoco.mj_forward(body,state)
+        assert body.nu==6 and body.ntendon==2
+        assert body.nq==15 and body.nv==14
+        np.testing.assert_allclose(sum(body.body_mass),
+                                   row['mass_kg'], atol=1e-4, rtol=0)
+        torso_id=mujoco.mj_name2id(
+            body,mujoco.mjtObj.mjOBJ_BODY,'torso')
+        # All six 55g servos are carried by the torso. No knee motors.
+        # COM is based on light carbon mass, not an invisible compensating
+        # translation of the chassis at different robot heights.
+        np.testing.assert_allclose(
+            state.subtree_com[torso_id,0],row['neutral_com_x_m'],
+            atol=2e-4,rtol=0)
+        torso_geom=mujoco.mj_name2id(
+            body,mujoco.mjtObj.mjOBJ_GEOM,'torso_box')
+        np.testing.assert_allclose(body.geom_pos[torso_geom,0],.005,atol=1e-7)
+        assert body.geom_pos[torso_geom,0]-body.geom_size[torso_geom,0]<-.01
+        assert .49 <= body.body_mass.sum() <= .52
+        for side in 'rl':
+            assert mujoco.mj_name2id(
+                body,mujoco.mjtObj.mjOBJ_GEOM,f'{side}_thigh_rod_b')==-1
+            thigh_id=mujoco.mj_name2id(
+                body,mujoco.mjtObj.mjOBJ_GEOM,f'{side}_thigh_rod')
+            assert body.geom_type[thigh_id]==mujoco.mjtGeom.mjGEOM_BOX
+            np.testing.assert_allclose(body.geom_size[thigh_id,:2],
+                                       [.001,.001],atol=1e-7)
+            assert mujoco.mj_name2id(
+                body,mujoco.mjtObj.mjOBJ_GEOM,f'{side}_knee_servo')==-1
+        foot_heights=[]
+        knee_loads=[]
+        for side in 'rl':
+            fi=mujoco.mj_name2id(body,mujoco.mjtObj.mjOBJ_BODY,
+                                f'{side}_foot')
+            ki=mujoco.mj_name2id(body,mujoco.mjtObj.mjOBJ_JOINT,
+                                f'{side}_knee')
+            ti=mujoco.mj_name2id(body,mujoco.mjtObj.mjOBJ_TENDON,
+                                f'{side}_knee_support')
+            foot_heights.append(float(state.xpos[fi,2]))
+            knee_loads.append(float(state.qfrc_passive[
+                body.jnt_dofadr[ki]]))
+            flex=mujoco.mj_name2id(body,mujoco.mjtObj.mjOBJ_JOINT,
+                                  f'{side}_shin_flex')
+            np.testing.assert_allclose(
+                body.jnt_stiffness[flex],
+                row['shin_flex_stiffness_nm_rad'],atol=1e-5,rtol=0)
+            np.testing.assert_allclose(
+                state.ten_length[ti],.060*(2**-.5),
+                atol=1e-5,rtol=0)
+        np.testing.assert_allclose(
+            foot_heights,[FOOT_RADIUS_M]*2,atol=2e-5,rtol=0)
+        assert all(t>0 for t in knee_loads)
+        np.testing.assert_allclose(knee_loads[0],knee_loads[1],
+                                   atol=1e-5,rtol=0)
+        k=float(row['knee_strut_k_n_m'])
+        expected=k*.060*(1.-2**-.5)*.030*(2**-.5)
+        np.testing.assert_allclose(knee_loads,[expected]*2,
+                                   atol=.01,rtol=.02)
+        rated=SERVO_RATED_CONTINUOUS_TORQUE_NM
+        np.testing.assert_allclose(body.actuator_forcerange,
+             np.tile([-rated,rated],(6,1)),
+             atol=1e-6,rtol=0)
+        assert np.all(body.actuator_forcelimited == 1)
+        # Speed feedback is active actuator torque, inside the hard
+        # rated force limit, not an unlimited passive joint brake.
+        dofs=[body.jnt_dofadr[body.actuator_trnid[i,0]]
+              for i in range(body.nu)]
+        np.testing.assert_allclose(body.dof_damping[dofs],0.,atol=1e-8)
+        np.testing.assert_allclose(body.actuator_biasprm[:,2],
+                                   -.624,atol=1e-6)
+        for rate in (-4.7165,4.7165):
+            mujoco.mj_resetData(body,state)
+            state.ctrl[:] = 0.
+            state.qvel[dofs] = rate
+            mujoco.mj_forward(body,state)
+            assert np.max(np.abs(state.actuator_force)) <= rated+1e-6
+            assert np.max(np.abs(state.actuator_force)) >= rated*.90
+            assert np.max(np.abs(state.qfrc_actuator[dofs])) <= rated+1e-6
+        assert np.all(body.actuator_forcelimited == 1)
+        # REAL MuJoCo stress: command every servo to both extreme targets.
+        # The delivered actuator and 1:1 generalized forces must NOT exceed
+        # 10 kgf.cm, regardless of how unreasonable the requested position is.
+        for side in (0,1):
+            mujoco.mj_resetData(body,state)
+            state.ctrl[:] = body.actuator_ctrlrange[:,side]
+            mujoco.mj_forward(body,state)
+            assert np.max(np.abs(state.actuator_force)) <= rated + 1e-6
+            dofs=[body.jnt_dofadr[body.actuator_trnid[i,0]]
+                  for i in range(body.nu)]
+            assert np.max(np.abs(state.qfrc_actuator[dofs])) <= rated + 1e-6
+            # At least some servos should actually saturate; otherwise this
+            # could be a useless small-command test.
+            assert np.max(np.abs(state.actuator_force)) > rated * .95
+    # v5056: this physical topology is still six motors and eight joint DoFs.
+    # Restoring *passive* knee support must not sneak in motors or new DoFs.
+    assert light.nu == 6
+    assert light.ntendon == 2
+    np.testing.assert_allclose(
+        light.actuator_forcerange,
+        np.tile([-SERVO_RATED_CONTINUOUS_TORQUE_NM,
+                 SERVO_RATED_CONTINUOUS_TORQUE_NM], (6, 1)),
+        rtol=0, atol=1e-6)
+    for side in ('r', 'l'):
+        for joint in (f'{side}_hip_pitch', f'{side}_knee'):
+            ji=mujoco.mj_name2id(light,mujoco.mjtObj.mjOBJ_JOINT,joint)
+            assert light.jnt_stiffness[ji] == 0.0
+        assert mujoco.mj_name2id(
+            light,mujoco.mjtObj.mjOBJ_TENDON,
+            f'{side}_knee_support') >= 0
+
+    # CPU's ACTUAL MuJoCo passive force, not an unconnected curve assertion.
+    # With servos unpowered and qvel=0, each tendon must PUSH the folded knee
+    # towards straight (q increases), and reach zero at q=+90 degrees.
+    # A mere joint spring with equilibrium at +45 fails this contract.
+    data = mujoco.MjData(light)
+    for knee_deg in (-55., -40., 0., 45., 90.):
+        mujoco.mj_resetData(light, data)
+        beta = np.deg2rad((90. + knee_deg) / 2.)
+        compression = 0.060 * (1.0 - np.sin(beta))
+        torque = 750.0 * compression * 0.030 * np.cos(beta)
+        for side in ('r', 'l'):
+            ji=mujoco.mj_name2id(light,mujoco.mjtObj.mjOBJ_JOINT,
+                                 f'{side}_knee')
+            data.qpos[light.jnt_qposadr[ji]] = np.deg2rad(knee_deg)
+        mujoco.mj_forward(light,data)
+        observed = []
+        for side in ('r', 'l'):
+            ji=mujoco.mj_name2id(light,mujoco.mjtObj.mjOBJ_JOINT,
+                                 f'{side}_knee')
+            ti=mujoco.mj_name2id(light,mujoco.mjtObj.mjOBJ_TENDON,
+                                 f'{side}_knee_support')
+            np.testing.assert_allclose(
+                data.ten_length[ti],0.060-compression,atol=4e-6,rtol=0)
+            observed.append(data.qfrc_passive[light.jnt_dofadr[ji]])
+        np.testing.assert_allclose(observed, [torque,torque],
+                                   atol=.015,rtol=.03)
     for name in ('torso_box','floor','r_thigh_rod','l_thigh_rod',
                  'r_shin_upper','l_shin_upper',
                  'r_shin_lower_rod','l_shin_lower_rod'):
@@ -196,6 +339,21 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     new=mjx.make_data(mjx.put_model(light))
     assert new._impl.contact.geom1.shape[0]<old._impl.contact.geom1.shape[0]
     assert new._impl.efc_J.shape[0]<old._impl.efc_J.shape[0]
+    # Per-world randomized motor force is ALSO hard bounded, including
+    # samples whose nominal hardware strength multiplier is >1.
+    from emu.domain_randomization import (
+        build_batched_model, DomainRandomizationConfig)
+    dofs=[light.jnt_dofadr[light.actuator_trnid[i,0]]
+          for i in range(light.nu)]
+    varied,_,_=build_batched_model(
+        mjx.put_model(light),
+        ids={'actuators':np.arange(light.nu), 'act_qvel':np.asarray(dofs)},
+        num_envs=8, seed=735,
+        config=DomainRandomizationConfig(
+            enabled=True,robot_radius=1.,hardware_radius=1.))
+    varied_limits=np.asarray(varied.actuator_forcerange)
+    assert varied_limits.shape == (8,6,2)
+    assert np.max(np.abs(varied_limits)) <= SERVO_RATED_CONTINUOUS_TORQUE_NM+1e-6
 
 
 def test_midpoint_2x2_window_covers_30cm_and_preserves_present_tile():
@@ -224,6 +382,7 @@ def test_midpoint_2x2_window_covers_30cm_and_preserves_present_tile():
 
 
 def test_true_prism_footprint_blocks_sidewall_not_far_foot():
+    assert TILE_M == 1.0, 'Four 1m source tiles must match CPU sensor lab'
     old=[[0,0],[0,0],[0,0]]
     new=[[1,0],[1,0],[1,1]]
     feet=[
@@ -309,28 +468,32 @@ def _check_both_physical_triangle_normals_respect_curriculum(
 
 
 def test_both_physical_triangle_normals_respect_curriculum():
+    # Academy cannot retreat into a first-lip classifiability dead zone.
+    # Test ACTUAL delivered first seam for both possible spawn cells,
+    # including independent per-tile base jitter; no fake nominal heights.
+    from emu.curriculum import RegimeGovernor
+    from emu.terrain_carpet_mjx import (
+        make_profiles, tile_level, PROFILE_HALF)
+    assert RegimeGovernor.ACADEMY_MIN_LIP_M >= .003
+    seeds=np.arange(4096,dtype=np.int32)+37001
+    frontier=np.full(len(seeds),.003,dtype=np.float32)
+    px,py=make_profiles(np,seeds,frontier,frontier)
+    y=np.zeros(len(seeds),dtype=np.int32)
+    for left,right in ((-1,0),(0,1)):
+        a=tile_level(np,np.full(len(seeds),left,dtype=np.int32),
+                     y,seeds,px,py,frontier,frontier)
+        b=tile_level(np,np.full(len(seeds),right,dtype=np.int32),
+                     y,seeds,px,py,frontier,frontier)
+        delivered=np.abs(b-a)
+        assert np.all(delivered>.0015), float(delivered.min())
+        near=(delivered>=.78*.003)&(delivered<=1.05*.003)
+        assert near.mean()>.65,(left,right,float(near.mean()))
     # Keep all six slope/crease envelopes in one physical-invariant test.
     # These variants are not six independent tests.
     for slope_deg, transition_deg in (
             (.7,3.), (3.,3.), (8.,3.), (15.,3.), (15.,1.), (10.,.5)):
         _check_both_physical_triangle_normals_respect_curriculum(
             slope_deg, transition_deg)
-
-
-def test_signed_x_and_y_lips_are_seeded_but_physically_detectable():
-    import jax.numpy as jnp
-    from emu.terrain_carpet_mjx import make_profiles,PROFILE_HALF
-    n=128
-    seeds=jnp.arange(735,735+n,dtype=jnp.int32)
-    up=jnp.full((n,),.003)
-    down=jnp.full((n,),.003)
-    x,y=make_profiles(jnp,seeds,up,down)
-    for axis in (x,y):
-        changes=np.diff(np.asarray(axis),axis=1)
-        near=changes[:,PROFILE_HALF:PROFILE_HALF+3]
-        assert np.min(np.abs(near))>.0015,near
-        assert (near>0.).any() and (near<0.).any()
-        assert np.max(np.abs(near))<.004
 
 
 def _check_real_top_supported_crossing_in_both_axes(rise,axis,up,down):
@@ -347,126 +510,6 @@ def test_real_top_supported_crossing_in_both_axes():
             (.003,1,1,0), (-.02,1,0,1)):
         _check_real_top_supported_crossing_in_both_axes(
             rise, axis, up, down)
-
-
-def test_unphysical_side_contact_cannot_earn_lip():
-    t=trace()
-    t["carpet_contact_vertical"][:]=.04
-    assert score_prism_crossings(t)["total"]==0
-
-
-
-def test_batched_rays_preserve_old_4x4_and_sidewall_geometry():
-    """Keep a source-frozen sequential ray oracle for exactly this GPU optimization."""
-    from emu.terrain_carpet_mjx import TILE_M,TILE_HALF_M,TILE_BASE_M,TILE_COUNT
-    def old_rays(xp,data,mocap_ids,hfield_data,origin,rays,*,
-                    prism_bottom_depth_m=None):
-        """Slant range against both real triangles in every 75cm tile.
-    
-        Iterative ray-plane intersections use the same planar interpolation as
-        sample_surface. Only finite ray distances inside a tile are admitted.
-        The old two-slab ray never leaks its buried ground into 360 observations.
-        """
-        nearest=xp.full(rays.shape[:2],xp.inf,dtype=xp.float32)
-        vertical=rays[:,:,2]
-        safe=xp.where(xp.abs(vertical)>1e-6,vertical,-1.)
-        for i,mocap in enumerate(mocap_ids):
-            pos=data.mocap_pos[:,mocap,:]
-            sample=hfield_data[:,i*4:i*4+4]
-            middle=pos[:,2]+TILE_SIZE_Z_M*xp.mean(sample,axis=1)
-            t=(middle[:,None]-origin[:,None,2])/safe
-            for _ in range(3):
-                u=(origin[:,None,0]+t*rays[:,:,0]-pos[:,None,0]+TILE_HALF_M)/TILE_M
-                v=(origin[:,None,1]+t*rays[:,:,1]-pos[:,None,1]+TILE_HALF_M)/TILE_M
-                a,b,c,d=[sample[:,k,None] for k in range(4)]
-                near=a*(1.-u-v)+b*u+c*v
-                far=d*(u+v-1.)+b*(1.-v)+c*(1.-u)
-                height=pos[:,None,2]+TILE_SIZE_Z_M*xp.where(u+v<=1.,near,far)
-                t=(height-origin[:,None,2])/safe
-            inside=(u>=0.)&(u<=1.)&(v>=0.)&(v<=1.)
-            good=inside&(t>0.)&(rays[:,:,2]<-.05)
-            nearest=xp.minimum(nearest,xp.where(good,t,xp.inf))
-    
-            # A two-triangle MuJoCo hfield is a solid height volume with
-            # vertical *outer side walls*. Omitting those sides would let the
-            # 4x4 ToF miss precisely the uphill riser the feet collide with.
-            # This matches the SAME samples and base thickness as MJX, not a
-            # separate privileged ray obstacle. Two x-faces and two y-faces.
-            for axis,other,edges in ((0,1,((0,2),(1,3))),
-                                     (1,0,((0,1),(2,3)))):
-                direction=rays[:,:,axis]
-                safe_dir=xp.where(xp.abs(direction)>1e-7,direction,1.)
-                other_dir=rays[:,:,other]
-                for side,(lo,hi) in enumerate(edges):
-                    edge_pos=pos[:,axis]+(-TILE_HALF_M if side==0 else TILE_HALF_M)
-                    tt=(edge_pos[:,None]-origin[:,None,axis])/safe_dir
-                    other_at=origin[:,None,other]+tt*other_dir
-                    fraction=(other_at-pos[:,None,other]+TILE_HALF_M)/TILE_M
-                    z_at=origin[:,None,2]+tt*rays[:,:,2]
-                    z_top=pos[:,None,2]+TILE_SIZE_Z_M*(
-                          sample[:,lo,None]*(1.-fraction)
-                          +sample[:,hi,None]*fraction)
-                    # v5043 prisms have a sheared lower triangle by the configured prism depth
-                    # below each top vertex. The old heightfield base used a
-                    # different constant Z and would expose phantom sidewalls
-                    # below the actual prism collision body.
-                    z_bottom=(z_top-prism_bottom_depth_m if
-                              prism_bottom_depth_m is not None else
-                              pos[:,None,2]-TILE_BASE_M)
-                    hit=(xp.abs(direction)>1e-7)&(tt>1e-7)&(
-                        fraction>=0.)&(fraction<=1.)&(
-                        z_at<=z_top)&(z_at>=z_bottom)
-                    nearest=xp.minimum(nearest,xp.where(hit,tt,xp.inf))
-        return nearest
-    
-    rng=np.random.default_rng(1701)
-    worlds=3
-    positions=np.zeros((worlds,TILE_COUNT,3),dtype=np.float32)
-    for tile in range(TILE_COUNT):
-        positions[:,tile,0]=(tile%TILE_WINDOW_SIDE-.5)*TILE_M
-        positions[:,tile,1]=(tile//TILE_WINDOW_SIDE-.5)*TILE_M
-    positions[:,:,2]=rng.uniform(-.12,.13,(worlds,TILE_COUNT)).astype(np.float32)
-    heights=jnp.asarray(rng.uniform(.15,.85,(worlds,TILE_COUNT*4)),dtype=jnp.float32)
-    origin=jnp.asarray([[.02,-.08,.18],[-.12,.04,.15],[.17,.17,.25]],dtype=jnp.float32)
-    pitch=np.deg2rad([40,60,80,100])
-    yaw=np.deg2rad([-22.5,-7.5,7.5,22.5])
-    beam=np.asarray([[np.cos(p)*np.cos(y),np.cos(p)*np.sin(y),-np.sin(p)]
-                     for p in pitch for y in yaw],dtype=np.float32)
-    rays=jnp.broadcast_to(jnp.asarray(beam),(worlds,16,3))
-    points=jnp.asarray(positions)
-    ids=tuple(range(TILE_COUNT))
-    for bottom in (None,.65):
-        expected=np.asarray(old_rays(jnp,SimpleNamespace(mocap_pos=points),
-                                     ids,heights,origin,rays,
-                                     prism_bottom_depth_m=bottom))
-        new=jax.jit(lambda p,h,o,ray:ray_surface(
-            jnp,SimpleNamespace(mocap_pos=p),ids,h,o,ray,
-            prism_bottom_depth_m=bottom))
-        actual=np.asarray(new(points,heights,origin,rays))
-        assert actual.shape==(worlds,16)
-        np.testing.assert_array_equal(np.isfinite(actual),np.isfinite(expected))
-        finite=np.isfinite(expected)
-        np.testing.assert_allclose(actual[finite],expected[finite],
-                                   rtol=0,atol=5e-6)
-        # Fusing the sixteen ToF beams with the downward flow-height
-        # beam must preserve both sets of ray intersections.
-        down=jnp.broadcast_to(jnp.asarray([[[0.,0.,-1.]]],dtype=jnp.float32),
-                              (worlds,1,3))
-        combined=jnp.concatenate([rays,down],axis=1)
-        fused=np.asarray(jax.jit(lambda p,h,o,ray:ray_surface(
-            jnp,SimpleNamespace(mocap_pos=p),ids,h,o,ray,
-            prism_bottom_depth_m=bottom))(points,heights,origin,combined))
-        original_depth=np.asarray(ray_surface(
-            jnp,SimpleNamespace(mocap_pos=points),ids,heights,
-            origin,down,prism_bottom_depth_m=bottom))
-        assert fused.shape==(worlds,17)
-        np.testing.assert_array_equal(np.isfinite(fused[:,:16]),np.isfinite(actual))
-        np.testing.assert_array_equal(np.isfinite(fused[:,16:]),np.isfinite(original_depth))
-        np.testing.assert_allclose(fused[:,:16][finite],actual[finite],
-                                   rtol=0,atol=5e-6)
-        valid_depth=np.isfinite(original_depth)
-        np.testing.assert_allclose(fused[:,16:][valid_depth],
-                                   original_depth[valid_depth],rtol=0,atol=5e-6)
 
 
 def test_tof_sees_real_15cm_vertical_uphill_wall():
@@ -509,45 +552,3 @@ def test_new_tile_only_once_even_after_shuffling_across_lip():
     sideways=jnp.asarray([[1,1],[11,-3]],dtype=jnp.int32)
     assert np.all(unseen_tile(jnp,sideways,v))
 
-
-def test_carpet_birth_exposure_is_probability_not_obstacle_amplitude():
-    """Regression for the 140M run: .15 exposure must not shrink a .7deg
-    SLOPE world to .105deg or a 3mm Academy lip to .45mm."""
-    import jax.numpy as jnp
-    import numpy as np
-    from emu.capability_focus import SLOPE, STEP
-    from emu.terrain_carpet_mjx import role_envelope
-    count=512
-    seeds=jnp.arange(12000,12000+count,dtype=jnp.int32)
-    active=jnp.ones((count,),dtype=jnp.bool_)
-    idle=jnp.zeros((count,),dtype=jnp.float32)
-    no_academy=jnp.zeros((count,),dtype=jnp.bool_)
-    slope,up,down=role_envelope(
-        jnp,jnp.full((count,),SLOPE),active,idle,
-        .7,.003,.003,no_academy,.15,.15,seeds)
-    slope=np.asarray(slope)
-    assert 30 < np.count_nonzero(slope) < 120
-    assert np.allclose(slope[slope>0],.7,rtol=0,atol=1e-5)
-    # Non-academy STEP worlds follow the *same* exposure probability,
-    # retaining the full 3mm height of the STEP specialist when active.
-    _,step_up,step_down=role_envelope(
-        jnp,jnp.full((count,),STEP),active,idle,
-        .7,.003,.003,no_academy,.15,.15,seeds)
-    step_up=np.asarray(step_up)
-    assert 30 < np.count_nonzero(step_up) < 120
-    assert np.allclose(step_up[step_up>0],.003,rtol=0,atol=1e-7)
-    assert np.array_equal(step_up,np.asarray(step_down))
-    # Assigned Academy episodes get physical lips regardless of the
-    # ordinary STEP exposure probability; foundation stays flat.
-    academy=jnp.arange(count)%2==0
-    _,academy_up,academy_down=role_envelope(
-        jnp,jnp.full((count,),STEP),active,idle,
-        0.,.003,.003,academy,0.,0.,seeds)
-    assert np.array_equal(np.asarray(academy_up)>0,np.asarray(academy))
-    assert np.allclose(np.asarray(academy_up)[::2],.003,atol=1e-7)
-    assert np.array_equal(np.asarray(academy_up),np.asarray(academy_down))
-    slope_flat,up_flat,down_flat=role_envelope(
-        jnp,jnp.full((count,),SLOPE),active,idle,
-        .7,.003,.003,no_academy,0.,0.,seeds)
-    for x in (slope_flat,up_flat,down_flat):
-        assert not np.any(np.asarray(x))

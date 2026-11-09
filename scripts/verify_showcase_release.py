@@ -2,9 +2,8 @@
 """Validate immutable, explicitly reviewed public EMU browser release assets.
 
 Only Python stdlib is needed; can run in the no-CUDA GitHub Pages builder.
-The currently approved 232-input Pinnacle remains pinned. This validator
-also supports explicitly reviewed 360-input array-only replacements without
-bypassing the asset, checkpoint and source provenance checks.
+Only a reviewed, trained 360-input physical h40 actor can be released.
+Historical release protocols remain accessible in Git history.
 """
 from __future__ import annotations
 
@@ -18,8 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 HEX64 = re.compile(r"^[0-9a-f]{64}$")
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
-REVISION = "tripod_tof_flow_async_v1"
-TERRAIN_REVISION = "forward_tof4x4_array_plane_fit_no_tripod_2"
+PHYSICAL_TERRAIN_REVISION = "vl53l8cx_array_plane_square45_below30_v3"
 SENSOR_SETTING_KEYS = frozenset({
     'tof_period_frames', 'flow_period_frames', 'tof_delay_frames',
     'flow_delay_frames', 'tof_dropout_prob', 'flow_dropout_prob',
@@ -45,9 +43,9 @@ def validate_browser_bundle(bundle: dict, *, require_trained: bool = True) -> di
     if not isinstance(bundle, dict) or bundle.get('format') != 'emu-policy':
         raise ValueError('not an EMU browser policy')
     schema = bundle.get('schema')
-    if schema not in (1, 2, 3):
-        raise ValueError('unsupported browser policy schema')
-    dim = {1: 220, 2: 232, 3: 360}[schema]
+    if schema != 3:
+        raise ValueError('Only the current 360-input physical actor can publish')
+    dim = 360
     width = dim // 4
     policy = bundle.get('policy') or {}
     source = bundle.get('source') or {}
@@ -82,111 +80,119 @@ def validate_browser_bundle(bundle: dict, *, require_trained: bool = True) -> di
         _blob(obs.get(key) or {}, [dim], 'observation ' + key)
     if require_trained and not (isinstance(source.get('step'), int) and source['step'] > 0):
         raise ValueError('refusing untrained policy')
-    if schema == 1:
-        if source.get('checkpoint_schema') not in (None, 7):
-            raise ValueError('legacy browser policy cannot carry schema-8 training')
-    elif schema == 2:
-        if source.get('checkpoint_schema') != 8:
-            raise ValueError('sensor browser policy requires checkpoint schema 8')
-        c = obs.get('sensor_contract')
-        if not isinstance(c, dict) or c.get('schema') != 'sim2real_232' or c.get('sensor_model_revision') != REVISION:
-            raise ValueError('missing or unsupported v5016 sensor contract')
-        if c.get('history_len') != 4 or c.get('action_dim') != 6 or c.get('base_fields') != fields:
-            raise ValueError('sensor contract fields/history differ from policy')
-        if tuple(fields[-3:]) != SENSOR_FIELDS:
-            raise ValueError('sensor observation grade field order changed')
-        if (c.get('tripod_mounts_body_m') != [[.035, -.05, -.025], [.035, .05, -.025], [-.04, 0, -.025]]
-                or c.get('tripod_beams_body') != [[0, 0, -1]] * 3
-                or c.get('tof_range_limits_m') != [.035, .6]):
-            raise ValueError('unapproved sensor geometry')
-        if not isinstance(c.get('settings'), dict) or not HEX64.fullmatch(str(c.get('sha256') or '')):
-            raise ValueError('invalid sensor contract fingerprint')
-        core = {k: v for k, v in c.items() if k != 'sha256'}
-        digest = hashlib.sha256(json.dumps(core, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        if digest != c['sha256']:
-            raise ValueError('sensor contract hash mismatch')
-    else:
-        # A public 360 actor must be the physical, ARRAY-ONLY 4x4 sensor
-        # lineage. A self-consistent hash alone is not proof of correct
-        # extrinsics: every geometry/estimator constant must match the
-        # independently implemented browser observation contract.
-        if source.get('checkpoint_schema') != 9:
-            raise ValueError('360-input release requires checkpoint schema 9')
-        c = obs.get('sensor_contract')
-        if not isinstance(c, dict):
-            raise ValueError('missing 360-input sensor contract')
-        expected_fields = (
-            SENSOR_FIELDS +
-            tuple(f'tof4x4_range_{row}{col}_m'
-                  for row in range(4) for col in range(4)) +
-            tuple(f'tof4x4_valid_{row}{col}'
-                  for row in range(4) for col in range(4))
-        )
-        if (c.get('schema') != 'terrain_360' or
-                c.get('sensor_model_revision') != TERRAIN_REVISION or
-                c.get('base_fields') != fields or
-                c.get('history_len') != 4 or c.get('action_dim') != 6 or
-                c.get('control_dt') != 0.02 or
-                tuple(fields[55:]) != expected_fields):
-            raise ValueError('unsupported 360-input observation contract')
-        expected_sensor = {
-            'schema', 'sensor_model_revision', 'base_fields', 'history_len',
-            'action_dim', 'control_dt', 'settings', 'sha256',
-            'tof4x4_mount_body_m', 'tof4x4_pitch_from_horizontal_deg',
-            'tof4x4_yaw_deg', 'tof4x4_range_limits_m', 'tof4x4_occlusion',
-            'tof4x4_validity', 'array_ground_estimator',
-            'array_ground_max_fit_residual_m', 'array_ground_min_valid_cells',
-        }
-        if set(c) != expected_sensor:
-            raise ValueError('unexpected 360-input sensor fields or old tripod')
-        if (c.get('tof4x4_mount_body_m') != [0, 0, 0] or
-                c.get('tof4x4_pitch_from_horizontal_deg') != [40, 60, 80, 100] or
-                c.get('tof4x4_yaw_deg') != [-22.5, -7.5, 7.5, 22.5] or
-                c.get('tof4x4_range_limits_m') != [.04, 1.5] or
-                c.get('tof4x4_occlusion') !=
-                    'nearest ray-sphere foot hit masks terrain return' or
-                c.get('tof4x4_validity') !=
-                    'one bit per cell, delayed, zero on dropout' or
-                c.get('array_ground_estimator') !=
-                    'weighted_4x4_plane_residual_8mm_v1' or
-                c.get('array_ground_max_fit_residual_m') != .008 or
-                c.get('array_ground_min_valid_cells') != 6):
-            raise ValueError('unapproved 4x4 array extrinsics or estimator')
-        settings = c.get('settings')
-        if not isinstance(settings, dict) or set(settings) != SENSOR_SETTING_KEYS:
-            raise ValueError('invalid 360-input sensor timing/noise settings')
-        import math
-        for key in ('tof_period_frames', 'flow_period_frames'):
-            if type(settings[key]) is not int or not 1 <= settings[key] <= 20:
-                raise ValueError('invalid sensor sampling period')
-        for key in ('tof_delay_frames', 'flow_delay_frames'):
-            if type(settings[key]) is not int or not 0 <= settings[key] < 4:
-                raise ValueError('invalid sensor frame delay')
-        for key in ('tof_dropout_prob', 'flow_dropout_prob'):
-            value = settings[key]
-            if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1:
-                raise ValueError('invalid sensor dropout probability')
-        for key in ('gyro_bias_std_rad_s', 'sensor_noise_scale'):
-            value = settings[key]
-            if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
-                raise ValueError('invalid sensor noise scale')
-        if not HEX64.fullmatch(str(c.get('sha256') or '')):
-            raise ValueError('missing 360-input sensor fingerprint')
-        digest = hashlib.sha256(json.dumps(
-            {key: value for key, value in c.items() if key != 'sha256'},
-            sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-        if digest != c['sha256']:
-            raise ValueError('360-input sensor fingerprint mismatch')
+    if source.get('checkpoint_schema') != 9:
+        raise ValueError('Only schema-9 360-input training can publish')
+    # A public 360 actor must be the physical, ARRAY-ONLY 4x4 sensor
+    # lineage. A self-consistent hash alone is not proof of correct
+    # extrinsics: every geometry/estimator constant must match the
+    # independently implemented browser observation contract.
+    if source.get('checkpoint_schema') != 9:
+        raise ValueError('360-input release requires checkpoint schema 9')
+    c = obs.get('sensor_contract')
+    if not isinstance(c, dict):
+        raise ValueError('missing 360-input sensor contract')
+    expected_fields = (
+        SENSOR_FIELDS +
+        tuple(f'tof4x4_range_{row}{col}_m'
+              for row in range(4) for col in range(4)) +
+        tuple(f'tof4x4_valid_{row}{col}'
+              for row in range(4) for col in range(4))
+    )
+    if (c.get('schema') != 'terrain_360' or
+            c.get('sensor_model_revision') != PHYSICAL_TERRAIN_REVISION or
+            c.get('base_fields') != fields or
+            c.get('history_len') != 4 or c.get('action_dim') != 6 or
+            c.get('control_dt') != 0.02 or
+            tuple(fields[55:]) != expected_fields):
+        raise ValueError('unsupported 360-input observation contract')
+    common = {
+        'schema', 'sensor_model_revision', 'base_fields', 'history_len',
+        'action_dim', 'control_dt', 'settings', 'sha256',
+        'tof4x4_mount_body_m', 'tof4x4_range_limits_m', 'tof4x4_occlusion',
+        'tof4x4_validity', 'array_ground_estimator',
+        'array_ground_max_fit_residual_m', 'array_ground_min_valid_cells',
+    }
+    geometry = {
+        'tof4x4_fov_horizontal_deg', 'tof4x4_fov_vertical_deg',
+        'tof4x4_tilt_down_deg', 'tof4x4_mount_yaw_deg',
+        'tof4x4_rays_body', 'tof4x4_hardware_zone_ids',
+    }
+    if set(c) != common | geometry:
+        raise ValueError('unexpected physical 360-input sensor fields')
+    if (c.get('tof4x4_range_limits_m') != [.04, 1.5] or
+            c.get('tof4x4_occlusion') !=
+                'nearest ray-sphere foot hit masks terrain return' or
+            c.get('tof4x4_validity') !=
+                'one bit per cell, delayed, zero on dropout' or
+            c.get('array_ground_estimator') !=
+                'weighted_4x4_plane_residual_8mm_v1' or
+            c.get('array_ground_max_fit_residual_m') != .008 or
+            c.get('array_ground_min_valid_cells') != 6):
+        raise ValueError('unapproved physical 360-input estimator')
+    # Independently recalculate all 16 physical image-plane rays and
+    # confirm ST's lens-inverted raw zone order.
+    import math
+    half = math.tan(math.radians(45.) / 2.)
+    cs = math.cos(math.radians(70.))
+    sn = math.sin(math.radians(70.))
+    rays = []
+    for row in range(4):
+        for col in range(4):
+            u = (col - 1.5) * half / 2.
+            v = (1.5 - row) * half / 2.
+            x, y, z = cs + sn * v, u, -sn + cs * v
+            norm = math.sqrt(x*x + y*y + z*z)
+            rays.append([x/norm, y/norm, z/norm])
+    actual = c.get('tof4x4_rays_body')
+    if (c.get('tof4x4_mount_body_m') != [0, 0, -.03] or
+            c.get('tof4x4_fov_horizontal_deg') != 45 or
+            c.get('tof4x4_fov_vertical_deg') != 45 or
+            c.get('tof4x4_tilt_down_deg') != 70 or
+            c.get('tof4x4_mount_yaw_deg') != 0 or
+            c.get('tof4x4_hardware_zone_ids') !=
+                [3,2,1,0,7,6,5,4,11,10,9,8,15,14,13,12] or
+            not isinstance(actual, list) or len(actual) != 16 or
+            any(not isinstance(a,list) or len(a)!=3 or
+                any(type(n) not in (int,float) or
+                    not math.isfinite(n) or abs(n-b)>1e-6
+                    for n,b in zip(a,expect))
+                for a,expect in zip(actual,rays))):
+        raise ValueError('unapproved VL53L8CX physical rays, zone order or mounting')
+    settings = c.get('settings')
+    if not isinstance(settings, dict) or set(settings) != SENSOR_SETTING_KEYS:
+        raise ValueError('invalid 360-input sensor timing/noise settings')
+    import math
+    for key in ('tof_period_frames', 'flow_period_frames'):
+        if type(settings[key]) is not int or not 1 <= settings[key] <= 20:
+            raise ValueError('invalid sensor sampling period')
+    for key in ('tof_delay_frames', 'flow_delay_frames'):
+        if type(settings[key]) is not int or not 0 <= settings[key] < 4:
+            raise ValueError('invalid sensor frame delay')
+    for key in ('tof_dropout_prob', 'flow_dropout_prob'):
+        value = settings[key]
+        if type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1:
+            raise ValueError('invalid sensor dropout probability')
+    for key in ('gyro_bias_std_rad_s', 'sensor_noise_scale'):
+        value = settings[key]
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            raise ValueError('invalid sensor noise scale')
+    if not HEX64.fullmatch(str(c.get('sha256') or '')):
+        raise ValueError('missing 360-input sensor fingerprint')
+    digest = hashlib.sha256(json.dumps(
+        {key: value for key, value in c.items() if key != 'sha256'},
+        sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+    if digest != c['sha256']:
+        raise ValueError('360-input sensor fingerprint mismatch')
     return {'schema': schema, 'obs_dim': dim, 'checkpoint_schema': source.get('checkpoint_schema'),
             'step': source.get('step'), 'actor_sha256': source.get('actor_sha256'),
             'training_source_commit': source.get('git_commit'),
-            'sensor_contract_sha256': (obs.get('sensor_contract') or {}).get('sha256') if schema in (2, 3) else None}
+            'sensor_contract_sha256': obs['sensor_contract']['sha256']}
 
 
 def approval_for_bundle(bundle: dict, policy_file: Path, *, checkpoint_sha256: str) -> dict:
     identity = validate_browser_bundle(bundle)
-    if identity['schema'] not in (2, 3) or not HEX64.fullmatch(checkpoint_sha256):
-        raise ValueError('approval requires trained 232/360 actor and checkpoint hash')
+    if identity['schema'] != 3 or not HEX64.fullmatch(checkpoint_sha256):
+        raise ValueError('approval requires a trained 360 actor and retained checkpoint hash')
     if not HEX64.fullmatch(str(identity['actor_sha256'] or '')):
         raise ValueError('actor SHA256 missing')
     if not HEX40.fullmatch(str(identity['training_source_commit'] or '')):
@@ -202,58 +208,34 @@ def approval_for_bundle(bundle: dict, policy_file: Path, *, checkpoint_sha256: s
 
 
 def verify_approved_release(policy_path: Path, approval_path: Path) -> dict:
-    """Validate either a checkpoint-archived or explicitly inference-only release.
+    """One reviewed trained policy, one complete retained checkpoint hash.
 
-    Schema 1 is unchanged: the training checkpoint SHA256 must be recorded.
-    Schema 2 is an intentional, visibly labelled release exception when
-    the original training checkpoint was not retained. No fabricated hash:
-    independently pin the exported policy *bytes*, the actor, training
-    source, exact sensor contract, Git blob and uploaded frozen-exam
-    evidence archive. These hashes are identity checks, not proof of
-    hardware fidelity or a post-step mission.
+    The owner can replace main's policy after independent physical exams,
+    but no historical/inference-only release exceptions survive here.
     """
     approval = json.loads(approval_path.read_text(encoding='utf-8'))
-    common = {'release_schema', 'policy_file', 'policy_sha256', 'policy_git_blob',
+    fields = {'release_schema', 'policy_file', 'policy_sha256', 'policy_git_blob',
               'checkpoint_sha256', 'schema', 'obs_dim', 'checkpoint_schema',
               'step', 'actor_sha256', 'training_source_commit',
               'sensor_contract_sha256'}
-    schema = approval.get('release_schema')
-    if schema == 1:
-        if set(approval) != common or not HEX64.fullmatch(
-                str(approval.get('checkpoint_sha256') or '')):
-            raise ValueError('unrecognised or incomplete archived-checkpoint approval')
-    elif schema == 2:
-        extra = {'checkpoint_archive_status', 'evaluation_bundle_sha256',
-                 'approval_basis'}
-        if set(approval) != (common | extra):
-            raise ValueError('unrecognised inference-only approval contract')
-        if (approval['checkpoint_sha256'] is not None or
-                approval['checkpoint_archive_status'] != 'not_provided' or
-                approval['approval_basis'] != 'owner-reviewed-inference-only' or
-                not HEX64.fullmatch(str(approval['evaluation_bundle_sha256'] or ''))):
-            raise ValueError('inference-only release cannot claim an unknown checkpoint hash')
-    else:
-        raise ValueError('unrecognised release approval schema')
-    if approval['policy_file'] != 'showcase/champion.emupolicy':
-        raise ValueError('release approval points outside champion path')
-    if hashlib.sha256(policy_path.read_bytes()).hexdigest() != approval['policy_sha256']:
-        raise ValueError('approved browser policy bytes have changed')
-    identity = validate_browser_bundle(json.loads(policy_path.read_text(encoding='utf-8')))
-    if (identity['schema'], identity['checkpoint_schema'], identity['obs_dim']) not in (
-        (2, 8, 232), (3, 9, 360)
-    ):
-        raise ValueError('approval must reference a verified 232/360-input trained actor')
-    if schema == 2 and identity['schema'] != 3:
-        raise ValueError('inference-only approval only supported for 360-input actor')
-    for field, value in identity.items():
+    if (set(approval) != fields or approval.get('release_schema') != 1 or
+            not HEX64.fullmatch(str(approval.get('checkpoint_sha256') or '')) or
+            approval.get('policy_file') != 'showcase/champion.emupolicy'):
+        raise ValueError('Current release requires a source-pinned trained actor and checkpoint')
+    policy_bytes = policy_path.read_bytes()
+    if hashlib.sha256(policy_bytes).hexdigest() != approval['policy_sha256']:
+        raise ValueError('Approved policy bytes changed')
+    identity = validate_browser_bundle(json.loads(policy_bytes))
+    if (identity['schema'],identity['checkpoint_schema'],identity['obs_dim']) != (3,9,360):
+        raise ValueError('Release must be the current physical 360 actor')
+    for field,value in identity.items():
         if approval.get(field) != value:
-            raise ValueError(f'approved release {field} disagrees with bundled policy')
-    actual_blob = subprocess.run(['git', 'hash-object', str(policy_path)],
-                                 check=True, text=True, capture_output=True).stdout.strip()
-    if approval['policy_git_blob'] != actual_blob:
-        raise ValueError('approved Git blob changed')
+            raise ValueError(f'Approved {field} differs from actor')
+    actual = subprocess.run(['git','hash-object',str(policy_path)],
+                            check=True,text=True,capture_output=True).stdout.strip()
+    if actual != approval['policy_git_blob']:
+        raise ValueError('Approved Git policy blob changed')
     return approval
-
 
 
 def verify_showcase_dist(dist: Path, *, expected_source_commit: str = '') -> dict:

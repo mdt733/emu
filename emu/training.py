@@ -58,7 +58,7 @@ from .results import (
     summarize_rollout, augment_rollout_row,
     ensure_run_dir, write_json, read_csv_rows, format_line,
     attach_field_influence, make_metrics_row, append_training_observation,
-    write_capability_field_artifacts,
+    write_capability_field_artifacts, StairCreditAudit,
 )
 from .evaluation import (
     build_worlds as build_eval_worlds, initial_metrics as initial_eval_metrics, evaluate_fixed,
@@ -84,6 +84,28 @@ TRAIN_PERF_TIMER_NAMES = (
 # Utilities / artifacts.
 # ---------------------------------------------------------------------------
 
+def compatible_academy_evidence_recipe(parent: TrainingConfig,
+                                       current: TrainingConfig) -> bool:
+    """Same measured stair-success semantics and physical lesson distribution.
+
+    A new *source SHA alone* is not evidence of a changed episode objective:
+    a logging-only fork must preserve its completed near/easy evidence.
+    This check is necessary but cannot prove code equivalence; a deliberate
+    new success-definition implementation must explicitly reset evidence.
+    """
+    if not parent.science_step_finish_on_transfer:
+        return False
+    return all(getattr(parent, name) == getattr(current, name)
+               for name in (
+                   'science_step_finish_on_transfer',
+                   'science_step_goal_weight', 'science_step_approach_m',
+                   'academy_stream', 'academy_height_cap_m',
+                   'academy_course_episode_frames',
+                   'terrain_carpet', 'terrain_carpet_prisms',
+                   'terrain_step_max_m', 'terrain_lesson',
+                   'solver_iterations', 'solver_ls_iterations'))
+
+
 def env_kwargs_from_args(args) -> dict:
     """One source of truth for the physical/sensor envelope used by training."""
     return dict(
@@ -100,6 +122,20 @@ def env_kwargs_from_args(args) -> dict:
         terrain_lesson=args.terrain_lesson,
         temporal_vx_reward_share=args.temporal_vx_reward_share,
         stillness_birth_frac=args.stillness_birth_frac,
+        science_gate_mode=args.science_gate_mode,
+        science_phase_lowcmd_scale=args.science_phase_lowcmd_scale,
+        science_phase_sync_strength=args.science_phase_sync_strength,
+        science_crouch_allowance_m=args.science_crouch_allowance_m,
+        science_stride_efficiency_weight=args.science_stride_efficiency_weight,
+        science_supported_cross_bonus=args.science_supported_cross_bonus,
+        science_foothold_bonus=args.science_foothold_bonus,
+        science_bilateral_support_bonus=args.science_bilateral_support_bonus,
+        science_sensor_teacher_bonus=args.science_sensor_teacher_bonus,
+        science_followthrough_bonus=args.science_followthrough_bonus,
+        science_step_goal_weight=args.science_step_goal_weight,
+        science_step_velocity_relief=args.science_step_velocity_relief,
+        science_step_approach_m=args.science_step_approach_m,
+        science_step_finish_on_transfer=args.science_step_finish_on_transfer,
         academy_stream=args.academy_stream,
         terrain_carpet=args.terrain_carpet,
         terrain_carpet_prisms=args.terrain_carpet_prisms,
@@ -310,6 +346,40 @@ def train(args: TrainingConfig) -> int:
             # erase evidence on later same-source crash recovery.
             ancestor_sha = ((resumed_payload.get('meta', {}).get('source_provenance') or {})
                             .get('git_commit'))
+            # Evidence is keyed to the physical lesson's success definition,
+            # NOT merely the Python source SHA. v5054 changed that definition,
+            # so a legacy source fork must discard incomparable evidence.
+            # Conversely a logging-only v5055 research fork from an already
+            # v5054-trained actor must NOT silently empty its curriculum.
+            # Cross-source preservation requires the parent's saved training
+            # recipe to prove matching active step-lesson semantics.
+            if (args.science_step_finish_on_transfer and
+                    ancestor_sha != source_provenance_from_env().get('git_commit')):
+                safe_evidence_fork = False
+                if args.resume and args.resume.lower() != 'auto':
+                    parent_cfg_path = (
+                        Path(args.resume).expanduser().resolve().parent.parent
+                        / 'training_config.json')
+                    if parent_cfg_path.is_file():
+                        try:
+                            parent_cfg = TrainingConfig.load(parent_cfg_path)
+                            safe_evidence_fork = (
+                                compatible_academy_evidence_recipe(
+                                    parent_cfg, args))
+                        except (ValueError, TypeError, OSError) as exc:
+                            print(f'{LOG_PREFIX} parent recipe not verifiable: '
+                                  f'{exc}; clearing incompatible evidence',
+                                  flush=True)
+                if safe_evidence_fork:
+                    print(f'{LOG_PREFIX} source-only diagnostic fork: '
+                          'preserved already-compatible Academy/STEP evidence',
+                          flush=True)
+                else:
+                    governor.academy_evidence = governor._empty_academy_evidence()
+                    governor.terrain_evidence = governor._empty_terrain_evidence()
+                    print(f'{LOG_PREFIX} new or unverified step-success recipe: '
+                          'reset inherited Academy/STEP evidence '
+                          '(height frontiers retained)',flush=True)
             if (args.science_reset_step_evidence_on_fork and
                     ancestor_sha != source_provenance_from_env().get('git_commit')):
                 governor.terrain_evidence = governor._empty_terrain_evidence()
@@ -542,6 +612,10 @@ def train(args: TrainingConfig) -> int:
             pass
     comp_window: list[tuple[float, float]] = []
     recent_rewards: list[float] = []
+    # Audit EVERY PPO rollout, not just the one in each periodic metrics row.
+    # This only aggregates already-transferred scalars; no GPU work or PPO
+    # behavior changes. The count is since THIS process began.
+    stair_audit = StairCreditAudit()
     log_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(LOG_EVERY_UPDATES))
     save_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(CHECKPOINT_EVERY_UPDATES))
     snapshot_every_steps = max(0, int(SNAPSHOT_EVERY_STEPS))
@@ -619,6 +693,7 @@ def train(args: TrainingConfig) -> int:
             row, aux, rollout_params_for_metrics=rollout_params_for_metrics,
             rollout_lr_scale_for_metrics=rollout_lr_scale_for_metrics,
             norm_diag=norm_diag, latest_eval=latest_eval, obs_norm_mode=OBS_NORM_MODE)
+        stair_audit.observe(row, aux)
         perf.add('host_rollout_summary', time.perf_counter() - host_summary_t0)
         governor_t0 = time.perf_counter()
         health_ppo = health.observe_ppo(row)
@@ -760,7 +835,8 @@ def train(args: TrainingConfig) -> int:
                       f"if this keeps firing.", flush=True)
             log_row = make_metrics_row(
                 step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
-                reward=float(np.mean(recent_rewards)), row=row, report=report, aux=aux,
+                reward=float(np.mean(recent_rewards)),
+                row={**row, **stair_audit.summary()}, report=report, aux=aux,
                 nan_grad_skips=nan_grad_skips, num_envs=args.envs,
                 jax_backend=jax.default_backend(), perf_row=perf.row(), rollout_steps=ROLLOUT_STEPS, base_lr=args.ppo_lr)
             log_io_t0 = time.perf_counter()
@@ -941,6 +1017,7 @@ def train(args: TrainingConfig) -> int:
             row, aux, rollout_params_for_metrics=rollout_params_for_metrics,
             rollout_lr_scale_for_metrics=rollout_lr_scale_for_metrics,
             norm_diag=norm_diag, latest_eval=latest_eval, obs_norm_mode=OBS_NORM_MODE)
+    stair_audit.observe(row, aux)
     health_ppo = health.observe_ppo(row)
     report = governor.advance_curriculum(
         row, step=total_steps, max_height_m=args.terrain_step_max_m,
@@ -977,7 +1054,8 @@ def train(args: TrainingConfig) -> int:
     nan_grad_skips = int(np.asarray(state.opt_state.total_notfinite))
     final_row = make_metrics_row(
         step=total_steps, elapsed=elapsed, wall_fps=wall_fps, train_fps=train_fps,
-        reward=float(np.mean(recent_rewards)), row=row, report=report, aux=aux,
+        reward=float(np.mean(recent_rewards)),
+        row={**row, **stair_audit.summary()}, report=report, aux=aux,
         nan_grad_skips=nan_grad_skips, num_envs=args.envs,
         jax_backend=jax.default_backend(), perf_row=perf.row(), rollout_steps=ROLLOUT_STEPS, base_lr=args.ppo_lr)
     append_training_observation(

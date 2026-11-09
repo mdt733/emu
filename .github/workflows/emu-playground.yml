@@ -1,18 +1,10 @@
 name: EMU Playground (GitHub Pages)
 
-# Public deployment is intentionally MANUAL. Merging experimental Python or
-# browser source to main must not silently replace the approved demo.
-# Pre-approval legacy deployments are pinned; an approved 232/360 release
-# must carry a reviewed release_approval.json + exact browser asset.
-# The release custodian explicitly runs this workflow after a browser review.
-# Release-specific publish requests are explicit opt-ins by the owner.
-# An ordinary main merge still does NOT publish the playground.
+# Deploy only after an explicit trained-actor approval. The *previous*
+# champion and all old deployment allowlists are available in Git history.
+# Merely merging sources must never publish an untrained robot.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - showcase/deployment_request.json
 
 permissions:
   contents: read
@@ -25,105 +17,37 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout code and policy
+      - name: Checkout reviewed source and actor
         uses: actions/checkout@v4
-      - name: Verify owner-authorized release request
-        if: ${{ github.event_name == 'push' }}
-        shell: bash
+      - name: Validate approved trained physical 360-input actor
+        run: python3 scripts/verify_showcase_release.py
+      - name: Prepare exactly the reviewed actor
+        env:
+          REPO: ${{ github.repository }}
         run: |
-          python3 - <<'PY'
-          import json
-          import subprocess
-          from pathlib import Path
-          r = json.loads(Path("showcase/deployment_request.json").read_text())
-          assert r["schema"] == 1
-          # Exact, individually reviewed release gates; no generic
-          # "deploy whatever happens to be on main" escape hatch.
-          pinned = {
-              "v5017-pose-lattice": (
-                  "163a61fef6e75fcba91f254830f3858210b491a0",
-                  "1c3ce6a89870e93a4431de5adf3af5ae9627cb6d"),
-              "v5032-pinnacle-260M": (
-                  "45f189367d51ad56dd57726b67e13be08b80bfae",
-                  "145475fa287b03ed6a60fd74cd8c6ef59c487d13"),
-              # Explicitly owner-reviewed, source-verified 200M inference actor.
-              "v5048-temporal-speed-200M": (
-                  "020bd17ab0efa84d97b68c7a4f43b759097bdfbb",
-                  "8c78f1650efc76e96ee249f42f9f6496e6f2fe68"),
-          }
-          assert r["release"] in pinned, "Unknown owner-approved release"
-          policy_blob,viewer_blob = pinned[r["release"]]
-          assert r["policy_git_blob"] == policy_blob
-          assert r["viewer_git_blob"] == viewer_blob
-          # Bind the request to actual reviewed files in THIS checkout.
-          actual_policy = subprocess.check_output(
-              ["git", "hash-object", "showcase/champion.emupolicy"],
-              text=True).strip()
-          actual_viewer = subprocess.check_output(
-              ["git", "hash-object", "emu/viewer_src/src/main.js"],
-              text=True).strip()
-          assert actual_policy == policy_blob, (
-              f"Policy differs from approved release: {actual_policy}")
-          assert actual_viewer == viewer_blob, (
-              f"Viewer differs from approved release: {actual_viewer}")
-          print("Exact owner-approved GitHub Pages release validated")
-          PY
-      - name: Install Node.js
-        uses: actions/setup-node@v4
+          python3 scripts/prepare_showcase.py \
+            --policy showcase/champion.emupolicy \
+            --source-url "https://github.com/$REPO" \
+            --source-commit "$GITHUB_SHA"
+      - uses: actions/setup-node@v4
         with:
           node-version-file: .nvmrc
           cache: npm
           cache-dependency-path: emu/viewer_src/package-lock.json
-      - name: Require approved legacy champion OR explicitly pinned 232/360 release
-        if: ${{ hashFiles('showcase/release_approval.json') == '' }}
-        shell: bash
-        run: |
-          test -f showcase/champion.emupolicy
-          ACTUAL="$(git hash-object showcase/champion.emupolicy)"
-          EXPECTED="067d6156f0f9de629eabb1a69cf1b0ceb86db24c"
-          if [ "$ACTUAL" != "$EXPECTED" ]; then
-            echo "Champion has changed. Update release process deliberately; refusing accidental deployment." >&2
-            exit 1
-          fi
-      - name: Validate approved 120M policy provenance
-        if: ${{ hashFiles('showcase/release_approval.json') == '' }}
-        shell: bash
-        run: |
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-          p = json.loads(Path('showcase/champion.emupolicy').read_text())
-          source, policy = p['source'], p['policy']
-          assert p['format'] == 'emu-policy' and p['schema'] == 1
-          assert source['git_commit'] == 'a5996b8cda2c394c7c65e3e938282a3808ded121'
-          assert source['step'] == 120061952 and source['checkpoint_schema'] == 7
-          assert policy['obs_dim'] == 220 and policy['action_dim'] == 6
-          assert p['training']['pitch_command_max_deg'] == 15.0
-          print('Approved browser-only Pitch15 120M champion verified')
-          PY
-      - name: Validate exact approved 232/360 policy release
-        if: ${{ hashFiles('showcase/release_approval.json') != '' }}
-        run: python3 scripts/verify_showcase_release.py
-      - name: Prepare static policy and manifest
-        env:
-          REPO: ${{ github.repository }}
-        run: python3 scripts/prepare_showcase.py --source-url "https://github.com/$REPO" --source-commit "$GITHUB_SHA"
-      - name: Install locked viewer dependencies
+      - name: Install locked dependencies
         run: npm ci --prefix emu/viewer_src --no-audit --no-fund
-      - name: Run JavaScript contract tests
-        run: npm run test --prefix emu/viewer_src
-      - name: Build static MuJoCo viewer
+      - name: Test browser contracts
+        run: npm test --prefix emu/viewer_src
+      - name: Build source-pinned viewer
         run: npm run build --prefix emu/viewer_src
-      - name: Verify bundled policy and WASM assets
+      - name: Verify deployed bytes
         run: python3 scripts/verify_showcase_release.py --verify-dist --expect-source-commit "$GITHUB_SHA"
-      - name: Reject viewer builds that modify tracked source
+      - name: Reject modifications to source
         run: |
           git diff --exit-code
           test -z "$(git ls-files --others --exclude-standard)"
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-      - name: Upload site artifact
-        uses: actions/upload-pages-artifact@v4
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v4
         with:
           path: emu/viewer_src/dist
 
@@ -137,6 +61,5 @@ jobs:
       pages: write
       id-token: write
     steps:
-      - name: Deploy to GitHub Pages
-        id: pages
+      - id: pages
         uses: actions/deploy-pages@v4

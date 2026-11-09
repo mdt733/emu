@@ -25,19 +25,16 @@ from .contracts import (
     PITCH_CMD_MAX_RAD,
     CONTROL_SUBSTEPS,
     HISTORY_LEN,
-    OBS_DIM,
-    OBS_SCHEMA_LEGACY, OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN,
-    SENSOR_OBS_DIM, SENSOR_BASE_OBS_DIM, SENSOR_OBS_FIELDS,
-    TERRAIN_OBS_DIM,TERRAIN_BASE_OBS_DIM,TERRAIN_OBS_FIELDS,
-    sensor_observation_contract,
+    OBS_SCHEMA_TERRAIN,
+    TERRAIN_OBS_DIM, TERRAIN_BASE_OBS_DIM, TERRAIN_OBS_FIELDS,
+    TERRAIN_ARRAY_ONLY_REVISION, sensor_observation_contract,
     SIM_DT,
 )
-from .environment import TARGET_SPAN
+from .environment import TARGET_SPAN, NEUTRAL_ROOT_Z
 from .contracts import ROBOT_XML, VERSION
 from .ppo import PPO_HIDDEN_SIZES, PPO_STD_MAX, PPO_STD_MIN, build_obs_norm_mask
 
 FORMAT = "emu-policy"
-SCHEMA = 1
 EVAL_KEYS = (
     "final_step", "broad", "screen_hard_recovery", "screen_growth_headroom",
     "recovery", "worst_direction", "calibration_mae", "competent_nodes",
@@ -69,28 +66,14 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
                                     bundle.get('control') or {})
     source = bundle.get('source') or {}
     training = bundle.get('training') or {}
-    if bundle.get('format') != FORMAT or bundle.get('schema') not in (1,2,3):
-        raise ValueError('not an EMU schema-1/2/3 exported actor')
-    schema = bundle['schema']
-    obs_dim = TERRAIN_OBS_DIM if schema==3 else SENSOR_OBS_DIM if schema==2 else OBS_DIM
-    base_dim = TERRAIN_BASE_OBS_DIM if schema==3 else SENSOR_BASE_OBS_DIM if schema==2 else BASE_OBS_DIM
-    fields = TERRAIN_OBS_FIELDS if schema==3 else SENSOR_OBS_FIELDS if schema==2 else BASE_OBS_FIELDS
-    actor_schema = OBS_SCHEMA_TERRAIN if schema==3 else OBS_SCHEMA_SENSOR if schema==2 else OBS_SCHEMA_LEGACY
-    if schema in (2,3):
-        # The public schema-2 bundle must agree with the REAL train-time
-        # sensor timing, geometry and contract hash; size alone is unsafe.
-        provided = observation.get('sensor_contract')
-        if not isinstance(provided,dict):
-            raise ValueError('missing schema-2 sensor contract')
-        # Both archived 360-tripod and the new 360-array-only contracts
-        # may be examined, but never interpreted as each other.
-        array_only = (schema==3 and
-            provided.get('sensor_model_revision') ==
-                'forward_tof4x4_array_plane_fit_no_tripod_2')
-        expected = sensor_observation_contract(
-            provided.get('settings'),schema=actor_schema,array_only=array_only)
-        if provided != expected:
-            raise ValueError('schema-2 sensor contract hash/geometry mismatch')
+    if bundle.get('format') != FORMAT or bundle.get('schema') != 3:
+        raise ValueError('Only current schema-3 360-input actors can be examined')
+    obs_dim, base_dim, fields = TERRAIN_OBS_DIM, TERRAIN_BASE_OBS_DIM, TERRAIN_OBS_FIELDS
+    actor_schema = OBS_SCHEMA_TERRAIN
+    provided = observation.get('sensor_contract')
+    if not isinstance(provided,dict) or provided != sensor_observation_contract(
+            provided.get('settings'),schema=OBS_SCHEMA_TERRAIN,array_only=True):
+        raise ValueError('Exported physical 4x4 sensor contract differs from trainer')
     if (policy.get('obs_dim'), policy.get('base_obs_dim'),
         policy.get('history_len'), policy.get('action_dim')) != (
             obs_dim, base_dim, HISTORY_LEN, ACTION_DIM):
@@ -114,9 +97,8 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
     if (source.get('robot_model_sha256') != model_hash or
         bundle.get('robot_xml') != xml_bytes.decode('utf-8')):
         raise ValueError('export robot XML differs from this MJX model; refuse a false baseline')
-    expected_ckpt_schema=9 if schema==3 else 8 if schema==2 else 7
-    if source.get('checkpoint_schema') != expected_ckpt_schema or not isinstance(source.get('step'), int):
-        raise ValueError(f'export provenance is not a known schema-{expected_ckpt_schema} training lineage')
+    if source.get('checkpoint_schema') != 9 or not isinstance(source.get('step'), int):
+        raise ValueError('Export provenance must be a schema-9 training lineage')
     if training.get('attitude_profile') not in ('v5014','v5015'):
         raise ValueError('missing supported training attitude profile')
     pitch = float(training.get('pitch_command_max_deg', float('nan')))
@@ -127,7 +109,7 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
     mult_i=float(velocity_i.get('multiplier',1.))
     if (not np.isfinite(ramp_i) or not .1<=ramp_i<=5. or
             not np.isfinite(mult_i) or not 1.<=mult_i<=3. or
-            (mult_i>1. and schema!=3)):
+            mult_i>3.):
         raise ValueError('unsupported velocity-I controller or schema')
     phase_gain = float(control.get('phase_speed_gain', float('nan')))
     if not (np.isfinite(pitch) and 0 < pitch <= 45 and
@@ -172,10 +154,8 @@ def load_exported_actor_for_exam(path: Path) -> tuple[dict, dict, dict]:
         'artifact_sha256': hashlib.sha256(path.read_bytes()).hexdigest(),
         'robot_model_sha256': model_hash,
         'observation_schema': actor_schema,
-        'sensor_settings': dict(observation['sensor_contract']['settings']) if schema in (2,3) else {},
-        'array_only': bool(schema==3 and
-            observation['sensor_contract'].get('sensor_model_revision') ==
-                'forward_tof4x4_array_plane_fit_no_tripod_2'),
+        'sensor_settings': dict(observation['sensor_contract']['settings']),
+        'array_only': True,
         'obs_dim': obs_dim,
     }
 
@@ -317,26 +297,21 @@ def _training_demo_nodes(field_state: dict, limits: dict, *, count: int = 96) ->
 def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
                  label: str | None = None) -> dict:
     checkpoint = checkpoint.expanduser().resolve()
-    # Legacy policy bundles remain schema 1. Sensor checkpoints explicitly
-    # cross the versioned schema-8 gate before any browser export takes place.
+    # A new champion is precisely one 360-input, source-pinned actor.
+    # Historical schemas and warm-start conversion remain in Git only.
     unverified = load_checkpoint(checkpoint, validate=False)
     meta_hint = unverified.get('meta') or {}
-    actor_schema = meta_hint.get('observation_schema',OBS_SCHEMA_LEGACY)
-    is_sensor = actor_schema in (OBS_SCHEMA_SENSOR,OBS_SCHEMA_TERRAIN)
-    if is_sensor:
-        contract = meta_hint.get('sensor_contract')
-        payload = load_checkpoint(
-            checkpoint, expected_observation_schema=actor_schema,
-            expected_sensor_contract=contract)
-        if actor_schema == OBS_SCHEMA_TERRAIN:
-            obs_dim,base_dim,obs_fields = TERRAIN_OBS_DIM,TERRAIN_BASE_OBS_DIM,TERRAIN_OBS_FIELDS
-        else:
-            obs_dim,base_dim,obs_fields = SENSOR_OBS_DIM,SENSOR_BASE_OBS_DIM,SENSOR_OBS_FIELDS
-    else:
-        payload = load_checkpoint(checkpoint)
-        contract = None
-        obs_dim, base_dim = OBS_DIM, BASE_OBS_DIM
-        obs_fields = BASE_OBS_FIELDS
+    if meta_hint.get('observation_schema') != OBS_SCHEMA_TERRAIN:
+        raise ValueError('Only current terrain_360 checkpoints can be exported')
+    contract = meta_hint.get('sensor_contract')
+    if not isinstance(contract,dict) or contract != sensor_observation_contract(
+            contract.get('settings'),schema=OBS_SCHEMA_TERRAIN,array_only=True):
+        raise ValueError('Cannot export nonphysical or historical sensor contract')
+    payload = load_checkpoint(
+        checkpoint,expected_observation_schema=OBS_SCHEMA_TERRAIN,
+        expected_sensor_contract=contract)
+    actor_schema = OBS_SCHEMA_TERRAIN
+    obs_dim,base_dim,obs_fields = TERRAIN_OBS_DIM,TERRAIN_BASE_OBS_DIM,TERRAIN_OBS_FIELDS
     run_meta = {}
     run_meta_path = checkpoint.parent.parent / 'run_meta.json'
     if run_meta_path.exists():
@@ -350,7 +325,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
     cp = curriculum.get('params') or {}
 
     if len(pi) != 3:
-        raise ValueError(f"viewer schema 1 expects a 3-layer actor, got {len(pi)} layers")
+        raise ValueError(f"Current 360-input policy requires exactly three actor layers, got {len(pi)} layers")
 
     obs_mean = np.asarray(norm['mean'], dtype=np.float32)
     obs_std = np.sqrt(np.asarray(norm['var'], dtype=np.float32))
@@ -391,7 +366,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
     source_version = str(source_prov.get('version') or '')
     bundle = {
         "format": FORMAT,
-        "schema": 3 if actor_schema==OBS_SCHEMA_TERRAIN else 2 if is_sensor else SCHEMA,
+        "schema": 3,
         "created_by": f"EMU {VERSION}",
         "source": {
             "checkpoint": checkpoint.name,
@@ -418,6 +393,34 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
             "solver_iterations": run_cfg.get('solver_iterations'),
             "solver_ls_iterations": run_cfg.get('solver_ls_iterations'),
             "stillness_birth_frac": _scalar(run_cfg, "stillness_birth_frac", 0.),
+            # v5051 phase and teaching settings are *experiment provenance*.
+            # Phase clock dynamics must also be reproduced at inference.
+            "science_phase_lowcmd_scale": _scalar(
+                run_cfg, "science_phase_lowcmd_scale", 1.),
+            "science_gate_mode": run_cfg.get("science_gate_mode","legacy"),
+            "science_phase_sync_strength": _scalar(
+                run_cfg, "science_phase_sync_strength",1.),
+            "science_crouch_allowance_m": _scalar(
+                run_cfg, "science_crouch_allowance_m",0.),
+            "science_stride_efficiency_weight": _scalar(
+                run_cfg, "science_stride_efficiency_weight",0.),
+            "science_supported_cross_bonus": _scalar(
+                run_cfg, "science_supported_cross_bonus",0.),
+            "science_foothold_bonus": _scalar(
+                run_cfg, "science_foothold_bonus",0.),
+            "science_bilateral_support_bonus": _scalar(
+                run_cfg, "science_bilateral_support_bonus",0.),
+            "science_sensor_teacher_bonus": _scalar(
+                run_cfg, "science_sensor_teacher_bonus",0.),
+            "science_followthrough_bonus": _scalar(
+                run_cfg, "science_followthrough_bonus",0.),
+            # v5052 deployment provenance; 360 actor remains unchanged.
+            "science_step_goal_weight": _scalar(
+                run_cfg, "science_step_goal_weight",0.),
+            "science_step_velocity_relief": _scalar(
+                run_cfg, "science_step_velocity_relief",0.),
+            "science_step_approach_m": _scalar(
+                run_cfg, "science_step_approach_m",0.),
             "carpet_transition_cap_deg": _scalar(
                 run_cfg, 'carpet_transition_cap_deg', 3.0),
             "academy_stream": bool(run_cfg.get('academy_stream', False)),
@@ -448,7 +451,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
         },
         "observation": {
             "base_fields": list(obs_fields),
-            "sensor_contract": contract if is_sensor else None,
+            "sensor_contract": contract,
             "history_order": "oldest_to_newest",
             "mean": _f32_blob(obs_mean),
             "std": _f32_blob(obs_std),
@@ -462,7 +465,7 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
             "actuated_joints": list(ACTUATED_JOINTS),
             "target_span_rad": [float(x) for x in np.asarray(TARGET_SPAN)],
             "one_control_frame_actuation_delay": True,
-            "neutral_root_z_m": 0.2584,
+            "neutral_root_z_m": NEUTRAL_ROOT_Z,
             "default_commands": {
                 "vx": 0.04, "vy": 0.0, "yaw": 0.0, "height": 0.0,
                 "pitch": 0.0, "roll": 0.0, "step_height": 0.012,

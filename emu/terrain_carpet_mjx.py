@@ -1,6 +1,6 @@
 """Current true-prism MJX terrain generator.
 
-Four 75cm tiles carry four exact height samples each, as non-contact
+Four 1m tiles carry four exact height samples each, as non-contact
 MuJoCo hfields. Each tile's two real convex triangular-prism meshes
 provide the ONLY physical terrain collisions. All six specialists use
 the same generator, collider and ToF source. Legacy nine-box geometry
@@ -10,12 +10,36 @@ from __future__ import annotations
 import math
 import xml.etree.ElementTree as ET
 
-TILE_M=0.75
+TILE_M=1.0
 TILE_HALF_M=TILE_M/2
 TILE_SIZE_Z_M=.50
 TILE_BASE_M=.14
 TILE_WINDOW_SIDE=2
 TILE_COUNT=TILE_WINDOW_SIDE**2
+
+def academy_near_lip_spawn_x(xp, x, approach_m):
+    """An Academy nursery starts upstream of a REAL physical tile seam.
+
+    This only changes the spawn position, never the prism height/profile or
+    ToF source. Original birth x remains exact when the feature is disabled.
+    """
+    if approach_m == 0.:
+        return x
+    return (xp.floor(x / TILE_M) + 1.) * TILE_M - approach_m
+
+def exact_exam_lip_profiles(xp, signed_height_m):
+    """One exact-height +X tile seam at x=1m; all other seams level.
+
+    Built from the same REAL prism meshes as training. Zero jitter, no
+    fictional collision ledge. Signed height is per world; negative means
+    a descent. Only the isolated frozen-policy exam calls this helper.
+    """
+    height=xp.asarray(signed_height_m,dtype=xp.float32)
+    idx=xp.arange(-PROFILE_HALF,PROFILE_HALF,dtype=xp.int32)
+    x=xp.where(idx[None,:]>=1,height[:,None],xp.zeros_like(height[:,None]))
+    y=xp.zeros_like(x)
+    return x,y
+
 VISIT_HISTORY=64
 PROFILE_HALF=128
 PROFILE_SIZE=PROFILE_HALF*2
@@ -168,8 +192,15 @@ def make_profiles(xp,seeds,up,down):
     # teacher correctly rejects. Start at 95% and reach 150% by tile 14.
     # Global coordinates keep revisits immutable throughout the episode.
     challenge=.95+.55*xp.minimum(1.,xp.abs(idx.astype(xp.float32))/14.)
-    signed_x=xp.where(hx<.5,.90*up[:,None],
-                       -.90*down[:,None])*(.75+.25*ax)*challenge
+    # First approach can originate in tile -1 or 0; the first +X lip
+    # is indexed 0 or 1 respectively. Expose 0.79..1.03x the nominal
+    # 3mm+ frontier after <=0.1x local tile jitter, so the teacher actually
+    # receives enough near-height (>1.5mm) evidence to promote/retreat.
+    # Keep all later seams' old varied challenge progression unchanged.
+    initial_seam=(idx==0)|(idx==1)
+    amplitude=xp.where(initial_seam,.98*(.90+.10*ax),
+                       .90*(.75+.25*ax)*challenge)
+    signed_x=xp.where(hx<.5,up[:,None],-down[:,None])*amplitude
     hy=hash_float(xp,0,idx,seed,103)
     ay=hash_float(xp,0,idx,seed,104)
     # v5043 experimental carpet: a newly generated row in Y is also a
@@ -195,7 +226,7 @@ def tile_level(xp,ti,tj,seeds,xprofile,yprofile,up,down):
     return xbase+ybase+noise
 
 def tile_geometry(xp,ti,tj,seeds,px,py,up,down,slope_deg,
-                  transition_limit_deg=3.0):
+                  transition_limit_deg=3.0,exact_grade_x=None):
     """All four world vertex heights from one continuous grade function.
 
     Neighbours have identical smooth vertex height at the shared edge.
@@ -248,6 +279,13 @@ def tile_geometry(xp,ti,tj,seeds,px,py,up,down,slope_deg,
                 wave+random_amp*corner)
     heights=xp.stack((z_at(0.,0.),z_at(TILE_M,0.),
                       z_at(0.,TILE_M),z_at(TILE_M,TILE_M)),axis=1)
+    if exact_grade_x is not None:
+        # Exam-only true continuous signed +X plane. An exact lip may
+        # coexist with it: the same offset is added to all FOUR corners
+        # of a tile, so only the specified boundary is discontinuous.
+        gradient=xp.tan(xp.deg2rad(exact_grade_x))
+        heights=mean[:,None]+gradient[:,None]*(
+            x[:,None]+xp.asarray([0.,TILE_M,0.,TILE_M])[None,:])
     centre=xp.mean(heights,axis=1)
     values=xp.clip(.5+(heights-centre[:,None])/TILE_SIZE_Z_M,.002,.998)
     position=xp.stack((x+TILE_HALF_M,y+TILE_HALF_M,
@@ -274,10 +312,10 @@ def update_tile_mocaps(xp, positions, mocap_ids, centers, changed=None):
 def midpoint_anchor(xp, root_xy):
     """Lower-left GLOBAL tile index of the 2x2 window for each robot.
 
-    At the centre of its current 75cm square, load the next square
+    At the centre of its current 1m square, load the next square
     in that direction (independently for X/Y). The current square
     remains present in all four quadrants. From the torso centre,
-    the nearest unloaded boundary is at least TILE_M/2 = 37.5cm
+    the nearest unloaded boundary is at least TILE_M/2 = 50cm
     away, exceeding the normal ~30cm horizontal ToF footprint.
     This is a logical switch; the abandoned solid still needs a
     real foot-clearance check before moving.
@@ -304,13 +342,14 @@ def slot_indices(xp,cx,cy):
     return xp.stack(xs,axis=1),xp.stack(ys,axis=1)
 
 def generate_window(xp,cx,cy,seeds,px,py,up,down,slope,
-                    transition_limit_deg=3.0):
+                    transition_limit_deg=3.0,exact_grade_x=None):
     xi,yi=slot_indices(xp,cx,cy)
     centers=[];heights=[]
     for i in range(TILE_COUNT):
         center,verts=tile_geometry(
             xp,xi[:,i],yi[:,i],seeds,px,py,up,down,slope,
-            transition_limit_deg=transition_limit_deg)
+            transition_limit_deg=transition_limit_deg,
+            exact_grade_x=exact_grade_x)
         centers.append(center)
         heights.append(verts)
     return (xp.stack(centers,axis=1),

@@ -177,12 +177,19 @@
         <summary>Sensor inspector <span class="subtle">optional 4×4 depth overlay</span></summary>
     <aside id="depthPanel" class="depth-panel glass" aria-label="Front depth sensor laboratory">
       <div class="depth-head"><b>4×4 depth scan</b><label><input id="depthOn" type="checkbox" /> On</label></div>
-      <div class="depth-sub">Optional visual diagnostic; actor's physical input is separate</div>
+      <div class="depth-sub">45°×45° VL53L8CX optical preview, distinct from the 60° training-source rays. Sensor lab runs the 40cm body in browser CPU MuJoCo with no trained gait.</div>
       <div class="depth-foot">Measures the currently selected Field or Training Carpet world. Never switches the simulation to a retired course.</div>
       <label class="depth-row">Downward tilt <output id="depthTiltOut">70°</output>
         <input id="depthTilt" type="range" min="0" max="90" value="70" step="5"/></label>
       <label class="depth-row">Forward mount <output id="depthMountOut">0 mm</output>
         <input id="depthMount" type="range" min="0" max="180" value="0" step="5"/></label>
+      <label class="depth-row">Vertical mount vs torso <output id="depthHeightOut">−30 mm</output>
+        <input id="depthHeight" type="range" min="-120" max="100" value="-30" step="5"/></label>
+      <label class="depth-row">Sideways mount <output id="depthLateralOut">+0 mm</output>
+        <input id="depthLateral" type="range" min="-120" max="120" value="0" step="5"/></label>
+      <label class="depth-row">Yaw aiming <output id="depthYawOut">+0°</output>
+        <input id="depthYaw" type="range" min="-30" max="30" value="0" step="1"/></label>
+      <button id="depthFootPreset" class="depth-copy" type="button">Restore chosen mount (70° / −30mm)</button>
       <label class="depth-row">Ray samples per zone
         <select id="depthSamples">
           <option value="auto" selected>Auto · current Field / Carpet</option>
@@ -190,7 +197,9 @@
           <option value="4">4 (64 rays)</option>
           <option value="5">5 (80 rays)</option>
         </select></label>
-      <label class="depth-visual"><input id="depthRays" type="checkbox" checked/> Show beams from sensor</label>
+      <label class="depth-visual"><input id="depthRays" type="checkbox" checked/> Show 45°×45° physical preview (green)</label>
+      <label class="depth-visual"><input id="depthActorRays" type="checkbox" checked/> Show exact trained-policy rays (magenta)</label>
+      <div id="actorDepthSource" class="depth-foot">Load an actor to compare its ray aiming with the sensor hardware.</div>
       <label class="depth-visual"><input id="depthFootprint" type="checkbox" checked/> Show 4×4 ground footprint</label>
       <label class="depth-row">Display <select id="depthView">
         <option value="height" selected>Terrain height · ±15 cm colours</option>
@@ -198,7 +207,7 @@
       </select></label>
       <div id="depthGrid" class="depth-grid" role="img" aria-label="Live 4 by 4 signed terrain heights in centimetres"></div>
       <div class="depth-far">↑ Farther ahead · nearer below · one sensor, square optical field</div>
-      <div class="depth-legend"><span style="color:#7fd7bf">Teal: flat zero</span> · <span style="color:#f2aa6d">orange: raised</span> · <span style="color:#6ab4ed">blue: lower</span> · <span style="color:#ffbb65">SELF: blocked</span> · <span style="color:#ffe175">yellow border: mixed edge</span> · grey: missing</div>
+      <div class="depth-legend"><span style="color:#7fd7bf">Teal: flat zero</span> · <span style="color:#f2aa6d">orange: raised</span> · <span style="color:#6ab4ed">blue: lower</span> · <span style="color:#ffbb65">FOOT: foot-blocked / SELF: other robot part</span> · <span style="color:#ffe175">yellow border: mixed edge</span> · grey: missing</div>
       <div id="depthNote" class="depth-foot">Waiting for robot · height relative to flat world z=0</div>
       <button id="depthCopy" class="depth-copy" type="button">Copy raw range + height + settings</button>
     </aside>

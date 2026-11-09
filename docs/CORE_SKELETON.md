@@ -1,138 +1,106 @@
-# EMU — live system skeleton and ownership audit
+# EMU — core skeleton (v5058 research source)
 
-This is a **map of the current working system**, not an experimental
-diary. The released v5032 260M 360-input policy on `main` is preserved.
-The v5048 50M-parent / eight-fork training campaign runs on its **own
-frozen source SHA**; the v5049 release-preparation branch does not
-retrain or silently migrate its checkpoints.
+**Purpose:** one page for understanding which piece owns what. This describes the executable system, not the history of experiments. The only active successor candidate is the **h40 / six C018 12V / rated-torque** robot; `main` remains protected. See [current handover](../handover.md).
 
-## One system, seven responsibilities
+## Loop
 
 ```text
-CLI: emu train / emu prism-exam / emu export-policy / emu viewer
-                    │
-      configuration + Git provenance + checkpoints
-                    │
-        six-servo robot.xml and true MJX world
-         ┌──────────┼──────────┐
-         │          │          │
-     2×2 carpet    sensors    birth cohorts
-    8 prisms      360 inputs  six specialists
-         └──────────┼──────────┘
-                    │
-       ONE actor / ONE optimiser / PPO
-          reward + curriculum + health
-                    │
-        source-pinned saved checkpoint
-                 ┌──┴──────┐
-       frozen independent   inference-only
-       contact examiner     .emupolicy → browser
+C018 motors + knee support + shin flex + two spherical feet
+                            |
+             MuJoCo/MJX: robot and real prism contacts
+                            |
+         ┌──────────────────┴──────────────────┐
+         |                                     |
+  noisy, delayed sensors                teacher's true facts
+  + requested commands                  contact, reward, fall
+         |                                     |
+  90 readings × 4 frames                       |
+         |                                     |
+       ONE 360→256→256→6 actor                 |
+         |                                     |
+   6 servo-position targets                    |
+         └───────────── physics ───────────────┘
+                           |
+     PPO actor+critic learns; governor chooses next episodes
+                           |
+    source-pinned checkpoint → independent exams → report
+                           |
+          validated .emupolicy → browser viewer
 ```
 
-The browser is a separate MuJoCo/WASM simulation of the released actor
-and representative park; it is **not** a substitute for the independent
-MJX exam of the actual terrain curriculum. There is no scripted
-climbing gait, second network, cloud evaluator or privileged terrain
-geometry in the deployable sensor observations.
+**Boundaries:** privileged contact/terrain ground truth belongs only to teaching; the actor sees 360 sensor/command/history values. Frozen exams do not feed PPO or curriculum. The browser runs its own MuJoCo/WASM world, not the batched MJX solver; a pretty viewer walk is not an independent exam.
 
-## Owners of the 25 live Python modules
+## Source ownership
 
-| Owner | Files under `emu/` |
-|---|---|
-| Entry point, commands and saved configuration | `__init__.py`, `cli.py`, `run.py`, `training_config.py` |
-| Real physics and sensor geometry | `contracts.py`, `environment.py`, `terrain_carpet_mjx.py`, `carpet_prism_mjx.py`, `domain_randomization.py`, `directional.py` |
-| One PPO policy and teaching | `training.py`, `ppo.py`, `rewards.py`, `curriculum.py`, `capability_focus.py`, `capability_field.py`, `training_health.py` |
-| Checkpoint, metrics and physical examinations | `checkpoint_io.py`, `results.py`, `evaluation.py`, `prism_exam.py` |
-| Actor delivery and viewer | `policy_export.py`, `viewer_server.py`, `capability_viewer.py` |
-| Hardware/system diagnosis | `doctor.py` |
+| Layer | Current owner |
+| --- | --- |
+| Physical model and morphology | `emu/robot.xml`, `emu/physical_variants.py` |
+| Deployment contract, sensor geometry, coordinate conventions | `emu/contracts.py`, `emu/tof_geometry.py`, `emu/directional.py` |
+| Physics, reset, sensors, rewards' measurements | `emu/environment.py` |
+| 2×2 rolling terrain, triangular-prism collisions | `emu/terrain_carpet_mjx.py`, `emu/carpet_prism_mjx.py` |
+| Mass/friction/servo domain variation | `emu/domain_randomization.py` |
+| Six teaching cohorts, lesson selection, evidence | `emu/capability_focus.py`, `emu/curriculum.py`, `emu/capability_field.py`, `emu/step_goal.py` |
+| Eight base reward terms and optional hypotheses | `emu/rewards.py` |
+| Actor/critic, on-policy rollouts, GAE, PPO | `emu/ppo.py` |
+| Training orchestration, immutable recipe, learner health | `emu/training.py`, `emu/training_config.py`, `emu/training_health.py` |
+| Single run CLI, checkpoints and resume | `emu/cli.py`, `emu/run.py`, `emu/checkpoint_io.py` |
+| Independent evaluations, reports, held-out stair evidence | `emu/evaluation.py`, `emu/prism_exam.py`, `emu/results.py`, `emu/step_autopsy.py` |
+| Actor export, browser and read-only field atlas | `emu/policy_export.py`, `emu/viewer_server.py`, `emu/viewer_src/`, `emu/capability_viewer.py` |
+| Hardware / environment diagnosis | `emu/doctor.py` |
 
-The physical robot is `emu/robot.xml`; the browser lives in
-`emu/viewer_src/`. The [read-only source-ownership inventory](../scripts/audit_core_dependencies.py) checks that all 25 modules
-have exactly one declared owner and no retired imports reappear. Run
-it to get live counts, instead of trusting an old numbered file list:
+## Hardware and timing
 
-```bash
-python scripts/audit_core_dependencies.py --json
-```
+- `h40` selects ~400 mm neutral height, ~506 g provisional total (460 g chassis with all six C018 servos, ~40 g hip carriers/feet, ~6 g carbon rods), 36 mm ball-foot diameter, six position actuators and two unpowered shin-flex hinges.
+- C018 12 V rated actuator force limit: **±0.980665 N·m**; stall torque is *not* continuously available. Actual torque-speed, thermal behaviour and the provisional actuator kv=0.624 N·m·s/rad speed-feedback term are **not yet hardware calibrated**. Unlike the retired passive motor-joint damping, kv is now inside the ±0.980665 N·m actuator force cap.
+- Each knee uses a scaled **compression** support strut; passive shin bending and 2 N·m/rad hip-roll centring are separate from the motor force limit.
+- Physics timestep 5 ms, four substeps per 20 ms actor frame (200 Hz physics / 50 Hz control). A one-frame servo-command delivery delay is modelled.
+- Real terrain: **four 1 m tiles** in a recycled 2×2 midpoint-controlled window; **eight convex triangular prisms**, not 18 and not nine boxes. The hfield tiles are non-contact source samplers.
+- One 360-field actor = four 90-field frames. IMU/proprioception, optical flow estimate, forward 4×4 ToF ranges/validity, estimated ground grade, shin flex and commanded velocity/posture; no teacher contact map.
+- PPO: two 256-unit hidden layers, Gaussian exploration, a separate critic, 32-frame rollout × 2048 environments, four epochs/eight minibatches.
 
-### Actual terrain and observation invariants
+## Learning / reporting
 
-- **Four** recyclable 75cm tiles in a 2×2 midpoint-controlled window,
-  each divided into **two** independently physical convex triangular
-  prism mesh colliders: eight terrain contact solids, not 18.
-- Four non-colliding 2×2-sample heightfields are source-height samplers,
-  not alternative foot-support collisions. Independent frozen
-  `prism_exam.py` checks real foot-on-physical-prism support.
-- All six specialist cohorts use this **same** JAX/MJX terrain
-  generator. Four frames × 90 deployable history fields = **360 actor
-  inputs**. The policy outputs six servo targets.
-- The feet-only solver saves contact work, while torso/leg penetration
-  is watched by virtual hard-strike safety probes. These are numerical
-  approximations that must pass physical plausibility checks.
-- Newton/linesearch `2/4` is an experimental measured performance
-  option, **not** a certified hardware-fidelity default. Physical
-  penetration, step support and CUDA compact/full reset parity remain
-  release-review gates.
-- An independent frozen exam must use the **actor's exported solver
-  identity**, actual 75cm terrain corners and source-pinned sensor
-  contract. The retired `(num_envs,9,4)` frozen-trace bug was fixed
-  in v5048 and caught before full training.
+The six specialist focuses are **command, resilience, slope, step, transition, control**. They are episode assignments sharing one set of actor weights. A fresh **20M** cold-start is the minimum standard foundation test. The Academy exposure grows after its configured introduction age; an Academy frontier is a teaching target, not proven step competence.
 
-## Active paths and outputs
+Every run lives outside Git at `~/emu-data/runs/<name>/` and includes resolved config, source/robot hash, policy+optimizer checkpoints, normalizer, teacher state, `metrics.csv`, independent `fixed_eval.csv`, and reproducible `results.md`/bundle. Exported `.emupolicy` is inference-only, not a complete learner rewind.
 
-| Responsibility | Stable entry / owner |
-|---|---|
-| Install and diagnostics | `scripts/setup_wsl.sh`, `emu doctor`, [INSTALL](INSTALL.md) |
-| One source-pinned training run | `emu train --run-dir ~/emu-data/runs/<study>-s<seed>/` |
-| Checkpoint and recovery | `emu/checkpoint_io.py`, `emu/run.py`; same SHA/config is mandatory |
-| Physical reproducibility | `scripts/probe_carpet_prism_mjx.py`, `emu prism-exam` |
-| GPU acceptance | `scripts/smoke_gpu_carpet.py`, `scripts/smoke_training_lifecycle.py` |
-| Metrics and research findings | `emu report`, [v5046 optimisation results](V5046_OVERNIGHT_RESULTS_20261105.md), [issue #17](https://github.com/mdt733/emu/issues/17) |
-| Protected public model | `showcase/champion.emupolicy`, `showcase/release_approval.json` |
-| Release verification | `scripts/verify_showcase_release.py`, [RELEASE_READINESS](RELEASE_READINESS.md) |
-| CI and publishing | `.github/workflows/emu-checks.yml`, `emu-playground.yml` |
+## Known fidelity boundaries
 
-Every training run owns its config, run_meta, console, metrics,
-checkpoints, frozen exams and exported actors in **one run directory**.
-Scratch experiments go under `~/emu-data/scratch/`. Never create
-additional working roots or hide trained data in the Git checkout.
+1. **VL53L8CX physical contract updated:** current h40 training and viewer use one 45°×45° square optical frustum (16 zone-centre rays), 70° down, 30mm below torso, zero forward/lateral/yaw; the 360 observation width is unchanged but its cryptographically-pinned geometry revision is new. The ST 4×4 zone-ID map explicitly accounts for the **two-axis lens inversion** in UM3109; verify PCB rotation before feeding ranges to the actor. A zone-centre ray is still an approximation of the sensor's multi-return optical histogram; validate foot occlusion against actual hardware.
+2. **Terrain upgraded:** current MJX uses four 1m rolling source tiles, exactly eight triangular convex prism colliders, midpoint recycling with real foot-clearance hold, shared teacher/raycast surface source. The CPU sensor-lab has the same 1m tile geometry but a fixed 2×2 testing fixture, not MJX recycling. The current trained-policy browser Carpet uses the same eight convex prism
+contact topology and 1m tile dimensions, but is a **fixed** 2×2m
+CPU MuJoCo fixture, NOT a rolling MJX course; it cannot certify steps.
+3. **New cold start completed:** seed 735, 2048 worlds, 120M on the
+central-servo/carbon 1m/physical-ToF model. Inspect its exported
+`.emupolicy` and independent real-prism exams before considering promotion
+to `main`; earlier h40 checkpoints are incompatible.
+4. **Contact acceleration:** non-foot colliders are disabled in the fast solver and monitored by virtual safety probes. 2/4 solver iterations is experimental, not a certified physically faithful engine.
+5. **Software debt:** `environment.py`, `training.py`, `curriculum.py`, `ppo.py`, `results.py` contain historical experimental options. Remove *proven unreachable* branches as their last source-pinned study finishes, without changing this active baseline's arithmetic.
 
-## Core release acceptance (not a claim of learned competence)
+## Quality gates
 
-1. `bash scripts/check.sh --full` must pass **on the exact release
-   candidate SHA**, including browser checks.
-2. `python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2`
-   must pass genuine MJX collider / recycle checks.
-3. On the operator's CUDA GPU, verify the same source with 2048-world
-   full-PPO smoke, checkpoint continue/verify, actor export, and
-   actual frozen step exam. CPU-only CI does not prove CUDA physics
-   fidelity or locomotion.
-4. Separately examine one frozen 200M candidate: support on both up
-   and down steps, post-lip controlled progress, still/slow drift,
-   fast achieved speed and useful stride, steering, falls and J/m.
-   Compare against the old main champion on **equivalent missions**,
-   not merely one reward or procedural terrain target.
-5. Keep the released 260M policy and approval JSON **byte-for-byte
-   unchanged** until explicit owner-reviewed model promotion. Code
-   merge and public GitHub Pages deployment are different approvals.
+Run `bash scripts/check.sh --full`, then real CPU prism/recycler checks; on the operator's GPU require 2048-world full PPO smoke, restart/checkpoint validation, and then the proposed **120M** cold start with a 20M foundation. Compare frozen-policy performance against an equivalent independent exam of the current `main` actor before any promotion. `main` and published actor stay frozen until explicit review.
 
-Full gates, measured 260M reference and rollback are in
-[RELEASE_READINESS](RELEASE_READINESS.md),
-[V5032_PINNACLE_RELEASE](V5032_PINNACLE_RELEASE.md) and
-[PHYSICAL_BASELINE_260M](PHYSICAL_BASELINE_260M.md).
+Find the detailed work discipline in [MAINTENANCE](MAINTENANCE.md).
 
-## Retirement rule
+## v5058-successor h40 physical mass correction (new model identity)
 
-There is one teacher (`curriculum.py`), one reward owner
-(`rewards.py`), one physical generator and one PPO. A temporary
-research script is deleted **after its measurements are written to
-the permanent results/issue**. The v5045 140M, v5046 20M and v5048
-eight-arm launchers are preserved by the corresponding historical
-source commits but intentionally **absent from this future-main
-preparation branch**. The v5045-only duplicate CI workflow and
-obsolete runbook are likewise retired.
+**All six C018 servos are chassis-mounted**, including both remotely driven
+knees. Former 300g torso plus massive old training rods was not representative.
+The shared `robot.xml` now uses a **460g chassis box** (330g servos, ~12g
+Pi Zero, ~60g three AA/14500 cells, ~18g wiring/regulators, ~40g structure),
+with its centre 5mm ahead of the hip axes and rear edge at x=-45mm. Both
+hip pivots are physically within the chassis, with no cosmetic brackets.
 
-The detailed original [v5045 cleanup audit](https://github.com/mdt733/emu/blob/feature/v5045-core-skeleton-audit/docs/CORE_SKELETON.md)
-remains in Git history, including its deleted-file accounting.
-Current architecture should be understandable without importing
-the historical experiment scaffolding.
+Each 40cm leg has **one solid 2×2mm square-section carbon thigh rod** and **one solid 2mm
+round carbon shin rod** split at the pre-existing passive flex joint. The
+nominal all-up robot is ~506g including the unchanged 10g hip
+carrier and 10g ball foot per side. All masses and material density are
+estimates requiring direct measurement. The electrical/servo drive is still
+an ideal joint-space actuator; mechanical remote-knee transmission losses,
+backlash and inertia have not been validated.
+
+The previous v5058-rated 20M experimental lineage remains pinned to its
+old physical model hash. This new model requires a fresh cold-start and
+separate exams before `main` promotion. The legacy knee compression spring,
+shin-flex stiffness, and rated torque limit are unchanged intentionally.

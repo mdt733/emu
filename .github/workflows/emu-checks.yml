@@ -2,9 +2,9 @@ name: EMU source and browser checks
 
 on:
   pull_request:
-    branches: [main, experiment/v5046-75cm-four-tile-midpoint, maintenance/v5046-prune-sweep-and-promotion-gates, experiment/v5047-pinnacle-stairs-gaits, experiment/v5048-shared-parent-pinnacle]
+    branches: [main, research/v5058-c018-rated-torque-hardcap]
   push:
-    branches: [main, experiment/v5046-75cm-four-tile-midpoint, release/v5049-main-promotion-prep]
+    branches: [main, research/v5058-c018-rated-torque-hardcap]
   workflow_dispatch:
 
 permissions:
@@ -29,10 +29,25 @@ jobs:
           cache: pip
       - name: Install dependencies
         run: python -m pip install -e ".[dev]"
-      - name: Syntax, public actor and CLI contract
+      - name: Syntax, current 360 actor and CLI contract
         run: |
+          # A new, package-free CPU-only WSL installation must be able to
+          # parse and serve the sensor lab, without importing NumPy/JAX.
+          python -S -m emu.cli viewer-build --help >/dev/null
+          python -S -m emu.cli viewer --sensor-lab --help >/dev/null
+          python -S - <<'PY'
+          import json
+          from emu.viewer_server import make_sensor_lab_bundle
+          b = json.loads(make_sensor_lab_bundle())
+          assert b['sensor_lab'] is True
+          assert 'h40' in b['robot_xml']
+          assert b['source']['actor_sha256'] == 'not-applicable-sensor-lab'
+          print('DEPENDENCY-FREE h40 LAB STARTUP: PASS')
+          PY
           python -m compileall -q emu scripts tests
-          python scripts/verify_showcase_release.py
+          # No committed old champion asset belongs in the replacement branch.
+          # The only current actor release validator is exercised with a
+          # synthetic physical-360 contract in test_core_delivery.py.
           if ! python scripts/audit_core_dependencies.py --json > /tmp/emu-core-inventory.json; then
             python -c 'import json; j=json.load(open("/tmp/emu-core-inventory.json")); print("OWNERSHIP:",j["ownership_errors"]); print("IMPORTS:",j["missing_emu_module_imports"]); print("BAD DOC LINKS:",j["broken_markdown_links"])'
             exit 1
@@ -45,7 +60,68 @@ jobs:
           test ! -e scripts/run_prism_140m.py
           test ! -e scripts/run_v5046_20m.py
           test ! -e scripts/v5048_shared_parent_tournament.py
+          # Finished experiments belong in Git history, not active code.
+          test ! -e scripts/v5051_fixed_wall_screen.py
+          test ! -e scripts/v5051_train_campaign.py
+          test ! -e scripts/v5052_step_school.py
           python -m pytest -q tests
+      - name: Compile the h40 CPU sensor laboratory's eight genuine prism meshes
+        run: |
+          python - <<'PY'
+          import json
+          import re
+          import subprocess
+          from pathlib import Path
+
+          import mujoco
+          from emu.viewer_server import sensor_lab_robot_xml
+
+          js = ("import {createSensorLabCarpet,sensorLabPrismXml} "
+                "from './emu/viewer_src/src/sensor-lab-carpet.js';"
+                "console.log(JSON.stringify(sensorLabPrismXml("
+                "createSensorLabCarpet({slopeDeg:0,stepUpM:0,stepDownM:0}))));")
+          fixture = json.loads(subprocess.check_output(
+              ['node', '--input-type=module', '-e', js], text=True))
+          robot = sensor_lab_robot_xml()
+          robot, floor_count = re.subn(
+              r'<geom\s+name="floor"[^>]*\/>', '', robot)
+          assert floor_count == 1
+          robot = robot.replace('<worldbody>', '<asset>' + fixture['assets'] +
+                                '</asset><worldbody>')
+          robot = robot.replace('</worldbody>', fixture['bodies'] + '</worldbody>')
+          model = mujoco.MjModel.from_xml_string(robot)
+          # Exact trainer h40 source: no visual braces or knee motor cases.
+          from emu.physical_variants import generate_xml, profile_numbers
+          source = Path('emu/robot.xml').read_text(encoding='utf-8')
+          assert sensor_lab_robot_xml() == generate_xml(source, 'h40')
+          assert 'sensor_lab_hip_mount' not in robot
+          assert 'knee_servo' not in robot
+          # Eight kinematic terrain prisms have enormous compiled mesh
+          # masses; those belong to the WORLD, not the ~506g robot. Only
+          # count non-mocap physical bodies in this assertion.
+          mass = float(model.body_mass[model.body_mocapid < 0].sum())
+          assert .49 <= mass <= .52, mass
+          assert abs(mass-float(profile_numbers('h40')['mass_kg']))<1e-4
+          chassis=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_GEOM,'torso_box')
+          assert abs(model.geom_pos[chassis,0]-.005)<1e-7
+          assert model.geom_pos[chassis,0]-model.geom_size[chassis,0]<-.01
+          for side in 'rl':
+              assert mujoco.mj_name2id(
+                  model,mujoco.mjtObj.mjOBJ_GEOM,side+'_thigh_rod_b')==-1
+              gid=mujoco.mj_name2id(
+                  model,mujoco.mjtObj.mjOBJ_GEOM,side+'_thigh_rod')
+              assert model.geom_type[gid]==mujoco.mjtGeom.mjGEOM_BOX
+          assert model.nu == 6
+          assert sum(mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i)
+                     .startswith('sensor_lab_prism_')
+                     for i in range(model.ngeom)) == 8
+          data = mujoco.MjData(model)
+          data.qpos[0] = data.qpos[1] = .5
+          data.qpos[2] -= .002  # slight contact penetration, not a tangent rounding test
+          mujoco.mj_forward(model, data)
+          assert data.ncon >= 1, 'neutral h40 feet must contact real prism tops'
+          print(f'h40 SENSOR LAB CPU PASS: {model.ngeom} geoms, {data.ncon} contacts')
+          PY
       - name: Actual eight-prism CPU MJX contacts, sidewalls, mesh and robot
         run: timeout 540s python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
 
@@ -61,18 +137,14 @@ jobs:
           cache-dependency-path: emu/viewer_src/package-lock.json
       - name: Install locked dependencies
         run: npm ci --prefix emu/viewer_src --no-audit --no-fund
-      - name: Run browser controls and packaging checks
+      - name: Run current browser controls and physics-inspector checks
         run: npm test --prefix emu/viewer_src
-      - name: Prepare protected champion
-        run: python3 scripts/prepare_showcase.py
       - name: Build browser
         run: npm run build --prefix emu/viewer_src
       - name: Reject modifications to tracked source
         run: |
           git diff --exit-code
           test -z "$(git ls-files --others --exclude-standard)"
-      - name: Verify policy and WASM assets
-        run: python3 scripts/verify_showcase_release.py --verify-dist
       # The deleted experimental browser harness is not invoked here.
       # The six essential viewer contracts run above. Full manual
       # MuJoCo browser acceptance remains a release-review step.

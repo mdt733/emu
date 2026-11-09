@@ -49,7 +49,7 @@ export const DEPTH_MAX_M = 1.5;
 const DEPTH_HALF = Math.tan(DEPTH_FOV_DEG*Math.PI/360);
 const DEPTH_OFFSETS = [[0,0],[-1,-1],[-1,1],[1,-1],[1,1]];
 
-function opticalRay(R, tilt, u, v) {
+function opticalRay(R, tilt, u, v, yaw=0) {
   const t=tilt*Math.PI/180, c=Math.cos(t), s=Math.sin(t);
   // The sensor looks forward (+X) until pitched down towards -Z.
   // Its horizontal image axis is body Y; vertical image axis is the
@@ -57,21 +57,25 @@ function opticalRay(R, tilt, u, v) {
   // square on horizontal flat ground, not a degenerate V/line.
   const length=1/Math.hypot(1,u,v);
   const x=(c+s*v)*length, y=u*length, z=(-s+c*v)*length;
+  const a=yaw*Math.PI/180,ca=Math.cos(a),sa=Math.sin(a);
+  const fx=x*ca-y*sa,fy=x*sa+y*ca;
   return [
-    R[0]*x+R[1]*y+R[2]*z,
-    R[3]*x+R[4]*y+R[5]*z,
-    R[6]*x+R[7]*y+R[8]*z,
+    R[0]*fx+R[1]*fy+R[2]*z,
+    R[3]*fx+R[4]*fy+R[5]*z,
+    R[6]*fx+R[7]*fy+R[8]*z,
   ];
 }
 
-export function depthProbeRays(torso, R, {forward=0, tilt=70, height=-.040}={}) {
-  if (![forward,tilt,height].every(Number.isFinite) || forward<0 ||
-      forward>.20 || tilt<0 || tilt>90)
-    throw new Error('Depth mount must be forward 0–200 mm, tilt 0–90°');
+export function depthProbeRays(torso, R,
+  {forward=0,lateral=0,tilt=70,yaw=0,height=-.030}={}) {
+  if (![forward,lateral,tilt,yaw,height].every(Number.isFinite) ||
+      forward<0||forward>.20||Math.abs(lateral)>.12||
+      tilt<0||tilt>90||Math.abs(yaw)>30)
+    throw new Error('Depth mount requires forward 0–200mm, lateral ±120mm, tilt 0–90°, yaw ±30°');
   const mounted=[
-    R[0]*forward+R[1]*0+R[2]*height,
-    R[3]*forward+R[4]*0+R[5]*height,
-    R[6]*forward+R[7]*0+R[8]*height,
+    R[0]*forward+R[1]*lateral+R[2]*height,
+    R[3]*forward+R[4]*lateral+R[5]*height,
+    R[6]*forward+R[7]*lateral+R[8]*height,
   ];
   const origin=torso.map((v,i)=>v+mounted[i]);
   const directions=[];
@@ -81,7 +85,7 @@ export function depthProbeRays(torso, R, {forward=0, tilt=70, height=-.040}={}) 
     const v=(1.5-row)*DEPTH_HALF/2;
     for(const [offU,offV] of DEPTH_OFFSETS)
       zone.push(opticalRay(R,tilt,u+offU*DEPTH_HALF/8,
-                          v+offV*DEPTH_HALF/8));
+                          v+offV*DEPTH_HALF/8,yaw));
     directions.push(zone);
   }
   return {origin,directions};
@@ -90,15 +94,27 @@ export function depthProbeRays(torso, R, {forward=0, tilt=70, height=-.040}={}) 
 // Five-by-five BEAM BOUNDARIES outline the true square 4x4 zone footprint.
 // On uneven ground the viewer casts each boundary ray onto actual geoms;
 // edges with no real hit are left open, never drawn as imaginary surfaces.
-export function depthGridRays(R,{tilt=70}={}) {
-  if(!Number.isFinite(tilt)||tilt<0||tilt>90)
+export function depthGridRays(R,{tilt=70,yaw=0}={}) {
+  if(!Number.isFinite(tilt)||tilt<0||tilt>90||
+     !Number.isFinite(yaw)||Math.abs(yaw)>30)
     throw new Error('Depth grid tilt must be 0–90°');
   return Array.from({length:25},(_,i)=>{
     const row=Math.floor(i/5),col=i%5;
     const u=(col/2-1)*DEPTH_HALF;
     const v=(1-row/2)*DEPTH_HALF;
-    return opticalRay(R,tilt,u,v);
+    return opticalRay(R,tilt,u,v,yaw);
   });
+}
+
+// Geometry-only ray/sphere test for the REAL 36mm foot collision balls.
+// A painted foot image is not sensor occlusion; this uses MuJoCo geom centres.
+export function footSphereHit(origin,dir,centre,radius=.018) {
+  if(!Number.isFinite(radius)||radius<=0)return Infinity;
+  const delta=sub(origin,centre),b=dot(dir,delta);
+  const c=dot(delta,delta)-radius*radius,disc=b*b-c;
+  if(disc<0)return Infinity;
+  const root=Math.sqrt(disc),near=-b-root,far=-b+root;
+  return near>1e-6?near:far>1e-6?far:Infinity;
 }
 
 export function readDepthProbe(pose, cast, {subrays=4, noise=0, dropout=0}={}) {
@@ -106,7 +122,7 @@ export function readDepthProbe(pose, cast, {subrays=4, noise=0, dropout=0}={}) {
   // {distance,kind:'self'|'terrain'}; no hidden surface-height lookup.
   if(![1,4,5].includes(subrays))throw new Error('Expected 1, 4 or 5 depth rays per zone');
   const samples=subrays===1?[0]:subrays===4?[1,2,3,4]:[0,1,2,3,4];
-  const ranges=[],valid=[],hitPoints=[],selfOccluded=[],mixed=[];
+  const ranges=[],valid=[],hitPoints=[],selfOccluded=[],footOccluded=[],footHitCounts=[],mixed=[];
   for(const zone of pose.directions){
     const values=[];
     for(const j of samples){
@@ -126,7 +142,10 @@ export function readDepthProbe(pose, cast, {subrays=4, noise=0, dropout=0}={}) {
     ok=ok&&value>=.02&&value<=DEPTH_MAX_M&&Math.random()>=dropout;
     ranges.push(ok?value:0);
     valid.push(ok);
-    selfOccluded.push(ok&&values.some(hit=>hit.kind==='self'));
+    const footCount=values.filter(hit=>hit.kind==='foot').length;
+    footOccluded.push(footCount>0);
+    footHitCounts.push(footCount);
+    selfOccluded.push(ok&&values.some(hit=>hit.kind==='self'||hit.kind==='foot'));
     // Raw slant-range variation happens even on perfectly FLAT ground;
     // a mixed-zone warning instead means rays actually hit different
     // visible objects/surfaces. This flag is diagnostic-only privilege.
@@ -136,7 +155,8 @@ export function readDepthProbe(pose, cast, {subrays=4, noise=0, dropout=0}={}) {
     const length=ok?picked.distance:.55;
     hitPoints.push(pose.origin.map((p,k)=>p+length*direction[k]));
   }
-  return {ranges,valid,origin:pose.origin,hitPoints,selfOccluded,mixed};
+  return {ranges,valid,origin:pose.origin,hitPoints,
+    selfOccluded,footOccluded,footHitCounts,mixed};
 }
 
 
@@ -162,17 +182,18 @@ export function terrainHeightOffsetsCm(reading, referenceZ=0) {
 }
 
 
-// v5023 actor-observed ToF: exactly one geometric ray in each of 16 zones,
-// unlike the optional 5-sample diagnostic depth inspector above. Row order is
-// far-to-near (pitch 40,60,80,100deg), column yaw -22.5..+22.5deg.
-// The contract uses the torso origin (no forward/height mount offset).
-export function terrainActorRays(R) {
-  const out = [];
-  for (const pitch of [40,60,80,100]) for (const yaw of [-22.5,-7.5,7.5,22.5]) {
-    const p=pitch*Math.PI/180,y=yaw*Math.PI/180;
-    out.push(bodyToWorld(R,[Math.cos(p)*Math.cos(y), Math.cos(p)*Math.sin(y), -Math.sin(p)]));
-  }
-  return out;
+// Exact current actor ray geometry, derived from the physical inspector's
+// one image-plane frustum rather than a second pitch/yaw formula.
+const CURRENT_TOF_REV='vl53l8cx_array_plane_square45_below30_v3';
+const IDENTITY=[1,0,0,0,1,0,0,0,1];
+export const CURRENT_RAYS_BODY=depthProbeRays([0,0,0],IDENTITY,
+  {tilt:70,forward:0,height:-.03,lateral:0,yaw:0})
+  .directions.map(zone=>zone[0]);
+export function terrainActorRays(R, rays=CURRENT_RAYS_BODY) {
+  if(!Array.isArray(rays)||rays.length!==16||
+     rays.some(v=>!Array.isArray(v)||v.length!==3))
+    throw Error('Actor requires the 16 physical 4x4 directions');
+  return rays.map(v=>bodyToWorld(R,v));
 }
 
 // First physical floor or world-box intersection, masked by nearest 18mm foot
@@ -239,14 +260,23 @@ export class TerrainActorObserver {
   constructor(contract) {
     if(contract?.schema!=='terrain_360')throw new Error('Schema-9 terrain contract required');
     this.settings=contract.settings;
+    if(contract.sensor_model_revision!==CURRENT_TOF_REV||
+       !Array.isArray(contract.tof4x4_rays_body)||
+       JSON.stringify(contract.tof4x4_mount_body_m)!==
+         JSON.stringify([0,0,-.03]))
+      throw Error('Only the current physical VL53L8CX geometry is supported');
+    this.rays=contract.tof4x4_rays_body;
+    this.mount=contract.tof4x4_mount_body_m;
     this.frame=0;
     this.ring=[];
   }
   sample(pose,model,data,footGeomIds,noisy=true) {
     const scale=noisy?this.settings.sensor_noise_scale:0;
     const h=pose.terrainHeightAt||null;
-    const ranges=terrainActorRays(pose.R).map(ray=>{
-      const measured=actorTerrainDistance(pose.torso,ray,model,data,footGeomIds,h);
+    const mounted=bodyToWorld(pose.R,this.mount);
+    const origin=pose.torso.map((n,i)=>n+mounted[i]);
+    const ranges=terrainActorRays(pose.R,this.rays).map(ray=>{
+      const measured=actorTerrainDistance(origin,ray,model,data,footGeomIds,h);
       return measured ? clamp(measured+scale*.002*gaussian(),.04,1.5) : 0;
     });
     return {ranges,valid:ranges.map(x=>x>0)};
@@ -278,10 +308,11 @@ export class TerrainActorObserver {
 // Unified 360-input actor: no physical tripod ToFs. Infer one *optional*
 // smooth ground-plane estimate from the same delayed 16 rays that the network
 // receives directly. Reject mixed-level/riser fits rather than invent a slope.
-export function fitArrayGround(ranges,valid,gravity){
+export function fitArrayGround(ranges,valid,gravity,
+                               raysBody=CURRENT_RAYS_BODY,mountZ=-.03){
   const invalid={valid:false,depth:0,forward:0,side:0,confidence:0,
                  residual:Infinity,count:0};
-  const rays=terrainActorRays([1,0,0,0,1,0,0,0,1]);
+  const rays=terrainActorRays(IDENTITY,raysBody);
   const G=[[.00005,0,0],[0,.00005,0],[0,0,.0000001]],rhs=[0,0,0];
   let count=0;
   const points=[];
@@ -329,9 +360,11 @@ export function fitArrayGround(ranges,valid,gravity){
     projected.push(ranges[i]*-rays[i][2]);
   const fallback=projected.length>=2?
     projected.reduce((a,b)=>a+b,0)/projected.length:0;
-  const opticalDepth=planeValid?depth:fallback;
-  const depthValid=planeValid||(
-    projected.length>=2&&opticalDepth>=.035&&opticalDepth<=.60);
+  // Fit/fallback samples originate 30mm below the optical-flow camera.
+  // Express both depths in torso coordinates, as the Python trainer does.
+  const opticalDepth=(planeValid?depth:fallback)-mountZ;
+  const depthValid=(planeValid||projected.length>=2)&&
+    opticalDepth>=.035&&opticalDepth<=.60;
   return {valid:planeValid,depthValid,depth:depthValid?opticalDepth:0,
     forward:planeValid?Math.atan2(-dot(n,fwd),cosine):0,
     side:planeValid?Math.atan2(-dot(n,side),cosine):0,
@@ -341,9 +374,12 @@ export function fitArrayGround(ranges,valid,gravity){
 
 export class ArrayFlowObserver {
   constructor(contract){
-    if(contract?.sensor_model_revision!=='forward_tof4x4_array_plane_fit_no_tripod_2')
-      throw new Error('Expected array-only terrain sensor');
+    if(contract?.sensor_model_revision!==CURRENT_TOF_REV||
+       !Array.isArray(contract.tof4x4_rays_body))
+      throw new Error('Expected the current physical 360-input array sensor');
     this.settings=contract.settings;this.ring=[];this.frame=0;this.bias=[0,0,0];
+    this.rays=contract.tof4x4_rays_body;
+    this.mount=contract.tof4x4_mount_body_m;
   }
   synth(pose,model,data,noisy=true){
     const st=this.settings,ns=noisy?st.sensor_noise_scale:0;
@@ -384,12 +420,13 @@ export class ArrayFlowObserver {
   }
   read(gravity,array){
     const s=this.settings,flow=this.ring[3-s.flow_delay_frames];
-    const ground=fitArrayGround(array.ranges,array.valid,gravity);
+    const ground=fitArrayGround(array.ranges,array.valid,gravity,
+                               this.rays,this.mount[2]);
     const good=ground.depthValid&&flow.flowValid;
     const depth=ground.valid?ground.depth:0;
     const velocity=good?[
-      -depth*(flow.flow[0]-flow.flowGyro[1]),
-      -depth*(flow.flow[1]+flow.flowGyro[0])
+      -ground.depth*(flow.flow[0]-flow.flowGyro[1]),
+      -ground.depth*(flow.flow[1]+flow.flowGyro[0])
     ]:[0,0];
     const fresh=clamp(1-.25*(flow.flowAge/s.flow_period_frames),.25,1);
     return {gyro:this.ring[3].gyro,velocity,

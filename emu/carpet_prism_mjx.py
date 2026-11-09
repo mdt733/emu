@@ -1,6 +1,6 @@
 """Opt-in v5043 per-world convex triangular-prism collision geometry for MJX-JAX.
 
-Each 75 cm tile has two *independent* convex meshes. We shear their top AND
+Each 1 m tile has two *independent* convex meshes. We shear their top AND
 buried bottom in vertical Z, so top triangles meet at exact shared vertices,
 side faces remain vertical, and the number of geoms / vertices never changes.
 

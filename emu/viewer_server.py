@@ -93,6 +93,7 @@ class LivePolicyWatcher:
                     self._error = ''
                     return
                 try:
+                    from .policy_export import build_bundle
                     bundle = build_bundle(path)
                     # Ensure a writer didn't replace the file while exporting.
                     if inspect_candidate(phase, path) != snap:
@@ -195,6 +196,10 @@ def read_terrain_training_snapshot(root: Path) -> dict:
         if not isinstance(meta,dict):meta={}
     except (OSError,ValueError):
         meta={}
+    if not (cfg.get('terrain_carpet') and cfg.get('terrain_carpet_prisms')):
+        raise ValueError(
+            'Current viewer only accepts real 2x2 / eight-prism MJX sources. '
+            'Open historical box-terrain runs from their own source revision.')
     return {
         'schema':'emu_terrain_live_v1',
         'training_step':int(float(row['step'])),
@@ -215,30 +220,90 @@ def read_terrain_training_snapshot(root: Path) -> dict:
             'push_max_force_n':cfg.get('push_max_force_n',0.35),
         },
         'source_sha':(meta.get('source_provenance') or {}).get('git_commit'),
-        'physics_mode':(
-            '18 convex triangular-prism MJX collisions / browser illustrative terrain'
-            if cfg.get('terrain_carpet_prisms',False) else
-            'nine-solid-box trainer / browser representative nine-solid-box world'
-            if cfg.get('terrain_carpet',False) else
-            'older training topology / browser illustrative terrain'),
-        'warnings':([
-            'Browser is illustrative, not the 18 actual per-world MJX convex-prism'
-            ' colliders, normals, seeded tiles or changing training birth states.'
-        ] if cfg.get('terrain_carpet_prisms',False) else [
-            'Browser matches the nine-solid-box collision TYPE but not the exact per-world'
-            ' seeded MJX tile arrangement, domain randomisation or training birth states.'
-        ]) + [
-            'Snapshot frontiers are curriculum targets, not independent skill proofs.',
+        'physics_mode':'8 convex triangular-prism MJX collisions '
+                       '(four 1m tiles); browser terrain is illustrative nine boxes',
+        'warnings':[
+            'Browser nine-box terrain is illustrative, not the 8 actual MJX '
+            'convex-prism colliders, normals, tiles or terrain recycler.',
+            'Curriculum frontiers are teaching targets, not measured capability.'
         ]
     }
 
 
-def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
+def sensor_lab_robot_xml() -> str:
+    """Use the exact trainer h40 morphology; no viewer-only geometry."""
+    from .physical_variants import generate_xml
+    source = (Path(__file__).resolve().parent / 'robot.xml').read_text(encoding='utf-8')
+    return generate_xml(source, 'h40')
+
+
+def make_sensor_lab_bundle() -> bytes:
+    """A tiny untrained physical fixture, independently of any old champion.
+
+    No checkpoint, fake zero-weight neural network, numpy or showcase policy.
+    All actual robot parts and ToF directions are generated from current
+    trainer source. Browser simulation never calls the neural actor here.
+    """
+    import hashlib
+    from .contracts import (ACTUATED_JOINTS, TERRAIN_OBS_FIELDS,
+                            OBS_SCHEMA_TERRAIN, sensor_observation_contract)
+
+    model = sensor_lab_robot_xml()
+    identity = sensor_observation_contract(
+        schema=OBS_SCHEMA_TERRAIN, array_only=True)
+    b = {
+        'format': 'emu-policy',
+        'schema': 3,
+        'sensor_lab': True,
+        'source': {
+            'checkpoint_schema': 9,
+            'run_name': 'H40 SENSOR LAB — UNTRAINED',
+            'step': 0,
+            'actor_sha256': 'not-applicable-sensor-lab',
+            'robot_model_sha256': hashlib.sha256(model.encode()).hexdigest(),
+        },
+        'policy': {
+            'obs_dim': 360, 'base_obs_dim': 90, 'history_len': 4,
+            'action_dim': 6, 'layers': [],
+        },
+        'observation': {
+            'base_fields': list(TERRAIN_OBS_FIELDS),
+            'sensor_contract': identity,
+        },
+        'control': {
+            'sim_dt': .005, 'control_substeps': 4, 'control_dt': .020,
+            'neutral_root_z_m': .4,
+            'actuated_joints': list(ACTUATED_JOINTS),
+            'target_span_rad': [.38,.48,.58,.38,.48,.58],
+            'one_control_frame_actuation_delay': True,
+            'sensor_noise_scale': 1.5,
+            'phase_base_hz': 1.025,
+            'phase_speed_gain': .75,
+            'phase_rate_max_hz': 2.6,
+            'default_commands': {
+                'vx': 0., 'vy': 0., 'yaw': 0., 'height': 0.,
+                'pitch': 0., 'roll': 0., 'step_height': .012,
+            },
+            'command_limits': {
+                'vx_min': -.4, 'vx_max': .65, 'vy_abs': .3,
+                'yaw_abs': 1.5, 'pitch_abs_rad': .14,
+                'height_abs_m': .018, 'roll_abs_rad': .055,
+                'step_height_min_m': .008, 'step_height_max_m': .042,
+            },
+        },
+        'robot_xml': model,
+    }
+    return json.dumps(b, separators=(',', ':')).encode('utf-8')
+
+
+def make_handler(dist: Path, *, watcher=None, policy: Path | None = None,
+                 sensor_lab: bool = False):
     """Fixed local API, no user-supplied filesystem paths or directory browsing."""
     mimetypes.add_type('application/wasm', '.wasm')
     # A manually selected brain stays fixed for this entire viewer session.
     # Only the separate live watcher selects new validated policy snapshots.
-    initial_policy = policy.read_bytes() if policy is not None else None
+    initial_policy = (make_sensor_lab_bundle() if sensor_lab
+                      else policy.read_bytes() if policy is not None else None)
 
     class Handler(http.server.SimpleHTTPRequestHandler):
         extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map,
@@ -263,6 +328,7 @@ def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
             route = urlsplit(self.path).path
             if route == '/api/viewer-config':
                 return self._json({'live': watcher is not None,
+                                   'sensor_lab': sensor_lab,
                                    'initial_policy': initial_policy is not None})
             if route == '/api/live/status':
                 if watcher is None:
@@ -295,7 +361,10 @@ def make_handler(dist: Path, *, watcher=None, policy: Path | None = None):
 
 
 def serve(*, port: int = 8765, policy: Path | None = None,
-          live_root: Path | None = None, open_browser: bool = True) -> int:
+          live_root: Path | None = None, open_browser: bool = True,
+          sensor_lab: bool = False) -> int:
+    if sensor_lab and (policy is not None or live_root is not None):
+        raise ValueError('Sensor lab does not accept a trained policy or live-run watcher')
     dist = viewer_dist()
     if not (dist / 'index.html').exists():
         print('Viewer build missing; invoking npm build...', flush=True)
@@ -311,7 +380,7 @@ def serve(*, port: int = 8765, policy: Path | None = None,
         raise FileNotFoundError(f'Policy not found: {policy}')
     # Loopback deliberately: this endpoint contains training-derived weights and
     # has no authentication. Use a separate secured service for remote clients.
-    handler = make_handler(dist, watcher=watcher, policy=policy)
+    handler = make_handler(dist, watcher=watcher, policy=policy, sensor_lab=sensor_lab)
     class Server(socketserver.ThreadingMixIn, http.server.HTTPServer):
         daemon_threads = True
         allow_reuse_address = True
@@ -320,7 +389,10 @@ def serve(*, port: int = 8765, policy: Path | None = None,
         print(f'EMU viewer: {url}', flush=True)
         if watcher:
             print(f'Live viewer watching completed checkpoints under {watcher.root}', flush=True)
-        print('Training stays on GPU; browser runs the robot and neural inference.', flush=True)
+        print(('SENSOR LAB: 40cm h40 robot in browser CPU MuJoCo; '
+               'NO trained policy, NO PPO, no CUDA required.' if sensor_lab else
+               'Training stays on GPU; browser runs the robot and neural inference.'),
+              flush=True)
         if open_browser:
             try: webbrowser.open(url)
             except Exception: pass
@@ -330,6 +402,5 @@ def serve(*, port: int = 8765, policy: Path | None = None,
             pass
     return 0
 
-# All exported-policy validation is in policy_export.py; only the live
-# watcher needs the exporter, never its checkpoint internals.
-from .policy_export import build_bundle, load_exported_actor_for_exam, write_bundle, export_main
+# Lazily import heavy checkpoint/export dependencies only for live playback.
+# The standalone CPU sensor laboratory requires only Python stdlib + npm.

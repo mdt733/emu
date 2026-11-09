@@ -45,8 +45,9 @@ let carpetSource='Illustrative defaults';
 let carpetFetching=false;
 let carpetLastAppliedSignature='';
 let discoverCarpetFromLive=false;
-const depthOn=$('depthOn'),depthTilt=$('depthTilt');
-const depthMount=$('depthMount'),depthRays=$('depthRays'),depthSamples=$('depthSamples'),depthFootprint=$('depthFootprint');
+const depthOn=$('depthOn'),depthTilt=$('depthTilt'),depthActorRays=$('depthActorRays');
+const depthMount=$('depthMount'),depthHeight=$('depthHeight'),
+      depthLateral=$('depthLateral'),depthYaw=$('depthYaw'),depthRays=$('depthRays'),depthSamples=$('depthSamples'),depthFootprint=$('depthFootprint');
 const depthView=$('depthView');
 const depthCells=Array.from({length:16},()=>{
   const cell=document.createElement('span');
@@ -509,7 +510,9 @@ function renderCarpetValues(){
     'multi-lip':'multi-lip Academy',illustrative:'illustrative'
   }[stage];
   $('carpetContext').textContent=`${lesson.heading}: ${lesson.description}.
-    ${measured?'Training targets (not achieved skill).':'Editable viewer scenario; NOT live training difficulty.'}`;
+    ${measured?'Training targets (not achieved skill).':'Editable viewer scenario; NOT live training difficulty.'}
+    FIXED 2×2m / 8 true-prism CPU fixture; not the GPU rolling recycler.
+    Use Field for sustained fast gait and slopes.`;
   if(terrainMode.value==='carpet')$('viewerExercise').textContent=lesson.heading;
   const values=roleSliders(base,carpetRole.value);
   for(const [key,id,unit,,digits] of SLIDER_FIELDS){
@@ -554,8 +557,8 @@ function renderCarpetValues(){
     `Source: ${carpetDifficulty.source==='training'?carpetDifficulty.run:'Illustrative defaults'}`,
     `Age ${Number(carpetDifficulty.step||0).toLocaleString()} steps · phase: ${phase}`,
     (carpetDifficulty.trainingCarpetPrisms
-      ? 'SOURCE PHYSICS: 18 MJX prisms. THIS BROWSER: 9 tilted-box approximation, not collision-equivalent.'
-      : 'SOURCE PHYSICS: representative 9-box MJX carpet (browser birth differs).'),
+      ? 'SOURCE: rolling 4×1m / 8 MJX prisms. BROWSER: fixed 2×2m / 8 MuJoCo prisms, no recycling.'
+      : 'BROWSER: fixed 2×2m / 8 MuJoCo prisms; no claim of historical replay.'),
     `Global grade ${Number(carpetDifficulty.slopeDeg||0).toFixed(2)}°; physical role ${lesson.terrain.slopeDeg.toFixed(3)}°`,
     `Physical up/down ${(lesson.terrain.stepUpM*1000).toFixed(3)} / ${(lesson.terrain.stepDownM*1000).toFixed(3)} mm`,
     `Role velocity ${f.speed} · strafe ${f.lateral} · yaw ${f.yaw}`,
@@ -743,17 +746,34 @@ setInterval(()=>refreshCarpetLive(false),5000);
 renderCarpetValues();
 
 function updateDepthSettings(){
+  const c=bundle?.observation?.sensor_contract;
+  $('actorDepthSource').textContent=c?.tof4x4_rays_body?.length===16
+    ? 'Policy rays: physical 45°×45° VL53L8CX, 70° down and -30mm below torso (magenta). Green: adjustable diagnostic preview.'
+    : 'Load the current h40 policy or sensor fixture to inspect its 16 physical rays.';
   $('depthTiltOut').textContent=depthTilt.value+'°';
   $('depthMountOut').textContent=depthMount.value+' mm';
+  $('depthHeightOut').textContent=(Number(depthHeight.value)>=0?'+':'')+depthHeight.value+' mm';
+  $('depthLateralOut').textContent=(Number(depthLateral.value)>=0?'+':'')+depthLateral.value+' mm';
+  $('depthYawOut').textContent=(Number(depthYaw.value)>=0?'+':'')+depthYaw.value+'°';
   if(sim)sim.setDepthInspector({
     enabled:depthOn.checked,tilt:Number(depthTilt.value),
-    forward:Number(depthMount.value)/1000,showRays:depthRays.checked,
+    forward:Number(depthMount.value)/1000,lateral:Number(depthLateral.value)/1000,
+    height:Number(depthHeight.value)/1000,yaw:Number(depthYaw.value),
+    showRays:depthRays.checked,
+    showActorRays:depthActorRays.checked,
     showFootprint:depthFootprint.checked,
     subrays:depthSamples.value==='auto'?'auto':Number(depthSamples.value),
   });
 }
-for(const input of [depthOn,depthTilt,depthMount,depthRays,depthFootprint,depthSamples])
+for(const input of [depthOn,depthTilt,depthMount,depthHeight,depthLateral,depthYaw,depthRays,depthActorRays,depthFootprint,depthSamples])
   input.addEventListener('input',updateDepthSettings);
+$('depthFootPreset').addEventListener('click',()=>{
+  depthTilt.value='70';depthMount.value='0';depthHeight.value='-30';
+  depthLateral.value='0';depthYaw.value='0';
+  depthSamples.value='5';
+  depthOn.checked=true;
+  updateDepthSettings();
+});
 depthView.addEventListener('change',updateDepthGrid);
 $('depthCopy').addEventListener('click',async()=>{
   const reading=sim?.depthReading;
@@ -766,7 +786,17 @@ $('depthCopy').addEventListener('click',async()=>{
     obstacle:'current viewer terrain',
     tilt_down_deg:Number(depthTilt.value),
     mount_forward_mm:Number(depthMount.value),
+    mount_vertical_mm:Number(depthHeight.value),
+    mount_lateral_mm:Number(depthLateral.value),
+    mount_yaw_deg:Number(depthYaw.value),
+    valid_forward_reach_cm:reading.reachNearM==null?null:[
+      Number((reading.reachNearM*100).toFixed(1)), Number((reading.reachFarM*100).toFixed(1))],
     depth_sample_rays:reading.subrays*16,
+    trained_actor_pitch_rows_deg:bundle?.observation?.sensor_contract?.tof4x4_pitch_from_horizontal_deg,
+    trained_actor_mount_body_m:bundle?.observation?.sensor_contract?.tof4x4_mount_body_m,
+    trained_actor_rays_body:bundle?.observation?.sensor_contract?.tof4x4_rays_body,
+    trained_actor_yaw_columns_deg:bundle?.observation?.sensor_contract?.tof4x4_yaw_deg,
+    trained_actor_rays_visible:depthActorRays.checked,
     visual_footprint_rays:reading.footprintRays||0,
     scan_time_ms:Number(reading.costMs.toFixed(2)),
     displayed_as:depthView.value==='height'?'signed terrain elevation (cm)':'slant range (cm)',
@@ -783,6 +813,8 @@ $('depthCopy').addEventListener('click',async()=>{
         return reading.valid[i]?Number((100*reading.ranges[i]).toFixed(1)):null;
       })),
     self_occluded_zones:reading.selfOccluded.map((v,i)=>v?i:null).filter(v=>v!==null),
+    foot_occluded_zones:reading.footOccluded?.map((v,i)=>v?i:null).filter(v=>v!==null),
+    bottom_row_foot_hits:reading.footHitCounts?.slice(12,16),
     mixed_edge_zones:reading.mixed.map((v,i)=>v?i:null).filter(v=>v!==null),
   };
   try {
@@ -813,15 +845,19 @@ function updateDepthGrid(){
   depthCells.forEach((cell,i)=>{
     const valid=Boolean(data?.valid[i]);
     const blocked=valid&&data.selfOccluded[i];
+    const footBlocked=Boolean(data?.footOccluded?.[i]);
     const height=heights?.[i]??null;
     cell.className=valid?'depth-cell':'depth-cell invalid';
     cell.removeAttribute('title');
     if(blocked){
       // Seeing the robot is not evidence of an elevated piece of terrain.
       cell.className+=' occluded';
-      cell.textContent='SELF';
-      cell.style.background='#855524';
-      cell.title='Robot or foot occludes this zone · no terrain height';
+      cell.textContent=footBlocked?'FOOT':'SELF';
+      cell.style.background=footBlocked?'#865c19':'#855524';
+      cell.title=footBlocked
+        ? 'Foot blocks '+(data.footHitCounts?.[i]||0)+' of '+data.subrays+
+          ' rays in this zone; do not interpret it as ground'
+        : 'Robot part occludes this zone · no terrain height';
     }else if(valid){
       hits++;
       const cm=data.ranges[i]*100;
@@ -856,7 +892,15 @@ function updateDepthGrid(){
     : !data?'Waiting for robot · no scan yet'
     : hits+'/16 visible terrain zones · '+(data.subrays*16)+' depth rays'+
       (data.footprintRays?' + '+data.footprintRays+' grid':'')+' · '+data.costMs.toFixed(1)+
-      ' ms · '+(mode==='height'?'signed cm from flat z=0 (colour ±15 cm)':'raw slant cm');
+      ' ms · '+(data.reachNearM==null?'no ground reach':
+      'forward hit footprint '+(100*data.reachNearM).toFixed(0)+'–'+
+      (100*data.reachFarM).toFixed(0)+' cm')+
+      ' · '+(data.footOccluded
+        ?(data.footOccluded.slice(12,16).join(',')==='false,true,true,false'
+          ? '✓ bottom row: ground / FOOT / FOOT / ground'
+          : 'bottom row foot masks: '+data.footOccluded.slice(12,16).map(v=>v?'F':'·').join(''))
+        :'')+
+      ' · '+(mode==='height'?'signed cm from flat z=0 (colour ±15 cm)':'raw slant cm');
 }
 
 // World switches are the two explicit Field / Carpet buttons above.
@@ -1125,18 +1169,52 @@ async function startViewerFeed() {
           throw new Error('Invalid EMU local viewer API configuration');
         }
         if (config.initial_policy && !config.live) {
+          if(config.sensor_lab){
+            // Standalone CPU calibration. The model is h40 and the actor
+            // inference is DISABLED; do not mislabel this a trained gait.
+            terrainMode.value='carpet';
+            carpetRole.value='standing';
+            carpetDifficulty={...CARPET_DEFAULT,slopeDeg:0,transitionDeg:0,
+              stepUpM:0,stepDownM:0};
+            demoActive=false;
+            $('liveDemo').checked=false;
+            autoResetToggle.checked=true;
+            carpetDrive.value='manual';
+            carpetShoves.checked=false;
+            depthOn.checked=true;depthTilt.value='70';
+            depthMount.value='0';depthHeight.value='-30';
+            depthLateral.value='0';depthYaw.value='0';
+            depthSamples.value='5';
+            depthActorRays.checked=true;
+            depthRays.checked=true;
+            depthFootprint.checked=true;
+            $('sensorDetails').open=true;
+          }
           const file = await fetch('/api/initial-policy', {cache:'no-store'});
           if (file.ok) {
             const parsed = parsePolicy(await file.text());
-            policyLibrary.push({fileName:'Preloaded policy',bundle:parsed});
+            policyLibrary.push({fileName:config.sensor_lab?'H40 SENSOR LAB — UNTRAINED':'Preloaded policy',bundle:parsed});
             await activatePolicy(policyLibrary.length-1);
+            if(config.sensor_lab){
+              // Start in neutral calibration pose. User can click Run
+              // physics; there is no h40-trained policy on this computer.
+              sim.paused=true;
+              pauseBtn.textContent='Run physics';
+              livePanel.hidden=true;
+              updateWorldTabs();
+              updateDepthSettings();
+              $('modeLabel').textContent='40 cm CPU SENSOR LAB — no trained gait';
+              setStatus('40cm h40 · 4×1m / 8 real CPU prisms · neural actor OFF','ok');
+              $('depthNote').textContent=
+                'Mount: 70° down, 0mm forward, -30mm below torso, zero yaw/sideways. Scan actual feet and terrain to confirm your zone pattern.';
+            }
           }
         }
         if (config.live) {
           discoverCarpetFromLive=true;
-          // Source-tagged nine-box AND 18-prism runs auto-enter Carpet,
-          // with the prism-versus-browser geometry mismatch stated in the UI.
-          // The published champion and older/legacy live runs keep the
+          // Current physical 8-prism sources auto-enter the fixed CPU Carpet;
+          // the infinite MJX recycler isn't replayed in the browser.
+          // The frozen champion and older runs keep the
           // original Terrain Park until the user explicitly selects it.
           await refreshCarpetLive(true);
           if(carpetDifficulty.trainingCarpet){

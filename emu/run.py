@@ -15,6 +15,7 @@ from pathlib import Path
 from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
                             run_training, update_boundary_at_or_after)
 from .contracts import source_repo_root, OBS_SCHEMA_TERRAIN
+from .physical_variants import selected_profile, profile_numbers
 from .training_config import (TrainingConfig, prism_base_config,
                               training_sensor_contract, verify_existing_phase_config)
 
@@ -145,7 +146,40 @@ def one_run_config(args) -> TrainingConfig:
             "v5045 prism-only training requires --profile sim2real "
             "--terrain-actor --unified-capabilities --terrain-carpet "
             "--carpet-prisms --academy-stream (no legacy plane/232/box modes)")
+    # v5051: independently select *training* hypotheses; fail before GPU
+    # for invented, unbounded or nonfinite experiment configurations.
+    science_gate=str(getattr(args,'science_gate_mode','legacy'))
+    science_values={
+        'science_phase_lowcmd_scale':(0.,1.),
+        'science_phase_sync_strength':(0.,1.),
+        'science_crouch_allowance_m':(0.,.05),
+        'science_stride_efficiency_weight':(0.,.12),
+        'science_supported_cross_bonus':(0.,15.),
+        'science_foothold_bonus':(0.,8.),
+        'science_bilateral_support_bonus':(0.,10.),
+        'science_sensor_teacher_bonus':(0.,8.),
+        'science_followthrough_bonus':(0.,15.),
+        'science_step_goal_weight':(0.,.50),
+        'science_step_velocity_relief':(0.,1.),
+        'science_step_approach_m':(0.,.35),
+    }
+    if science_gate not in ('legacy','zero-only','off'):
+        raise ValueError('Invalid science-gate-mode')
+    science_args={}
+    for key,(lo,hi) in science_values.items():
+        default=1. if key in ('science_phase_lowcmd_scale','science_phase_sync_strength') else 0.
+        value=float(getattr(args,key,default))
+        if not math.isfinite(value) or not lo<=value<=hi:
+            raise ValueError(f'{key} must be finite and in [{lo},{hi}]')
+        science_args[key]=value
+    finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
+    if finish_on_transfer and not academy_stream:
+        raise ValueError('--science-step-finish-on-transfer requires Academy stream')
+    approach=science_args['science_step_approach_m']
+    if 0. < approach < .15:
+        raise ValueError('science-step-approach-m must be zero or >=0.15m')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
+                   physical_profile=selected_profile(),
                    solver_iterations=solver_iterations,
                    solver_ls_iterations=solver_ls_iterations,
                    observation_schema=OBS_SCHEMA_TERRAIN,
@@ -166,6 +200,9 @@ def one_run_config(args) -> TrainingConfig:
                    academy_course_episode_frames=course_frames,
                    terrain_lesson=terrain_lesson, force_program=force_program,
                    temporal_vx_reward_share=temporal_share,
+                   science_gate_mode=science_gate,
+                   science_step_finish_on_transfer=finish_on_transfer,
+                   **science_args,
                    stillness_birth_frac=stillness_birth_frac,
                    science_step_promotion_mm=science_promotion,
                    science_step_retreat_mm=science_retreat,
@@ -249,7 +286,7 @@ def verify_experiment_fork(parent: TrainingConfig, child: TrainingConfig) -> Non
     # economics, pushes and teaching are exactly what researchers may
     # deliberately vary. Saved configs/provenance describe those differences.
     fixed=('observation_schema','unified_capability_focus',
-           'attitude_profile')
+           'attitude_profile','physical_profile')
     bad={name:(getattr(parent,name),getattr(child,name))
          for name in fixed if getattr(parent,name)!=getattr(child,name)}
     if bad:

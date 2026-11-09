@@ -45,40 +45,31 @@ BASE_OBS_FIELDS: tuple[str, ...] = (
     "phase_sin", "phase_cos",
     "shin_flex_r", "shin_flex_l", "shin_rate_r", "shin_rate_l", "shin_load_r", "shin_load_l",
 )
+# The 55 base telemetry channels are a prefix of the ONE active actor,
+# not a separately loadable historical 220-input model.
 BASE_OBS_DIM = len(BASE_OBS_FIELDS)
 HISTORY_LEN = 4
-OBS_DIM = BASE_OBS_DIM * HISTORY_LEN
-
-# Explicit opt-in v5016 policy interface. Never reinterpret an archived
-# 55x4 Pitch15 actor or its observation normalizer as this 58x4 interface.
-OBS_SCHEMA_LEGACY = "pitch15_220"
-OBS_SCHEMA_SENSOR = "sim2real_232"
-# Opt-in G5: 4x4 physically intersected, occlusion-aware raw ranges plus
-# independent per-cell validity. 58 + 32 = 90 fields, 4 history frames.
-# The original 55x4 and 58x4 actor contracts NEVER change.
 OBS_SCHEMA_TERRAIN = "terrain_360"
-SENSOR_OBS_FIELDS: tuple[str, ...] = BASE_OBS_FIELDS + (
+SENSOR_OBS_FIELDS = BASE_OBS_FIELDS + (
     "ground_forward_grade_rad", "ground_sideways_grade_rad",
     "ground_visibility_confidence",
 )
-SENSOR_BASE_OBS_DIM = len(SENSOR_OBS_FIELDS)
-SENSOR_OBS_DIM = SENSOR_BASE_OBS_DIM * HISTORY_LEN
-TERRAIN_RANGE_FIELDS = tuple(f"tof4x4_range_{r}{c}_m" for r in range(4) for c in range(4))
-TERRAIN_VALID_FIELDS = tuple(f"tof4x4_valid_{r}{c}" for r in range(4) for c in range(4))
+TERRAIN_RANGE_FIELDS = tuple(
+    f"tof4x4_range_{r}{c}_m" for r in range(4) for c in range(4))
+TERRAIN_VALID_FIELDS = tuple(
+    f"tof4x4_valid_{r}{c}" for r in range(4) for c in range(4))
 TERRAIN_OBS_FIELDS = SENSOR_OBS_FIELDS + TERRAIN_RANGE_FIELDS + TERRAIN_VALID_FIELDS
 TERRAIN_BASE_OBS_DIM = len(TERRAIN_OBS_FIELDS)
 TERRAIN_OBS_DIM = TERRAIN_BASE_OBS_DIM * HISTORY_LEN
-TERRAIN_SENSOR_REVISION = "forward_tof4x4_real_plane_box_foot_1"
-TERRAIN_ARRAY_ONLY_REVISION = "forward_tof4x4_array_plane_fit_no_tripod_2"
+OBS_DIM = TERRAIN_OBS_DIM  # one 360-input actor everywhere
+TERRAIN_ARRAY_ONLY_REVISION = "vl53l8cx_array_plane_square45_below30_v3"
 TERRAIN_TOF_MIN_M, TERRAIN_TOF_MAX_M = 0.04, 1.5
-# Row-major far-to-near ray centres. Sensor is at torso site, 0mm ahead,
-# pitched 70 degrees below horizontal with 60-degree vertical spread.
-# Horizontal fan spans 45 degrees. These physical extrinsics are hashed.
-TERRAIN_TOF_PITCH_DEG = (40., 60., 80., 100.)
-TERRAIN_TOF_YAW_DEG = (-22.5, -7.5, 7.5, 22.5)
-# Observation schema identifies meanings, not merely array widths. A hash
-# also covers timing and physical sensor extrinsics when using sim2real_232.
-SENSOR_MODEL_REVISION = "tripod_tof_flow_async_v1"
+# Physical 4x4 optical array. The shape is unchanged; its MEANING is new.
+from .tof_geometry import (TOF_MOUNT_BODY_M as TERRAIN_TOF_MOUNT_BODY_M,
+                           TOF_RAYS_BODY as TERRAIN_TOF_RAYS_BODY,
+                           TOF_FOV_DEG, TOF_TILT_DOWN_DEG, TOF_YAW_DEG,
+                           TOF_HARDWARE_ZONE_IDS)
+# Observation identity covers real mounting, image-plane rays and timing.
 SENSOR_SETTINGS_DEFAULTS = {
     "tof_period_frames": 2,
     "flow_period_frames": 1,
@@ -92,95 +83,69 @@ SENSOR_SETTINGS_DEFAULTS = {
 
 
 def sensor_observation_contract(settings: dict | None = None, *,
-                                schema: str = OBS_SCHEMA_SENSOR,
-                                array_only: bool = False) -> dict:
-    """Canonical, independently verifiable v5016 observation identity.
+                                schema: str = OBS_SCHEMA_TERRAIN,
+                                array_only: bool = True) -> dict:
+    """Exactly one physical 4x4 observation contract, including its SHA.
 
-    Sensor mount geometry and fields are part of the meaning of a saved
-    policy; a fingerprint cannot be self-certified by just rehashing an
-    arbitrary serialized manifest.
+    The schema and array-only arguments are validated at the boundary so
+    training/checkpoint callers cannot accidentally request an older format.
+    No older sensor/actor implementation is retained here.
     """
     import hashlib
     import json
     import math
-    from .directional import (TOF_TRIPOD_MOUNTS_BODY_M, TOF_TRIPOD_BEAMS_BODY,
-                              TOF_MIN_RANGE_M, TOF_MAX_RANGE_M)
 
-    if schema not in (OBS_SCHEMA_SENSOR, OBS_SCHEMA_TERRAIN):
-        raise ValueError(f"unknown sensor actor schema {schema!r}")
-    if array_only and schema != OBS_SCHEMA_TERRAIN:
-        raise ValueError('array-only mode requires terrain_360 actor')
+    if schema != OBS_SCHEMA_TERRAIN or array_only is not True:
+        raise ValueError('Only the physical terrain_360 array actor is supported')
     values = dict(SENSOR_SETTINGS_DEFAULTS if settings is None else settings)
     if set(values) != set(SENSOR_SETTINGS_DEFAULTS):
-        raise ValueError("sensor observation settings keys mismatch")
-    for key in ("tof_period_frames", "flow_period_frames"):
+        raise ValueError('Sensor timing/noise settings keys mismatch')
+    for key in ('tof_period_frames', 'flow_period_frames'):
         if type(values[key]) is not int or not 1 <= values[key] <= 20:
-            raise ValueError(f"invalid {key}")
-    for key in ("tof_delay_frames", "flow_delay_frames"):
+            raise ValueError(f'invalid {key}')
+    for key in ('tof_delay_frames', 'flow_delay_frames'):
         if type(values[key]) is not int or not 0 <= values[key] < HISTORY_LEN:
-            raise ValueError(f"invalid {key}")
-    for key in ("tof_dropout_prob", "flow_dropout_prob"):
+            raise ValueError(f'invalid {key}')
+    for key in ('tof_dropout_prob', 'flow_dropout_prob'):
         x = values[key]
-        if type(x) not in (int, float) or not math.isfinite(x) or not 0 <= x <= 1:
-            raise ValueError(f"invalid {key}")
-    for key in ("gyro_bias_std_rad_s", "sensor_noise_scale"):
+        if type(x) not in (int,float) or not math.isfinite(x) or not 0 <= x <= 1:
+            raise ValueError(f'invalid {key}')
+    for key in ('gyro_bias_std_rad_s', 'sensor_noise_scale'):
         x = values[key]
-        if type(x) not in (int, float) or not math.isfinite(x) or x < 0:
-            raise ValueError(f"invalid {key}")
+        if type(x) not in (int,float) or not math.isfinite(x) or x < 0:
+            raise ValueError(f'invalid {key}')
     body = {
-        "schema": OBS_SCHEMA_SENSOR,
-        "sensor_model_revision": SENSOR_MODEL_REVISION,
-        "base_fields": list(SENSOR_OBS_FIELDS),
-        "history_len": HISTORY_LEN,
-        "action_dim": ACTION_DIM,
-        "control_dt": CONTROL_DT,
-        "tripod_mounts_body_m": [list(p) for p in TOF_TRIPOD_MOUNTS_BODY_M],
-        "tripod_beams_body": [list(p) for p in TOF_TRIPOD_BEAMS_BODY],
-        "tof_range_limits_m": [TOF_MIN_RANGE_M, TOF_MAX_RANGE_M],
-        "settings": values,
+        'schema': OBS_SCHEMA_TERRAIN,
+        'sensor_model_revision': TERRAIN_ARRAY_ONLY_REVISION,
+        'base_fields': list(TERRAIN_OBS_FIELDS),
+        'history_len': HISTORY_LEN,
+        'action_dim': ACTION_DIM,
+        'control_dt': CONTROL_DT,
+        'settings': values,
+        'tof4x4_mount_body_m': list(TERRAIN_TOF_MOUNT_BODY_M),
+        'tof4x4_fov_horizontal_deg': TOF_FOV_DEG,
+        'tof4x4_fov_vertical_deg': TOF_FOV_DEG,
+        'tof4x4_tilt_down_deg': TOF_TILT_DOWN_DEG,
+        'tof4x4_mount_yaw_deg': TOF_YAW_DEG,
+        'tof4x4_rays_body': [list(v) for v in TERRAIN_TOF_RAYS_BODY],
+        'tof4x4_hardware_zone_ids': list(TOF_HARDWARE_ZONE_IDS),
+        'tof4x4_range_limits_m': [TERRAIN_TOF_MIN_M,TERRAIN_TOF_MAX_M],
+        'tof4x4_occlusion': 'nearest ray-sphere foot hit masks terrain return',
+        'tof4x4_validity': 'one bit per cell, delayed, zero on dropout',
+        'array_ground_estimator': 'weighted_4x4_plane_residual_8mm_v1',
+        'array_ground_max_fit_residual_m': .008,
+        'array_ground_min_valid_cells': 6,
     }
-    if schema == OBS_SCHEMA_TERRAIN:
-        body.update(
-            schema=OBS_SCHEMA_TERRAIN,
-            sensor_model_revision=TERRAIN_SENSOR_REVISION,
-            base_fields=list(TERRAIN_OBS_FIELDS),
-            tof4x4_mount_body_m=[0., 0., 0.],
-            tof4x4_pitch_from_horizontal_deg=list(TERRAIN_TOF_PITCH_DEG),
-            tof4x4_yaw_deg=list(TERRAIN_TOF_YAW_DEG),
-            tof4x4_range_limits_m=[TERRAIN_TOF_MIN_M,TERRAIN_TOF_MAX_M],
-            tof4x4_occlusion="nearest ray-sphere foot hit masks terrain return",
-            tof4x4_validity="one bit per cell, delayed, zero on dropout",
-        )
-        if array_only:
-            # New cold-source lineage: no physical tripod. The three existing
-            # grade/confidence actor columns are estimated from the SAME 4x4
-            # delayed rays; 360 width is retained but source identity changes.
-            body.pop('tripod_mounts_body_m')
-            body.pop('tripod_beams_body')
-            body.pop('tof_range_limits_m')
-            body.update(
-                sensor_model_revision=TERRAIN_ARRAY_ONLY_REVISION,
-                array_ground_estimator="weighted_4x4_plane_residual_8mm_v1",
-                array_ground_max_fit_residual_m=.008,
-                array_ground_min_valid_cells=6,
-            )
-    digest = hashlib.sha256(json.dumps(body, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
-    return {**body, "sha256": digest}
+    digest = hashlib.sha256(json.dumps(
+        body,sort_keys=True,separators=(',',':')).encode()).hexdigest()
+    return {**body,'sha256':digest}
 
 
-OBS_FIELDS_BY_SCHEMA = {
-    OBS_SCHEMA_LEGACY: BASE_OBS_FIELDS,
-    OBS_SCHEMA_SENSOR: SENSOR_OBS_FIELDS,
-    OBS_SCHEMA_TERRAIN: TERRAIN_OBS_FIELDS,
-}
+def actor_observation_fields(schema: str = OBS_SCHEMA_TERRAIN) -> tuple[str, ...]:
+    if schema != OBS_SCHEMA_TERRAIN:
+        raise ValueError('Only physical terrain_360 observations are supported')
+    return TERRAIN_OBS_FIELDS
 
-
-def actor_observation_fields(schema: str) -> tuple[str, ...]:
-    """Return the exact fields of an explicitly named actor contract."""
-    try:
-        return OBS_FIELDS_BY_SCHEMA[schema]
-    except KeyError as exc:
-        raise ValueError(f"unknown actor observation schema {schema!r}") from exc
 
 # Preserve the current actor coordinate system exactly.  The membership here is
 # intentionally explicit rather than encoded as fragile numeric slices.
@@ -233,7 +198,7 @@ FIELD_EDGE_FRAC = FIELD_NODE_START + FIELD_NODE_ANCHORS * FIELD_NODE_STRIDE
 FIELD_EDGE_START = FIELD_EDGE_FRAC + 1
 TASK_PARAM_DIM = FIELD_EDGE_START + FIELD_EDGE_ANCHORS * FIELD_EDGE_STRIDE
 
-# G4: the existing flat/220/232 task vector is an immutable legacy contract.
+# The 55 physical base channels are only a prefix of the current 90-wide actor.
 # Only the opt-in finite-terrain environment appends this v1 extension AFTER
 # all field anchors. No existing P indices or actor columns move.
 TERRAIN_TASK_FIELDS = (("terrain_exposure", 0.0), ("terrain_height_m", 0.0))
@@ -293,7 +258,6 @@ def task_param_defaults() -> dict[str, float]:
 
 # Physical tracking/recovery tolerances shared by teacher and independent examiner.
 import math
-import numpy as np
 
 VX_ABS_TOL=0.08; VX_REL_TOL=0.25
 VY_ABS_TOL=0.07; VY_REL_TOL=0.35
@@ -318,6 +282,7 @@ FRONTIER_SETTLE_S=0.35
 
 
 def dynamic_tolerance(cmd,abs_floor:float,rel_frac:float):
+    import numpy as np
     return np.maximum(float(abs_floor),float(rel_frac)*np.abs(np.asarray(cmd)))
 
 
@@ -333,6 +298,7 @@ def node_window_success_numpy(cmd_vx,cmd_vy,cmd_yaw,vx,vy,yaw_rate,gravity_z,sup
     Tracking uses mean absolute error, not abs(mean(error)); gait oscillation is
     therefore tolerated without cancellation hiding genuine error.
     """
+    import numpy as np
     cvx,cvy,cy=[np.asarray(x) for x in (cmd_vx,cmd_vy,cmd_yaw)]
     vx,vy,yw=[np.asarray(x) for x in (vx,vy,yaw_rate)]
     tx,ty,tz=tracking_tolerances(cvx,cvy,cy)
@@ -357,6 +323,7 @@ def recovery_outcome_numpy(first_fall_step, first_recovery_step, *, not_before_s
     time from the reported recovery latency. Optional direction bins expose the
     worst stratified nuisance direction without changing the aggregate verdict.
     """
+    import numpy as np
     ff=np.asarray(first_fall_step)
     fr=np.asarray(first_recovery_step)
     if ff.shape != fr.shape:
@@ -382,7 +349,8 @@ from pathlib import Path
 
 PACKAGE_ROOT = Path(__file__).resolve().parent
 VERSION_FILE = PACKAGE_ROOT / "VERSION"
-ROBOT_XML = PACKAGE_ROOT / "robot.xml"
+from .physical_variants import robot_xml_path
+ROBOT_XML = robot_xml_path(PACKAGE_ROOT)
 VERSION = VERSION_FILE.read_text(encoding="utf-8").strip()
 
 

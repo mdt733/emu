@@ -82,7 +82,10 @@ class RegimeGovernor:
     ACADEMY_MIN_ATTEMPTS_PER_DIRECTION = 12
     ACADEMY_MAX_WINDOW_UPDATES = 50
     ACADEMY_SEED_LIP_M = 0.003
-    ACADEMY_MIN_LIP_M = 0.0015
+    # First +X seams below ~2mm are not reliably classifiable/visible.
+    # 1.5mm had ZERO eligible births; don't let retreats park there.
+    # v5056 first seams are now deliberately sampled near this 3mm frontier.
+    ACADEMY_MIN_LIP_M = 0.003
     ACADEMY_HEIGHT_GROWTH_M = 0.0005
     COMMAND_SECTORS = ('vx_hi','vx_lo','vy_pos','vy_neg','yaw_pos','yaw_neg','mixed')
     COMMAND_MIN_EDGE_EPISODES = 4
@@ -919,7 +922,11 @@ class RegimeGovernor:
         # whole policy needs to back off, not just whichever regime
         # happened to be pushing hardest.
         core_fall = row.get('core_fall_rate', -1.0)
-        core_len = row.get('core_ep_len_mean', -1.0)
+        # A shorter episode can mean *completed the stair*, not fell early.
+        # Real ages remain untouched in reporting; the competence model
+        # uses the separate success-adjusted field if present.
+        core_len = row.get('core_ep_len_competence_mean',
+                           row.get('core_ep_len_mean', -1.0))
         if core_fall >= 0.0 and core_len >= 0.0:
             core_survival = min(1.0, core_len / 350.0) * (1.0 - min(1.0, core_fall))
             self.core_competence = float(max(0.0, min(1.0, core_survival)))
@@ -972,7 +979,9 @@ class RegimeGovernor:
             n_ep = float(row.get(f'episodes_{name}', 1.0))
             n_fall = float(row.get(f'falls_{name}', regime_fall * n_ep))
             self._pooled_fall_ema(name, n_fall, n_ep)
-            ep_len_r = float(row.get(f'ep_len_mean_{name}', ep_len))
+            ep_len_r = float(row.get(
+                f'ep_len_competence_mean_{name}',
+                row.get(f'ep_len_mean_{name}', ep_len)))
             cone_r = float(row.get(f'foot_mid_cone_{name}', 0.0))
             vx_r = row.get(f'vx_mean_{name}', -1.0)
             cmd_vx_r = row.get(f'cmd_vx_mean_{name}', -1.0)

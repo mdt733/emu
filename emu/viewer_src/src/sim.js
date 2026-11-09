@@ -3,12 +3,13 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import loadMujoco from '@mujoco/mujoco';
 import mujocoWasmUrl from '@mujoco/mujoco/mujoco.wasm?url';
 import { PolicyRunner } from './policy.js';
-import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe } from './sensor.js';
+import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe, footSphereHit, terrainActorRays } from './sensor.js';
 import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredAttitude, sampleShove, expectedShoveRate } from './sim-math.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
 import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient } from './terrain.js';
 import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
-import { createSolidCarpet, safeCarpetShift } from './training-solid-carpet.js';
+import { terrainRoleEnvelope } from './training-solid-carpet.js';
+import { createSensorLabCarpet, sensorLabPrismVertices, LAB_PRISM_FACES, LAB_TILE_M, LAB_PRISM_COUNT } from './sensor-lab-carpet.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
@@ -52,7 +53,8 @@ export class EmuBrowserSim {
     this.canvas = canvas;
     this.bundle = bundle;
     this.mujoco = mujoco;
-    this.policy = new PolicyRunner(bundle);
+    this.sensorLab=Boolean(bundle.sensor_lab);
+    this.policy = this.sensorLab ? null : new PolicyRunner(bundle);
     this.model = null;
     this.data = null;
     this.mjvOption = new mujoco.MjvOption();
@@ -75,6 +77,7 @@ export class EmuBrowserSim {
     this.grassTexture = createGrassTexture(THREE);
     this.parkGridTexture = createParkGridTexture(THREE);
     this.parkSurface = null;
+    this.sensorLabSurface = null;
     this.parkGridOverlay = null;
     this.treeCrowns = null;
     this.park = null;
@@ -131,7 +134,7 @@ export class EmuBrowserSim {
     this.sensorObstacle = 'flat';
     this.surfaceSlopeDegrees=3;
     this.surfaceStepHeightCm=2;
-    this.depthConfig = {enabled:true,forward:0,tilt:70,showRays:true,showFootprint:true,subrays:'auto'};
+    this.depthConfig = {enabled:true,forward:0,lateral:0,height:-.030,tilt:70,yaw:0,showRays:true,showActorRays:true,showFootprint:true,subrays:'auto'};
     this.depthReading = null;
     this.depthLastMs = 0;
     this.depthRaycaster = new THREE.Raycaster();
@@ -144,6 +147,18 @@ export class EmuBrowserSim {
     this.depthLines.frustumCulled=false;
     this.depthLines.visible=false;
     this.scene.add(this.depthLines);
+    // The frozen training policy's rays are drawn independently from the optional
+    // VL53L8CX square-FoV probe. This shows the actual serialized contract,
+    // including any backwards-pointing rows. No NN inputs are modified.
+    this.actorRayPositions=new Float32Array(16*6);
+    const actorRayGeometry=new THREE.BufferGeometry();
+    actorRayGeometry.setAttribute('position',
+      new THREE.BufferAttribute(this.actorRayPositions,3).setUsage(THREE.DynamicDrawUsage));
+    this.actorRayLines=new THREE.LineSegments(actorRayGeometry,
+      new THREE.LineBasicMaterial({color:0xee63df,transparent:true,opacity:.82,depthTest:true}));
+    this.actorRayLines.frustumCulled=false;
+    this.actorRayLines.visible=false;
+    this.scene.add(this.actorRayLines);
     // Optional 5x5 boundary grid maps the physical 4x4 footprint directly
     // onto the same MuJoCo-rendered ground used by the range inspector.
     const footprintGeometry=new THREE.BufferGeometry();
@@ -279,6 +294,13 @@ export class EmuBrowserSim {
   }
 
   disposeModel() {
+    if(this.sensorLabSurface){
+      this.scene.remove(this.sensorLabSurface);
+      for(const mesh of this.sensorLabSurface.children){
+        mesh.geometry.dispose();mesh.material.dispose();
+      }
+      this.sensorLabSurface=null;
+    }
     if (this.parkGridOverlay) {
       this.scene.remove(this.parkGridOverlay);
       // Deliberately share parkSurface geometry; dispose only the overlay
@@ -340,6 +362,8 @@ export class EmuBrowserSim {
     this.disposeModel();
     this.depthLines.geometry.dispose();
     this.depthLines.material.dispose();
+    this.actorRayLines.geometry.dispose();
+    this.actorRayLines.material.dispose();
     this.depthFootprint.geometry.dispose();
     this.depthFootprint.material.dispose();
     this.depthMountMarker.geometry.dispose();
@@ -521,12 +545,16 @@ export class EmuBrowserSim {
     this.surfaceStepHeightCm=stepHeightCm;
     if(this.terrainMode==='sensor')this.loadModel();
   }
-  setDepthInspector({enabled,forward,tilt,showRays,showFootprint=true,subrays='auto'}) {
-    const values={enabled:Boolean(enabled),forward:Number(forward),tilt:Number(tilt),
-      showRays:Boolean(showRays),showFootprint:Boolean(showFootprint),subrays};
+  setDepthInspector({enabled,forward,lateral=0,tilt,yaw=0,height=-.040,showRays,showActorRays=true,showFootprint=true,subrays='auto'}) {
+    const values={enabled:Boolean(enabled),forward:Number(forward),lateral:Number(lateral),height:Number(height),tilt:Number(tilt),yaw:Number(yaw),
+      showRays:Boolean(showRays),showActorRays:Boolean(showActorRays),showFootprint:Boolean(showFootprint),subrays};
     if(!['auto',1,4,5].includes(subrays))throw new Error('Depth samples must be auto, 1, 4 or 5');
     // Validation lives with one optical mounting model, not a policy contract.
-    if(values.forward<0||values.forward>.2||values.tilt<0||values.tilt>90)throw new Error('Invalid depth mount');
+    if(!Number.isFinite(values.height)||values.height<-.12||values.height>.10||
+       !Number.isFinite(values.lateral)||Math.abs(values.lateral)>.12||
+       !Number.isFinite(values.yaw)||Math.abs(values.yaw)>30||
+       values.forward<0||values.forward>.2||values.tilt<0||values.tilt>90)
+      throw new Error('Invalid depth mount');
     this.depthConfig=values;
     this.depthLastMs=0;
   }
@@ -576,7 +604,8 @@ export class EmuBrowserSim {
                              trees:this.parkTreesEnabled,features:this.parkFeaturesEnabled,
                              challengeLevel:this.parkChallengeLevel})
       : this.terrainMode==='carpet'
-        ? createSolidCarpet(this.carpetDifficulty,this.carpetRole)
+        ? createSensorLabCarpet(terrainRoleEnvelope(
+            this.carpetDifficulty,this.carpetRole))
         : null;
     const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park,obstacle:this.sensorObstacle,
       slopeDegrees:this.surfaceSlopeDegrees,stepHeightCm:this.surfaceStepHeightCm});
@@ -585,10 +614,11 @@ export class EmuBrowserSim {
     this.data = new this.mujoco.MjData(this.model);
     this.mjvScene = new this.mujoco.MjvScene(this.model, this.maxGeoms);
     this.resolveIds();
-    if(this.park?.physics==='nine-solid-boxes'){
-      // The nine live MuJoCo BOX geoms render themselves in refreshScene().
+    if(this.park?.physics==='eight-1m-prisms'){
+      // Physical browser geoms render directly, not as decorative heightfields.
       // Do not put a decorative hfield over their real vertical contact faces.
       this.makeCarpetTileOverlay();
+      this.makeSensorLabSurface();
     }else if(this.park){
       this.parkSurface=createParkSurface(THREE,this.park,this.grassTexture);
       this.scene.add(this.parkSurface);
@@ -618,6 +648,27 @@ export class EmuBrowserSim {
     this.reset();
   }
 
+  makeSensorLabSurface(){
+    // Viewer triangles and CPU MuJoCo contact meshes share one vertex source.
+    const group=new THREE.Group();
+    for(const prism of sensorLabPrismVertices(this.park)){
+      const points=[];
+      for(const face of LAB_PRISM_FACES)
+        for(const v of face)points.push(...prism.world[v]);
+      const geom=new THREE.BufferGeometry();
+      geom.setAttribute('position',new THREE.Float32BufferAttribute(points,3));
+      geom.computeVertexNormals();
+      const mesh=new THREE.Mesh(geom,new THREE.MeshStandardMaterial({
+        color:0x599c69,roughness:.92,side:THREE.DoubleSide}));
+      mesh.userData.robotPart=false;
+      mesh.userData.sensorLabPrism=true;
+      mesh.receiveShadow=true;
+      group.add(mesh);
+    }
+    this.sensorLabSurface=group;
+    this.scene.add(group);
+  }
+
   name2id(objEnum, name) {
     const id = Number(this.mujoco.mj_name2id(this.model, objEnum.value, name));
     if (id < 0) throw new Error(`robot.xml is missing ${name}`);
@@ -637,49 +688,12 @@ export class EmuBrowserSim {
     this.footIds = ['r_foot', 'l_foot'].map(n => this.name2id(mj.mjtObj.mjOBJ_BODY, n));
     this.footGeomIds = ['r_foot_ball','l_foot_ball'].map(n =>
       this.name2id(mj.mjtObj.mjOBJ_GEOM,n));
-    if(this.park?.physics==='nine-solid-boxes'){
-      this.carpetMocapIds=Array.from({length:9},(_,i)=>{
-        const body=this.name2id(mj.mjtObj.mjOBJ_BODY,'viewer_carpet_body_'+i);
-        const mocap=Number(this.model.body_mocapid[body]);
-        if(!Number.isInteger(mocap)||mocap<0)
-          throw Error('Physical training box is missing a MuJoCo mocap ID');
-        return mocap;
-      });
-      this.carpetGeomIds=new Set(Array.from({length:9},(_,i)=>
-        this.name2id(mj.mjtObj.mjOBJ_GEOM,'viewer_carpet_solid_'+i)));
+    if(this.park?.physics==='eight-1m-prisms'){
+      this.carpetMocapIds=[];
+      this.carpetGeomIds=new Set(Array.from({length:LAB_PRISM_COUNT},(_,i)=>
+        this.name2id(mj.mjtObj.mjOBJ_GEOM,'sensor_lab_prism_'+i)));
     }
-  }
 
-  writeCarpetMocap(tiles,prior=null){
-    if(this.carpetMocapIds.length!==9||tiles.length!==9)
-      throw Error('Nine physical MuJoCo carpet tiles required');
-    for(let slot=0;slot<9;slot++){
-      const t=tiles[slot],p=prior?.[slot];
-      if(p&&p.i===t.i&&p.j===t.j)continue;
-      const m=this.carpetMocapIds[slot];
-      for(let k=0;k<3;k++)this.data.mocap_pos[3*m+k]=t.center[k];
-      for(let k=0;k<4;k++)this.data.mocap_quat[4*m+k]=t.quat[k];
-    }
-  }
-
-  recycleCarpetWindow(){
-    if(this.terrainMode!=='carpet'||!this.data||!this.carpetWindowCenter)return;
-    const current=this.carpetWindowCenter;
-    const next=[Math.floor(this.data.qpos[0]/.5),
-                Math.floor(this.data.qpos[1]/.5)];
-    if(next[0]===current[0]&&next[1]===current[1])return;
-    if(Math.abs(next[0]-current[0])>1||Math.abs(next[1]-current[1])>1)
-      return; // never teleport tiles after anomalous leaps
-    const tiles=this.park.window(next[0],next[1]);
-    const footPositions=this.footGeomIds.map(id=>
-      [this.data.geom_xpos[3*id],this.data.geom_xpos[3*id+1]]);
-    if(!safeCarpetShift(this.park.tiles,tiles,footPositions))return;
-    this.writeCarpetMocap(tiles,this.park.tiles);
-    this.park.tiles=tiles;
-    this.carpetWindowCenter=next;
-    this.carpetTileCenter=null;
-    // Rebuild contacts against the new real positions before sensor reads.
-    this.mujoco.mj_forward(this.model,this.data);
   }
 
   createParkMarkers() {
@@ -721,19 +735,15 @@ export class EmuBrowserSim {
     this.data.qvel.fill(0);
     // Training births already moving near the commanded state. Do the same for
     // the interactive viewer so reset is not a special stationary task.
-    this.data.qvel[0] = this.command.vx;
-    this.data.qvel[1] = this.command.vy;
+    this.data.qvel[0] = this.sensorLab ? 0 : this.command.vx;
+    this.data.qvel[1] = this.sensorLab ? 0 : this.command.vy;
     this.requestedYaw = this.commandTarget.yaw;
     this.command.yaw = this.requestedYaw;
     this.data.qvel[5] = this.command.yaw;
-    if(this.park?.physics==='nine-solid-boxes'){
-      // Spawn at the centre of the first 50cm support, not the four-lip
-      // intersection at world (0,0). The trainer also uses supported births.
-      this.data.qpos[0]=.25;
-      this.data.qpos[1]=.25;
+    if(this.park?.physics==='eight-1m-prisms'){
+      this.data.qpos[0]=LAB_TILE_M*.5;
+      this.data.qpos[1]=LAB_TILE_M*.5;
       this.carpetWindowCenter=[0,0];
-      this.park.tiles=this.park.window(0,0);
-      this.writeCarpetMocap(this.park.tiles);
     }
     mj.mj_forward(this.model, this.data);
     this.headingTarget=this.actualHeading();
@@ -857,7 +867,8 @@ export class EmuBrowserSim {
   }
   updateCarpetTileOverlay() {
     if(!this.carpetTileOverlay||!this.park||!this.data)return;
-    const x=this.data.qpos[0],y=this.data.qpos[1],size=.5;
+    const x=this.data.qpos[0],y=this.data.qpos[1],
+      size=this.park.tileSizeM||.5;
     const cx=this.carpetWindowCenter?.[0]??Math.floor(x/size);
     const cy=this.carpetWindowCenter?.[1]??Math.floor(y/size);
     const key=cx+','+cy;
@@ -865,6 +876,25 @@ export class EmuBrowserSim {
     this.carpetTileCenter=key;
     const positions=[];
     const add=(a,b)=>positions.push(...a,...b);
+    if(this.park.physics==='eight-1m-prisms'){
+      // Fixed 2x2 prism boundary; NEVER draw fictitious recycled tiles.
+      for(let i=0;i<=2;i++){
+        const u=i*size;
+        add([u,0,.008],[u,2*size,.008]);
+        add([0,u,.008],[2*size,u,.008]);
+      }
+      for(let j=0;j<2;j++)for(let i=0;i<2;i++){
+        const a=this.park.at(i,j),corners=a.corners;
+        add([i*size,j*size,corners[0]+.009],
+          [(i+1)*size,(j+1)*size,corners[3]+.009]);
+      }
+      this.carpetTileOverlay.geometry.dispose();
+      this.carpetTileOverlay.geometry=new THREE.BufferGeometry();
+      this.carpetTileOverlay.geometry.setAttribute('position',
+        new THREE.Float32BufferAttribute(positions,3));
+      this.carpetTileOverlay.visible=this.showGrid;
+      return;
+    }
     for(let i=-1;i<=2;i++){
       const xx=(cx+i)*size;
       for(let j=-1;j<=1;j++){
@@ -882,7 +912,7 @@ export class EmuBrowserSim {
             [x1,yy,this.park.sampleHeight(x1,yy)+.006]);
       }
     }
-    // One diagonal line per 50cm tile, making the 18 triangles legible.
+    // Diagonal boundaries show each tile's two physical triangular prisms.
     for(let j=-1;j<=1;j++)for(let i=-1;i<=1;i++){
       const x0=(cx+i)*size,y0=(cy+j)*size;
       add([x0,y0,this.park.sampleHeight(x0,y0)+.006],
@@ -1001,7 +1031,7 @@ export class EmuBrowserSim {
     this.requestedYaw=steering.requestedYaw;
     this.headingTarget=steering.headingTarget;
     this.command.yaw=steering.appliedYaw;
-    const action = this.policy.infer(this.obs);
+    const action = this.sensorLab ? new Float32Array(6) : this.policy.infer(this.obs);
     this.controlFrames++;
     const span = this.bundle.control.target_span_rad;
 
@@ -1020,7 +1050,6 @@ export class EmuBrowserSim {
     for (let k = 0; k < nsub; k++) this.mujoco.mj_step(this.model, this.data);
     for(let i=0;i<this.actQpos.length;i++)
       this.motorTravelRad+=Math.abs(Number(this.data.qpos[this.actQpos[i]])-beforeJoints[i]);
-    this.recycleCarpetWindow();
 
     for (let i = 0; i < 6; i++) {
       const raw = clamp(action[i] * span[i], -span[i], span[i]);
@@ -1289,13 +1318,19 @@ export class EmuBrowserSim {
       // parent body is non-world are visible self-occluders (legs/feet).
       // A contact-visualization or world terrain mesh is not robot geometry.
       const geomId = Number(vg.objid);
+      mesh.userData.footGeom = this.footGeomIds.includes(geomId);
+      mesh.userData.sensorLabPrism = this.carpetGeomIds.has(geomId);
       mesh.userData.robotPart = Number(vg.objtype) === Number(mj.mjtObj.mjOBJ_GEOM.value)
         && Number.isInteger(geomId) && geomId >= 0
         && geomId < Number(this.model.ngeom)
         && Number(this.model.geom_bodyid[geomId]) > 0
         && !this.carpetGeomIds.has(geomId); // mocap tiles are TERRAIN, not self-occlusion
       // Heightfield collision is rendered by the seamless grass mesh above.
-      mesh.visible = !mesh.userData.parkHeightfield;
+      // MuJoCo WASM returns a visual record for each mesh geom, but the
+      // JS geometryFor fallback cannot reconstruct its triangles. The
+      // sensor-lab's eight exact authored triangles are drawn separately.
+      mesh.visible = !mesh.userData.parkHeightfield &&
+        !mesh.userData.sensorLabPrism;
       if (!mesh.userData.floor) mesh.material.color.setRGB(rgba[0], rgba[1], rgba[2]);
       mesh.material.opacity = rgba[3];
       mesh.material.transparent = rgba[3] < 0.999;
@@ -1401,6 +1436,7 @@ export class EmuBrowserSim {
     // 4x4 actor rays use their own truthful, timed physical observation ring.
     if(!this.depthConfig.enabled || !this.data){
       this.depthLines.visible=false;
+      this.actorRayLines.visible=false;
       this.depthFootprint.visible=false;
       this.depthMountMarker.visible=false;
       this.depthReading=null;
@@ -1417,14 +1453,19 @@ export class EmuBrowserSim {
     const pose=depthProbeRays(torso,rotation,this.depthConfig);
     // Shared viewer geometry (including movable robot parts) matches the
     // displayed MuJoCo scene. The park hfield uses its matching grass mesh.
-    const targets=this.meshes.filter(mesh=>mesh.visible);
+    const targets=this.meshes.filter(mesh=>mesh.visible &&
+      !mesh.userData.sensorLabPrism);
     if(this.parkSurface)targets.push(this.parkSurface);
+    if(this.sensorLabSurface)targets.push(...this.sensorLabSurface.children);
     for(const mesh of targets)mesh.updateMatrixWorld(true);
     const raycaster=this.depthRaycaster;
     raycaster.near=.018;
     const origin=new THREE.Vector3(...pose.origin);
     const direction=new THREE.Vector3();
     const n=this.depthConfig.subrays;
+    const footCentres=this.footGeomIds.map(id=>({
+      centre:Array.from(this.data.geom_xpos.slice(3*id,3*id+3)),
+      radius:Number(this.model.geom_size[3*id])}));
     // Auto protects the large hfield mesh from 64 costly triangle casts.
     // Selecting 4 or 5 overrides this and shows the actual cost.
     const sampleCount=n==='auto'?(['park','carpet'].includes(this.terrainMode)?1:4):n;
@@ -1432,7 +1473,15 @@ export class EmuBrowserSim {
       raycaster.set(origin,direction.set(...dir).normalize());
       raycaster.far=maxRange;
       const hit=raycaster.intersectObjects(targets,false)[0];
-      return hit?{distance:hit.distance,kind:hit.object.userData.robotPart?'self':'terrain',surface:hit.object.uuid}:Infinity;
+      let foot=Infinity;
+      for(const part of footCentres)
+        foot=Math.min(foot,footSphereHit(start,dir,part.centre,part.radius));
+      if(foot<Math.min(hit?.distance??Infinity,maxRange)+1e-4)
+        return {distance:foot,kind:'foot',surface:'physical 36mm foot sphere'};
+      return hit?{distance:hit.distance,
+        kind:hit.object.userData.footGeom?'foot':
+          hit.object.userData.robotPart?'self':'terrain',
+        surface:hit.object.uuid}:Infinity;
     },{subrays:sampleCount,noise:this.sensorNoise ? .001 : 0,dropout:0});
     const points=this.depthLinePositions,colors=this.depthLineColors;
     for(let i=0;i<16;i++){
@@ -1449,6 +1498,28 @@ export class EmuBrowserSim {
     this.depthLines.geometry.attributes.position.needsUpdate=true;
     this.depthLines.geometry.attributes.color.needsUpdate=true;
     this.depthLines.visible=this.depthConfig.showRays;
+    if(this.depthConfig.showActorRays){
+      const contract=this.bundle.observation.sensor_contract;
+      const actorRays=terrainActorRays(rotation,contract.tof4x4_rays_body);
+      const positions=this.actorRayPositions;
+      const bodyMount=contract.tof4x4_mount_body_m;
+      const actorOrigin=new THREE.Vector3(
+        ...torso.map((v,i)=>v+
+          rotation[3*i]*bodyMount[0]+rotation[3*i+1]*bodyMount[1]+
+          rotation[3*i+2]*bodyMount[2]));
+      for(let i=0;i<actorRays.length;i++){
+        raycaster.set(actorOrigin,direction.set(...actorRays[i]).normalize());
+        raycaster.far=1.5;
+        const hit=raycaster.intersectObjects(targets,false)[0];
+        const endpoint=hit?.point || actorOrigin.clone().addScaledVector(direction,.65);
+        for(let k=0;k<3;k++){
+          positions[i*6+k]=actorOrigin.getComponent(k);
+          positions[i*6+3+k]=endpoint.getComponent(k);
+        }
+      }
+      this.actorRayLines.geometry.attributes.position.needsUpdate=true;
+      this.actorRayLines.visible=true;
+    }else this.actorRayLines.visible=false;
     if(this.depthConfig.showFootprint){
       // Footprint boundary casts are purely for visualisation and never
       // become privileged actor observations. They stop at the first
@@ -1478,7 +1549,14 @@ export class EmuBrowserSim {
       this.depthFootprint.geometry.setDrawRange(0,written/3);
       this.depthFootprint.visible=written>0;
     }else this.depthFootprint.visible=false;
+    const bodyForward=[rotation[0],rotation[3],rotation[6]];
+    const forwardHits=reading.hitPoints.map((p,i)=>
+      reading.valid[i]&&!reading.selfOccluded[i]
+        ?p.reduce((sum,n,k)=>sum+(n-pose.origin[k])*bodyForward[k],0):NaN)
+      .filter(Number.isFinite);
     this.depthReading={...reading,updatedMs:nowMs,subrays:sampleCount,
+      reachNearM:forwardHits.length?Math.min(...forwardHits):null,
+      reachFarM:forwardHits.length?Math.max(...forwardHits):null,
       footprintRays:this.depthConfig.showFootprint?25:0,
       costMs:performance.now()-begin};
     this.depthMountMarker.position.copy(origin);
