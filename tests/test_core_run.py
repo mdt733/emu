@@ -6,7 +6,7 @@ than retaining obsolete campaign code just to keep its tests green.
 """
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Any, NamedTuple
 from unittest.mock import patch
@@ -165,7 +165,7 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     cfg_path.write_text(json.dumps(partial), encoding="utf-8")
     with pytest.raises(ValueError,match="training config keys mismatch"):
         TrainingConfig.load(cfg_path)
-    partial = json.loads(json.dumps(__import__('dataclasses').asdict(first)))
+    partial = asdict(first)
     partial.pop("terrain_carpet_prisms")
     cfg_path.write_text(json.dumps(partial), encoding="utf-8")
     with pytest.raises(ValueError,match="training config keys mismatch"):
