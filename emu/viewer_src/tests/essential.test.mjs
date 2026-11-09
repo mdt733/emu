@@ -157,7 +157,7 @@ test('trained-policy Carpet uses exactly eight real 1m prism contacts',()=>{
   const raw='<mujoco><asset></asset><worldbody><geom name="floor" type="plane" size="5 5 .05"/></worldbody></mujoco>';
   const xml=withTerrain(raw,'carpet',{park:carpet});
   assert.equal((xml.match(/mocap="true"/g)||[]).length,8);
-  assert.equal((xml.match(/sensor_lab_prism_\\d+" type="mesh"/g)||[]).length,8);
+  assert.equal((xml.match(/sensor_lab_prism_\d+" type="mesh"/g)||[]).length,8);
   assert.doesNotMatch(xml,/name="floor"/);
   assert.doesNotMatch(xml,/viewer_carpet_solid_/);
   assert.equal(carpet.tiles.length,4);
