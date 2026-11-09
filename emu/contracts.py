@@ -295,7 +295,6 @@ def task_param_defaults() -> dict[str, float]:
 
 # Physical tracking/recovery tolerances shared by teacher and independent examiner.
 import math
-import numpy as np
 
 VX_ABS_TOL=0.08; VX_REL_TOL=0.25
 VY_ABS_TOL=0.07; VY_REL_TOL=0.35
@@ -320,6 +319,7 @@ FRONTIER_SETTLE_S=0.35
 
 
 def dynamic_tolerance(cmd,abs_floor:float,rel_frac:float):
+    import numpy as np
     return np.maximum(float(abs_floor),float(rel_frac)*np.abs(np.asarray(cmd)))
 
 
@@ -335,6 +335,7 @@ def node_window_success_numpy(cmd_vx,cmd_vy,cmd_yaw,vx,vy,yaw_rate,gravity_z,sup
     Tracking uses mean absolute error, not abs(mean(error)); gait oscillation is
     therefore tolerated without cancellation hiding genuine error.
     """
+    import numpy as np
     cvx,cvy,cy=[np.asarray(x) for x in (cmd_vx,cmd_vy,cmd_yaw)]
     vx,vy,yw=[np.asarray(x) for x in (vx,vy,yaw_rate)]
     tx,ty,tz=tracking_tolerances(cvx,cvy,cy)
@@ -359,6 +360,7 @@ def recovery_outcome_numpy(first_fall_step, first_recovery_step, *, not_before_s
     time from the reported recovery latency. Optional direction bins expose the
     worst stratified nuisance direction without changing the aggregate verdict.
     """
+    import numpy as np
     ff=np.asarray(first_fall_step)
     fr=np.asarray(first_recovery_step)
     if ff.shape != fr.shape:

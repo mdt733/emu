@@ -108,18 +108,6 @@ def profile_numbers(name: str) -> dict[str, float | str]:
                 hip_roll_stiffness_nm_rad=p.hip_roll_stiffness)
 
 
-def terrain_tof_pitch_deg(name: str | None = None) -> tuple[float, ...]:
-    """Rotate the same rigid 4×4 beam assembly to match neutral sensor height.
-
-    The smallest downward beam reaches ~25cm forward to level ground at
-    neutral; the 2×2 carpet only guarantees 37.5cm to its nearest edge.
-    Keeping original 40deg at 40cm would reach ~48cm and teach on voids.
-    All rows retain fixed 20deg physical separation; no privileged input.
-    """
-    far = math.degrees(math.atan2(neutral_hip_height(name), .25))
-    return tuple(round(far + d, 5) for d in (0., 20., 40., 60.))
-
-
 def _set_xyz(element: ET.Element, key: str, xyz: tuple[float, float, float]):
     element.set(key, " ".join(f"{c:.8f}" for c in xyz))
 

@@ -3102,7 +3102,9 @@ class EmuMJXEnv(TaskSampler):
         four=jnp.where(valid,jnp.clip(result,TERRAIN_TOF_MIN_M,
                                       TERRAIN_TOF_MAX_M),0.).astype(jnp.float32)
         if include_downward_depth:
-            return four,valid,all_t[:,16]
+            # The 17th ray is a torso-mounted optical-flow depth probe, not
+            # the sensor 30mm below the torso. Restore torso range.
+            return four,valid,all_t[:,16] - TERRAIN_TOF_MOUNT_BODY_M[2]
         return four,valid
 
     def _sensor_sample(self, data, task, keys, gyro_bias, carpet_heights=None):

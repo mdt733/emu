@@ -105,7 +105,9 @@ def fit_forward_array_ground(xp, ranges, valid, gravity_body):
     centre_dirs=xp.take(-rays[:,2],middle,axis=0)
     central=xp.sum(xp.take(d,middle,axis=1)*centre_dirs[None,:]*
                    middle_valid.astype(xp.float32),axis=1)/xp.maximum(central_count,1.)
-    optical_depth=xp.where(good,depth,central)
+    # Optical flow is torso-centred; the VL53L8CX is 30mm beneath it.
+    from .tof_geometry import TOF_MOUNT_BODY_M
+    optical_depth=xp.where(good,depth,central)-TOF_MOUNT_BODY_M[2]
     depth_valid=(good | (central_count>=2)) & (
         optical_depth>=.035)&(optical_depth<=.60)
     confidence=xp.where(good,

@@ -2,7 +2,7 @@
 
 Only teacher-side reward and completion checks use these fields. Nothing is
 added to the 360-input deployed actor. The target is fixed at *birth* on the
-opposite side of one real 75cm tile boundary; it must not chase the robot.
+opposite side of one real 1m tile boundary; it must not chase the robot.
 """
 from __future__ import annotations
 

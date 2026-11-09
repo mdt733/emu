@@ -63,9 +63,9 @@ class CoreAcademyTests(unittest.TestCase):
         self.assertIn("science_step_goal_active",REWARD_ONLY_METRICS)
 
     def test_academy_birth_is_exactly_upstream_of_real_prism_seam(self):
-        starts=np.array([-.02,.02,.37,.80],dtype=np.float32)
+        starts=np.array([-.02,.02,TILE_M*.5,TILE_M+.05],dtype=np.float32)
         near=academy_near_lip_spawn_x(np,starts,.22)
-        np.testing.assert_allclose(near,[-.22,.53,.53,1.28],atol=1e-6)
+        np.testing.assert_allclose(near,[-.22,TILE_M-.22,TILE_M-.22,2*TILE_M-.22],atol=1e-6)
         # A robot that begins 22cm before a tile edge should always see
         # the boundary ahead without changing actual prism heights.
         np.testing.assert_allclose(
@@ -75,12 +75,12 @@ class CoreAcademyTests(unittest.TestCase):
             academy_near_lip_spawn_x(np,starts,0.),starts)
 
     def test_fixed_destination_never_chases_next_tile(self):
-        start=np.array([[.53,.10],[-.22,-.06]],dtype=np.float32)
+        start=np.array([[TILE_M-.22,.10],[-.22,-.06]],dtype=np.float32)
         goal=destination_from_birth(np,start)
-        np.testing.assert_allclose(goal,[[1.35,.10],[.60,-.06]],atol=1e-6)
+        np.testing.assert_allclose(goal,[[TILE_M+.60,.10],[.60,-.06]],atol=1e-6)
         # Crossing a tile boundary does not redefine the goal.
-        pre=np.array([[.70,.10],[-.10,-.06]],dtype=np.float32)
-        post=np.array([[.78,.10],[.02,-.06]],dtype=np.float32)
+        pre=np.array([[TILE_M-.05,.10],[-.10,-.06]],dtype=np.float32)
+        post=np.array([[TILE_M+.03,.10],[.02,-.06]],dtype=np.float32)
         delta=signed_distance_progress(np,goal,pre,post)
         np.testing.assert_allclose(delta,[.02,.02],atol=1e-6)
         backwards=signed_distance_progress(np,goal,post,pre)
@@ -88,8 +88,8 @@ class CoreAcademyTests(unittest.TestCase):
         np.testing.assert_allclose(goal,destination_from_birth(np,start))
 
     def test_goal_requires_actual_bilateral_transfer_and_stable_arrival(self):
-        goal=np.array([[1.35,0.]])
-        point=np.array([[1.35,0.]])
+        goal=np.array([[TILE_M+.60,0.]])
+        point=np.array([[TILE_M+.60,0.]])
         q=lambda transfer,slip=0.,yaw=0.:arrival_quality(
             np,goal,point,np.array([yaw]),np.ones(1),
             np.ones(1),np.zeros(1),np.full(1,slip),
@@ -257,17 +257,17 @@ class CoreAcademyTests(unittest.TestCase):
         # The scorer sees only raw physical top contacts + first-life motion.
         n=80
         xy=np.zeros((n,1,2),dtype=np.float64)
-        xy[:,:,1]=.375
-        xy[:10,:,0]=.53
-        xy[10:35,:,0]=np.linspace(.80,1.35,25)[:,None]
-        xy[35:,:,0]=1.35
+        xy[:,:,1]=TILE_M*.5
+        xy[:10,:,0]=TILE_M-.22
+        xy[10:35,:,0]=np.linspace(TILE_M+.05,TILE_M+.60,25)[:,None]
+        xy[35:,:,0]=TILE_M+.60
         cells=np.zeros((n,1,2),dtype=np.int32)
         cells[10:,:,0]=1
         tops=np.zeros((n,1,4,4))
         tops[:,:,1,:]=.02  # measured 2cm positive-X lip
         feet=np.zeros((n,1,2,3))
-        feet[:,:,:,0]=.85
-        feet[:,:,:,1]=.375
+        feet[:,:,:,0]=TILE_M+.10
+        feet[:,:,:,1]=TILE_M*.5
         feet[:,:,:,2]=.038  # 18mm foot ball resting on real 20mm top
         pairs=np.zeros((n,1,8,2),dtype=bool)
         vertical=np.zeros((n,1,8,2))
@@ -299,7 +299,7 @@ class CoreAcademyTests(unittest.TestCase):
         self.assertEqual(inspect_destinations(missing)["completed_missions"],0)
         # Same contacts but no travel to the point is NOT a completion.
         stalled=dict(trace,physical_position_xy_after_step=xy.copy())
-        stalled["physical_position_xy_after_step"][30:,:,0]=.85
+        stalled["physical_position_xy_after_step"][30:,:,0]=TILE_M+.10
         self.assertEqual(inspect_destinations(stalled)["completed_missions"],0)
 
 
