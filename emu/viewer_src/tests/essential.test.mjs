@@ -220,7 +220,7 @@ test('sensor lab is a fixed physical 2x2 grid: four 1m tiles, eight real triangu
   assert.doesNotMatch(scene,/viewer_carpet_solid_/);
 });
 
-test('h40 VL53L8CX preview detects lower inner two physical foot spheres but not outer ground zones',()=>{
+test('physical h40 foot occlusion depends on mounting geometry, never a hardcoded zone mask',()=>{
   const R=[1,0,0,0,1,0,0,0,1];
   const pose=depthLabSensor.depthProbeRays([0,0,.4],R,
     {tilt:75,forward:0,height:.045});
@@ -237,5 +237,21 @@ test('h40 VL53L8CX preview detects lower inner two physical foot spheres but not
   assert.deepEqual(scan.footOccluded.slice(12),[false,true,true,false]);
   assert.deepEqual(scan.footHitCounts.slice(12),[0,1,1,0]);
   assert.ok(scan.valid[12]&&scan.valid[15],
-    'bottom corner zones retain real ground measurements');
+    'at the OLD high-mount position, corners see terrain');
+  // The user's actual NEW physical mount is below the torso.
+  // Do not keep reporting the former +45mm-high/75° success as though
+  // it proved the real 70°/-30mm hardware arrangement.
+  const chosen=depthLabSensor.depthProbeRays([0,0,.4],R,
+    {tilt:70,forward:0,height:-.03,lateral:0,yaw:0});
+  const actual=depthLabSensor.readDepthProbe(chosen,(origin,ray,max)=>{
+    const terrain=ray[2]<0?-origin[2]/ray[2]:Infinity;
+    const foot=Math.min(...feet.map(centre=>
+      depthLabSensor.footSphereHit(origin,ray,centre,.018)));
+    if(foot<terrain&&foot<=max)return {distance:foot,kind:'foot',surface:'foot'};
+    return terrain>0&&terrain<=max
+      ?{distance:terrain,kind:'terrain',surface:'flat'}:Infinity;
+  },{subrays:5});
+  assert.deepEqual(actual.footOccluded.slice(12),[true,false,false,true],
+    'the chosen under-torso mount naturally grazes OUTER foot zones');
+  assert.deepEqual(actual.footHitCounts.slice(12),[1,0,0,1]);
 });
