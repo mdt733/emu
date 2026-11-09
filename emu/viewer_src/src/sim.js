@@ -746,6 +746,15 @@ export class EmuBrowserSim {
       this.carpetWindowCenter=[0,0];
     }
     mj.mj_forward(this.model, this.data);
+    if(this.park?.physics==='eight-1m-prisms'){
+      // qpos0 is neutral on the original z=0 floor, but this tile may be
+      // raised by a slope or a signed step. Align actual 18mm foot spheres
+      // against the true CPU MuJoCo prism surface BEFORE starting inference
+      // and sensor histories. Never alter the policy or terrain geometry.
+      this.data.qpos[2] += carpetSpawnSoleLift(
+        this.park,this.data.geom_xpos,this.model.geom_size,this.footGeomIds);
+      mj.mj_forward(this.model,this.data);
+    }
     this.headingTarget=this.actualHeading();
     // Training samples cadence at birth, then holds it through command changes.
     this.episodePhaseHz = sampleEpisodeCadence(this.command, this.bundle.control);
@@ -1216,8 +1225,11 @@ export class EmuBrowserSim {
     const grade=this.terrainMode==='sensor' ?
       surfaceLabGradient(this.sensorObstacle,this.surfaceSlopeDegrees) : null;
     const root=this.data.qpos;
-    const supportZ=grade ? grade.gx*root[0]+grade.gy*root[1] : 0;
-    return this.heightM()-supportZ < 0.145 || gravityZ < 0.35;
+    const supportZ=grade ? grade.gx*root[0]+grade.gy*root[1] :
+      ['park','carpet'].includes(this.terrainMode)&&this.park
+        ? this.park.sampleHeight(root[0],root[1]) : 0;
+    return clearanceAboveSupport(this.heightM(),supportZ) < 0.145 ||
+      gravityZ < 0.35;
   }
 
   heightM() { return Number(this.data.xpos[this.torsoId * 3 + 2]); }
