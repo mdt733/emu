@@ -61,11 +61,11 @@ def main(argv=None) -> int:
                    help='maximum signed procedural-prism step frontier, up to 0.08m')
     q.add_argument('--unified-capabilities',action='store_true',help='single-policy capability specialists')
     q.add_argument('--terrain-carpet',action='store_true',
-                   help='required: rolling 2x2 window of four 75cm procedural source tiles')
+                   help='required: rolling 2x2 window of four 1m procedural source tiles')
     q.add_argument('--carpet-prisms',action='store_true',
                    help='required: eight true convex triangular-prism MJX colliders (GPU gate required)')
     q.add_argument('--carpet-transition-cap-deg',type=float,default=3.0,
-                   help='maximum local slope-angle change between 75cm tiles')
+                   help='maximum local slope-angle change between 1m tiles')
     q.add_argument('--foundation-steps',type=int,choices=(10000000,20000000),default=20000000,
                    help='cold foundation length: experiment at 10M or reference 20M')
     q.add_argument('--fixed-eval-every-steps',type=int,default=60000000,
@@ -108,7 +108,7 @@ def main(argv=None) -> int:
     q.add_argument('--science-step-velocity-relief',type=float,default=0.,
                    help='v5052 loosen forward-speed tracking during Academy step negotiation, 0..1')
     q.add_argument('--science-step-approach-m',type=float,default=0.,
-                   help='v5052 respawn Academy robots 0.1..0.35m before next real 75cm tile boundary; 0=original spawn')
+                   help='v5052 respawn Academy robots 0.1..0.35m before next real 1m tile boundary; 0=original spawn')
     q.add_argument('--science-step-finish-on-transfer',action='store_true',
                    help='v5054 Academy-only: end as success after both feet top + safe 10cm ascent, respawn for next lip')
     q.add_argument('--science-step-promotion-mm',type=float,default=0.,

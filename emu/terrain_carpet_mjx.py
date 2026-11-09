@@ -1,6 +1,6 @@
 """Current true-prism MJX terrain generator.
 
-Four 75cm tiles carry four exact height samples each, as non-contact
+Four 1m tiles carry four exact height samples each, as non-contact
 MuJoCo hfields. Each tile's two real convex triangular-prism meshes
 provide the ONLY physical terrain collisions. All six specialists use
 the same generator, collider and ToF source. Legacy nine-box geometry
@@ -10,7 +10,7 @@ from __future__ import annotations
 import math
 import xml.etree.ElementTree as ET
 
-TILE_M=0.75
+TILE_M=1.0
 TILE_HALF_M=TILE_M/2
 TILE_SIZE_Z_M=.50
 TILE_BASE_M=.14
@@ -28,7 +28,7 @@ def academy_near_lip_spawn_x(xp, x, approach_m):
     return (xp.floor(x / TILE_M) + 1.) * TILE_M - approach_m
 
 def exact_exam_lip_profiles(xp, signed_height_m):
-    """One exact-height +X tile seam at x=0.75m; all other seams level.
+    """One exact-height +X tile seam at x=1m; all other seams level.
 
     Built from the same REAL prism meshes as training. Zero jitter, no
     fictional collision ledge. Signed height is per world; negative means
@@ -312,10 +312,10 @@ def update_tile_mocaps(xp, positions, mocap_ids, centers, changed=None):
 def midpoint_anchor(xp, root_xy):
     """Lower-left GLOBAL tile index of the 2x2 window for each robot.
 
-    At the centre of its current 75cm square, load the next square
+    At the centre of its current 1m square, load the next square
     in that direction (independently for X/Y). The current square
     remains present in all four quadrants. From the torso centre,
-    the nearest unloaded boundary is at least TILE_M/2 = 37.5cm
+    the nearest unloaded boundary is at least TILE_M/2 = 50cm
     away, exceeding the normal ~30cm horizontal ToF footprint.
     This is a logical switch; the abandoned solid still needs a
     real foot-clearance check before moving.

@@ -54,7 +54,7 @@ C018 motors + knee support + shin flex + two spherical feet
 - C018 12 V rated actuator force limit: **±0.980665 N·m**; stall torque is *not* continuously available. Actual torque-speed, thermal behaviour and the existing 0.624 N·m·s/rad powered-joint damping are **not yet hardware calibrated**.
 - Each knee uses a scaled **compression** support strut; passive shin bending and 2 N·m/rad hip-roll centring are separate from the motor force limit.
 - Physics timestep 5 ms, four substeps per 20 ms actor frame (200 Hz physics / 50 Hz control). A one-frame servo-command delivery delay is modelled.
-- Real terrain: **four 75 cm tiles** in a recycled 2×2 midpoint-controlled window; **eight convex triangular prisms**, not 18 and not nine boxes. The hfield tiles are non-contact source samplers.
+- Real terrain: **four 1 m tiles** in a recycled 2×2 midpoint-controlled window; **eight convex triangular prisms**, not 18 and not nine boxes. The hfield tiles are non-contact source samplers.
 - One 360-field actor = four 90-field frames. IMU/proprioception, optical flow estimate, forward 4×4 ToF ranges/validity, estimated ground grade, shin flex and commanded velocity/posture; no teacher contact map.
 - PPO: two 256-unit hidden layers, Gaussian exploration, a separate critic, 32-frame rollout × 2048 environments, four epochs/eight minibatches.
 
@@ -67,7 +67,7 @@ Every run lives outside Git at `~/emu-data/runs/<name>/` and includes resolved c
 ## Known fidelity boundaries
 
 1. **ToF mismatch to intended ST VL53L8CX:** present policy ray spread uses **60° vertical** and **45° horizontal** despite the sensor's **45°×45°** physical FoV. At h40, two rows aim partly behind the robot. The dedicated CPU `viewer --sensor-lab` shows the h40 robot and adjustable 45°×45° physical sensor preview (foot occlusion included) alongside the old actor-ray contract; the training sensor contract remains unchanged.
-2. **Viewer geometry is illustrative:** current browser terrain uses a separate nine-box/50 cm preview, not the trainer's four 75 cm / eight real prisms. Do not call it a physics-fidelity exam.
+2. **Viewer geometry is illustrative:** current browser terrain uses a separate nine-box/50 cm preview, not the trainer's four 1 m / eight real prisms. Do not call it a physics-fidelity exam.
 3. **1 m tile option not yet accepted:** a 2×2 window of four 1 m tiles may improve preview margin for the taller robot, but changes contact geometry/recycler and therefore needs new source and acceptance. Preserve the rated v5058 20M baseline.
 4. **Contact acceleration:** non-foot colliders are disabled in the fast solver and monitored by virtual safety probes. 2/4 solver iterations is experimental, not a certified physically faithful engine.
 5. **Software debt:** `environment.py`, `training.py`, `curriculum.py`, `ppo.py`, `results.py` contain historical experimental options. Remove *proven unreachable* branches as their last source-pinned study finishes, without changing this active baseline's arithmetic.

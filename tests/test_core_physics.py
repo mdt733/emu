@@ -355,6 +355,7 @@ def test_midpoint_2x2_window_covers_30cm_and_preserves_present_tile():
 
 
 def test_true_prism_footprint_blocks_sidewall_not_far_foot():
+    assert TILE_M == 1.0, 'Four 1m source tiles must match CPU sensor lab'
     old=[[0,0],[0,0],[0,0]]
     new=[[1,0],[1,0],[1,1]]
     feet=[

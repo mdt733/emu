@@ -221,7 +221,7 @@ def read_terrain_training_snapshot(root: Path) -> dict:
         },
         'source_sha':(meta.get('source_provenance') or {}).get('git_commit'),
         'physics_mode':'8 convex triangular-prism MJX collisions '
-                       '(four 75cm tiles); browser terrain is illustrative nine boxes',
+                       '(four 1m tiles); browser terrain is illustrative nine boxes',
         'warnings':[
             'Browser nine-box terrain is illustrative, not the 8 actual MJX '
             'convex-prism colliders, normals, tiles or terrain recycler.',
