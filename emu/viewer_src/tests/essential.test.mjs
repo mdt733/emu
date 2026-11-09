@@ -6,7 +6,7 @@ import * as depthLabSensor from '../src/sensor.js';
 import {joystickToCommands,nextYawCommand} from '../src/controls.js';
 import {terrainRoleEnvelope} from '../src/training-solid-carpet.js';
 import {createSensorLabCarpet,sensorLabPrismVertices,sensorLabPrismXml,carpetSpawnSoleLift} from '../src/sensor-lab-carpet.js';
-import {withTerrain} from '../src/terrain.js';
+import {withTerrain,terrainSensorHeightFallback} from '../src/terrain.js';
 import {trainingLimits} from '../src/training-carpet.js';
 
 const limits={vx_min:-.53,vx_max:1.04,vy_abs:.22,yaw_abs:1.5,pitch_abs_rad:.08};
@@ -163,6 +163,29 @@ test('trained-policy Carpet uses exactly eight real 1m prism contacts',()=>{
   assert.equal(carpet.tiles.length,4);
   assert.equal(carpet.tileSizeM,1);
   assert.equal(carpet.physics,'eight-1m-prisms');
+
+  // This is a MESH-only contact world, but the JS fast raycaster handles
+  // only box/plane geoms. Until Carpet passed its actual terrain surface as
+  // a fallback, all 16 ToF cells and optical-flow depth read as zero.
+  const surface=terrainSensorHeightFallback('carpet',carpet);
+  assert.equal(typeof surface,'function');
+  assert.equal(terrainSensorHeightFallback('sensor',carpet),null);
+  const meshModel={ngeom:1,geom_type:new Int32Array([7]),
+    geom_bodyid:new Int32Array([0]),geom_size:new Float64Array(3)};
+  const meshData={geom_xpos:new Float64Array(3),
+    geom_xmat:new Float64Array(9)};
+  const sensorOrigin=[.5,.5,.4],down=[0,0,-1];
+  const blind=depthLabSensor.actorTerrainDistance(
+    sensorOrigin,down,meshModel,meshData,[],null);
+  assert.equal(blind,0,'mesh is invisible to the old plane/box raycaster');
+  const visible=depthLabSensor.actorTerrainDistance(
+    sensorOrigin,down,meshModel,meshData,[],surface);
+  assert.ok(Math.abs(visible-(.4-carpet.sampleHeight(.5,.5)))<1e-5,
+    'Carpet prism surface must provide physical terrain to all 360-input sensors');
+  const finite=createSensorLabCarpet({slopeDeg:0,stepUpM:0,stepDownM:0});
+  assert.equal(depthLabSensor.rayHeight([1.95,.5,.4],[.5,0,-Math.sqrt(.75)],
+    terrainSensorHeightFallback('carpet',finite)),0,
+    'rays exiting the finite 2x2 fixture must not invent a ghost floor');
 
   // Real regression: original viewer started H40 at flat-floor qpos0
   // on a raised physical tile. Feet buried in the top collision surface
