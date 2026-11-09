@@ -176,9 +176,11 @@ test('trained-policy Carpet uses exactly eight real 1m prism contacts',()=>{
   assert.ok(lift>.08,'a 10-degree tile needs a substantial positive spawn lift');
   for(const id of [1,2]){
     const i=id*3;
-    const sole=geomPos[i+2]+lift-geomSize[i];
+    const tangent=geomPos[i+2]+lift-
+      geomSize[i]*Math.hypot(1,Math.tan(10*Math.PI/180));
     const height=raisedSpawn.sampleHeight(geomPos[i],geomPos[i+1]);
-    assert.ok(sole>=height-1e-9,'both soles must clear real terrain');
+    assert.ok(tangent>=height-1e-9,
+      'both spherical feet must clear the inclined contact plane');
   }
   assert.ok(Math.abs(
     carpetSpawnSoleLift(createSensorLabCarpet({slopeDeg:0,stepUpM:0,stepDownM:0}),
