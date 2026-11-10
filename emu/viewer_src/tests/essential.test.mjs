@@ -5,7 +5,8 @@ import {parsePolicy} from '../src/policy.js';
 import * as depthLabSensor from '../src/sensor.js';
 import {joystickToCommands,nextYawCommand} from '../src/controls.js';
 import {terrainRoleEnvelope} from '../src/training-solid-carpet.js';
-import {createSensorLabCarpet,sensorLabPrismVertices,sensorLabPrismXml,carpetSpawnSoleLift} from '../src/sensor-lab-carpet.js';
+import {createSensorLabCarpet,sensorLabPrismVertices,sensorLabPrismXml,carpetSpawnSoleLift,LAB_TILE_COUNT,LAB_PRISM_COUNT} from '../src/sensor-lab-carpet.js';
+import {meadowTreeForTile} from '../src/growing-meadow.js';
 import {withTerrain,terrainSensorHeightFallback} from '../src/terrain.js';
 import {trainingLimits} from '../src/training-carpet.js';
 
@@ -151,13 +152,13 @@ test('manual axes and heading hold obey the trained command envelope',()=>{
 });
 
 
-test('trained-policy Carpet uses exactly eight real 1m prism contacts',()=>{
+test('trained-policy Carpet begins with eight real active prisms in a 15x15 physical reserve',()=>{
   const envelope=terrainRoleEnvelope(measured(90_000_000),'step');
   const carpet=createSensorLabCarpet(envelope);
   const raw='<mujoco><asset></asset><worldbody><geom name="floor" type="plane" size="5 5 .05"/></worldbody></mujoco>';
   const xml=withTerrain(raw,'carpet',{park:carpet});
-  assert.equal((xml.match(/mocap="true"/g)||[]).length,8);
-  assert.equal((xml.match(/sensor_lab_prism_\d+" type="mesh"/g)||[]).length,8);
+  assert.equal((xml.match(/mocap="true"/g)||[]).length,LAB_PRISM_COUNT);
+  assert.equal((xml.match(/sensor_lab_prism_\d+" type="mesh"/g)||[]).length,LAB_PRISM_COUNT);
   assert.doesNotMatch(xml,/name="floor"/);
   assert.doesNotMatch(xml,/viewer_carpet_solid_/);
   assert.equal(carpet.tiles.length,4);
@@ -257,26 +258,64 @@ test('simulation helper consolidation preserves independent physics/UI functions
     'carpet void must never masquerade as flat ground');
 });
 
-test('sensor lab is a fixed physical 2x2 grid: four 1m tiles, eight real triangular-prism meshes',()=>{
+test('growing Carpet precompiles permanent collision geometry, starts with four tiles',()=>{
   const park=createSensorLabCarpet({slopeDeg:0,stepUpM:0,stepDownM:0});
-  assert.equal(park.tiles.length,4);
+  assert.equal(park.tiles.length,LAB_TILE_COUNT);
   assert.equal(park.tileSizeM,1);
+  assert.equal(park.count(),4);
   assert.equal(park.sampleHeight(.5,.5),0);
-  assert.ok(Number.isNaN(park.sampleHeight(2.5,.5)),'outside fixture is void');
+  assert.ok(Number.isNaN(park.sampleHeight(2.5,.5)),'unbuilt tile is real void');
   const prisms=sensorLabPrismVertices(park);
-  assert.equal(prisms.length,8);
+  assert.equal(prisms.length,LAB_PRISM_COUNT);
+  assert.equal(sensorLabPrismVertices(park,{activeOnly:true}).length,8);
   assert.ok(prisms.every(p=>p.local.length===6));
   const xml=sensorLabPrismXml(park);
-  assert.equal((xml.assets.match(/<mesh /g)||[]).length,8);
-  assert.equal((xml.bodies.match(/type="mesh"/g)||[]).length,8);
-  assert.equal((xml.bodies.match(/mocap="true"/g)||[]).length,8);
+  assert.equal((xml.assets.match(/<mesh /g)||[]).length,LAB_PRISM_COUNT);
+  assert.equal((xml.bodies.match(/type="mesh"/g)||[]).length,LAB_PRISM_COUNT);
+  assert.equal((xml.bodies.match(/mocap="true"/g)||[]).length,LAB_PRISM_COUNT);
+  assert.match(xml.bodies,/pos="2\.5000000 0\.5000000 -40\.0000000"/,
+    'reserve geom must be hidden until real physical activation');
   const base='<mujoco><worldbody><geom name="floor" type="plane" size="5 5 .05"/></worldbody></mujoco>';
   const scene=withTerrain(base,'carpet',{park});
-  assert.equal((scene.match(/type="mesh"/g)||[]).length,8);
+  assert.equal((scene.match(/type="mesh"/g)||[]).length,LAB_PRISM_COUNT);
   assert.doesNotMatch(scene,/name="floor"/);
   assert.doesNotMatch(scene,/viewer_carpet_solid_/);
 });
 
+test('Carpet grows in every direction, retains crossed physical tiles and has a genuine cliff',()=>{
+  const park=createSensorLabCarpet({seed:735,slopeDeg:0,stepUpM:.02,stepDownM:.015});
+  const start=park.at(0,0),startHeight=park.sampleHeight(.25,.25);
+  assert.equal(start.corners[0],0);
+  assert.equal(park.count(),4);
+  const first=park.growAround(.5,.5);
+  assert.equal(first.length,21,'the first 5x5 halo adds exactly 21 tiles');
+  assert.equal(park.count(),25);
+  assert.ok(park.at(-2,-2)&&park.at(2,2));
+  assert.ok(Math.abs(park.sampleHeight(1.001,.5)-park.sampleHeight(.999,.5)-.02)<1e-6,
+    'original positive step remains physical');
+  const seen=new Map(park.window().map(t=>[t.i+','+t.j,t.corners.slice()]));
+  const further=park.growAround(5.5,4.5);
+  assert.ok(further.length>0);
+  assert.equal(park.at(0,0),start,'old tile identity is never replaced');
+  assert.equal(park.sampleHeight(.25,.25),startHeight);
+  for(const [where,corners] of seen){
+    const [i,j]=where.split(',').map(Number);
+    assert.deepEqual(park.at(i,j)?.corners,corners,
+      'already walked-on terrain never gets altered');
+  }
+  assert.equal(park.growAround(5.5,4.5).length,0,'same position is stable');
+  park.growAround(6.5,6.5);
+  assert.ok(Number.isNaN(park.sampleHeight(7.1,6.5)),
+    'beyond the precompiled reserve is real void, not an invisible plane');
+  assert.equal(park.count()<=LAB_TILE_COUNT,true);
+  assert.ok(meadowTreeForTile({i:13,j:4},735)===
+    meadowTreeForTile({i:13,j:4},735)); // stable deterministic decoration
+  park.resetGrowth();
+  assert.equal(park.count(),4,'reset restores the original source 2x2 birth');
+  assert.equal(park.sampleHeight(.25,.25),startHeight);
+  assert.ok(Number.isNaN(park.sampleHeight(2.5,.5)),
+    'reset cannot leave invisible active terrain behind');
+});
 test('physical h40 foot occlusion depends on mounting geometry, never a hardcoded zone mask',()=>{
   const R=[1,0,0,0,1,0,0,0,1];
   const pose=depthLabSensor.depthProbeRays([0,0,.4],R,
