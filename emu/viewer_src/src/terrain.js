@@ -1,235 +1,9 @@
-import { sensorLabPrismXml } from './sensor-lab-carpet.js';
+import { streamingCarpetXml } from './sensor-lab-carpet.js';
 
-// Browser-only landscape: one continuous MuJoCo heightfield for collision
-// and one matching Three.js triangle mesh for appearance. No training changes.
-export const GENTLE_SLOPE_DEGREES = 1;
-export const COURSE_START_X = 0.85;
-// Keep spawn clear; place diagnostic features around the expanded level area.
-export const PARK_FLAT_RADIUS_M = 4.2;
-export const PARK_MAX_DEGREES = 10;
-export const PARK_RADIUS_M = 11;
-export const PARK_GRID = 129;
-// Deliberately graduated browser challenges, based on current 100M physical
-// evidence. These are viewer diagnostics, NOT training or exam fixtures.
-export const PARK_CHALLENGE_PRESETS = Object.freeze({
-  gentle: Object.freeze({up:1.2, down:1.5, crest:1.5, log:1.5,
-                         ridge:0.9, banks:0.7, camber:0.9, ripple:0.6}),
-  balanced: Object.freeze({up:2.0, down:2.5, crest:2.5, log:2.4,
-                           ridge:1.5, banks:1.4, camber:1.5, ripple:1.2}),
-  stretch: Object.freeze({up:3.0, down:3.5, crest:5.0, log:4.0,
-                          ridge:3.0, banks:2.5, camber:3.0, ripple:2.4}),
-});
-const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
-const rounded = n => Number(n.toFixed(6));
-
-const ramp = `
-  <geom name="viewer_ramp_up" type="box" pos="1.25 0 0.0005"
-        size="0.4 0.44 0.008" euler="0 -1 0" friction="1.5 0.005 0.0001" rgba="0.23 0.50 0.47 1" />
-  <geom name="viewer_ramp_top" type="box" pos="1.91 0 0.0075"
-        size="0.26 0.44 0.008" friction="1.5 0.005 0.0001" rgba="0.28 0.56 0.51 1" />
-  <geom name="viewer_ramp_down" type="box" pos="2.57 0 0.0005"
-        size="0.4 0.44 0.008" euler="0 1 0" friction="1.5 0.005 0.0001" rgba="0.23 0.50 0.47 1" />
-`;
-
-export function localSlopeLimitDeg(radius, maximum=PARK_MAX_DEGREES) {
-  return clamp(radius - PARK_FLAT_RADIUS_M + 1, 0, clamp(maximum, 1, 20));
-}
-const smoothstep = t => {t=clamp(t,0,1);return t*t*(3-2*t);};
-function rng32(seed) {
-  let state = (seed | 0) || 1;
-  return () => {
-    state = (Math.imul(state, 1664525) + 1013904223) | 0;
-    return (state >>> 0) / 4294967296;
-  };
-}
-export function parkHeight(x,y,maximum=PARK_MAX_DEGREES,seed=733) {
-  const r=Math.hypot(x,y);
-  if(r<=PARK_FLAT_RADIUS_M) return 0;
-  const angle=localSlopeLimitDeg(r,maximum);
-  const fade=smoothstep((r-PARK_FLAT_RADIUS_M)/1.8);
-  const phase=seed*0.00713;
-  const waves=0.36*Math.sin(x*0.9+phase)*Math.cos(y*0.8-phase)
-    +0.27*Math.sin(1.8*x+0.7*y+phase*1.2)
-    +0.19*Math.cos(2.4*y-0.8*x-phase*0.5)
-    +0.13*Math.sin(x*3.3+y*2.1+phase*1.9);
-  return Math.max(0,fade*0.027*angle*(0.85+waves));
-}
-
-// Produce a physical heightfield, not one collision box per tile.
-// XML heightfield elevation is *top-to-bottom*, while MuJoCo model and
-// Three.js geometry below use ascending world-Y rows, so XML rows are flipped.
-// Lower neighbouring slope limits are applied across each connection, keeping
-// spawn flat and preventing cliffs between radial difficulty bands.
-export function generateTerrainPark({maxDegrees=PARK_MAX_DEGREES,seed=733,
-                                     radius=PARK_RADIUS_M,resolution=PARK_GRID,
-                                     trees=true,features=true,challengeLevel='balanced'}={}) {
-  if(!Object.prototype.hasOwnProperty.call(PARK_CHALLENGE_PRESETS,challengeLevel))
-    throw new Error('Unknown park challenge level');
-  if(!Number.isFinite(maxDegrees)||maxDegrees<1||maxDegrees>20)
-    throw new Error('Terrain maximum must be 1–20 degrees');
-  if(!Number.isInteger(resolution)||resolution<17||resolution>257||resolution%2!==1)
-    throw new Error('Terrain resolution must be odd, 17–257');
-  const cell=2*radius/(resolution-1);
-  const heights=new Float32Array(resolution*resolution);
-  const index=(i,j)=>j*resolution+i;
-  const pos=t=>-radius+t*cell;
-  for(let j=0;j<resolution;j++)for(let i=0;i<resolution;i++)
-    heights[index(i,j)]=parkHeight(pos(i),pos(j),maxDegrees,seed);
-
-  // Repeated one-sided projection: lower high spots until every grid edge
-  // respects a conservative local gradient bound, including diagonals.
-  const dirs=[[-1,0],[1,0],[0,-1],[0,1],[-1,-1],[1,1],[-1,1],[1,-1]];
-  for(let pass=0;pass<35;pass++){
-    let changed=false;
-    for(let j=0;j<resolution;j++)for(let i=0;i<resolution;i++){
-      const k=index(i,j),r=Math.hypot(pos(i),pos(j));
-      if(r<=PARK_FLAT_RADIUS_M){heights[k]=0;continue;}
-      let maxHeight=heights[k];
-      for(const [di,dj] of dirs){
-        const ni=i+di,nj=j+dj;
-        if(ni<0||nj<0||ni>=resolution||nj>=resolution) continue;
-        const nr=Math.hypot(pos(ni),pos(nj));
-        const deg=Math.min(localSlopeLimitDeg(r,maxDegrees),localSlopeLimitDeg(nr,maxDegrees));
-        const bound=heights[index(ni,nj)]+Math.tan(deg*Math.PI/180)*cell*Math.hypot(di,dj)*0.55;
-        maxHeight=Math.min(maxHeight,bound);
-      }
-      if(maxHeight<heights[k]-1e-7){heights[k]=maxHeight;changed=true;}
-    }
-    if(!changed)break;
-  }
-  // The max/min are explicit: the generated terrain does not depend on an
-  // external file, texture or mutable global MuJoCo mesh state.
-  const maximum=Math.max(0.001,...heights);
-  const sampleHeight=(x,y)=>{
-    const fx=clamp((x+radius)/cell,0,resolution-1.00001);
-    const fy=clamp((y+radius)/cell,0,resolution-1.00001);
-    const i=Math.floor(fx),j=Math.floor(fy),u=fx-i,v=fy-j;
-    const a=heights[index(i,j)],b=heights[index(i+1,j)];
-    const c=heights[index(i,j+1)],d=heights[index(i+1,j+1)];
-    return a*(1-u)*(1-v)+b*u*(1-v)+c*(1-u)*v+d*u*v;
-  };
-  const treeList=[];
-  if(trees) {
-    const random=rng32(seed+9041);
-    for(let attempt=0;attempt<650&&treeList.length<17;attempt++){
-      const direction=random()*Math.PI*2;
-      const distance=5.4+Math.sqrt(random())*(radius-6.0);
-      const x=Math.cos(direction)*distance,y=Math.sin(direction)*distance;
-      if(treeList.some(t=>Math.hypot(x-t.x,y-t.y)<1.55))continue;
-      const trunkHeight=1.05+random()*0.85;
-      treeList.push({x,y,z:sampleHeight(x,y),trunkHeight,
-                     trunkRadius:0.065+random()*0.045,
-                     canopyRadius:0.41+random()*0.28,
-                     shade:random()});
-    }
-  }
-  const featureList=features?createParkFeatures(challengeLevel):[];
-  return {radius,resolution,cell,heights,maxHeight:maximum,trees:treeList,
-          features:featureList,challengeLevel,sampleHeight,maxDegrees,flatRadius:PARK_FLAT_RADIUS_M,seed};
-}
-
-
-// Real, deterministic collision features around the central park. None
-// crosses spawn (r < 1.7m); no separate obstacle system or new files.
-function createParkFeatures(challengeLevel='balanced') {
-  const p=PARK_CHALLENGE_PRESETS[challengeLevel];
-  if(!p)throw new Error('Unknown park challenge level');
-  const metre=cm=>cm/100;
-  const short=cm=>cm.toFixed(1)+' cm';
-  const box=(name,x,y,z,hx,hy,hz,colour='0.47 0.59 0.40 1',yaw=0)=>
-    '<geom name="park_feature_'+name+'" type="box" pos="'+
-    [x,y,z].map(rounded).join(' ')+'" size="'+
-    [hx,hy,hz].map(rounded).join(' ')+'" euler="0 0 '+yaw+
-    '" friction="1.5 .005 .0001" rgba="'+colour+'"/>';
-  // Physical support slab from two actual endpoint heights, rotating around Y.
-  // A small buried thickness makes the upper face meet the horizontal ground.
-  const slopeX=(name,x0,x1,z0,z1,y=0,width=.34)=>{
-    const angle=Math.atan2(z1-z0,x1-x0),thickness=.18;
-    const x=(x0+x1)/2+thickness*Math.sin(angle);
-    const z=(z0+z1)/2-thickness*Math.cos(angle);
-    return '<geom name="park_feature_'+name+'" type="box" pos="'+
-      [x,y,z].map(rounded).join(' ')+'" size="'+
-      [(x1-x0)/(2*Math.cos(angle)),width,thickness].map(rounded).join(' ')+
-      '" euler="0 '+rounded(-angle*180/Math.PI)+' 0" friction="1.5 .005 .0001" rgba="0.36 0.61 0.53 1"/>';
-  };
-  // Same support construction along +Y. Distinct real contacting boxes
-  // remain joined at their physical top faces; never insert empty gaps.
-  const slope=(name,x,y0,y1,z0,z1)=>{
-    const angle=Math.atan2(z1-z0,y1-y0),thickness=.18;
-    const ym=(y0+y1)/2,zm=(z0+z1)/2;
-    const cy=ym+thickness*Math.sin(angle),cz=zm-thickness*Math.cos(angle);
-    const cp=Math.cos(angle/2),sp=Math.sin(angle/2),c=Math.SQRT1_2;
-    const quat=[c*cp,c*sp,-c*sp,c*cp];
-    return '<geom name="park_feature_'+name+'" type="box" pos="'+
-      [x,cy,cz].map(rounded).join(' ')+'" size="'+
-      [(y1-y0)/(2*Math.cos(angle)),.34,thickness].map(rounded).join(' ')+
-      '" quat="'+quat.map(rounded).join(' ')+
-      '" friction="1.5 .005 .0001" rgba="0.36 0.61 0.53 1"/>';
-  };
-  const feature=(id,label,x,y,radius,challenge,geoms)=>
-    ({id,label,x,y,radius,challenge,geoms});
-  const up=metre(p.up),down=metre(p.down),crest=metre(p.crest);
-  const log=metre(p.log),ridge=metre(p.ridge),bank=metre(p.banks);
-  const camber=metre(p.camber),ripple=metre(p.ripple);
-  return [
-    feature('step-up','Step up',2.80,0,.58,short(p.up)+' raised support, then step down',
-      box('step_up',2.80,0,up/2,.42,.33,up/2)),
-    feature('camber','Changing camber',2.10,2.16,.66,
-      short(p.camber)+' gentle cross-grade ridge',
-      [slope('camber_in',2.10,1.78,2.16,0,camber),
-       slope('camber_out',2.10,2.16,2.54,camber,0)].join('\n')),
-    feature('crest','Rounded crest',0,2.85,.78,
-      short(p.crest)+' flat-to-incline-to-flat-to-descent',
-      [slope('crest_rise',0,2.20,2.64,0,crest),
-       // The top extends 5mm beyond both ramp ends: no unsupported seams.
-       box('crest_top',0,2.83,crest/2,.195,.34,crest/2,'0.36 0.61 0.53 1',90),
-       slope('crest_fall',0,3.02,3.46,crest,0)].join('\n')),
-    feature('angled','Diagonal ridge',-2.12,2.11,.56,
-      short(p.ridge)+' support lip at 29 degrees',
-      box('angled_ridge',-2.12,2.11,ridge/2,.045,.40,ridge/2,
-          '0.64 0.50 0.31 1',29)),
-    feature('step-down','Gentle approach, step down',-2.70,0,.90,
-      'Walk up a ramp, then drop '+short(p.down),
-      [slopeX('drop_entry',-2.39,-1.98,down,0),
-       // 5mm overlap with ramp endpoint; <0.5mm height change at worst.
-       box('drop_plateau',-2.63,0,down/2,.245,.33,down/2,'0.53 0.48 0.35 1')].join('\n')),
-    feature('ripple','Rolling ripples',-2.10,-2.15,.72,
-      'Two shallow '+short(p.ripple)+' humps',
-      [slope('ripple_a_up',-2.10,-2.68,-2.44,0,ripple),
-       slope('ripple_a_down',-2.10,-2.44,-2.20,ripple,0),
-       slope('ripple_b_up',-2.10,-2.20,-1.96,0,ripple*.8),
-       slope('ripple_b_down',-2.10,-1.96,-1.72,ripple*.8,0)].join('\n')),
-    feature('log','Low round log',0,-2.80,.58,
-      short(p.log)+' rounded obstacle (full diameter)',
-      '<geom name="park_feature_log" type="cylinder" pos="0 -2.80 '+
-      rounded(log/2)+'" size="'+[rounded(log/2),.47].join(' ')+
-      '" euler="90 0 0" friction="1.5 .005 .0001" rgba=".58 .40 .24 1"/>'),
-    feature('trough','Double-bank valley',2.08,-2.15,.86,
-      'Two '+short(p.banks)+' banks with a level middle',
-      box('trough_near',1.70,-2.15,bank/2,.16,.38,bank/2,'0.50 0.55 0.40 1')+
-       '\n'+box('trough_far',2.48,-2.15,bank/2,.16,.38,bank/2,'0.50 0.55 0.40 1')),
-  ];
-}
-
-function parkXml(park) {
-  const {resolution,radius,maxHeight,heights,trees,features=[]}=park;
-  // The hfield parser normalizes the inline elevation itself. All elevations
-  // are already nonnegative with a zero floor, so z=0 stays exactly at ground.
-  const elevations=[];
-  for(let j=resolution-1;j>=0;j--)for(let i=0;i<resolution;i++)
-    elevations.push(rounded(heights[j*resolution+i]/maxHeight));
-  const asset=`<hfield name="viewer_park_hfield" nrow="${resolution}" ncol="${resolution}"
-    size="${radius} ${radius} ${rounded(maxHeight)} 0.20"
-    elevation="${elevations.join(' ')}" />`;
-  const terrain='<geom name="viewer_park_ground" type="hfield" hfield="viewer_park_hfield" pos="0 0 '+rounded(park.collisionOffsetZ||0)+'" friction="1.5 0.005 0.0001" rgba="0.31 0.53 0.25 1" />';
-  const trunks=trees.map((t,i)=>`<geom name="viewer_tree_trunk_${i}" type="cylinder"
-    pos="${rounded(t.x)} ${rounded(t.y)} ${rounded(t.z+t.trunkHeight/2)}"
-    size="${rounded(t.trunkRadius)} ${rounded(t.trunkHeight/2)}"
-    friction="1.5 0.005 0.0001" rgba="0.29 0.18 0.10 1" />`).join('\n');
-  const courses=features.map(f=>f.geoms).join('\n');
-  return {asset,geometry:terrain+'\n'+trunks+'\n'+courses};
-}
-
+// Infinite Meadow is the sole public simulation world. The historical Field
+// heightfield, challenge boxes, trees and destination routes were retired.
+// Dedicated CPU sensor geometry remains below only for internal calibration.
+const rounded=n=>Number(n.toFixed(6));
 
 // Depth inspection courses use real MuJoCo support geometry, never painted
 // obstacles. These courses are DIAGNOSTIC ONLY: the champion is not retrained.
@@ -321,98 +95,69 @@ function depthCourseXml(kind,{slopeDegrees=3,stepHeightCm=2}={}) {
     surface('after',2.1,5,0,0),
   ].join('\n')};
 }
-export function withTerrain(robotXml,mode='flat',options={}) {
+
+export function withTerrain(robotXml,mode='carpet',options={}){
   if(typeof robotXml!=='string'||!robotXml.includes('</worldbody>'))
-    throw new Error('Cannot locate worldbody in policy robot XML');
-  if(/viewer_ramp_up|viewer_park_hfield|sensor_lab_prism_|viewer_tree_trunk_|surface_lab_plane|depth_(?:approach|log|rise|landing|angled_ridge)/.test(robotXml))
-    throw new Error('Viewer terrain already inserted');
+    throw Error('Cannot locate worldbody in policy robot XML');
+  if(/sensor_lab_hfield_|sensor_lab_ground_|viewer_park_hfield|surface_lab_plane|depth_(?:approach|log|rise|landing|angled_ridge)/.test(robotXml))
+    throw Error('Viewer terrain already inserted');
+  // Internal baseline fixture. Not a public Field option.
   if(mode==='flat')return robotXml;
   if(mode==='sensor'){
     const course=depthCourseXml(options.obstacle||'flat',options);
     let xml=robotXml;
     if(course.removeFloor){
       xml=xml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
-      if(xml===robotXml)throw new Error('Sensor course requires named floor');
+      if(xml===robotXml)throw Error('Sensor lab requires named floor');
     }
     return xml.replace('</worldbody>',course.geoms+'\n</worldbody>');
   }
-  if(mode==='ramp')return robotXml.replace('</worldbody>',ramp+'\n</worldbody>');
-  if(!['park','carpet'].includes(mode))throw new Error('Unknown terrain mode');
-  const park=options.park||generateTerrainPark(options);
-  if(mode==='carpet'){
-    if(park?.physics!=='growing-prism-field')
-      throw Error('Current EMU Carpet requires its real growing prism field');
-    // Real MuJoCo convex prisms are precompiled but kept 40m below until
-    // activated. This field grows and keeps old ground; the GPU recycler
-    // remains a separate source-pinned training implementation.
-    const geom=sensorLabPrismXml(park);
-    let xml=robotXml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
-    if(xml===robotXml)throw Error('Prism carpet needs source ground plane');
-    if(xml.includes('</asset>'))
-      xml=xml.replace('</asset>',geom.assets+'\n</asset>');
-    else xml=xml.replace('<worldbody>','<asset>'+geom.assets+'</asset>\n<worldbody>');
-    return xml.replace('</worldbody>',geom.bodies+'\n</worldbody>');
-  }
-  const {asset,geometry}=parkXml(park);
-  // The source floor must not overlap the hfield at the spawn point: that
-  // would double contacts and compromise the 120M actor's apparent walking.
+  if(mode!=='carpet')throw Error('Only Infinite Meadow is supported');
+  const park=options.park;
+  if(park?.physics!=='streaming-heightfield')
+    throw Error('Infinite Meadow needs its real streaming heightfield');
+  const geom=streamingCarpetXml(park);
   let xml=robotXml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
-  if(xml===robotXml)throw new Error('Expected the named MuJoCo floor plane');
-  if(xml.includes('</asset>'))xml=xml.replace('</asset>',asset+'\n</asset>');
-  else xml=xml.replace('<worldbody>','<asset>'+asset+'</asset>\n<worldbody>');
-  return xml.replace('</worldbody>',geometry+'\n</worldbody>');
-}
-export const withGentleCourse=xml=>withTerrain(xml,'ramp');
-
-// Park uses a heightfield; Carpet uses convex meshes. The browser's
-// 360-input raycaster knows planes and boxes but cannot raycast mesh geoms.
-// Both worlds must provide their actual rendered/Cpu-contact surface to the
-// SAME 4x4 ToF and optical-flow sensor path. Missing support remains NaN/void.
-export function terrainSensorHeightFallback(mode,park) {
-  return park && (mode==='park'||mode==='carpet')
-    ? (x,y)=>park.sampleHeight(x,y) : null;
+  if(xml===robotXml)throw Error('Streaming Meadow requires the source floor');
+  if(xml.includes('</asset>'))
+    xml=xml.replace('</asset>',geom.assets+'\n</asset>');
+  else xml=xml.replace('<worldbody>','<asset>'+geom.assets+'</asset>\n<worldbody>');
+  return xml.replace('</worldbody>',geom.bodies+'\n</worldbody>');
 }
 
-// Read the *actual generated ground* below the midpoint between the feet.
-// This is terrain grade, NOT chassis pitch, commanded attitude, or a
-// physically estimated IMU angle. The arrow points uphill RELATIVE to the
-// robot's current heading: up=forward, right=robot right, left=robot left.
-export function surfaceSlope(mode,park,x,y,robotHeading=0,lab=null) {
-  if (![x,y,robotHeading].every(Number.isFinite))
+// Browser JS raycaster cannot intersect MuJoCo heightfield geoms directly.
+// Sensors must read the same exact active physical terrain as MuJoCo;
+// unloaded world locations return NaN, never invisible ground.
+export function terrainSensorHeightFallback(mode,park){
+  return mode==='carpet'&&park?.physics==='streaming-heightfield'
+    ?(x,y)=>park.sampleHeight(x,y):null;
+}
+
+// Ground angle follows whichever of the tile's TWO physical triangles
+// supports the feet. A step lip is not a continuous grade.
+export function surfaceSlope(mode,park,x,y,robotHeading=0,lab=null){
+  if(![x,y,robotHeading].every(Number.isFinite))
     return {supported:false,degrees:0,arrowDegrees:0};
   let gx=0,gy=0;
   if(mode==='carpet'){
-    // No square-world boundary assumption: use only the current ACTIVE
-    // prism. A sharp signed step must not be misreported as a local slope.
     if(!park||!Number.isFinite(park.sampleHeight(x,y)))
       return {supported:false,degrees:0,arrowDegrees:0};
-    const tile=park.tileSizeM||1,i=Math.floor(x/tile),j=Math.floor(y/tile);
-    const a=park.at(i,j).corners;
-    gx=(a[1]-a[0])/tile;gy=(a[2]-a[0])/tile;
-  } else if(mode==='park') {
-    if(!park||Math.abs(x)>=park.radius||Math.abs(y)>=park.radius)
-      return {supported:false,degrees:0,arrowDegrees:0};
-    const delta=Math.max(park.cell*0.5,0.05);
-    const xl=Math.max(-park.radius,x-delta),xr=Math.min(park.radius,x+delta);
-    const yl=Math.max(-park.radius,y-delta),yr=Math.min(park.radius,y+delta);
-    gx=(park.sampleHeight(xr,y)-park.sampleHeight(xl,y))/(xr-xl);
-    gy=(park.sampleHeight(x,yr)-park.sampleHeight(x,yl))/(yr-yl);
-  } else if(mode==='ramp') {
-    // Browser 1-degree course: up-ramp and down-ramp are aligned to world X.
-    if(Math.abs(y)<0.44 && x>=COURSE_START_X && x<=COURSE_START_X+0.8)
-      gx=Math.tan(Math.PI/180);
-    else if(Math.abs(y)<0.44 && x>=2.17 && x<=2.97)
-      gx=-Math.tan(Math.PI/180);
-  } else if(mode==='sensor') {
-    const gradient=lab && surfaceLabGradient(lab.obstacle,lab.slopeDegrees);
+    const size=park.tileSizeM||1,i=Math.floor(x/size),j=Math.floor(y/size);
+    const [a,b,c,d]=park.at(i,j).corners;
+    const u=x/size-i,v=y/size-j;
+    gx=(u+v<=1?b-a:d-c)/size;
+    gy=(u+v<=1?c-a:d-b)/size;
+  }else if(mode==='sensor'){
+    const gradient=lab&&surfaceLabGradient(lab.obstacle,lab.slopeDegrees);
     if(!gradient)
       return {supported:false,degrees:0,arrowDegrees:0,flat:false};
     gx=gradient.gx;gy=gradient.gy;
-  } else if(mode!=='flat') throw new Error('Unknown terrain mode');
-  const grade=Math.hypot(gx,gy);
-  const degrees=Math.atan(grade)*180/Math.PI;
+  }else if(mode!=='flat'){
+    throw Error('Only Infinite Meadow is supported');
+  }
+  const degrees=Math.atan(Math.hypot(gx,gy))*180/Math.PI;
   const relative=Math.atan2(Math.sin(Math.atan2(gy,gx)-robotHeading),
                             Math.cos(Math.atan2(gy,gx)-robotHeading));
   return {supported:true,degrees,arrowDegrees:-relative*180/Math.PI,
-          flat:degrees<0.05};
+    flat:degrees<.05};
 }

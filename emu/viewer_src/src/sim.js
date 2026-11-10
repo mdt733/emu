@@ -6,12 +6,11 @@ import { PolicyRunner } from './policy.js';
 import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe, footSphereHit, terrainActorRays } from './sensor.js';
 import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredAttitude, sampleShove, expectedShoveRate, clearanceAboveSupport } from './sim-math.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
-import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient, terrainSensorHeightFallback } from './terrain.js';
+import { withTerrain, surfaceSlope, surfaceLabGradient, terrainSensorHeightFallback } from './terrain.js';
 import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
-import { terrainRoleEnvelope } from './training-solid-carpet.js';
-import { createSensorLabCarpet, sensorLabPrismVertices, carpetSpawnSoleLift, LAB_PRISM_FACES, LAB_TILE_M, LAB_PRISM_COUNT } from './sensor-lab-carpet.js';
+import { createSensorLabCarpet, carpetSpawnSoleLift, carpetHeightfieldPatch, normalizedMeadowSettings, MEADOW_DEFAULTS, LAB_TILE_M, LAB_TILE_COUNT } from './sensor-lab-carpet.js';
 import { createGrowingMeadowScenery } from './growing-meadow.js';
-import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
+import { createGridTexture, createSkyTexture, createGrassTexture, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
 let mujocoModulePromise = null;
@@ -76,18 +75,12 @@ export class EmuBrowserSim {
     this.renderer.toneMappingExposure = 1.15;
     this.gridTexture = createGridTexture(THREE);
     this.grassTexture = createGrassTexture(THREE);
-    this.parkGridTexture = createParkGridTexture(THREE);
-    this.parkSurface = null;
     this.sensorLabSurface = null;
-    this.parkGridOverlay = null;
-    this.treeCrowns = null;
     this.park = null;
-    this.parkMarkers = null;
     this.showGrid = true;
     this.showTrail = true;
     this.showShadows = true;
     this.createWorldGuides();
-    this.createNavigationGuides();
     this.camera = new THREE.PerspectiveCamera(48, 1, 0.01, 50);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(-0.72, -0.78, 0.52);
@@ -95,7 +88,7 @@ export class EmuBrowserSim {
     this.controls.enableDamping = true;
     this.controls.target.set(0, 0, 0.18);
     this.controls.minDistance = 0.25;
-    this.controls.maxDistance = 11; // orbit can frame the full 4m mission arena
+    this.controls.maxDistance = 16; // explore the current real 15m Meadow window
     this.cameraMode = 'orbit'; // orbit | chase | raw | level
     this.chaseReady = false;
     this.chaseHeading = 0;
@@ -112,17 +105,15 @@ export class EmuBrowserSim {
         new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0),
       ),
     );
-    this.terrainMode = 'flat';
-    this.terrainMaxDegrees = 10;
-    this.parkChallengeLevel = 'balanced';
+    this.terrainMode = 'carpet'; // the only public viewer world
     this.carpetRole = 'step';
     this.carpetDifficulty = {...CARPET_DEFAULT};
+    this.meadowSettings = {...MEADOW_DEFAULTS};
     this.carpetTileOverlay = null;
     this.carpetTileCenter = null;
     this.carpetWindowCenter = null;
     this.carpetMocapIds = [];
     this.carpetGeomIds = new Set();
-    this.carpetRenderedPrisms = new Set();
     this.carpetScenery = null;
     // Actual browser MuJoCo torso forces, not merely SVG decorations.
     // The real GPU trainer samples independent stochastic pushes; this
@@ -177,13 +168,10 @@ export class EmuBrowserSim {
     this.depthMountMarker = new THREE.Mesh(new THREE.SphereGeometry(.010,10,8),new THREE.MeshBasicMaterial({color:0xffcc80,depthTest:true}));
     this.depthMountMarker.visible=false;
     this.scene.add(this.depthMountMarker);
-    this.parkTreesEnabled = true;
-    this.parkFeaturesEnabled = true;
     this.headingHold = true;
     this.headingKp = 2.2; // yaw-rate [rad/s] per compass-heading error [rad]
     this.headingTarget = 0;
     this.requestedYaw = 0; // operator/demo rate, independent of heading-hold correction
-    this.navPresentationActive = false; // presentation only; no alternate actor control path
 
     this.meshes = [];
     this.geometryCache = new Map();
@@ -281,7 +269,6 @@ export class EmuBrowserSim {
         mesh.material.needsUpdate = true;
       }
       this.worldAxes.visible = grid;
-      if (this.parkGridOverlay) this.parkGridOverlay.visible = grid;
     if (this.carpetTileOverlay) this.carpetTileOverlay.visible=grid;
     }
     if (typeof trail === 'boolean') {
@@ -304,38 +291,10 @@ export class EmuBrowserSim {
       }
       this.sensorLabSurface=null;
     }
-    if (this.parkGridOverlay) {
-      this.scene.remove(this.parkGridOverlay);
-      // Deliberately share parkSurface geometry; dispose only the overlay
-      // material. The park mesh below owns geometry lifecycle.
-      this.parkGridOverlay.material.dispose();
-      this.parkGridOverlay = null;
-    }
-    if (this.parkSurface) {
-      this.scene.remove(this.parkSurface);
-      this.parkSurface.geometry.dispose();
-      this.parkSurface.material.dispose();
-      this.parkSurface = null;
-    }
-    if (this.treeCrowns) {
-      this.scene.remove(this.treeCrowns);
-      this.treeCrowns.userData.sharedGeometry.dispose();
-      for (const material of this.treeCrowns.userData.sharedMaterials) material.dispose();
-      this.treeCrowns = null;
-    }
-    if(this.parkMarkers){
-      this.scene.remove(this.parkMarkers);
-      for(const item of this.parkMarkers.children){
-        item.material.map?.dispose();
-        item.material.dispose();
-      }
-      this.parkMarkers=null;
-    }
     this.park = null;
     this.carpetWindowCenter=null;
     this.carpetMocapIds=[];
     this.carpetGeomIds.clear();
-    this.carpetRenderedPrisms.clear();
     if(this.carpetScenery){
       this.carpetScenery.dispose();
       this.carpetScenery=null;
@@ -352,8 +311,6 @@ export class EmuBrowserSim {
     }
     this.depthReading=null;
     this.depthLastMs=0;
-    // Terrain geometry moved; rebuild guide heights on the next nav tick.
-    this.navGoalSeen=null;this.navRouteSeen=null;
     for (const mesh of this.meshes) {
       this.scene.remove(mesh);
       if (mesh.material) mesh.material.dispose();
@@ -376,20 +333,9 @@ export class EmuBrowserSim {
     this.depthFootprint.material.dispose();
     this.depthMountMarker.geometry.dispose();
     this.depthMountMarker.material.dispose();
-    this.routeLine.geometry.dispose();
-    this.routeLine.material.dispose();
-    this.targetRing.geometry.dispose();
-    this.targetRing.material.dispose();
-    for(const mesh of [this.targetArrow.line,this.targetArrow.cone]){
-      mesh.geometry.dispose();
-      mesh.material.dispose();
-    }
-    this.arenaCircle.geometry.dispose();
-    this.arenaCircle.material.dispose();
     this.skyTexture.dispose();
     this.gridTexture.dispose();
     this.grassTexture.dispose();
-    this.parkGridTexture.dispose();
     this.trailLine.geometry.dispose();
     this.trailLine.material.dispose();
     this.worldAxes.geometry.dispose();
@@ -420,16 +366,15 @@ export class EmuBrowserSim {
     }
   }
 
-  setTerrainMode(mode, maximum=this.terrainMaxDegrees) {
-    if (!['flat','ramp','park','carpet','sensor'].includes(mode)) throw new Error('Unknown terrain');
-    const degrees = Number(maximum);
-    if (!Number.isFinite(degrees) || degrees < 1 || degrees > 20) throw new Error('Terrain angle must be 1–20°');
-    if (mode===this.terrainMode && degrees===this.terrainMaxDegrees) return;
+  setTerrainMode(mode){
+    // The sensor-lab mode remains internal to physics diagnostics.
+    // The old park/ramp/flat viewer worlds have been removed.
+    if(mode!=='carpet'&&mode!=='sensor')
+      throw Error('The browser viewer only supports Infinite Meadow');
+    if(mode===this.terrainMode)return;
     this.terrainMode=mode;
-    this.terrainMaxDegrees=degrees;
-    this.loadModel(); // rebuilds only browser MuJoCo contacts
+    this.loadModel();
   }
-  setTerrainEnabled(enabled) { this.setTerrainMode(enabled ? 'ramp' : 'flat'); }
   setTrainingCarpet({role=this.carpetRole,limits=this.carpetDifficulty}={}) {
     const checked=carpetRoleLimits(limits,role); // refuse invalid or unknown roles
     const next={...limits,seed:checked.seed,slopeDeg:Number(limits.slopeDeg),
@@ -441,6 +386,15 @@ export class EmuBrowserSim {
     if(role===this.carpetRole&&JSON.stringify(next)===JSON.stringify(this.carpetDifficulty))return;
     this.carpetRole=role;
     this.carpetDifficulty=next;
+    // Training specialist selection changes only the exercises.
+    // The physical Meadow has one independent difficulty source.
+  }
+  setMeadowSettings(settings){
+    const next=normalizedMeadowSettings(settings);
+    if(JSON.stringify(next)===JSON.stringify(this.meadowSettings))return;
+    this.meadowSettings=next;
+    // Changing a hill beneath a foot mid-stride creates a false impulse.
+    // Rebuild/reset the spectator only after an explicit slider change.
     if(this.terrainMode==='carpet')this.loadModel();
   }
   setShovePreview({enabled=false,forceLimitN=0,intensity=0,mode='drill'}={}){
@@ -483,10 +437,16 @@ export class EmuBrowserSim {
       this.shoveArrow.visible=false;return;
     }
     if(v.stepsLeft===0){
+      // North's resilience gradient only affects OPTIONAL automatic pushes.
+      // Never switch shoves on behind the operator's back, and preserve the
+      // manual shove button as an explicit fixed-strength diagnostic.
+      const north=this.park?.physics==='streaming-heightfield'
+        ?this.park.difficultyAt(Number(this.data.qpos[1])).resilience:1;
+      const automatic=v.enabled&&!v.manualPending;
       const push=sampleShove({
-        intensity:v.enabled?v.intensity:0,
+        intensity:v.enabled?v.intensity*(.05+.95*north):0,
         mode:v.mode,
-        maxForceN:v.forceLimitN,
+        maxForceN:v.forceLimitN*(automatic ? .12+.88*north : 1),
         manual:v.manualPending
       });
       v.manualPending=false;
@@ -566,26 +526,6 @@ export class EmuBrowserSim {
     this.depthConfig=values;
     this.depthLastMs=0;
   }
-  setParkChallengeLevel(level) {
-    if(!['gentle','balanced','stretch'].includes(level))
-      throw new Error('Unknown park challenge level');
-    if(level===this.parkChallengeLevel)return;
-    this.parkChallengeLevel=level;
-    // Only browser collision geometry changes. Never touch policy weights.
-    if(this.terrainMode==='park')this.loadModel();
-  }
-  setParkFeaturesEnabled(enabled) {
-    const next=Boolean(enabled);
-    if(next===this.parkFeaturesEnabled)return;
-    this.parkFeaturesEnabled=next;
-    if(this.terrainMode==='park')this.loadModel();
-  }
-  setTreesEnabled(enabled) {
-    const next=Boolean(enabled);
-    if (next===this.parkTreesEnabled) return;
-    this.parkTreesEnabled=next;
-    if(['park','carpet'].includes(this.terrainMode))this.loadModel();
-  }
   setHeadingHold(enabled) {
     this.headingHold=Boolean(enabled);
     // Bumpless engage: no jump towards an old target from an earlier mode.
@@ -607,14 +547,10 @@ export class EmuBrowserSim {
 
   loadModel() {
     this.disposeModel();
-    this.park = this.terrainMode==='park'
-      ? generateTerrainPark({maxDegrees:this.terrainMaxDegrees,
-                             trees:this.parkTreesEnabled,features:this.parkFeaturesEnabled,
-                             challengeLevel:this.parkChallengeLevel})
-      : this.terrainMode==='carpet'
-        ? createSensorLabCarpet(terrainRoleEnvelope(
-            this.carpetDifficulty,this.carpetRole))
-        : null;
+    this.park=this.terrainMode==='carpet'
+      ?createSensorLabCarpet(this.meadowSettings):null;
+    this.scene.fog=this.park?.physics==='streaming-heightfield'
+      ?new THREE.Fog(0xb1c8c1,7,22):new THREE.Fog(0xbad7e2,15,49);
     const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park,obstacle:this.sensorObstacle,
       slopeDegrees:this.surfaceSlopeDegrees,stepHeightCm:this.surfaceStepHeightCm});
     this.model = this.mujoco.MjModel.from_xml_string(xml);
@@ -622,29 +558,18 @@ export class EmuBrowserSim {
     this.data = new this.mujoco.MjData(this.model);
     this.mjvScene = new this.mujoco.MjvScene(this.model, this.maxGeoms);
     this.resolveIds();
-    if(this.park?.physics==='growing-prism-field'){
-      // Physical browser geoms render directly, not as decorative heightfields.
-      // Do not put a decorative hfield over their real vertical contact faces.
+    if(this.park?.physics==='streaming-heightfield'){
+      // XML's compiler normalizes supplied elevation values; it must start
+      // with zero-filled hfields. Populate the actual metre-scale samples
+      // directly in the compiled model BEFORE first contact or inference.
+      this.applyCarpetTilePhysics(this.park.tiles);
+    }
+    if(this.park?.physics==='streaming-heightfield'){
+      // Real CPU collision hfields and render triangles share the SAME four
+      // corner samples. Outer 2.5m scenery is deliberately visual-only.
       this.makeCarpetTileOverlay();
       this.makeSensorLabSurface();
       this.carpetScenery=createGrowingMeadowScenery(THREE,this.scene,this.park);
-    }else if(this.park){
-      this.parkSurface=createParkSurface(THREE,this.park,this.grassTexture);
-      this.scene.add(this.parkSurface);
-      this.parkGridOverlay=new THREE.Mesh(this.parkSurface.geometry,
-        new THREE.MeshBasicMaterial({
-          map:this.parkGridTexture,transparent:true,opacity:1,
-          depthWrite:false,depthTest:true,polygonOffset:true,
-          polygonOffsetFactor:-1,polygonOffsetUnits:-2,
-          side:THREE.DoubleSide,toneMapped:false,
-        }));
-      this.parkGridOverlay.renderOrder=3;
-      this.parkGridOverlay.visible=this.showGrid;
-      this.parkGridOverlay.frustumCulled=false;
-      this.scene.add(this.parkGridOverlay);
-      this.treeCrowns=createTreeCrowns(THREE,this.park.trees);
-      this.scene.add(this.treeCrowns);
-      this.createParkMarkers();
     }
     const d = this.bundle.control.default_commands || {};
     this.commandTarget = {
@@ -658,73 +583,85 @@ export class EmuBrowserSim {
   }
 
   makeSensorLabSurface(){
-    // One 1m tile = two exact MuJoCo convex prism collision meshes.
-    // Only activated terrain is visible; crossed ground is retained.
-    this.sensorLabSurface=new THREE.Group();
-    this.scene.add(this.sensorLabSurface);
-    this.carpetRenderedPrisms.clear();
-    this.appendGrowingCarpetVisuals();
-  }
-
-  appendGrowingCarpetVisuals(){
-    if(!this.sensorLabSurface)return;
-    for(const prism of sensorLabPrismVertices(this.park,{activeOnly:true})){
-      if(this.carpetRenderedPrisms.has(prism.k))continue;
-      const points=[],uv=[],colors=[];
-      for(const [faceIndex,face] of LAB_PRISM_FACES.entries())
-        for(const v of face){
-          const p=prism.world[v];
-          points.push(...p);
-          // One grass-texture repeat per physical metre, seamless at tiles.
-          uv.push(p[0],p[1]);
-          // Prism top = lush Meadow grass; vertical cliff faces and bottom
-          // are darker exposed earth, not a decorative invisible platform.
-          const tint=faceIndex===0?[.96,1,.90]:
-            faceIndex===1?[.29,.26,.19]:[.49,.43,.30];
-          colors.push(...tint);
-        }
-      const geom=new THREE.BufferGeometry();
-      geom.setAttribute('position',new THREE.Float32BufferAttribute(points,3));
-      geom.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
-      geom.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
-      geom.computeVertexNormals();
-      const mesh=new THREE.Mesh(geom,new THREE.MeshStandardMaterial({
-        map:this.grassTexture,color:0xffffff,vertexColors:true,
-        roughness:.98,side:THREE.DoubleSide,flatShading:true}));
-      mesh.userData.robotPart=false;
-      mesh.userData.sensorLabPrism=true;
-      mesh.userData.tileSlot=prism.tile.slot;
+    // Mesh triangles are reconstructed only for the spectator renderer.
+    // Physical contacts are from the same mutable MuJoCo 2x2 heightfields.
+    const group=new THREE.Group();
+    this.sensorLabSurface=group;
+    const material=new THREE.MeshStandardMaterial({
+      map:this.grassTexture,color:0xffffff,vertexColors:true,
+      roughness:.98,side:THREE.DoubleSide,flatShading:true});
+    for(const tile of this.park.tiles){
+      const mesh=new THREE.Mesh(new THREE.BufferGeometry(),material);
+      mesh.userData.tileSlot=tile.slot;
+      mesh.userData.sensorLabPrism=true; // hide duplicate MuJoCo view geom
       mesh.receiveShadow=true;
-      mesh.castShadow=false;
-      this.sensorLabSurface.add(mesh);
-      this.carpetRenderedPrisms.add(prism.k);
+      group.add(mesh);
     }
+    this.carpetSurfaceMaterial=material;
+    this.scene.add(group);
+    this.syncGrowingCarpetVisuals();
   }
 
-  syncGrowingCarpetVisuals(){
+  updateTerrainTileVisual(tile){
+    if(!this.sensorLabSurface)return;
+    const mesh=this.sensorLabSurface.children[tile.slot];
+    const x=tile.i,y=tile.j,[a,b,c,d]=tile.corners,down=.5;
+    const v=[[x,y,a],[x+1,y,b],[x,y+1,c],[x+1,y+1,d]];
+    const faces=[[0,1,2],[3,2,1]];
+    const points=[],uv=[],colors=[];
+    function add(tri,earth=false){
+      for(const xyz of tri){
+        points.push(...xyz);uv.push(xyz[0],xyz[1]);
+        colors.push(...(earth?[.48,.42,.31]:[.96,1,.91]));
+      }
+    }
+    for(const face of faces)add(face.map(i=>v[i]));
+    for(const [q,r] of [[0,1],[1,3],[3,2],[2,0]]){
+      const p=v[q],w=v[r],p0=[p[0],p[1],p[2]-down],
+            w0=[w[0],w[1],w[2]-down];
+      add([p,w,p0],true);add([w,w0,p0],true);
+    }
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(points,3));
+    g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+    g.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+    g.computeVertexNormals();
+    mesh.geometry.dispose();mesh.geometry=g;
+  }
+
+  syncGrowingCarpetVisuals(changed=this.park?.tiles||[]){
     if(!this.sensorLabSurface||!this.park)return;
-    for(const mesh of this.sensorLabSurface.children)
-      mesh.visible=Boolean(this.park.tiles[mesh.userData.tileSlot]?.active);
-    this.appendGrowingCarpetVisuals();
+    for(const tile of changed)this.updateTerrainTileVisual(tile);
     this.carpetScenery?.sync();
     this.carpetTileCenter=null;
   }
 
-  growCarpetNearRobot(){
-    if(this.park?.physics!=='growing-prism-field'||!this.data)return;
-    const fresh=this.park.growAround(Number(this.data.qpos[0]),
-                                     Number(this.data.qpos[1]));
-    if(!fresh.length)return;
-    const mocap=this.data.mocap_pos;
-    for(const tile of fresh)for(let half=0;half<2;half++){
-      const id=this.carpetMocapIds[tile.slot*2+half];
-      if(!Number.isInteger(id)||id<0)
-        throw Error('Growing Carpet lost a real MuJoCo prism mocap');
-      mocap[id*3+2]=0; // parked body at -40m -> actual terrain elevation
+  applyCarpetTilePhysics(changed){
+    // MuJoCo explicitly permits modifying hfield_data in a compiled
+    // model. Mesh vertex edits would be unsafe for collision BVHs.
+    const samples=this.model.hfield_data,pos=this.data.mocap_pos;
+    for(const tile of changed){
+      const off=Number(this.model.hfield_adr[tile.slot]);
+      const data=carpetHeightfieldPatch(tile);
+      for(let k=0;k<4;k++)samples[off+k]=data[k];
+      const id=this.carpetMocapIds[tile.slot];
+      pos[3*id]=tile.x;pos[3*id+1]=tile.y;pos[3*id+2]=tile.base;
     }
-    // Need actual contacts/geom_xpos to update before the next ToF sample.
     this.mujoco.mj_forward(this.model,this.data);
-    this.syncGrowingCarpetVisuals();
+  }
+
+  growCarpetNearRobot(){
+    if(this.park?.physics!=='streaming-heightfield'||!this.data)return;
+    const feet=this.footGeomIds.map(id=>({
+      x:Number(this.data.geom_xpos[3*id]),
+      y:Number(this.data.geom_xpos[3*id+1]),
+      radius:Number(this.model.geom_size[3*id])
+    }));
+    const changes=this.park.growAround(Number(this.data.qpos[0]),
+                                      Number(this.data.qpos[1]),feet);
+    if(!changes.length)return;
+    this.applyCarpetTilePhysics(changes);
+    this.syncGrowingCarpetVisuals(changes);
   }
 
   name2id(objEnum, name) {
@@ -746,59 +683,29 @@ export class EmuBrowserSim {
     this.footIds = ['r_foot', 'l_foot'].map(n => this.name2id(mj.mjtObj.mjOBJ_BODY, n));
     this.footGeomIds = ['r_foot_ball','l_foot_ball'].map(n =>
       this.name2id(mj.mjtObj.mjOBJ_GEOM,n));
-    if(this.park?.physics==='growing-prism-field'){
-      this.carpetMocapIds=Array.from({length:LAB_PRISM_COUNT},(_,i)=>{
+    if(this.park?.physics==='streaming-heightfield'){
+      this.carpetMocapIds=Array.from({length:LAB_TILE_COUNT},(_,i)=>{
         const body=this.name2id(mj.mjtObj.mjOBJ_BODY,'sensor_lab_tile_'+i);
         const id=Number(this.model.body_mocapid[body]);
-        if(id<0)throw Error('Growing Carpet requires physical mocap bodies');
+        if(id<0)throw Error('Streaming Carpet requires 225 mocap bodies');
         return id;
       });
-      if(new Set(this.carpetMocapIds).size!==LAB_PRISM_COUNT)
-        throw Error('Growing Carpet needs one unique mocap for each prism');
-      this.carpetGeomIds=new Set(Array.from({length:LAB_PRISM_COUNT},(_,i)=>
-        this.name2id(mj.mjtObj.mjOBJ_GEOM,'sensor_lab_prism_'+i)));
+      if(new Set(this.carpetMocapIds).size!==LAB_TILE_COUNT)
+        throw Error('Each streaming hfield needs a distinct mocap');
+      this.carpetGeomIds=new Set(Array.from({length:LAB_TILE_COUNT},(_,i)=>
+        this.name2id(mj.mjtObj.mjOBJ_GEOM,'sensor_lab_ground_'+i)));
     }
 
-  }
-
-  createParkMarkers() {
-    if(!this.park?.features.length)return;
-    const group=new THREE.Group();
-    this.park.features.forEach((feature,i)=>{
-      // 2D signs are NON-COLLIDING presentation only, never an actor input.
-      const canvas=document.createElement('canvas');
-      canvas.width=384;canvas.height=80;
-      const ctx=canvas.getContext('2d');
-      if(!ctx)return;
-      ctx.fillStyle='rgba(12,29,34,0.86)';
-      ctx.beginPath();ctx.roundRect(4,5,376,70,15);ctx.fill();
-      ctx.strokeStyle='rgba(110,231,206,0.78)';
-      ctx.lineWidth=3;ctx.stroke();
-      ctx.fillStyle='#e9fff7';
-      ctx.font='600 28px sans-serif';
-      ctx.textAlign='center';ctx.textBaseline='middle';
-      ctx.fillText((i+1)+'. '+feature.label,192,40,360);
-      const tex=new THREE.CanvasTexture(canvas);
-      tex.colorSpace=THREE.SRGBColorSpace;
-      const mat=new THREE.SpriteMaterial({map:tex,transparent:true,
-        depthTest:true,depthWrite:false});
-      const sign=new THREE.Sprite(mat);
-      sign.position.set(feature.x,feature.y,
-        this.park.sampleHeight(feature.x,feature.y)+0.20);
-      sign.scale.set(.90,.19,1);
-      group.add(sign);
-    });
-    this.parkMarkers=group;
-    this.scene.add(group);
   }
 
   reset() {
     this.resetGeneration=(this.resetGeneration||0)+1;
     const mj = this.mujoco;
     mj.mj_resetData(this.model, this.data);
-    if(this.park?.physics==='growing-prism-field'){
-      this.park.resetGrowth();
-      this.syncGrowingCarpetVisuals();
+    if(this.park?.physics==='streaming-heightfield'){
+      const restored=this.park.resetGrowth();
+      this.applyCarpetTilePhysics(restored);
+      this.syncGrowingCarpetVisuals(restored);
     }
     this.data.ctrl.fill(0);
     this.data.qvel.fill(0);
@@ -809,13 +716,13 @@ export class EmuBrowserSim {
     this.requestedYaw = this.commandTarget.yaw;
     this.command.yaw = this.requestedYaw;
     this.data.qvel[5] = this.command.yaw;
-    if(this.park?.physics==='growing-prism-field'){
+    if(this.park?.physics==='streaming-heightfield'){
       this.data.qpos[0]=LAB_TILE_M*.5;
       this.data.qpos[1]=LAB_TILE_M*.5;
       this.carpetWindowCenter=[0,0];
     }
     mj.mj_forward(this.model, this.data);
-    if(this.park?.physics==='growing-prism-field'){
+    if(this.park?.physics==='streaming-heightfield'){
       // qpos0 is neutral on the original z=0 floor, but this tile may be
       // raised by a slope or a signed step. Align actual 18mm foot spheres
       // against the true CPU MuJoCo prism surface BEFORE starting inference
@@ -868,69 +775,6 @@ export class EmuBrowserSim {
     this.commandTarget.pitch = clamp(Number(pitch), -l.pitch_abs_rad, l.pitch_abs_rad);
   }
 
-  navigationPose() {
-    const o = this.torsoId * 3;
-    const heading=this.actualHeading(),c=Math.cos(heading),s=Math.sin(heading);
-    const wx=Number(this.data.qvel[0]),wy=Number(this.data.qvel[1]);
-    // MuJoCo freejoint angular qvel is body-local; turn it into an
-    // observed horizontal heading rate for navigation's yaw damping.
-    const R=this.bodyRotation(),q=this.data.qvel;
-    const ax=R[0]*q[3]+R[1]*q[4]+R[2]*q[5];
-    const ay=R[3]*q[3]+R[4]*q[4]+R[5]*q[5];
-    const az=R[6]*q[3]+R[7]*q[4]+R[8]*q[5];
-    const horizontal=Math.max(.01,R[0]*R[0]+R[3]*R[3]);
-    const yawRate=az-R[6]*(R[0]*ax+R[3]*ay)/horizontal;
-    return {x:Number(this.data.xpos[o]),y:Number(this.data.xpos[o+1]),
-      heading,vx:c*wx+s*wy,vy:-s*wx+c*wy,yawRate,
-      fallen:this.isFallen()};
-  }
-
-  navigationTrees() {
-    if(!['park','carpet'].includes(this.terrainMode)||!this.park)return [];
-    // The existing pose-lattice planner assumes a 62cm circular clearance
-    // around each supplied obstacle. Feature waypoints make autonomous
-    // navigation avoid untrained steps/logs, but manual joystick can inspect.
-    return [
-      ...(this.parkTreesEnabled?this.park.trees:[]),
-      ...(this.terrainMode==='park'&&this.parkFeaturesEnabled ? this.park.features.flatMap(f=>{
-        // Planner is intentionally conservative. Include the *physical*
-        // obstacle footprint, not just one centre point; human joystick
-        // driving remains unrestricted for actual challenge attempts.
-        const spread=Math.max(0,f.radius-.34);
-        return [{x:f.x,y:f.y},{x:f.x+spread,y:f.y},
-          {x:f.x-spread,y:f.y},{x:f.x,y:f.y+spread},
-          {x:f.x,y:f.y-spread}];
-      }) : []),
-    ];
-  }
-
-  setNavigationPresentation(active) {
-    const wasActive=this.navPresentationActive;
-    this.navPresentationActive=Boolean(active);
-    if(active&&!wasActive&&this.cameraMode==='orbit'){
-      // Frame the route rather than only a robot-sized patch of grass.
-      this.navSavedOrbit={position:this.camera.position.clone(),
-                          target:this.controls.target.clone()};
-      const p=this.navigationPose();
-      this.controls.target.set(p.x,p.y,.12);
-      this.camera.position.set(p.x-3.4,p.y-4.0,3.8);
-      this.controls.update();
-    } else if(!active&&wasActive&&this.navSavedOrbit){
-      if(this.cameraMode==='orbit'){
-        this.camera.position.copy(this.navSavedOrbit.position);
-        this.controls.target.copy(this.navSavedOrbit.target);
-        this.controls.update();
-      }
-      this.navSavedOrbit=null;
-    }
-    // Navigation changes camera and route overlay ONLY. It must never
-    // modify neural control, heading P, current velocity, or commands.
-    if(!active)this.clearNavigationOverlay();
-  }
-
-  terrainHeightAt(x,y) {
-    return ['park','carpet'].includes(this.terrainMode) && this.park ? this.park.sampleHeight(x,y) : 0;
-  }
   makeCarpetTileOverlay(){
     this.carpetTileOverlay=new THREE.LineSegments(new THREE.BufferGeometry(),
       new THREE.LineBasicMaterial({color:0xf2d59a,transparent:true,
@@ -959,65 +803,6 @@ export class EmuBrowserSim {
     this.carpetTileOverlay.geometry.setAttribute('position',
       new THREE.Float32BufferAttribute(positions,3));
     this.carpetTileOverlay.visible=this.showGrid;
-  }
-
-  createNavigationGuides() {
-    const mat=new THREE.MeshBasicMaterial({color:0xfce38b,side:THREE.DoubleSide,
-                                           depthWrite:false,depthTest:true});
-    this.targetRing=new THREE.Mesh(new THREE.RingGeometry(.16,.205,40),mat);
-    this.targetRing.renderOrder=9;
-    this.scene.add(this.targetRing);
-    this.targetArrow=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),
-       new THREE.Vector3(0,0,.06),.50,0xffd96e,.15,.075);
-    this.targetArrow.renderOrder=9;
-    this.scene.add(this.targetArrow);
-    this.routeLine=new THREE.Line(new THREE.BufferGeometry(),
-      new THREE.LineBasicMaterial({color:0x54f8da,depthTest:true,
-                                   depthWrite:false,transparent:true,opacity:.95}));
-    this.routeLine.renderOrder=8;
-    this.scene.add(this.routeLine);
-    this.arenaCircle=new THREE.LineLoop(new THREE.BufferGeometry(),
-      new THREE.LineBasicMaterial({color:0x7eb8ff,transparent:true,
-                                   opacity:.46,depthWrite:false}));
-    this.arenaCircle.renderOrder=7;
-    this.scene.add(this.arenaCircle);
-    this.navGoalSeen=null;this.navRouteSeen=null;
-    this.clearNavigationOverlay();
-  }
-
-  clearNavigationOverlay() {
-    this.targetRing.visible=false;
-    this.targetArrow.visible=false;
-    this.routeLine.visible=false;
-    this.arenaCircle.visible=false;
-    this.navGoalSeen=null;this.navRouteSeen=null;
-  }
-
-  setNavigationOverlay(goal,route) {
-    if(!goal||!route){this.clearNavigationOverlay();return;}
-    if(this.navGoalSeen===goal && this.navRouteSeen===route)return;
-    const z=this.terrainHeightAt(goal.x,goal.y);
-    this.targetRing.position.set(goal.x,goal.y,z+.030);
-    this.targetArrow.position.set(goal.x,goal.y,z+.045);
-    this.targetArrow.setDirection(new THREE.Vector3(Math.cos(goal.heading),
-      Math.sin(goal.heading),0));
-    // Refresh the predicted route on new targets or meaningful replans.
-    const pose=this.navigationPose();
-    const points=[new THREE.Vector3(pose.x,pose.y,
-      this.terrainHeightAt(pose.x,pose.y)+.038),
-      ...route.steps.map(p=>new THREE.Vector3(p.x,p.y,this.terrainHeightAt(p.x,p.y)+.038))];
-    this.routeLine.geometry.dispose();
-    this.routeLine.geometry=new THREE.BufferGeometry().setFromPoints(points);
-    const circle=[];
-    for(let i=0;i<128;i++){
-      const a=2*Math.PI*i/128,x=4*Math.cos(a),y=4*Math.sin(a);
-      circle.push(new THREE.Vector3(x,y,this.terrainHeightAt(x,y)+.032));
-    }
-    this.arenaCircle.geometry.dispose();
-    this.arenaCircle.geometry=new THREE.BufferGeometry().setFromPoints(circle);
-    for(const mesh of [this.targetRing,this.targetArrow,this.routeLine,this.arenaCircle])
-      mesh.visible=true;
-    this.navGoalSeen=goal;this.navRouteSeen=route;
   }
 
   canSwapPolicy(next) {
@@ -1059,8 +844,8 @@ export class EmuBrowserSim {
   stepControl() {
     const cdt = Number(this.bundle.control.control_dt || 0.02);
     this.smoothCommands(cdt);
-    // One shared yaw controller for joystick and autonomous navigation.
-    // Navigation is only an upstream producer of vx/vy/yaw/pitch requests.
+    // One shared H40 yaw controller for the joystick, exercises and
+    // scripted Meadow showcase stroll.
     const steering = nextYawCommand(this.requestedYaw,this.commandTarget.yaw,
       this.headingTarget,this.actualHeading(),cdt,this.headingHold,this.headingKp,
       Number(this.bundle.control.command_limits.yaw_abs));
@@ -1136,7 +921,7 @@ export class EmuBrowserSim {
     // MuJoCo freejoint angular qvel is body-local, not world angular velocity.
     const gyro=Array.from(this.data.qvel.slice(3,6));
     const heightAt=(x,y)=>{
-      if(['park','carpet'].includes(this.terrainMode)&&this.park) return this.park.sampleHeight(x,y);
+      if(this.park)return this.park.sampleHeight(x,y);
       if(this.terrainMode==='ramp'&&Math.abs(y)<.44){
         if(x>=.85&&x<=1.65)return .008+(x-.85)*Math.tan(Math.PI/180);
         if(x>1.65&&x<2.17)return .015;
@@ -1144,7 +929,7 @@ export class EmuBrowserSim {
       }
       return 0;
     };
-    // Neither the park heightfield nor the Carpet's eight convex meshes is
+    // Neither the Meadow heightfield nor the internal sensor geometry is
     // a supported plane/box in our pure 360-observation raycaster. Supply
     // the ACTUAL world surface to optical flow; never fake z=0 ground.
     const terrainHeightAt=terrainSensorHeightFallback(this.terrainMode,this.park);
@@ -1152,13 +937,13 @@ export class EmuBrowserSim {
   }
 
   terrainActorPose() {
-    // Same torso-origin physical rays as MJX. On the park hfield, sample its
+    // Same torso-origin physical rays as MJX. On the Meadow hfield, sample its
     // shared height surface rather than pretending it is a flat plane.
     const R=this.bodyRotation(),offset=this.torsoId*3;
     return {R,torso:Array.from(this.data.xpos.slice(offset,offset+3)),
-      // Convex mesh geoms (Carpet) are not recognized by the fast JS
-      // raycaster. The exact CPU prism-height surface must supply the
-      // physical ToF return, just as the park heightfield already does.
+      // Streaming 2x2 heightfield geoms are not handled by the fast
+      // plane/box raycaster; the exact CPU collision height sampler
+      // must supply physical ToF returns.
       terrainHeightAt:terrainSensorHeightFallback(this.terrainMode,this.park)};
   }
 
@@ -1249,9 +1034,8 @@ export class EmuBrowserSim {
     const grade=this.terrainMode==='sensor' ?
       surfaceLabGradient(this.sensorObstacle,this.surfaceSlopeDegrees) : null;
     const root=this.data.qpos;
-    const supportZ=grade ? grade.gx*root[0]+grade.gy*root[1] :
-      ['park','carpet'].includes(this.terrainMode)&&this.park
-        ? this.park.sampleHeight(root[0],root[1]) : 0;
+    const supportZ=grade?grade.gx*root[0]+grade.gy*root[1]:
+      this.park?.sampleHeight(root[0],root[1])??0;
     return clearanceAboveSupport(this.heightM(),supportZ) < 0.145 ||
       gravityZ < 0.35;
   }
@@ -1331,7 +1115,7 @@ export class EmuBrowserSim {
       let mesh = this.meshes[i];
       if (!mesh) {
         const isFloor = Number(vg.type) === mj.mjtGeom.mjGEOM_PLANE.value;
-        const isParkHeightfield = Number(vg.type) === mj.mjtGeom.mjGEOM_HFIELD.value;
+        const isTerrainHeightfield=Number(vg.type)===mj.mjtGeom.mjGEOM_HFIELD.value;
         // Two-sided raycasting is essential when the configurable optical
         // origin sits INSIDE the torso at 0mm, and for floor/support normals.
         // Otherwise Three.js ignores the exit face and sees through the body.
@@ -1343,7 +1127,7 @@ export class EmuBrowserSim {
         // mjvGeom.objid is the actual MuJoCo geom ID. The unrelated
         // dataid identifies a mesh/heightfield asset, NOT a physical geom.
         // Recomputed for each rendered geom below, as display order may vary.
-        mesh.userData.parkHeightfield = isParkHeightfield;
+        mesh.userData.terrainHeightfield=isTerrainHeightfield;
         mesh.castShadow = !isFloor;
         mesh.receiveShadow = isFloor;
         mesh.matrixAutoUpdate = false;
@@ -1365,7 +1149,7 @@ export class EmuBrowserSim {
       // MuJoCo WASM returns a visual record for each mesh geom, but the
       // JS geometryFor fallback cannot reconstruct its triangles. The
       // sensor-lab's eight exact authored triangles are drawn separately.
-      mesh.visible = !mesh.userData.parkHeightfield &&
+      mesh.visible = !mesh.userData.terrainHeightfield &&
         !mesh.userData.sensorLabPrism;
       if (!mesh.userData.floor) mesh.material.color.setRGB(rgba[0], rgba[1], rgba[2]);
       mesh.material.opacity = rgba[3];
@@ -1420,8 +1204,7 @@ export class EmuBrowserSim {
                    Number(this.data.xpos[o + 2])];
     this.chaseHeading = first ? heading
       : smoothHeading(this.chaseHeading, heading, smoothFactor(dt, 6));
-    const terrainAt = (x, y) =>
-      ['park','carpet'].includes(this.terrainMode) && this.park ? this.park.sampleHeight(x, y) : 0;
+    const terrainAt=(x,y)=>this.park?.sampleHeight(x,y)??0;
     const desired = chasePose(torso, this.chaseHeading, terrainAt);
     const position = new THREE.Vector3(...desired.position);
     const target = new THREE.Vector3(...desired.target);
@@ -1488,10 +1271,9 @@ export class EmuBrowserSim {
     const rotation=this.bodyRotation();
     const pose=depthProbeRays(torso,rotation,this.depthConfig);
     // Shared viewer geometry (including movable robot parts) matches the
-    // displayed MuJoCo scene. The park hfield uses its matching grass mesh.
+    // displayed MuJoCo scene. The Meadow ground uses matching grass triangles.
     const targets=this.meshes.filter(mesh=>mesh.visible &&
       !mesh.userData.sensorLabPrism);
-    if(this.parkSurface)targets.push(this.parkSurface);
     if(this.sensorLabSurface)targets.push(...this.sensorLabSurface.children);
     for(const mesh of targets)mesh.updateMatrixWorld(true);
     const raycaster=this.depthRaycaster;
@@ -1504,7 +1286,7 @@ export class EmuBrowserSim {
       radius:Number(this.model.geom_size[3*id])}));
     // Auto protects the large hfield mesh from 64 costly triangle casts.
     // Selecting 4 or 5 overrides this and shows the actual cost.
-    const sampleCount=n==='auto'?(['park','carpet'].includes(this.terrainMode)?1:4):n;
+    const sampleCount=n==='auto'?(this.terrainMode==='carpet'?1:4):n;
     const reading=readDepthProbe(pose,(start,dir,maxRange)=>{
       raycaster.set(origin,direction.set(...dir).normalize());
       raycaster.far=maxRange;

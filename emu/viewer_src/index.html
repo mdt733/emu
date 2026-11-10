@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover" />
   <meta name="theme-color" content="#0b0f14" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2064%2064'%3E%3Crect%20width='64'%20height='64'%20rx='14'%20fill='%230b0f14'/%3E%3Cpath%20d='M18%2014h30v9H28v8h17v9H28v8h20v9H18z'%20fill='%2349c9bf'/%3E%3C/svg%3E" />
-  <title>EMU Viewer</title>
+  <title>EMU · Infinite Meadow</title>
   <script type="module" src="/src/main.js"></script>
 </head>
 <body>
@@ -14,12 +14,9 @@
 
     <header class="topbar glass">
       <div class="brand">
-        <strong>EMU</strong><span id="modeLabel">policy playground</span>
+        <strong>EMU</strong><span id="modeLabel">Infinite Meadow</span>
       </div>
-      <nav class="world-switch" aria-label="Simulation world">
-        <button id="worldField" class="world-tab active" type="button" aria-pressed="true">🌿 Field</button>
-        <button id="worldCarpet" class="world-tab" type="button" aria-pressed="false">🌄 Growing Meadow</button>
-      </nav>
+      <span class="world-tab active" aria-label="World: Infinite Meadow">🌄 Infinite Meadow</span>
       <div id="status" class="status" data-kind="idle">Load an .emupolicy file</div>
       <div class="top-actions">
         <label class="file-button">
@@ -38,14 +35,14 @@
       <div class="telemetry-primary">
         <div class="metric"><span>Policy</span><b id="policyName">—</b></div>
         <div class="metric"><span>Trained steps</span><b id="policyStep">—</b></div>
-        <div class="metric"><span>Exercise</span><b id="viewerExercise">Field exploration</b></div>
+        <div class="metric"><span>Movement</span><b id="viewerExercise">Exploring Infinite Meadow</b></div>
         <div id="carpetHudRow" class="metric terrain-assigned" hidden>
           <span>Physical carpet · grade, signed UP / DOWN</span>
           <b id="carpetHudTerrain">—</b>
         </div>
         <div id="carpetGrowthRow" class="metric terrain-assigned" hidden>
-          <span>Meadow · real tiles grown</span>
-          <b id="carpetGrowth">4 / 225</b>
+          <span>Meadow · north difficulty / position</span>
+          <b id="carpetGrowth">0% · 0m N</b>
         </div>
         <div class="metric"><span>Height / posture</span><b id="height">—</b></div>
         <div class="metric"><span>Forward · actual / requested</span><b id="vxRead">—</b></div>
@@ -67,28 +64,42 @@
 
     <div id="drawerBackdrop" class="drawer-backdrop" hidden></div>
     <aside id="settingsDrawer" class="settings-drawer glass" aria-label="Viewer settings" aria-hidden="true" hidden>
-      <div class="drawer-heading"><div><b>EMU VIEWER</b><span>Two worlds · one trained policy</span></div><button type="button" id="settingsClose" aria-label="Close settings">✕</button></div>
+      <div class="drawer-heading"><div><b>EMU · INFINITE MEADOW</b><span>One world · one trained policy</span></div><button type="button" id="settingsClose" aria-label="Close settings">✕</button></div>
       <section class="controls-panel">
       <div class="control-row">
 
-        <select id="terrainMode" hidden aria-hidden="true"><option value="park" selected>Field</option><option value="carpet">Growing Meadow Carpet</option></select>
-        <section id="fieldPanel" class="world-settings" aria-label="Natural field options">
-        <div class="world-settings-heading">🌿 Field <small>Grass, trees, rolling hills and optional real-collision course</small></div>
-        <label>Park max slope <output id="terrainMaxOut">10°</output><input id="terrainMax" type="range" min="1" max="20" value="10" step="1" /></label>
-        <label><input id="treesToggle" type="checkbox" checked /> Trees (solid trunks)</label>
-        <label><input id="parkFeaturesToggle" type="checkbox" /> Park challenge course (real collisions)</label>
-        <label>Challenge difficulty <select id="parkChallengeLevel">
-          <option value="gentle">Gentle · 0.7–1.5 cm</option>
-          <option value="balanced" selected>Balanced · mostly 1–2.5 cm</option>
-          <option value="stretch">Stretch · up to 5 cm</option>
-        </select></label>
-        <div class="park-course-info">
-          <b>Course guide · numbered signs</b>
-          <ol id="parkCourseList"></ol>
-          <small>Changing difficulty rebuilds the browser physics and resets the robot. Training weights are unchanged; these are not held-out MJX exams.</small>
-        </div>
-        </section>
-        <section id="carpetPanel" class="carpet-panel" hidden aria-label="Growing Meadow Carpet settings">
+        <select id="terrainMode" hidden aria-hidden="true"><option value="carpet" selected>Infinite Meadow</option></select>
+        <section id="carpetPanel" class="carpet-panel" aria-label="Infinite Meadow settings">
+          <div id="meadowDifficultyPanel" class="tuning-group" aria-label="Meadow terrain difficulty">
+            <div class="tuning-heading"><b>Meadow difficulty</b><small>One physical world · north harder, south easier</small></div>
+            <label>Terrain preset
+              <select id="meadowPreset">
+                <option value="gentle">Gentle · mostly level</option>
+                <option value="rolling" selected>Rolling meadow · walkable hills</option>
+                <option value="rugged">Rugged · regular 10° hills</option>
+                <option value="extreme">Extreme · steep hills &amp; frequent steps</option>
+                <option value="custom">Custom · sliders below</option>
+              </select>
+            </label>
+            <label class="tuning-row">Natural hill peaks here <output id="meadowHillOut">6°</output>
+              <input id="meadowHill" type="range" min="0" max="20" value="6" step=".5"></label>
+            <label class="tuning-row">Hill size <output id="meadowSizeOut">9.5 m</output>
+              <input id="meadowSize" type="range" min="3" max="18" value="9.5" step=".5"></label>
+            <label class="tuning-row">Maximum step up <output id="meadowUpOut">0.7 cm</output>
+              <input id="meadowUp" type="range" min="0" max="8" value=".7" step=".1"></label>
+            <label class="tuning-row">Maximum step down <output id="meadowDownOut">0.7 cm</output>
+              <input id="meadowDown" type="range" min="0" max="8" value=".7" step=".1"></label>
+            <label class="tuning-row">Steps / tile <output id="meadowStepsOut">14%</output>
+              <input id="meadowSteps" type="range" min="0" max="75" value="14" step="1"></label>
+            <label class="tuning-row">North difficulty gain <output id="meadowNorthOut">2.0% / m</output>
+              <input id="meadowNorth" type="range" min="0" max="6" value="2" step=".1"></label>
+            <p class="subtle" id="meadowDifficultyInfo">The current hill target is a challenging-slope percentile, not a constant grade. North makes them harder; east and west vary the land at the same level.</p>
+            <button id="meadowReset" type="button">Reset Meadow difficulty</button>
+            <small>Changing physical terrain restarts the viewer robot, not the trained actor or training run.</small>
+          </div>
+          <details class="inspector-details" id="carpetTrainingInspector">
+            <summary>Training specialists &amp; historical frontier controls</summary>
+            <p class="subtle">This inspector configures exercises and shows training frontiers. The Meadow difficulty controls above are the only terrain authority.</p>
           <label class="specialty-picker"><b>Training specialist</b>
             <select id="carpetRole" aria-label="Representative specialist to inspect">
         <option value="auto" selected>Auto phase</option>
@@ -119,11 +130,11 @@
             Waiting for the latest training frontiers.
           </div>
           <div id="carpetTuning" class="tuning-group">
-            <div class="tuning-heading"><b>Terrain</b><small>Specialist-scaled assignments</small></div>
-            <label class="tuning-row">Slope angle <output id="tuneSlopeOut">—</output><input id="tuneSlope" type="range" min="0" max="20" step=".01"></label>
-            <label class="tuning-row">Grade transition <output id="tuneTransitionOut">—</output><input id="tuneTransition" type="range" min="0" max="15" step=".01"></label>
-            <label class="tuning-row">Step up <output id="tuneUpOut">—</output><input id="tuneUp" type="range" min="0" max="150" step=".025"></label>
-            <label class="tuning-row">Step down <output id="tuneDownOut">—</output><input id="tuneDown" type="range" min="0" max="150" step=".025"></label>
+            <div class="tuning-heading"><b>Training terrain targets</b><small>Read-only diagnostic; geology sliders above control the world</small></div>
+            <label class="tuning-row">Slope angle <output id="tuneSlopeOut">—</output><input id="tuneSlope" type="range" disabled min="0" max="20" step=".01"></label>
+            <label class="tuning-row">Grade transition <output id="tuneTransitionOut">—</output><input id="tuneTransition" type="range" disabled min="0" max="15" step=".01"></label>
+            <label class="tuning-row">Step up <output id="tuneUpOut">—</output><input id="tuneUp" type="range" disabled min="0" max="150" step=".025"></label>
+            <label class="tuning-row">Step down <output id="tuneDownOut">—</output><input id="tuneDown" type="range" disabled min="0" max="150" step=".025"></label>
             <div class="tuning-heading"><b>Commands</b><small>Preview requests bounded by policy limits</small></div>
             <label class="tuning-row">Forward speed <output id="tuneForwardOut">—</output><input id="tuneForward" type="range" min="0" max="1.5" step=".01"></label>
             <label class="tuning-row">Reverse speed <output id="tuneReverseOut">—</output><input id="tuneReverse" type="range" min="0" max=".8" step=".01"></label>
@@ -133,13 +144,16 @@
             <label class="tuning-row">Disturbance intensity <output id="tuneResilienceOut">—</output><input id="tuneResilience" type="range" min="0" max="1" step=".01"></label>
             <label class="tuning-row">Maximum shove <output id="tunePushOut">—</output><input id="tunePush" type="range" min="0" max="3" step=".01"></label>
           </div>
-          <button id="carpetResetLimits" type="button">Reset sliders to this specialist's training values</button>
-          <small id="tuneOrigin">Live reported frontiers are teacher targets, not proven capabilities.</small>
+          <button id="carpetResetLimits" type="button">Reset inspector to this specialist's training values</button>
+          <small id="tuneOrigin">Live reported frontiers are teacher targets, not proven capabilities, and do not change the Meadow geology.</small>
+          </details>
           <label>Exercise <select id="carpetDrive">
             <option value="lesson" selected>Run specialist commands</option>
             <option value="manual">Manual joystick / WASD</option>
           </select></label>
-          <label class="viewer-checkbox"><input id="carpetShoves" type="checkbox" checked /> Random physical shoves with directional arrows</label>
+          <label class="viewer-checkbox"><input id="carpetShoves" type="checkbox" /> Random physical shoves with directional arrows</label>
+          <label class="tuning-row">Shove intensity <output id="meadowShoveOut">35%</output>
+            <input id="meadowShove" type="range" min="0" max="100" value="35" step="1"></label>
           <label>Recovery shove schedule <select id="carpetPushRate">
             <option value="drill" selected>Recovery drill · about 1–2 shoves/s (viewer only)</option>
             <option value="inspection">Inspection · 8× real training frequency</option>
@@ -147,7 +161,7 @@
           </select></label>
           <small id="shoveRateNote">The viewer runs one robot; the GPU trainer runs 2,048 worlds with independent disturbances.</small>
           <button id="carpetTestShove" type="button">Apply one random shove</button>
-          <small id="carpetShoveState">Random push angle, strength and duration; frequency scales with the resilience setting.</small>
+          <small id="carpetShoveState">Shoves are optional. Their strength and frequency increase naturally as EMU travels north.</small>
           <div id="lessonCommand" class="lesson-command">Viewer command: —</div>
           <details class="inspector-details" id="carpetDiagnostics">
             <summary>Training evidence &amp; live connection</summary>
@@ -182,7 +196,7 @@
     <aside id="depthPanel" class="depth-panel glass" aria-label="Front depth sensor laboratory">
       <div class="depth-head"><b>4×4 depth scan</b><label><input id="depthOn" type="checkbox" /> On</label></div>
       <div class="depth-sub">45°×45° VL53L8CX optical preview, distinct from the 60° training-source rays. Sensor lab runs the 40cm body in browser CPU MuJoCo with no trained gait.</div>
-      <div class="depth-foot">Measures the currently selected Field or Training Carpet world. Never switches the simulation to a retired course.</div>
+      <div class="depth-foot">Measures the actual Infinite Meadow physical ground; it does not change the trained actor.</div>
       <label class="depth-row">Downward tilt <output id="depthTiltOut">70°</output>
         <input id="depthTilt" type="range" min="0" max="90" value="70" step="5"/></label>
       <label class="depth-row">Forward mount <output id="depthMountOut">0 mm</output>
@@ -196,7 +210,7 @@
       <button id="depthFootPreset" class="depth-copy" type="button">Restore chosen mount (70° / −30mm)</button>
       <label class="depth-row">Ray samples per zone
         <select id="depthSamples">
-          <option value="auto" selected>Auto · current Field / Carpet</option>
+          <option value="auto" selected>Auto · Infinite Meadow</option>
           <option value="1">1 (16 rays)</option>
           <option value="4">4 (64 rays)</option>
           <option value="5">5 (80 rays)</option>
@@ -223,11 +237,9 @@
         <div class="live-progress">Validated step <b id="liveStep">—</b></div>
         <div id="liveNote" class="live-note">Watching completed training checkpoints</div>
         <label><input id="liveUpdate" type="checkbox" checked /> Automatically load newer policies</label>
-        <label><input id="liveDemo" type="checkbox" checked /> Autonomous navigation</label>
-        <div class="nav-actions"><button type="button" id="navNext" disabled>New destination</button>
-          <span>Field navigation only</span></div>
-        <div class="live-demo-status">Movement: <b id="demoKind">Finding a destination…</b></div>
-        <div class="live-foot">Touch either joystick or use WASD / Q-E for manual control. Navigation returns after 30 seconds without input.</div>
+        <label><input id="liveDemo" type="checkbox" checked /> Automatic Meadow stroll</label>
+        <div class="live-demo-status">Movement: <b id="demoKind">Walking through the meadow</b></div>
+        <div class="live-foot">Touch either joystick or use WASD / Q-E to take manual control. The gentle automatic stroll resumes after 30 seconds without input.</div>
       </section>
       <section id="resultCard" class="result-card glass" hidden aria-label="Held-out evaluation summary">
       <div class="result-head"><b>EVALUATION</b><span id="resultRole">—</span></div>
@@ -259,12 +271,6 @@
         <div id="rightValues" class="stick-values">yaw +0.00 · pitch +0.0°</div>
       </div>
     </div>
-
-    <aside id="navHud" class="nav-hud glass" hidden aria-label="Autonomous mission">
-      <b id="navHudTitle">POSITION + HEADING</b>
-      <span id="navHudInfo">Waiting for goal…</span>
-      <small id="navEstimate">Pose-lattice navigation</small>
-    </aside>
 
     <div id="showcaseBanner" class="showcase-banner glass" hidden role="status">
       <b id="showcaseTitle">EMU Playground</b><span id="showcaseSubtitle"></span>

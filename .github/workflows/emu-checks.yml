@@ -77,79 +77,87 @@ jobs:
           test ! -e scripts/v5051_train_campaign.py
           test ! -e scripts/v5052_step_school.py
           python -m pytest -q tests
-      - name: Compile growing 15x15 H40 MuJoCo prism field and verify real contact activation
+      - name: Compile streaming H40 CPU terrain and prove mutable heightfield contacts
         run: |
           python - <<'PY'
           import json
           import re
           import subprocess
           from pathlib import Path
-
           import mujoco
           from emu.viewer_server import sensor_lab_robot_xml
-
-          js = ("import {createSensorLabCarpet,sensorLabPrismXml} "
+          js = ("import {createSensorLabCarpet,streamingCarpetXml,carpetHeightfieldPatch} "
                 "from './emu/viewer_src/src/sensor-lab-carpet.js';"
-                "console.log(JSON.stringify(sensorLabPrismXml("
-                "createSensorLabCarpet({slopeDeg:0,stepUpM:0,stepDownM:0}))));")
-          fixture = json.loads(subprocess.check_output(
-              ['node', '--input-type=module', '-e', js], text=True))
-          robot = sensor_lab_robot_xml()
-          robot, floor_count = re.subn(
-              r'<geom\s+name="floor"[^>]*\/>', '', robot)
-          assert floor_count == 1
-          robot = robot.replace('<worldbody>', '<asset>' + fixture['assets'] +
-                                '</asset><worldbody>')
-          robot = robot.replace('</worldbody>', fixture['bodies'] + '</worldbody>')
-          model = mujoco.MjModel.from_xml_string(robot)
-          # Exact trainer h40 source: no visual braces or knee motor cases.
+                "const park=createSensorLabCarpet({hillPeakDeg:10,stepUpM:0,stepDownM:0,stepFrequency:0,northGainPerM:0});"
+                "console.log(JSON.stringify({geo:streamingCarpetXml(park),"
+                "patches:park.tiles.map(t=>({slot:t.slot,x:t.x,y:t.y,z:t.base,patch:carpetHeightfieldPatch(t)})),"
+                "ground:park.sampleHeight(.5,.5)}));")
+          scene=json.loads(subprocess.check_output(
+            ['node','--input-type=module','-e',js],text=True))
+          robot=sensor_lab_robot_xml()
+          robot, n = re.subn(r'<geom\s+name="floor"[^>]*\/>', '', robot)
+          assert n == 1
+          robot=robot.replace('<worldbody>',
+            '<asset>'+scene['geo']['assets']+'</asset><worldbody>')
+          robot=robot.replace('</worldbody>',
+            scene['geo']['bodies']+'</worldbody>')
+          assert 'elevation=' not in scene['geo']['assets']
+          model=mujoco.MjModel.from_xml_string(robot)
+          assert not model.hfield_data.any(), 'compiler must start from zero hfield data'
           from emu.physical_variants import generate_xml, profile_numbers
-          source = Path('emu/robot.xml').read_text(encoding='utf-8')
-          assert sensor_lab_robot_xml() == generate_xml(source, 'h40')
-          assert 'sensor_lab_hip_mount' not in robot
-          assert 'knee_servo' not in robot
-          # Eight kinematic terrain prisms have enormous compiled mesh
-          # masses; those belong to the WORLD, not the ~506g robot. Only
-          # count non-mocap physical bodies in this assertion.
-          mass = float(model.body_mass[model.body_mocapid < 0].sum())
-          assert .49 <= mass <= .52, mass
+          source=Path('emu/robot.xml').read_text(encoding='utf-8')
+          assert sensor_lab_robot_xml()==generate_xml(source,'h40')
+          assert model.nhfield==225 and model.nmocap==225
+          assert sum(mujoco.mj_id2name(model,mujoco.mjtObj.mjOBJ_GEOM,i)
+                    .startswith('sensor_lab_ground_')
+                    for i in range(model.ngeom))==225
+          assert model.nu==6
+          mass=float(model.body_mass[model.body_mocapid<0].sum())
+          assert .49<=mass<=.52,mass
           assert abs(mass-float(profile_numbers('h40')['mass_kg']))<1e-4
-          chassis=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_GEOM,'torso_box')
-          assert abs(model.geom_pos[chassis,0]-.005)<1e-7
-          assert model.geom_pos[chassis,0]-model.geom_size[chassis,0]<-.01
-          for side in 'rl':
-              assert mujoco.mj_name2id(
-                  model,mujoco.mjtObj.mjOBJ_GEOM,side+'_thigh_rod_b')==-1
-              gid=mujoco.mj_name2id(
-                  model,mujoco.mjtObj.mjOBJ_GEOM,side+'_thigh_rod')
-              assert model.geom_type[gid]==mujoco.mjtGeom.mjGEOM_BOX
-          assert model.nu == 6
-          assert sum(mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i)
-                     .startswith('sensor_lab_prism_')
-                     for i in range(model.ngeom)) == 450
-          data = mujoco.MjData(model)
-          data.qpos[0] = data.qpos[1] = .5
-          data.qpos[2] -= .002  # slight contact penetration, not a tangent rounding test
-          mujoco.mj_forward(model, data)
-          assert data.ncon >= 1, 'neutral h40 feet must contact real prism tops'
-          # A preallocated tile is NOT ghost support until the viewer reveals it.
-          data.qpos[0], data.qpos[1] = 2.5, .5
-          mujoco.mj_forward(model, data)
-          assert data.ncon == 0, 'unrevealed tiles must provide no contact'
-          # Reveal the *same two compiled convex prisms* by elevating their
-          # mocap bodies: model remains constant, robot qpos/velocity untouched.
-          for half in range(2):
-              slot=(0+7)*15+(2+7)
-              bid=mujoco.mj_name2id(
-                  model,mujoco.mjtObj.mjOBJ_BODY,
-                  f'sensor_lab_tile_{slot*2+half}')
+          data=mujoco.MjData(model)
+          for p in scene['patches']:
+              slot=p['slot']
+              off=int(model.hfield_adr[slot])
+              model.hfield_data[off:off+4]=p['patch']
+              bid=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_BODY,
+                                    f'sensor_lab_tile_{slot}')
               mocap_id=int(model.body_mocapid[bid])
               assert mocap_id>=0
-              data.mocap_pos[mocap_id,2]=0
+              data.mocap_pos[mocap_id]=[p['x'],p['y'],p['z']]
+          # Exact metric-scale samples must equal the JS terrain source,
+          # not an XML-compiler-normalized 1-metre-tall impostor.
+          assert abs(model.hfield_data[model.hfield_adr[0]:
+                  model.hfield_adr[0]+4].max()-
+                  max(scene['patches'][0]['patch']))<1e-6
+          data.qpos[:2]=.5
+          data.qpos[2] += float(scene['ground'])-.003
           mujoco.mj_forward(model,data)
-          assert data.ncon >= 1, 'newly revealed field tile must truly support H40'
-          print(f'h40 GROWING CARPET CPU PASS: {model.ngeom} geoms, '
-                f'{model.nmocap} mocaps, {data.ncon} contacts after reveal')
+          assert data.ncon>=1,'birth hfield must physically support feet'
+          # No illusion that swapping a decorative mesh changes collision:
+          # move the exact physical hfield underfoot far below the robot.
+          slot=0 # wrapped x=0, y=0 -> stable modulo-15 slot zero
+          bid=mujoco.mj_name2id(model,mujoco.mjtObj.mjOBJ_BODY,
+                                f'sensor_lab_tile_{slot}')
+          mid=int(model.body_mocapid[bid])
+          assert mid>=0
+          old_z=float(data.mocap_pos[mid,2])
+          data.mocap_pos[mid,2]=-30
+          mujoco.mj_forward(model,data)
+          assert data.ncon==0,'evicted ground must not be ghost support'
+          # Runtime hfield_data writes are explicitly supported by MuJoCo.
+          # Mutate the actual (metre-correct) hill samples and physically
+          # restore the tile with a few millimetres of positive penetration.
+          h0=int(model.hfield_adr[slot])
+          original=model.hfield_data[h0:h0+4].copy()
+          assert max(original)>1e-4, 'expected nonflat 10-degree source tile'
+          model.hfield_data[h0:h0+4]=[.995*float(h) for h in original]
+          data.mocap_pos[mid,2]=old_z+.007
+          mujoco.mj_forward(model,data)
+          assert data.ncon>=1,'reused mutable terrain must restore real support'
+          print('H40 LIVE HFIELD REUSE PASS:',
+                model.nhfield,'hfields,',model.nmocap,'mocaps,',
+                data.ncon,'foot contacts')
           PY
       - name: Actual eight-prism CPU MJX contacts, sidewalls, mesh and robot
         run: timeout 540s python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2
@@ -178,6 +186,10 @@ jobs:
           fi
       - name: Build browser
         run: npm run build --prefix emu/viewer_src
+      - name: Protect the original Meadow panorama and its offline viewer bundle
+        run: |
+          test "$(git hash-object emu/viewer_src/src/assets/meadow-skybox.png)" = 9eaed55fcc9a9f86846336808d5ecae56b43097c
+          find emu/viewer_src/dist -type f -name 'meadow-skybox*.png' | grep -q .
       - name: Verify approved Pages bundle (only when reviewed)
         run: |
           if test -f showcase/release_approval.json; then
