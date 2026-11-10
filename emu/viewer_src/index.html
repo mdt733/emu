@@ -91,19 +91,28 @@
         <section id="carpetPanel" class="carpet-panel" hidden aria-label="Infinite Meadow settings">
           <div id="meadowDifficultyPanel" class="tuning-group" aria-label="Meadow terrain difficulty">
             <div class="tuning-heading"><b>Meadow difficulty</b><small>One physical world · north harder, south easier</small></div>
-            <label class="tuning-row">Natural hill peaks here <output id="meadowHillOut">10°</output>
-              <input id="meadowHill" type="range" min="0" max="20" value="10" step=".5"></label>
+            <label>Terrain preset
+              <select id="meadowPreset">
+                <option value="gentle">Gentle · mostly level</option>
+                <option value="rolling" selected>Rolling meadow · walkable hills</option>
+                <option value="rugged">Rugged · regular 10° hills</option>
+                <option value="extreme">Extreme · steep hills &amp; frequent steps</option>
+                <option value="custom">Custom · sliders below</option>
+              </select>
+            </label>
+            <label class="tuning-row">Natural hill peaks here <output id="meadowHillOut">6°</output>
+              <input id="meadowHill" type="range" min="0" max="20" value="6" step=".5"></label>
             <label class="tuning-row">Hill size <output id="meadowSizeOut">9.5 m</output>
               <input id="meadowSize" type="range" min="3" max="18" value="9.5" step=".5"></label>
-            <label class="tuning-row">Maximum step up <output id="meadowUpOut">2 cm</output>
-              <input id="meadowUp" type="range" min="0" max="8" value="2" step=".25"></label>
-            <label class="tuning-row">Maximum step down <output id="meadowDownOut">2 cm</output>
-              <input id="meadowDown" type="range" min="0" max="8" value="2" step=".25"></label>
-            <label class="tuning-row">Steps / tile <output id="meadowStepsOut">28%</output>
-              <input id="meadowSteps" type="range" min="0" max="75" value="28" step="1"></label>
-            <label class="tuning-row">North difficulty gain <output id="meadowNorthOut">2.2% / m</output>
-              <input id="meadowNorth" type="range" min="0" max="6" value="2.2" step=".1"></label>
-            <p class="subtle" id="meadowDifficultyInfo">10° means varied hills that regularly approach 10° here, not a constant slope. North makes them harder; east and west vary the land at the same level.</p>
+            <label class="tuning-row">Maximum step up <output id="meadowUpOut">0.7 cm</output>
+              <input id="meadowUp" type="range" min="0" max="8" value=".7" step=".25"></label>
+            <label class="tuning-row">Maximum step down <output id="meadowDownOut">0.7 cm</output>
+              <input id="meadowDown" type="range" min="0" max="8" value=".7" step=".25"></label>
+            <label class="tuning-row">Steps / tile <output id="meadowStepsOut">14%</output>
+              <input id="meadowSteps" type="range" min="0" max="75" value="14" step="1"></label>
+            <label class="tuning-row">North difficulty gain <output id="meadowNorthOut">2.0% / m</output>
+              <input id="meadowNorth" type="range" min="0" max="6" value="2" step=".1"></label>
+            <p class="subtle" id="meadowDifficultyInfo">The current hill target is a challenging-slope percentile, not a constant grade. North makes them harder; east and west vary the land at the same level.</p>
             <button id="meadowReset" type="button">Reset Meadow difficulty</button>
             <small>Changing physical terrain restarts the viewer robot, not the trained actor or training run.</small>
           </div>
