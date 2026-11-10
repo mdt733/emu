@@ -79,7 +79,6 @@ let navLastCommand={vx:0,vy:0,yaw:0,pitch:0};
 let strollClock=Infinity;
 function syncGoalMode(){
   if(sim){
-    sim.setNavigationPresentation(false);
     sim.autoReset=autoResetToggle.checked||demoActive;
   }
 }
@@ -377,7 +376,7 @@ function syncCarpetExercise(){
     return;
   }
   const lesson=currentCarpetLesson();
-  sim.autoReset=carpetDrive.value==='lesson'||autoResetToggle.checked;
+  sim.autoReset=demoActive||carpetDrive.value==='lesson'||autoResetToggle.checked;
   // Optional physical shoves obey the unified Meadow settings, NOT
   // training specialist settings or an invisible teacher assignment.
   const strength=Number($('meadowShove').value)/100;
@@ -409,7 +408,7 @@ function renderCarpetValues(){
     becomes easier to the south and varies at steady difficulty east/west.
     EMU begins facing EAST (+X): turn left to explore harder northern terrain.
     15×15m moving real collision window, deterministic return visits, misty visual fallaway.`;
-  if(terrainMode.value==='carpet')$('viewerExercise').textContent=lesson.heading;
+  if(!demoActive)$('viewerExercise').textContent=lesson.heading;
   const values=roleSliders(base,carpetRole.value);
   for(const [key,id,unit,,digits] of SLIDER_FIELDS){
     const el=tuningInputs[key];
@@ -951,7 +950,7 @@ function frame(ms){
     lastFrame=now;
     if(dt>0){
       const fps=1/dt;
-      fpsEma=fpsEma?.92*fps+.08*fps:fps;
+      fpsEma=fpsEma ? .92*fpsEma+.08*fps : fps;
     }
     if(sim){
       const manual=held.size>0||leftStick.pointerId!==null||
@@ -1143,7 +1142,8 @@ async function startViewerFeed() {
             updateTerrain();
           }
           livePanel.hidden = false;
-          demoActive = $('liveDemo').checked;
+          demoActive=$('liveDemo').checked;
+          if(demoActive){carpetDrive.value='manual';strollClock=Infinity;}
           syncGoalMode();
           await pollLive();
           setInterval(pollLive, 12000);
