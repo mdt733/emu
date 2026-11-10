@@ -1793,16 +1793,38 @@ class EmuMJXEnv(TaskSampler):
             # authentically supported first lip. Neither a coordinate
             # crossing nor an unrelated later tile can arm this.
             in_goal_tile=jnp.all(observed_cell==destination_cell,axis=1)
-            goal_lip_armed=(goal_lip_armed |
-                            (academy['cross_new'] & in_goal_tile))
-            foot_ok=(academy['goal_top_feet'] &
-                     goal_lip_armed[:,None] & in_goal_tile[:,None])
+            if self.science_stair_school_v1:
+                # The FIRST authentic upper/lower foothold arms the lesson,
+                # even if the torso is still behind the edge.
+                goal_lip_armed=(goal_lip_armed | academy['foothold_new'])
+                # Teacher-only proof of each foot in the FIXED first target
+                # tile. Do not require torso entry before earning foot proof.
+                foot_ok=academy['goal_top_feet'] & goal_lip_armed[:,None]
+            else:
+                goal_lip_armed=(goal_lip_armed |
+                                (academy['cross_new'] & in_goal_tile))
+                foot_ok=(academy['goal_top_feet'] &
+                         goal_lip_armed[:,None] & in_goal_tile[:,None])
             goal_foot_streak=jnp.where(
                 foot_ok,goal_foot_streak+1,0)
             goal_foot_seen=(goal_foot_seen |
                             (goal_foot_streak>=5))
             goal_transfer_ready=(goal_transfer_ready |
                                  jnp.all(goal_foot_seen,axis=1))
+            if self.science_stair_school_v1:
+                # The school uses independent foot evidence; a dynamic
+                # alternate-step gait need never have simultaneous double
+                # stance. Pay once upon genuine support by EACH foot.
+                independent_new=(goal_transfer_ready &
+                                 ~state.academy_goal_transfer_ready &
+                                 goal_lip_armed & state.academy_active &
+                                 step_focus & ~terminal_fail & ~timeout)
+                foot_bonus=(4.0+self.science_bilateral_support_bonus)*(
+                    independent_new.astype(jnp.float32))
+                reward=reward+foot_bonus
+                ep_return=ep_return+foot_bonus
+                academy={**academy,'transfer_new':independent_new,
+                         'reward':academy['reward']+foot_bonus}
             strict=arrival_quality(
                 jnp,state.academy_goal_xy,data.qpos[:,:2],heading,
                 metrics['gravity_z'],metrics['support'],
@@ -1821,7 +1843,9 @@ class EmuMJXEnv(TaskSampler):
             short=short_climb_quality(
                 jnp,state.academy_goal_xy,data.qpos[:,:2],heading,
                 metrics['gravity_z'],metrics['support'],metrics['bad_contact'],
-                goal_transfer_ready,state.academy_birth_lip_m)
+                goal_transfer_ready,state.academy_birth_lip_m,
+                distance_after_lip_m=(.30 if self.science_stair_school_v1
+                                      else .10))
             # At least one foot must STILL be physically supported
             # on the verified upper tile when we declare completion.
             short=(short & jnp.any(academy['goal_top_feet'],axis=1) &
@@ -1835,9 +1859,11 @@ class EmuMJXEnv(TaskSampler):
             # Success is a TRUE absorbing PPO terminal, not a timeout.
             # A separate sparse payment distinguishes partial foothold
             # shaping from the completed whole-foot transfer lesson.
+            finish_payment=(8.+self.science_followthrough_bonus
+                            if self.science_stair_school_v1 else 8.)
             bonus=(20.*self.science_step_goal_weight*
                    goal_new.astype(jnp.float32) +
-                   8.*finish_new.astype(jnp.float32))
+                   finish_payment*finish_new.astype(jnp.float32))
             reward=reward+bonus
             ep_return=ep_return+bonus
             done=done | goal_new | finish_new
@@ -1845,7 +1871,9 @@ class EmuMJXEnv(TaskSampler):
             goal_new=jnp.zeros_like(done)
             finish_new=jnp.zeros_like(done)
             finish_streak=state.academy_finish_streak
-        academy={**academy,'completed':goal_new,'finish_new':finish_new}
+        academy={**academy,'completed':goal_new,'finish_new':finish_new,
+                 'progress_new':(finish_new if self.science_stair_school_v1
+                                 else academy['progress_new'])}
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
