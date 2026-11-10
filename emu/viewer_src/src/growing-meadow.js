@@ -88,13 +88,14 @@ export function createGrowingMeadowScenery(THREE,scene,park){
     g.computeVertexNormals();
     return g;
   };
+  const mountainGroup=new THREE.Group();root.add(mountainGroup);
   mountainLayers.forEach((layer,k)=>{
     const mesh=new THREE.Mesh(mountainGeo(layer,k),
       new THREE.MeshBasicMaterial({color:layer.color,
         transparent:true,opacity:layer.opacity,
         fog:false,depthWrite:false,side:THREE.DoubleSide}));
     mesh.renderOrder=-900+k*5;
-    root.add(mesh);
+    mountainGroup.add(mesh);
   });
 
   const trunkGeo=new THREE.CylinderGeometry(.032,.065,1,6);
@@ -117,9 +118,9 @@ export function createGrowingMeadowScenery(THREE,scene,park){
 
   function createTree(tile){
     const location=meadowTreeForTile(tile,park.seed);
-    if(!location)return;
+    if(!location)return null;
     const ground=park.sampleHeight(location.x,location.y);
-    if(!Number.isFinite(ground))return;
+    if(!Number.isFinite(ground))return null;
     const group=new THREE.Group();
     group.position.set(location.x,location.y,ground);
     const trunk=new THREE.Mesh(trunkGeo,trunkMat);
@@ -134,18 +135,68 @@ export function createGrowingMeadowScenery(THREE,scene,park){
     group.add(trunk,foliage);
     group.userData.treeTile=tile.slot;
     root.add(group);
-    trees.set(tile.slot,group);
+    return group;
   }
 
+  const apronMaterial=new THREE.MeshBasicMaterial({
+    color:0x789c75,transparent:true,opacity:.65,depthWrite:false,
+    side:THREE.DoubleSide,fog:false,vertexColors:true});
+  let apron=null;
+  function drawFallingEdge(){
+    if(apron){root.remove(apron);apron.geometry.dispose();}
+    const minX=park.anchor[0],minY=park.anchor[1];
+    const maxX=minX+15,maxY=minY+15;
+    const pos=[],colors=[];
+    const push=(x,y,z,t)=>{
+      pos.push(x,y,z);
+      const pale=[.56,.66,.60],dark=[.18,.31,.28];
+      colors.push(...pale.map((v,k)=>v*(1-t)+dark[k]*t));
+    };
+    function quad(a,b,c,d){
+      for(const p of [a,b,c,a,c,d])push(...p);
+    }
+    // Only decorative terrain OUTSIDE the actual 225 collision tiles;
+    // the 2-m falling apron has no MuJoCo contacts or ToF support.
+    for(let k=0;k<15;k++){
+      for(const side of [0,1,2,3]){
+        const points=side===0?[[minX+k,minY],[minX+k+1,minY]]:
+          side===1?[[minX+k,maxY],[minX+k+1,maxY]]:
+          side===2?[[minX,minY+k],[minX,minY+k+1]]:
+                   [[maxX,minY+k],[maxX,minY+k+1]];
+        const [a,b]=points;
+        const height=p=>park.previewHeight(p[0]===maxX?p[0]-.0001:p[0],
+           p[1]===maxY?p[1]-.0001:p[1]);
+        const out=p=>side===0?[p[0],p[1]-2.5]:
+          side===1?[p[0],p[1]+2.5]:
+          side===2?[p[0]-2.5,p[1]]:[p[0]+2.5,p[1]];
+        const aa=out(a),bb=out(b);
+        quad([a[0],a[1],height(a),0],[b[0],b[1],height(b),0],
+             [bb[0],bb[1],height(b)-2.5,1],
+             [aa[0],aa[1],height(a)-2.5,1]);
+      }
+    }
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(pos,3));
+    g.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+    g.computeVertexNormals();
+    apron=new THREE.Mesh(g,apronMaterial);
+    apron.frustumCulled=false;
+    root.add(apron);
+  }
+
+  let lastRevision=-1;
   function sync(){
-    // No tree gets regenerated when a tile is revisited; reset hides the old
-    // decorative patches just as it hides the old physical terrain.
-    for(const [slot,mesh] of trees)
-      mesh.visible=Boolean(park.tiles[slot]?.active);
-    for(const tile of park.window())
-      if(!trees.has(tile.slot))createTree(tile);
-    // Rebuild a tiny points-only tuft set. The set is bounded by 225 tiles.
-    flowers.length=0;
+    if(lastRevision===park.revision)return;
+    lastRevision=park.revision;
+    // Same slot can represent new global coordinates. Dispose its old
+    // tree group instead of leaving static trees behind the robot.
+    for(const tile of park.window()){
+      const previous=trees.get(tile.slot),key=tile.i+','+tile.j;
+      if(previous?.key===key)continue;
+      if(previous?.group)root.remove(previous.group);
+      trees.set(tile.slot,{key,group:createTree(tile)});
+    }
+    const flowers=[];
     for(const tile of park.window())for(let k=0;k<2;k++){
       const x=tile.i+.18+.65*hash(tile.i+k+13,tile.j-31,park.seed);
       const y=tile.j+.16+.68*hash(tile.i-17,tile.j+k+41,park.seed);
@@ -156,6 +207,7 @@ export function createGrowingMeadowScenery(THREE,scene,park){
     const g=new THREE.BufferGeometry();
     g.setAttribute('position',new THREE.Float32BufferAttribute(flowers,3));
     flowerCloud.geometry=g;
+    drawFallingEdge();
   }
   sync();
 
@@ -164,11 +216,18 @@ export function createGrowingMeadowScenery(THREE,scene,park){
     update(cameraPosition){
       // Skybox follows only the camera: never changes terrain or sensors.
       sky.position.copy(cameraPosition);
+      mountainGroup.position.set(cameraPosition.x,cameraPosition.y,0);
     },
     dispose(){
       root.parent?.remove(root);
+      if(apron)apron.geometry.dispose();
+      apronMaterial.dispose();
+      for(const child of mountainGroup.children){
+        child.geometry.dispose();child.material.dispose();
+      }
+      sky.geometry.dispose();
       for(const child of root.children){
-        if(child.geometry&&child.geometry!==trunkGeo&&child.geometry!==crownGeo)
+        if(child.geometry&&child.geometry!==trunkGeo&&child.geometry!==crownGeo&&child!==sky)
           child.geometry.dispose();
         if(child.material&&child.material!==trunkMat&&!crowns.includes(child.material))
           child.material.dispose();
