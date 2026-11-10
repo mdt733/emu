@@ -10,7 +10,6 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, asdict
 import csv
-import hashlib
 import json
 from pathlib import Path
 import time
@@ -303,7 +302,9 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     save_csv(output/"matrix_curve.csv",curves)
     manifest=dict(
         schema="h40_true_prism_heterogeneous_matrix_v4",
-        actor_sha256=hashlib.sha256(policy.read_bytes()).hexdigest(),
+        policy_sha256=actor['artifact_sha256'],
+        actor_sha256=actor['source']['actor_sha256'],
+        robot_model_sha256=actor['robot_model_sha256'],
         actor_training_source=actor["source"],
         seed=seed,worlds=worlds,assigned_worlds=len(detail),
         horizon=horizon,mode=mode,levels=levels,
@@ -323,7 +324,9 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
         json.dumps(dict(manifest=manifest,curves=curves),indent=2)+"\n")
     stair_rows=[x for x in curves if x["kind"] in ("step_up","step_down","flat_control")]
     lines=["# H40 heterogeneous GPU physical capability matrix","",
-           f"Actor SHA256: `{manifest['actor_sha256']}`",
+           f"Actor weights SHA256: `{manifest['actor_sha256']}`",
+           f"Exported policy SHA256: `{manifest['policy_sha256']}`",
+           f"Verified robot XML SHA256: `{manifest['robot_model_sha256']}`",
            f"Hardware backend: {manifest['device']}; "
            f"worlds={worlds}, physical frames={horizon}, "
            f"one GPU rollout; wall={wall:.1f}s","",
