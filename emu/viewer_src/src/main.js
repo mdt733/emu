@@ -437,6 +437,7 @@ function updateWorldTabs(){
   navHud.hidden=carpet||!sim||!demoActive;
   document.body.dataset.world=carpet?'carpet':'field';
   $('carpetHudRow').hidden=!carpet;
+  $('carpetGrowthRow').hidden=!carpet;
   $('viewerExercise').textContent=carpet
     ?currentCarpetLesson().heading:'Field exploration';
 }
@@ -988,6 +989,9 @@ function updateTelemetry(now, dt) {
   const s = t.slope;
   $('slopeRead').textContent = !s.supported ? 'No terrain underfoot'
     : s.flat ? '0.0° · level' : `${s.degrees.toFixed(1)}°`;
+  $('carpetGrowth').textContent=sim.park?.physics==='growing-prism-field'
+    ? sim.park.count().toLocaleString()+' / '+sim.park.tiles.length.toLocaleString()
+    : '—';
   $('slopeArrow').hidden = !s.supported || s.flat;
   $('slopeArrow').style.transform = `rotate(${s.arrowDegrees.toFixed(1)}deg)`;
   $('leanRead').textContent = `${fmtSigned(deg(t.robotLean),1)}°`;
