@@ -670,15 +670,27 @@ export class EmuBrowserSim {
     if(!this.sensorLabSurface)return;
     for(const prism of sensorLabPrismVertices(this.park,{activeOnly:true})){
       if(this.carpetRenderedPrisms.has(prism.k))continue;
-      const points=[];
-      for(const face of LAB_PRISM_FACES)
-        for(const v of face)points.push(...prism.world[v]);
+      const points=[],uv=[],colors=[];
+      for(const [faceIndex,face] of LAB_PRISM_FACES.entries())
+        for(const v of face){
+          const p=prism.world[v];
+          points.push(...p);
+          // One grass-texture repeat per physical metre, seamless at tiles.
+          uv.push(p[0],p[1]);
+          // Prism top = lush Meadow grass; vertical cliff faces and bottom
+          // are darker exposed earth, not a decorative invisible platform.
+          const tint=faceIndex===0?[.96,1,.90]:
+            faceIndex===1?[.29,.26,.19]:[.49,.43,.30];
+          colors.push(...tint);
+        }
       const geom=new THREE.BufferGeometry();
       geom.setAttribute('position',new THREE.Float32BufferAttribute(points,3));
+      geom.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+      geom.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
       geom.computeVertexNormals();
       const mesh=new THREE.Mesh(geom,new THREE.MeshStandardMaterial({
-        color:0x659c59,roughness:.96,side:THREE.DoubleSide,
-        flatShading:true}));
+        map:this.grassTexture,color:0xffffff,vertexColors:true,
+        roughness:.98,side:THREE.DoubleSide,flatShading:true}));
       mesh.userData.robotPart=false;
       mesh.userData.sensorLabPrism=true;
       mesh.userData.tileSlot=prism.tile.slot;
