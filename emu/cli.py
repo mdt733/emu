@@ -109,6 +109,8 @@ def main(argv=None) -> int:
                    help='v5052 loosen forward-speed tracking during Academy step negotiation, 0..1')
     q.add_argument('--science-step-approach-m',type=float,default=0.,
                    help='v5052 respawn Academy robots 0.1..0.35m before next real 1m tile boundary; 0=original spawn')
+    q.add_argument('--science-stair-school-v1',action='store_true',
+                   help='opt-in physical first-lip teaching: pre-body foothold, uphill clearance and independent-foot transfer')
     q.add_argument('--science-step-finish-on-transfer',action='store_true',
                    help='v5054 Academy-only: end as success after both feet top + safe 10cm ascent, respawn for next lip')
     q.add_argument('--science-step-promotion-mm',type=float,default=0.,
