@@ -1,24 +1,26 @@
 # EMU — retained research findings
 
-**Current source:** [H40 handover](../handover.md). This is a concise **evidence ledger**, not a second set of runbooks. The full 2026 experiments, source, commands, reports and discarded proposals remain in [the pre-cleanup Git snapshot](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs) and their original PRs. Each result below identifies **its own** physics, source, seeds and exam fixtures. Historical v50xx results must **not** be treated as H40's measured capability; the H40 preliminary CUDA smoke is identified explicitly.
+**Current source:** [H40 handover](../handover.md). This is a concise **evidence ledger**, not a second set of runbooks. The full 2026 experiments, source, commands, reports and discarded proposals remain in [the pre-cleanup Git snapshot](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs) and their original PRs. Each result below identifies **its own** physics, source, seeds and exam fixtures. Historical v50xx results must **not** be treated as H40's measured capability; the matched frozen-H40 CUDA study below is the current measured stair baseline.
 
-## H40 first measured CUDA smoke — 11 November 2026 (not final capability baseline)
+## H40 2,000 same-world frozen-actor signed stair vs flat — 11 November 2026
 
-A **read-only** frozen 120M H40 actor from `showcase/champion.emupolicy` ran [the corrected H40 physical matrix from PR #65](https://github.com/mdt733/emu/pull/65) on **64 GPU worlds** (40 assigned, 24 padding; 20 signed 2.5–50 mm lip heights in each direction, **one attempt per height**, seed 1701, 350 frames, 46.9 seconds including compile/setup). Original actor source `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`; policy SHA-256 `178c201af661d3172d701a7d1d8a7711f9b2106e1f7058bc4902aa9c64a37c7a`; actor weights `d4e35f814baef5e46afa6e96e942c86ab100ef25a4ae1913c76bbdb22615e673`. Exact signed 1 m seam and zero-grade physical fixture values matched the requests in all 40 reported curves. No gradient/optimizer updates.
+**Read-only measured CUDA evidence; no PPO updates.** Frozen H40 120,061,952-step actor (training source `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`, export SHA256 `178c201af661d3172d701a7d1d8a7711f9b2106e1f7058bc4902aa9c64a37c7a`, weights SHA256 `d4e35f814baef5e46afa6e96e942c86ab100ef25a4ae1913c76bbdb22615e673`, robot XML SHA256 `b513bb3326a73d9ca661f761f1352b22c36d0f1b6d51be72c2eca15d8712ef5b`). Exact physical 1 m signed-lip prism seams and zero-lip control, 2048 MJX GPU worlds, **2000 same-world indexed pairs**, 20 height levels each direction from ±2.5 to ±50mm, **50 repeated trials per sign/level**, seed 1701, 350 physical frames. [Paired comparison PR #69](https://github.com/mdt733/emu/pull/69) rejects mismatched actor, model, commands, seed, batch, horizon and examiner-source fingerprint. Full user-supplied aggregate `matrix_compare.json`, `matrix_paired_curves.csv` and analysis are retained in [master issue #62](https://github.com/mdt733/emu/issues/62); `matrix_pairs.csv` was not attached in this chat so only supplied aggregate pair counts have been independently rechecked.
 
-| Physical first-life event | Step DOWN (20 trials) | Step UP (20 trials) |
+| First-life outcome (each signed direction: 1000 stair worlds, 1000 matched flat worlds) | UP stair / flat | DOWN stair / flat |
 | --- | ---: | ---: |
-| Leading destination foot support | 20 | 11 |
-| Independently five-frame supported both destination feet | 13 | 5 |
-| Five-frame upright crossing after both feet | 13 | 5 |
-| Five-frame **controlled in-lane, aligned traversal** | **10** | **0** |
-| Every strict arrival gate at least once (not sustained) | 11 | 1 |
-| Five-frame **strict stable destination arrival** | **0** | **0** |
-| Survived first life | 19 | 19 |
+| First foot supported by destination prism | **587 / 1000** | **1000 / 1000** |
+| Each foot independently supported for five frames | **327 / 574** | **454 / 581** |
+| Upright downstream crossing, five frames | **322 / 574** | **453 / 581** |
+| **Controlled lane+heading traversal, five frames** | **182 / 364 (−18.2 pp)** | **285 / 381 (−9.6 pp)** |
+| Strict stable parked arrival (separate from walking) | **8 / 17** | **8 / 12** |
 
-A single **−40 mm** descent passed controlled traversal. Uphill **+7.5, +10, +15, +25, +27.5 mm** achieved separate top support of each foot, but no uphill trial passed full controlled traversal; ≥+30 mm did not attain first-foot target support *in this one-attempt screen*. The nonmonotonic downhill successes mean these results cannot establish a repeatable step-height threshold. Strict arrival also failed on many downhill trials that passed ordinary continuous traversal; do **not** conflate parking with walking. Full per-height probability, matched flat control, other commands, slopes, recovery and energetic efficiency remain **unmeasured**.
+**UP: sharp new physical failure near 30–32.5mm.** At **+2.5–27.5mm**, first-foot contact **549/550**, independent both-foot support **310/550** versus paired flat **323/550**, controlled traversal **179/550 (32.5%)** versus flat **192/550 (34.9%)** (**−2.4 percentage points**). This is approximately flat-equivalent under the examiner's restrictive continuation/foot-contact gates; it does not certify perfect physical stepping. At **+30mm**, first-foot supported **36/50**, fully controlled crossing **3/50** versus flat **23/50** (speed MAE ~0.117m/s worse). At **+32.5mm**, first foot **2/50**, controlled crossing **0/50**. At **+35–50mm**, first foot **0/350** and controlled crossing **0/350**, versus **132/350** flat controlled crossings. Aggregate **+30–50mm** traversal is **3/450** versus matched flat **172/450** (**−37.6 pp**). A repeatable cliff in *destination-foot support* is observed but no specific mechanical, sensory or learned policy cause is yet proven.
 
-**Next exam:** two independent, same-seed **2048-world** runs: `stairs` (2000 active trials, 50 per height × direction) versus `flat --trials-per-level 2000` (same world indexes and reset keys), both 350 frames and seed 1701. Original file-level results and run commands are retained with [master issue #62](https://github.com/mdt733/emu/issues/62); the full per-world CSV was not attached with the smoke, so no precise per-world failure trace is available from that upload.
+**DOWN: different, gradual loss.** First foot supported on lower destination **1000/1000** across 2.5–50mm descents. Controlled traversal DOWN **2.5–27.5mm: 171/550** vs paired flat **207/550 (−6.5 pp)**; DOWN **30–50mm: 114/450** vs paired flat **174/450 (−13.3 pp)**. Trailing-foot support and lane stability lose ground with increasing drop rather than hitting the same first-foot cliff.
+
+**Interpretation:** The original flat exam itself only passes controlled continuation **745/2000 (37.25%)** despite 100% survival and goal-line crossing. Strict stable parking passes **29/2000 (1.45%)**; don't train toward parking as if it were ongoing gait. The main incremental tall-step issue is **upper foothold acquisition**; competing causes for targeted investigation: ToF lookahead and edge timing, ballistic clearance/phase timing, joint reach, C018 rated torque, passive spring, collision and learned refusal. Next **source-pinned frozen-policy threshold autopsy** should compare +27.5/+30/+32.5/+35mm first-contact/foot-clearance/ToF/actuator traces before choosing *one* PPO experiment. Broader commands/slope/recovery/shaft and real-hardware uncertainty remain open. This evidence covers **one policy training seed and one evaluation seed**, not a sim2real or cross-policy replication.
+
+An earlier **64-world CUDA smoke** (one trial per height/sign) validated execution and exact signed geometry but was too sparse to characterize capability; it is superseded by these repeated matched trials. Raw trial files remain at the owner's local `~/emu-data/exams/` directories; don't rerun/overwrite completed outputs.
 
 ## Findings that changed the design
 
@@ -35,7 +37,7 @@ A single **−40 mm** descent passed controlled traversal. Uphill **+7.5, +10, +
 
 The owner-approved H40 mainline is the **120,061,952-step**, seed-735, 40 cm / six chassis-mounted C018 / rated-torque model with a 45°×45°, 70°-down 4×4 sensor and four rolling 1 m tiles. Frozen training SHA: `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`. Its exact trained `showcase/champion.emupolicy` and checkpoint SHA live in the [handover](../handover.md) and [release readiness](RELEASE_READINESS.md).
 
-The owner reports pleasing viewer walking and slopes approaching 15°; these are **qualitative**. Robust signed up/down stairs, sustained post-step heading, matched MJX physical exams, remote knee transmission losses, motor thermal behaviour, battery voltage sag and actual mass remain **unproven**. Retired experiments cannot be ranked as if they shared the same robot, sensor, reward, evaluation and physics.
+The owner reports pleasing viewer walking and slopes approaching 15°; these are **qualitative**. A **matched 2000-pair signed MJX step-vs-flat physical exam is now measured**, with nearly flat-equivalent controlled continuation up to +27.5mm and a sharp first-upper-foothold loss at +30–32.5mm; see results above. Repeatable high-step ascent, full command/slope/recovery/effort envelope, actual hardware actuation, remote knee transmission losses, motor thermal behaviour, battery sag and mass **remain unproven**. Retired experiments cannot be ranked as if they shared the same robot, sensor, reward, evaluation and physics.
 
 ## Recovery instead of permanent experiment runbooks
 
