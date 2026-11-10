@@ -2757,7 +2757,9 @@ class EmuMJXEnv(TaskSampler):
             jnp,focus_id,specialist_active,task[:,T.athletic_rehearsal],
             params[P.slope_max_deg],up,down,academy,
             params[P.slope_exposure],params[P.terrain_exposure],seeds)
-        xprof,yprof=carpet_make_profiles(jnp,seeds,up,down)
+        xprof,yprof=carpet_make_profiles(
+            jnp,seeds,up,down,
+            school_mask=academy if self.science_stair_school_v1 else None)
         if self.exam_fixture_steps is not None:
             # No sampled ±X sign, jitter or extra lip. Exact 1m seam,
             # optional continuous signed grade, unchanged real colliders.
