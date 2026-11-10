@@ -195,7 +195,7 @@
         <summary>Sensor inspector <span class="subtle">optional 4×4 depth overlay</span></summary>
     <aside id="depthPanel" class="depth-panel glass" aria-label="Front depth sensor laboratory">
       <div class="depth-head"><b>4×4 depth scan</b><label><input id="depthOn" type="checkbox" /> On</label></div>
-      <div class="depth-sub">45°×45° VL53L8CX optical preview, distinct from the 60° training-source rays. Sensor lab runs the 40cm body in browser CPU MuJoCo with no trained gait.</div>
+      <div class="depth-sub">45°×45° H40 VL53L8CX diagnostic preview (green); the trained actor's pinned 45°×45° rays are shown separately (magenta). The calibration-only sensor lab has no trained gait.</div>
       <div class="depth-foot">Measures the actual Infinite Meadow physical ground; it does not change the trained actor.</div>
       <label class="depth-row">Downward tilt <output id="depthTiltOut">70°</output>
         <input id="depthTilt" type="range" min="0" max="90" value="70" step="5"/></label>
