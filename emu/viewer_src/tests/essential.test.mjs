@@ -14,7 +14,7 @@ import {trainingLimits} from '../src/training-carpet.js';
 const limits={vx_min:-.53,vx_max:1.04,vy_abs:.22,yaw_abs:1.5,pitch_abs_rad:.08};
 const measured=(step,more={})=>({source:'training',seed:735,step,
   foundationSteps:20_000_000,academyIntroSteps:60_000_000,
-  academyStream:true,slopeDeg:12,transitionDeg:3,stepUpM:.03,stepDownM:.04,...more});
+  academyStream:true,hillPeakDeg:12,transitionDeg:3,stepUpM:.03,stepDownM:.04,...more});
 const data=step=>trainingLimits({training_step:step,
   latest_metrics:{step,frontier_vx_hi:'.28',frontier_vx_lo:'-.07',
     frontier_vy:'.12',frontier_yaw:'.7',frontier_push_n:'.65',
@@ -154,7 +154,7 @@ test('manual axes and heading hold obey the trained command envelope',()=>{
 
 
 test('viewer Carpet uses 225 real heightfields instead of changing compiled collision meshes',()=>{
-  const park=createSensorLabCarpet({seed:735,slopeDeg:0,stepUpM:0,stepDownM:0});
+  const park=createSensorLabCarpet({seed:735,hillPeakDeg:0,stepUpM:0,stepDownM:0});
   assert.equal(park.tiles.length,225);
   assert.equal(park.count(),225);
   assert.equal(park.physics,'streaming-heightfield');
@@ -173,11 +173,12 @@ test('viewer Carpet uses 225 real heightfields instead of changing compiled coll
 });
 
 test('infinite world: deterministic north difficulty and unlimited east/west revisits',()=>{
-  const config={seed:735,slopeDeg:15,stepUpM:.04,stepDownM:.03};
+  const config={seed:735,hillPeakDeg:15,stepUpM:.04,stepDownM:.03};
   const easy=carpetLocalLimits(-30,config),base=carpetLocalLimits(0,config),
         hard=carpetLocalLimits(60,config);
-  assert.equal(easy.difficulty,0);
-  assert.equal(hard.difficulty,1);
+  assert.ok(easy.difficulty<1);
+  assert.equal(base.difficulty,1,'the slider means the actual starting latitude');
+  assert.ok(hard.difficulty>1);
   assert.ok(easy.slopeDeg<base.slopeDeg&&base.slopeDeg<hard.slopeDeg);
   assert.ok(easy.stepUpM<base.stepUpM&&base.stepUpM<hard.stepUpM);
   const meanGrade=y=>{
@@ -214,12 +215,54 @@ test('infinite world: deterministic north difficulty and unlimited east/west rev
     'unloaded distant terrain is void to physical sensors');
   assert.ok(Number.isFinite(park.previewHeight(10.5,10.5)),
     'visual fallaway may extrapolate but never supplies ToF ground');
-  assert.equal(carpetLatitudeDifficulty(-100),0);
-  assert.equal(carpetLatitudeDifficulty(1000),1);
+  assert.equal(carpetLatitudeDifficulty(-100),.08);
+  assert.equal(carpetLatitudeDifficulty(1000),1.8);
+});
+
+test('10-degree Meadow produces organic terrain with regular near-10-degree grades',()=>{
+  const cfg={seed:735,hillPeakDeg:10,hillScaleM:9.5,
+    stepUpM:0,stepDownM:0,stepFrequency:0,northGainPerM:0};
+  const degrees=[],headings=[];
+  // Sample actual *physical tile triangle* grades at +Y=0 latitude
+  // across multiple seeds, x regions, and gently varying nearby y.
+  for(let y=-7;y<=7;y++)for(let x=-40;x<=40;x++){
+    const [a,b,c,d]=carpetTileCorners(x,y,cfg);
+    const gx=b-a,gy=c-a;
+    const angle=Math.atan(Math.hypot(gx,gy))*180/Math.PI;
+    degrees.push(angle);
+    if(angle>3)headings.push(Math.atan2(gy,gx));
+    assert.ok(Math.abs((b+c-a)-d)<1e-8,
+      'the two top triangles must agree at all four terrain vertices');
+    const right=carpetTileCorners(x+1,y,cfg);
+    assert.ok(Math.abs(b-right[0])<1e-9 &&
+      Math.abs(d-right[2])<1e-9,'adjacent natural hills share exact edges');
+  }
+  degrees.sort((a,b)=>a-b);
+  const pct=q=>degrees[Math.floor(q*(degrees.length-1))];
+  assert.ok(pct(.9)>=8.5&&pct(.9)<=12,
+    '10° means roughly 90th-percentile hill slope around 10°, got '+pct(.9));
+  assert.ok(pct(.5)>=4&&pct(.5)<9,
+    'natural hills must alternate gentle ground and challenges');
+  assert.ok(pct(.25)<pct(.9)*.65,'not a uniform 10-degree plane');
+  assert.ok(new Set(headings.map(a=>Math.round(a*3))).size>=8,
+    'hills must slope in changing directions, not one constant grade');
+  const flat={...cfg,hillPeakDeg:0};
+  for(let i=-5;i<=5;i++)assert.deepEqual(
+    carpetTileCorners(i,0,flat),[0,0,0,0],
+    'zero hills and zero steps produce truly flat terrain');
+  const north={...cfg,northGainPerM:.022};
+  let down=0,up=0;
+  for(let x=-20;x<=20;x++){
+    const [a,b,c]=carpetTileCorners(x,-20,north),
+      [d,e,f]=carpetTileCorners(x,20,north);
+    down+=Math.hypot(b-a,c-a);
+    up+=Math.hypot(e-d,f-d);
+  }
+  assert.ok(up>down*2,'north must materially increase actual hill angles');
 });
 
 test('streaming Carpet refuses to remove any tile supporting an H40 foot',()=>{
-  const park=createSensorLabCarpet({seed:735,slopeDeg:10,stepUpM:.025,stepDownM:.03});
+  const park=createSensorLabCarpet({seed:735,hillPeakDeg:10,stepUpM:.025,stepDownM:.03});
   const tile=park.at(-7,0),xy=[tile.i,tile.j],corners=tile.corners.slice();
   const blocked=park.growAround(1.5,.5,[
     {x:-6.52,y:.50,radius:.018},{x:1.54,y:.57,radius:.018}]);
@@ -241,7 +284,7 @@ test('streaming Carpet refuses to remove any tile supporting an H40 foot',()=>{
 });
 
 test('streaming ground is still visible to the frozen H40 4x4 ToF and optical flow',()=>{
-  const carpet=createSensorLabCarpet({slopeDeg:0,stepUpM:0,stepDownM:0});
+  const carpet=createSensorLabCarpet({hillPeakDeg:0,stepUpM:0,stepDownM:0});
   const surface=terrainSensorHeightFallback('carpet',carpet);
   const meshModel={ngeom:1,geom_type:new Int32Array([7]),
     geom_bodyid:new Int32Array([0]),geom_size:new Float64Array(3)};
@@ -276,7 +319,7 @@ test('real MuJoCo browser WASM reuses an hfield collider without resetting H40',
   const mj=await loadMujoco();
   const actor=JSON.parse(readFileSync(
     new URL('../../../showcase/champion.emupolicy',import.meta.url),'utf8'));
-  const park=createSensorLabCarpet({slopeDeg:0,stepUpM:0,stepDownM:0});
+  const park=createSensorLabCarpet({hillPeakDeg:0,stepUpM:0,stepDownM:0});
   const model=mj.MjModel.from_xml_string(
     withTerrain(actor.robot_xml,'carpet',{park}));
   const data=new mj.MjData(model);
@@ -307,7 +350,7 @@ test('real MuJoCo browser WASM reuses an hfield collider without resetting H40',
 },{timeout:120000});
 
 test('streaming Carpet places neutral H40 ball feet above actual terrain',()=>{
-  const p=createSensorLabCarpet({slopeDeg:12,stepUpM:.02,stepDownM:0});
+  const p=createSensorLabCarpet({hillPeakDeg:12,stepUpM:.02,stepDownM:0});
   const xyz=new Float64Array(9),size=new Float64Array(9);
   xyz.set([.5,.42,.018],3);xyz.set([.48,.58,.018],6);
   size[3]=size[6]=.018;
