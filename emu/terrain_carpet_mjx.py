@@ -172,7 +172,7 @@ def role_envelope(xp, focus, specialist, athletic, slope_deg, step_up_m,
     down=xp.where(step_on,xp.maximum(0.,step_down_m)*step_factor,0.)
     return slope,up,down
 
-def make_profiles(xp,seeds,up,down):
+def make_profiles(xp,seeds,up,down,school_mask=None):
     """Exact per-world directional step limits on mostly independent strips.
 
     The +/-X direction independently draws UP/DOWN under an early-to-late
@@ -201,6 +201,16 @@ def make_profiles(xp,seeds,up,down):
     amplitude=xp.where(initial_seam,.98*(.90+.10*ax),
                        .90*(.75+.25*ax)*challenge)
     signed_x=xp.where(hx<.5,up[:,None],-down[:,None])*amplitude
+    if school_mask is not None:
+        # School-only first seam: 30% easier (~0.55-0.65 frontier),
+        # 55% near the earned frontier, 15% stretch (above frontier).
+        # Repeated easy wins are essential after height promotions; the
+        # previous nursery offered almost exclusively near-frontier lips.
+        # One salted *world* draw applies to both possible first-seam indices.
+        u=hash_float(xp,0,0,seeds,191)
+        scale=xp.where(u<.30,.62,xp.where(u<.85,1.,1.13))
+        signed_x=xp.where(initial_seam & school_mask[:,None],
+                          signed_x*scale[:,None],signed_x)
     hy=hash_float(xp,0,idx,seed,103)
     ay=hash_float(xp,0,idx,seed,104)
     # v5043 experimental carpet: a newly generated row in Y is also a
