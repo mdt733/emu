@@ -364,8 +364,6 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
            "Strict stable arrival is a different task from continuing gait.","",
            "| Event | " + " | ".join(stage_counts) + " |",
            "|---|" + "|---:|"*len(stage_counts)]
-           "| Height | Trials | Lead top | Both feet >=5 | Cross after feet | Traversed 5f | Strict stable |",
-           "|---:|---:|---:|---:|---:|---:|---:|"]
     for gate,label in (
         ("leading_top","First destination foot"),
         ("each_foot_top_five","Each foot supported for 5 frames"),
