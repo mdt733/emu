@@ -10,11 +10,31 @@ from __future__ import annotations
 import argparse
 from dataclasses import dataclass, asdict
 import csv
+import hashlib
 import json
 from pathlib import Path
 import time
 
 import numpy as np
+
+# Fingerprint the actual frozen examiner implementation, not only its actor.
+# Two runs with matching policy hashes can still differ in evaluation physics.
+EXAM_SOURCE_PATHS=(
+    "scripts/v5053_matrix_exam.py","emu/environment.py","emu/ppo.py",
+    "emu/terrain_carpet_mjx.py","emu/carpet_prism_mjx.py",
+    "emu/contracts.py","emu/tof_geometry.py","emu/training_config.py",
+    "emu/rewards.py","emu/robot.xml",
+)
+
+
+def exam_source_fingerprint():
+    root=Path(__file__).resolve().parent.parent
+    h=hashlib.sha256()
+    for rel in EXAM_SOURCE_PATHS:
+        h.update(rel.encode("utf-8")+b"\0")
+        h.update((root/rel).read_bytes())
+    return h.hexdigest()
+
 
 KINDS=("stand","slow","fast","lateral","yaw","combined",
        "slope_up","slope_down","step_up","step_down")
@@ -302,6 +322,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     save_csv(output/"matrix_curve.csv",curves)
     manifest=dict(
         schema="h40_true_prism_heterogeneous_matrix_v4",
+        exam_source_sha256=exam_source_fingerprint(),
         policy_sha256=actor['artifact_sha256'],
         actor_sha256=actor['source']['actor_sha256'],
         robot_model_sha256=actor['robot_model_sha256'],
@@ -416,11 +437,13 @@ def compare_paired_exams(stair_summary,stair_rows,flat_summary,flat_rows):
     if a.get("mode")!="stairs" or b.get("mode")!="flat":
         raise ValueError("Need stairs and flat modes for matched comparison")
     for key in ("schema","policy_sha256","actor_sha256","robot_model_sha256",
-                "actor_training_source","seed","worlds","horizon","device",
+                "actor_training_source","exam_source_sha256",
+                "seed","worlds","horizon","device",
                 "collision","first_life_only","zero_optimizer_updates"):
         if a.get(key)!=b.get(key):
             raise ValueError(f"Unmatched frozen exam: {key}")
-    if (a["schema"]!="h40_true_prism_heterogeneous_matrix_v4" or
+    if (not a.get("exam_source_sha256") or
+            a["schema"]!="h40_true_prism_heterogeneous_matrix_v4" or
             not a["first_life_only"] or not a["zero_optimizer_updates"]):
         raise ValueError("Unsupported or trainable exam")
     flat={int(r["world"]):r for r in flat_rows}
