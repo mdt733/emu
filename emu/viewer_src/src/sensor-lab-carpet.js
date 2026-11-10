@@ -27,9 +27,10 @@ function noise(x,y,seed){
 // inspector, these settings directly control terrain at the START latitude.
 // North (+Y) scales them smoothly; east/west has new features at equal grade.
 export const MEADOW_DEFAULTS=Object.freeze({
-  seed:735,hillPeakDeg:10,hillScaleM:9.5,
-  stepUpM:.02,stepDownM:.02,stepFrequency:.28,
-  northGainPerM:.022
+  // Start on a walkable rolling meadow; users can choose Rugged 10°.
+  seed:735,hillPeakDeg:6,hillScaleM:9.5,
+  stepUpM:.007,stepDownM:.007,stepFrequency:.14,
+  northGainPerM:.02
 });
 export function normalizedMeadowSettings(changes={}){
   const c={...MEADOW_DEFAULTS,...changes};
@@ -37,12 +38,12 @@ export function normalizedMeadowSettings(changes={}){
     clamp(Number.isFinite(Number(v))?Number(v):fallback,lo,hi);
   return {
     seed:Math.floor(value(c.seed,735,0,4294967295)),
-    hillPeakDeg:value(c.hillPeakDeg,10,0,20),
+    hillPeakDeg:value(c.hillPeakDeg,6,0,20),
     hillScaleM:value(c.hillScaleM,9.5,3,18),
-    stepUpM:value(c.stepUpM,.02,0,.1),
-    stepDownM:value(c.stepDownM,.02,0,.1),
-    stepFrequency:value(c.stepFrequency,.28,0,.75),
-    northGainPerM:value(c.northGainPerM,.022,0,.06)
+    stepUpM:value(c.stepUpM,.007,0,.1),
+    stepDownM:value(c.stepDownM,.007,0,.1),
+    stepFrequency:value(c.stepFrequency,.14,0,.75),
+    northGainPerM:value(c.northGainPerM,.02,0,.06)
   };
 }
 export function carpetLatitudeDifficulty(y,config=MEADOW_DEFAULTS){
