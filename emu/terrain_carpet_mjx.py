@@ -208,7 +208,10 @@ def make_profiles(xp,seeds,up,down,school_mask=None):
         # previous nursery offered almost exclusively near-frontier lips.
         # One salted *world* draw applies to both possible first-seam indices.
         u=hash_float(xp,0,0,seeds,191)
-        scale=xp.where(u<.30,.62,xp.where(u<.85,1.,1.13))
+        # Match the pre-school physical profile dtype. NumPy otherwise
+        # promotes an all-False masked branch to float64 and subtly changes
+        # the cumulative terrain heights even outside Academy worlds.
+        scale=xp.where(u<.30,.62,xp.where(u<.85,1.,1.13)).astype(signed_x.dtype)
         signed_x=xp.where(initial_seam & school_mask[:,None],
                           signed_x*scale[:,None],signed_x)
     hy=hash_float(xp,0,idx,seed,103)
