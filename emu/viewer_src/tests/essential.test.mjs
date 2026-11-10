@@ -161,6 +161,8 @@ test('viewer Carpet uses 225 real heightfields instead of changing compiled coll
   assert.equal(park.sampleHeight(.5,.5),0);
   const xml=streamingCarpetXml(park);
   assert.equal((xml.assets.match(/<hfield /g)||[]).length,225);
+  assert.doesNotMatch(xml.assets,/elevation=/,
+    'nonzero XML elevations are re-normalized by MuJoCo compiler, changing real slopes');
   assert.equal((xml.bodies.match(/type="hfield"/g)||[]).length,225);
   assert.equal((xml.bodies.match(/mocap="true"/g)||[]).length,225);
   const base='<mujoco><asset></asset><worldbody><geom name="floor" type="plane" size="5 5 .05"/></worldbody></mujoco>';
@@ -331,6 +333,19 @@ test('real MuJoCo browser WASM reuses an hfield collider without resetting H40',
     assert.equal(Number(model.nhfield),225);
     assert.equal(Number(model.nmocap),225);
     assert.ok(model.hfield_data.length>=900);
+    assert.ok(model.hfield_data.every(v=>v===0),
+      'source XML must compile zero-filled hfields for exact metric runtime writes');
+    for(const tile of park.tiles){
+      const off=Number(model.hfield_adr[tile.slot]);
+      const p=carpetHeightfieldPatch(tile);
+      for(let i=0;i<4;i++)model.hfield_data[off+i]=p[i];
+      const body=mj.mj_name2id(model,mj.mjtObj.mjOBJ_BODY.value,
+        'sensor_lab_tile_'+tile.slot);
+      const mid=Number(model.body_mocapid[body]);
+      data.mocap_pos[3*mid]=tile.x;
+      data.mocap_pos[3*mid+1]=tile.y;
+      data.mocap_pos[3*mid+2]=tile.base;
+    }
     data.qpos[0]=data.qpos[1]=.5;
     data.qpos[2]-=.004;
     mj.mj_forward(model,data);
