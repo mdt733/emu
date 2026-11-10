@@ -483,10 +483,16 @@ export class EmuBrowserSim {
       this.shoveArrow.visible=false;return;
     }
     if(v.stepsLeft===0){
+      // North's resilience gradient only affects OPTIONAL automatic pushes.
+      // Never switch shoves on behind the operator's back, and preserve the
+      // manual shove button as an explicit fixed-strength diagnostic.
+      const north=this.park?.physics==='streaming-heightfield'
+        ?this.park.difficultyAt(Number(this.data.qpos[1])).resilience:1;
+      const automatic=v.enabled&&!v.manualPending;
       const push=sampleShove({
-        intensity:v.enabled?v.intensity:0,
+        intensity:v.enabled?v.intensity*(.05+.95*north):0,
         mode:v.mode,
-        maxForceN:v.forceLimitN,
+        maxForceN:v.forceLimitN*(automatic?.12+.88*north:1),
         manual:v.manualPending
       });
       v.manualPending=false;
