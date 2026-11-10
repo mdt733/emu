@@ -85,7 +85,7 @@ export function createGrowingMeadowScenery(THREE,scene,park){
   sky.name='Original Meadow panorama with procedural offline fallback';
   // Download the exact panorama already committed in the user's Meadow repo.
   // CORS on raw.githubusercontent.com permits use as a WebGL texture.
-  const originalSkyUrl='https://raw.githubusercontent.com/mdt733/meadow/main/skybox.png';
+  const originalSkyUrl='https://raw.githubusercontent.com/mdt733/meadow/6a56516386883c820a8b5ae283101c7dd636728f/skybox.png';
   new THREE.TextureLoader().load(originalSkyUrl,texture=>{
     if(skyDisposed){texture.dispose();return;}
     texture.flipY=false;
