@@ -637,6 +637,12 @@ export class EmuBrowserSim {
     this.mjvScene = new this.mujoco.MjvScene(this.model, this.maxGeoms);
     this.resolveIds();
     if(this.park?.physics==='streaming-heightfield'){
+      // XML's compiler normalizes supplied elevation values; it must start
+      // with zero-filled hfields. Populate the actual metre-scale samples
+      // directly in the compiled model BEFORE first contact or inference.
+      this.applyCarpetTilePhysics(this.park.tiles);
+    }
+    if(this.park?.physics==='streaming-heightfield'){
       // Real CPU collision hfields and render triangles share the SAME four
       // corner samples. Outer 2.5m scenery is deliberately visual-only.
       this.makeCarpetTileOverlay();
