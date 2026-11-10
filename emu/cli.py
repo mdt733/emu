@@ -96,11 +96,11 @@ def main(argv=None) -> int:
     q.add_argument('--science-supported-cross-bonus',type=float,default=0.,
                    help='additional one-time true supported prism-lip crossing payment')
     q.add_argument('--science-foothold-bonus',type=float,default=0.,
-                   help='additional first real upper foothold payment')
+                   help='additional first actual signed destination-top foothold payment')
     q.add_argument('--science-bilateral-support-bonus',type=float,default=0.,
-                   help='additional verified 5-frame two-foot upper-tile support payment')
+                   help='legacy double-stance bonus; Stair School v1 pays independent 5-frame support per foot')
     q.add_argument('--science-followthrough-bonus',type=float,default=0.,
-                   help='one-time reward for 50cm after bilateral lip support with heading bound')
+                   help='legacy 50cm continuation bonus; Stair School v1 pays on verified 30cm finish')
     q.add_argument('--science-sensor-teacher-bonus',type=float,default=0.,
                    help='privileged sensor-visible foothold teaching bonus; actor input unchanged')
     q.add_argument('--science-step-goal-weight',type=float,default=0.,
@@ -108,11 +108,11 @@ def main(argv=None) -> int:
     q.add_argument('--science-step-velocity-relief',type=float,default=0.,
                    help='v5052 loosen forward-speed tracking during Academy step negotiation, 0..1')
     q.add_argument('--science-step-approach-m',type=float,default=0.,
-                   help='v5052 respawn Academy robots 0.1..0.35m before next real 1m tile boundary; 0=original spawn')
+                   help='Academy birth 0.15..0.35m before real 1m seam; 0 keeps original birth')
     q.add_argument('--science-stair-school-v1',action='store_true',
                    help='opt-in physical first-lip teaching: pre-body foothold, uphill clearance and independent-foot transfer')
     q.add_argument('--science-step-finish-on-transfer',action='store_true',
-                   help='v5054 Academy-only: end as success after both feet top + safe 10cm ascent, respawn for next lip')
+                   help='successfully end Academy after genuine two-foot support + safe 10cm continuation (Stair School v1: 30cm)')
     q.add_argument('--science-step-promotion-mm',type=float,default=0.,
                    help='v5047 frontier A/B: fixed step promotion mm, 0 uses mature +18% rule')
     q.add_argument('--science-step-retreat-mm',type=float,default=0.,
