@@ -88,7 +88,28 @@
           <small>Changing difficulty rebuilds the browser physics and resets the robot. Training weights are unchanged; these are not held-out MJX exams.</small>
         </div>
         </section>
-        <section id="carpetPanel" class="carpet-panel" hidden aria-label="Growing Meadow Carpet settings">
+        <section id="carpetPanel" class="carpet-panel" hidden aria-label="Infinite Meadow settings">
+          <div id="meadowDifficultyPanel" class="tuning-group" aria-label="Meadow terrain difficulty">
+            <div class="tuning-heading"><b>Meadow difficulty</b><small>One physical world · north harder, south easier</small></div>
+            <label class="tuning-row">Natural hill peaks here <output id="meadowHillOut">10°</output>
+              <input id="meadowHill" type="range" min="0" max="20" value="10" step=".5"></label>
+            <label class="tuning-row">Hill size <output id="meadowSizeOut">9.5 m</output>
+              <input id="meadowSize" type="range" min="3" max="18" value="9.5" step=".5"></label>
+            <label class="tuning-row">Maximum step up <output id="meadowUpOut">2 cm</output>
+              <input id="meadowUp" type="range" min="0" max="8" value="2" step=".25"></label>
+            <label class="tuning-row">Maximum step down <output id="meadowDownOut">2 cm</output>
+              <input id="meadowDown" type="range" min="0" max="8" value="2" step=".25"></label>
+            <label class="tuning-row">Steps / tile <output id="meadowStepsOut">28%</output>
+              <input id="meadowSteps" type="range" min="0" max="75" value="28" step="1"></label>
+            <label class="tuning-row">North difficulty gain <output id="meadowNorthOut">2.2% / m</output>
+              <input id="meadowNorth" type="range" min="0" max="6" value="2.2" step=".1"></label>
+            <p class="subtle" id="meadowDifficultyInfo">10° means varied hills that regularly approach 10° here, not a constant slope. North makes them harder; east and west vary the land at the same level.</p>
+            <button id="meadowReset" type="button">Reset Meadow difficulty</button>
+            <small>Changing physical terrain restarts the viewer robot, not the trained actor or training run.</small>
+          </div>
+          <details class="inspector-details" id="carpetTrainingInspector">
+            <summary>Training specialists &amp; historical frontier controls</summary>
+            <p class="subtle">This inspector configures exercises and shows training frontiers. The Meadow difficulty controls above are the only terrain authority.</p>
           <label class="specialty-picker"><b>Training specialist</b>
             <select id="carpetRole" aria-label="Representative specialist to inspect">
         <option value="auto" selected>Auto phase</option>
@@ -133,13 +154,16 @@
             <label class="tuning-row">Disturbance intensity <output id="tuneResilienceOut">—</output><input id="tuneResilience" type="range" min="0" max="1" step=".01"></label>
             <label class="tuning-row">Maximum shove <output id="tunePushOut">—</output><input id="tunePush" type="range" min="0" max="3" step=".01"></label>
           </div>
-          <button id="carpetResetLimits" type="button">Reset sliders to this specialist's training values</button>
-          <small id="tuneOrigin">Live reported frontiers are teacher targets, not proven capabilities.</small>
+          <button id="carpetResetLimits" type="button">Reset inspector to this specialist's training values</button>
+          <small id="tuneOrigin">Live reported frontiers are teacher targets, not proven capabilities, and do not change the Meadow geology.</small>
+          </details>
           <label>Exercise <select id="carpetDrive">
             <option value="lesson" selected>Run specialist commands</option>
             <option value="manual">Manual joystick / WASD</option>
           </select></label>
-          <label class="viewer-checkbox"><input id="carpetShoves" type="checkbox" checked /> Random physical shoves with directional arrows</label>
+          <label class="viewer-checkbox"><input id="carpetShoves" type="checkbox" /> Random physical shoves with directional arrows</label>
+          <label class="tuning-row">Shove intensity <output id="meadowShoveOut">35%</output>
+            <input id="meadowShove" type="range" min="0" max="100" value="35" step="1"></label>
           <label>Recovery shove schedule <select id="carpetPushRate">
             <option value="drill" selected>Recovery drill · about 1–2 shoves/s (viewer only)</option>
             <option value="inspection">Inspection · 8× real training frequency</option>
