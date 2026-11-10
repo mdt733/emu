@@ -514,7 +514,8 @@ function renderCarpetValues(){
     ${measured?'Training targets (not achieved skill).':'Editable viewer scenario; NOT live training difficulty.'}
     Infinite procedural Meadow: terrain increases in difficulty to the NORTH (+Y),
     becomes easier to the south and varies at steady difficulty east/west.
-    15×15m collision window, deterministic return visits, extra visual fallaway.`;
+    EMU begins facing EAST (+X): turn left to explore harder northern terrain.
+    15×15m moving real collision window, deterministic return visits, misty visual fallaway.`;
   if(terrainMode.value==='carpet')$('viewerExercise').textContent=lesson.heading;
   const values=roleSliders(base,carpetRole.value);
   for(const [key,id,unit,,digits] of SLIDER_FIELDS){
