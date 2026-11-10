@@ -4,7 +4,7 @@
 
 EMU uses PPO reinforcement learning in MuJoCo/MJX to discover balancing, walking, steering and disturbance recovery. Its gait is **learned**, not scripted.
 
-[Browser playground](https://mdt733.github.io/emu/) · [Current handover](handover.md) · [Core skeleton](docs/CORE_SKELETON.md) · [Installation](docs/INSTALL.md) · [Research backlog](https://github.com/mdt733/emu/issues/17)
+[Browser playground](https://mdt733.github.io/emu/) · [Current handover](handover.md) · [Core skeleton](docs/CORE_SKELETON.md) · [Installation](docs/INSTALL.md) · [Forward roadmap](https://github.com/mdt733/emu/issues/62)
 
 ## Current robot: H40 120M
 
