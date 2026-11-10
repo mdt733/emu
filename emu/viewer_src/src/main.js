@@ -511,8 +511,8 @@ function renderCarpetValues(){
   }[stage];
   $('carpetContext').textContent=`${lesson.heading}: ${lesson.description}.
     ${measured?'Training targets (not achieved skill).':'Editable viewer scenario; NOT live training difficulty.'}
-    FIXED 2×2m / 8 true-prism CPU fixture; not the GPU rolling recycler.
-    Use Field for sustained fast gait and slopes.`;
+    Growing physical Carpet: real prism tiles expand ahead and remain behind.
+    The Meadow scenery is decorative; the CPU scene is not a held-out MJX exam.`;
   if(terrainMode.value==='carpet')$('viewerExercise').textContent=lesson.heading;
   const values=roleSliders(base,carpetRole.value);
   for(const [key,id,unit,,digits] of SLIDER_FIELDS){
@@ -557,8 +557,8 @@ function renderCarpetValues(){
     `Source: ${carpetDifficulty.source==='training'?carpetDifficulty.run:'Illustrative defaults'}`,
     `Age ${Number(carpetDifficulty.step||0).toLocaleString()} steps · phase: ${phase}`,
     (carpetDifficulty.trainingCarpetPrisms
-      ? 'SOURCE: rolling 4×1m / 8 MJX prisms. BROWSER: fixed 2×2m / 8 MuJoCo prisms, no recycling.'
-      : 'BROWSER: fixed 2×2m / 8 MuJoCo prisms; no claim of historical replay.'),
+      ? 'SOURCE: 4 recycled MJX tiles. BROWSER: 15×15m growing physical reserve, no tile recycling.'
+      : 'BROWSER: up to 225 real 1m CPU tiles, revealed as EMU walks; no MJX replay.'),
     `Global grade ${Number(carpetDifficulty.slopeDeg||0).toFixed(2)}°; physical role ${lesson.terrain.slopeDeg.toFixed(3)}°`,
     `Physical up/down ${(lesson.terrain.stepUpM*1000).toFixed(3)} / ${(lesson.terrain.stepDownM*1000).toFixed(3)} mm`,
     `Role velocity ${f.speed} · strafe ${f.lateral} · yaw ${f.yaw}`,
@@ -1212,8 +1212,8 @@ async function startViewerFeed() {
         }
         if (config.live) {
           discoverCarpetFromLive=true;
-          // Current physical 8-prism sources auto-enter the fixed CPU Carpet;
-          // the infinite MJX recycler isn't replayed in the browser.
+          // Current real-prism sources auto-enter the growing CPU Carpet.
+          // This is a precompiled finite field, not MJX per-world recycling.
           // The frozen champion and older runs keep the
           // original Terrain Park until the user explicitly selects it.
           await refreshCarpetLive(true);
