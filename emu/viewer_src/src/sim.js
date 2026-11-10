@@ -8,7 +8,6 @@ import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredA
 import { joystickToCommands, nextYawCommand } from './controls.js';
 import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient, terrainSensorHeightFallback } from './terrain.js';
 import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
-import { terrainRoleEnvelope } from './training-solid-carpet.js';
 import { createSensorLabCarpet, carpetSpawnSoleLift, carpetHeightfieldPatch, normalizedMeadowSettings, MEADOW_DEFAULTS, LAB_TILE_M, LAB_TILE_COUNT } from './sensor-lab-carpet.js';
 import { createGrowingMeadowScenery } from './growing-meadow.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
@@ -123,7 +122,6 @@ export class EmuBrowserSim {
     this.carpetWindowCenter = null;
     this.carpetMocapIds = [];
     this.carpetGeomIds = new Set();
-    this.carpetRenderedPrisms = new Set();
     this.carpetScenery = null;
     // Actual browser MuJoCo torso forces, not merely SVG decorations.
     // The real GPU trainer samples independent stochastic pushes; this
@@ -336,7 +334,6 @@ export class EmuBrowserSim {
     this.carpetWindowCenter=null;
     this.carpetMocapIds=[];
     this.carpetGeomIds.clear();
-    this.carpetRenderedPrisms.clear();
     if(this.carpetScenery){
       this.carpetScenery.dispose();
       this.carpetScenery=null;
@@ -1186,9 +1183,9 @@ export class EmuBrowserSim {
     // shared height surface rather than pretending it is a flat plane.
     const R=this.bodyRotation(),offset=this.torsoId*3;
     return {R,torso:Array.from(this.data.xpos.slice(offset,offset+3)),
-      // Convex mesh geoms (Carpet) are not recognized by the fast JS
-      // raycaster. The exact CPU prism-height surface must supply the
-      // physical ToF return, just as the park heightfield already does.
+      // Streaming 2x2 heightfield geoms are not handled by the fast
+      // plane/box raycaster; the exact CPU collision height sampler
+      // must supply physical ToF returns, as in the ordinary park.
       terrainHeightAt:terrainSensorHeightFallback(this.terrainMode,this.park)};
   }
 
