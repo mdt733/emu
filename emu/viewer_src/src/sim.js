@@ -6,11 +6,11 @@ import { PolicyRunner } from './policy.js';
 import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe, footSphereHit, terrainActorRays } from './sensor.js';
 import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredAttitude, sampleShove, expectedShoveRate, clearanceAboveSupport } from './sim-math.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
-import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient, terrainSensorHeightFallback } from './terrain.js';
+import { withTerrain, surfaceSlope, surfaceLabGradient, terrainSensorHeightFallback } from './terrain.js';
 import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
 import { createSensorLabCarpet, carpetSpawnSoleLift, carpetHeightfieldPatch, normalizedMeadowSettings, MEADOW_DEFAULTS, LAB_TILE_M, LAB_TILE_COUNT } from './sensor-lab-carpet.js';
 import { createGrowingMeadowScenery } from './growing-meadow.js';
-import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
+import { createGridTexture, createSkyTexture, createGrassTexture, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
 let mujocoModulePromise = null;
@@ -75,18 +75,12 @@ export class EmuBrowserSim {
     this.renderer.toneMappingExposure = 1.15;
     this.gridTexture = createGridTexture(THREE);
     this.grassTexture = createGrassTexture(THREE);
-    this.parkGridTexture = createParkGridTexture(THREE);
-    this.parkSurface = null;
     this.sensorLabSurface = null;
-    this.parkGridOverlay = null;
-    this.treeCrowns = null;
     this.park = null;
-    this.parkMarkers = null;
     this.showGrid = true;
     this.showTrail = true;
     this.showShadows = true;
     this.createWorldGuides();
-    this.createNavigationGuides();
     this.camera = new THREE.PerspectiveCamera(48, 1, 0.01, 50);
     this.camera.up.set(0, 0, 1);
     this.camera.position.set(-0.72, -0.78, 0.52);
@@ -94,7 +88,7 @@ export class EmuBrowserSim {
     this.controls.enableDamping = true;
     this.controls.target.set(0, 0, 0.18);
     this.controls.minDistance = 0.25;
-    this.controls.maxDistance = 11; // orbit can frame the full 4m mission arena
+    this.controls.maxDistance = 16; // explore the current real 15m Meadow window
     this.cameraMode = 'orbit'; // orbit | chase | raw | level
     this.chaseReady = false;
     this.chaseHeading = 0;
@@ -111,9 +105,7 @@ export class EmuBrowserSim {
         new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0),
       ),
     );
-    this.terrainMode = 'flat';
-    this.terrainMaxDegrees = 10;
-    this.parkChallengeLevel = 'balanced';
+    this.terrainMode = 'carpet'; // the only public viewer world
     this.carpetRole = 'step';
     this.carpetDifficulty = {...CARPET_DEFAULT};
     this.meadowSettings = {...MEADOW_DEFAULTS};
@@ -176,13 +168,10 @@ export class EmuBrowserSim {
     this.depthMountMarker = new THREE.Mesh(new THREE.SphereGeometry(.010,10,8),new THREE.MeshBasicMaterial({color:0xffcc80,depthTest:true}));
     this.depthMountMarker.visible=false;
     this.scene.add(this.depthMountMarker);
-    this.parkTreesEnabled = true;
-    this.parkFeaturesEnabled = true;
     this.headingHold = true;
     this.headingKp = 2.2; // yaw-rate [rad/s] per compass-heading error [rad]
     this.headingTarget = 0;
     this.requestedYaw = 0; // operator/demo rate, independent of heading-hold correction
-    this.navPresentationActive = false; // presentation only; no alternate actor control path
 
     this.meshes = [];
     this.geometryCache = new Map();
@@ -280,7 +269,6 @@ export class EmuBrowserSim {
         mesh.material.needsUpdate = true;
       }
       this.worldAxes.visible = grid;
-      if (this.parkGridOverlay) this.parkGridOverlay.visible = grid;
     if (this.carpetTileOverlay) this.carpetTileOverlay.visible=grid;
     }
     if (typeof trail === 'boolean') {
@@ -303,33 +291,6 @@ export class EmuBrowserSim {
       }
       this.sensorLabSurface=null;
     }
-    if (this.parkGridOverlay) {
-      this.scene.remove(this.parkGridOverlay);
-      // Deliberately share parkSurface geometry; dispose only the overlay
-      // material. The park mesh below owns geometry lifecycle.
-      this.parkGridOverlay.material.dispose();
-      this.parkGridOverlay = null;
-    }
-    if (this.parkSurface) {
-      this.scene.remove(this.parkSurface);
-      this.parkSurface.geometry.dispose();
-      this.parkSurface.material.dispose();
-      this.parkSurface = null;
-    }
-    if (this.treeCrowns) {
-      this.scene.remove(this.treeCrowns);
-      this.treeCrowns.userData.sharedGeometry.dispose();
-      for (const material of this.treeCrowns.userData.sharedMaterials) material.dispose();
-      this.treeCrowns = null;
-    }
-    if(this.parkMarkers){
-      this.scene.remove(this.parkMarkers);
-      for(const item of this.parkMarkers.children){
-        item.material.map?.dispose();
-        item.material.dispose();
-      }
-      this.parkMarkers=null;
-    }
     this.park = null;
     this.carpetWindowCenter=null;
     this.carpetMocapIds=[];
@@ -350,8 +311,6 @@ export class EmuBrowserSim {
     }
     this.depthReading=null;
     this.depthLastMs=0;
-    // Terrain geometry moved; rebuild guide heights on the next nav tick.
-    this.navGoalSeen=null;this.navRouteSeen=null;
     for (const mesh of this.meshes) {
       this.scene.remove(mesh);
       if (mesh.material) mesh.material.dispose();
@@ -374,20 +333,9 @@ export class EmuBrowserSim {
     this.depthFootprint.material.dispose();
     this.depthMountMarker.geometry.dispose();
     this.depthMountMarker.material.dispose();
-    this.routeLine.geometry.dispose();
-    this.routeLine.material.dispose();
-    this.targetRing.geometry.dispose();
-    this.targetRing.material.dispose();
-    for(const mesh of [this.targetArrow.line,this.targetArrow.cone]){
-      mesh.geometry.dispose();
-      mesh.material.dispose();
-    }
-    this.arenaCircle.geometry.dispose();
-    this.arenaCircle.material.dispose();
     this.skyTexture.dispose();
     this.gridTexture.dispose();
     this.grassTexture.dispose();
-    this.parkGridTexture.dispose();
     this.trailLine.geometry.dispose();
     this.trailLine.material.dispose();
     this.worldAxes.geometry.dispose();
@@ -418,16 +366,15 @@ export class EmuBrowserSim {
     }
   }
 
-  setTerrainMode(mode, maximum=this.terrainMaxDegrees) {
-    if (!['flat','ramp','park','carpet','sensor'].includes(mode)) throw new Error('Unknown terrain');
-    const degrees = Number(maximum);
-    if (!Number.isFinite(degrees) || degrees < 1 || degrees > 20) throw new Error('Terrain angle must be 1–20°');
-    if (mode===this.terrainMode && degrees===this.terrainMaxDegrees) return;
+  setTerrainMode(mode){
+    // The sensor-lab mode remains internal to physics diagnostics.
+    // The old park/ramp/flat viewer worlds have been removed.
+    if(mode!=='carpet'&&mode!=='sensor')
+      throw Error('The browser viewer only supports Infinite Meadow');
+    if(mode===this.terrainMode)return;
     this.terrainMode=mode;
-    this.terrainMaxDegrees=degrees;
-    this.loadModel(); // rebuilds only browser MuJoCo contacts
+    this.loadModel();
   }
-  setTerrainEnabled(enabled) { this.setTerrainMode(enabled ? 'ramp' : 'flat'); }
   setTrainingCarpet({role=this.carpetRole,limits=this.carpetDifficulty}={}) {
     const checked=carpetRoleLimits(limits,role); // refuse invalid or unknown roles
     const next={...limits,seed:checked.seed,slopeDeg:Number(limits.slopeDeg),
@@ -579,26 +526,6 @@ export class EmuBrowserSim {
     this.depthConfig=values;
     this.depthLastMs=0;
   }
-  setParkChallengeLevel(level) {
-    if(!['gentle','balanced','stretch'].includes(level))
-      throw new Error('Unknown park challenge level');
-    if(level===this.parkChallengeLevel)return;
-    this.parkChallengeLevel=level;
-    // Only browser collision geometry changes. Never touch policy weights.
-    if(this.terrainMode==='park')this.loadModel();
-  }
-  setParkFeaturesEnabled(enabled) {
-    const next=Boolean(enabled);
-    if(next===this.parkFeaturesEnabled)return;
-    this.parkFeaturesEnabled=next;
-    if(this.terrainMode==='park')this.loadModel();
-  }
-  setTreesEnabled(enabled) {
-    const next=Boolean(enabled);
-    if (next===this.parkTreesEnabled) return;
-    this.parkTreesEnabled=next;
-    if(['park','carpet'].includes(this.terrainMode))this.loadModel();
-  }
   setHeadingHold(enabled) {
     this.headingHold=Boolean(enabled);
     // Bumpless engage: no jump towards an old target from an earlier mode.
@@ -620,13 +547,8 @@ export class EmuBrowserSim {
 
   loadModel() {
     this.disposeModel();
-    this.park = this.terrainMode==='park'
-      ? generateTerrainPark({maxDegrees:this.terrainMaxDegrees,
-                             trees:this.parkTreesEnabled,features:this.parkFeaturesEnabled,
-                             challengeLevel:this.parkChallengeLevel})
-      : this.terrainMode==='carpet'
-        ? createSensorLabCarpet(this.meadowSettings)
-        : null;
+    this.park=this.terrainMode==='carpet'
+      ?createSensorLabCarpet(this.meadowSettings):null;
     this.scene.fog=this.park?.physics==='streaming-heightfield'
       ?new THREE.Fog(0xb1c8c1,7,22):new THREE.Fog(0xbad7e2,15,49);
     const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park,obstacle:this.sensorObstacle,
@@ -648,23 +570,6 @@ export class EmuBrowserSim {
       this.makeCarpetTileOverlay();
       this.makeSensorLabSurface();
       this.carpetScenery=createGrowingMeadowScenery(THREE,this.scene,this.park);
-    }else if(this.park){
-      this.parkSurface=createParkSurface(THREE,this.park,this.grassTexture);
-      this.scene.add(this.parkSurface);
-      this.parkGridOverlay=new THREE.Mesh(this.parkSurface.geometry,
-        new THREE.MeshBasicMaterial({
-          map:this.parkGridTexture,transparent:true,opacity:1,
-          depthWrite:false,depthTest:true,polygonOffset:true,
-          polygonOffsetFactor:-1,polygonOffsetUnits:-2,
-          side:THREE.DoubleSide,toneMapped:false,
-        }));
-      this.parkGridOverlay.renderOrder=3;
-      this.parkGridOverlay.visible=this.showGrid;
-      this.parkGridOverlay.frustumCulled=false;
-      this.scene.add(this.parkGridOverlay);
-      this.treeCrowns=createTreeCrowns(THREE,this.park.trees);
-      this.scene.add(this.treeCrowns);
-      this.createParkMarkers();
     }
     const d = this.bundle.control.default_commands || {};
     this.commandTarget = {
@@ -793,37 +698,6 @@ export class EmuBrowserSim {
 
   }
 
-  createParkMarkers() {
-    if(!this.park?.features.length)return;
-    const group=new THREE.Group();
-    this.park.features.forEach((feature,i)=>{
-      // 2D signs are NON-COLLIDING presentation only, never an actor input.
-      const canvas=document.createElement('canvas');
-      canvas.width=384;canvas.height=80;
-      const ctx=canvas.getContext('2d');
-      if(!ctx)return;
-      ctx.fillStyle='rgba(12,29,34,0.86)';
-      ctx.beginPath();ctx.roundRect(4,5,376,70,15);ctx.fill();
-      ctx.strokeStyle='rgba(110,231,206,0.78)';
-      ctx.lineWidth=3;ctx.stroke();
-      ctx.fillStyle='#e9fff7';
-      ctx.font='600 28px sans-serif';
-      ctx.textAlign='center';ctx.textBaseline='middle';
-      ctx.fillText((i+1)+'. '+feature.label,192,40,360);
-      const tex=new THREE.CanvasTexture(canvas);
-      tex.colorSpace=THREE.SRGBColorSpace;
-      const mat=new THREE.SpriteMaterial({map:tex,transparent:true,
-        depthTest:true,depthWrite:false});
-      const sign=new THREE.Sprite(mat);
-      sign.position.set(feature.x,feature.y,
-        this.park.sampleHeight(feature.x,feature.y)+0.20);
-      sign.scale.set(.90,.19,1);
-      group.add(sign);
-    });
-    this.parkMarkers=group;
-    this.scene.add(group);
-  }
-
   reset() {
     this.resetGeneration=(this.resetGeneration||0)+1;
     const mj = this.mujoco;
@@ -901,69 +775,6 @@ export class EmuBrowserSim {
     this.commandTarget.pitch = clamp(Number(pitch), -l.pitch_abs_rad, l.pitch_abs_rad);
   }
 
-  navigationPose() {
-    const o = this.torsoId * 3;
-    const heading=this.actualHeading(),c=Math.cos(heading),s=Math.sin(heading);
-    const wx=Number(this.data.qvel[0]),wy=Number(this.data.qvel[1]);
-    // MuJoCo freejoint angular qvel is body-local; turn it into an
-    // observed horizontal heading rate for navigation's yaw damping.
-    const R=this.bodyRotation(),q=this.data.qvel;
-    const ax=R[0]*q[3]+R[1]*q[4]+R[2]*q[5];
-    const ay=R[3]*q[3]+R[4]*q[4]+R[5]*q[5];
-    const az=R[6]*q[3]+R[7]*q[4]+R[8]*q[5];
-    const horizontal=Math.max(.01,R[0]*R[0]+R[3]*R[3]);
-    const yawRate=az-R[6]*(R[0]*ax+R[3]*ay)/horizontal;
-    return {x:Number(this.data.xpos[o]),y:Number(this.data.xpos[o+1]),
-      heading,vx:c*wx+s*wy,vy:-s*wx+c*wy,yawRate,
-      fallen:this.isFallen()};
-  }
-
-  navigationTrees() {
-    if(!['park','carpet'].includes(this.terrainMode)||!this.park)return [];
-    // The existing pose-lattice planner assumes a 62cm circular clearance
-    // around each supplied obstacle. Feature waypoints make autonomous
-    // navigation avoid untrained steps/logs, but manual joystick can inspect.
-    return [
-      ...(this.parkTreesEnabled?this.park.trees:[]),
-      ...(this.terrainMode==='park'&&this.parkFeaturesEnabled ? this.park.features.flatMap(f=>{
-        // Planner is intentionally conservative. Include the *physical*
-        // obstacle footprint, not just one centre point; human joystick
-        // driving remains unrestricted for actual challenge attempts.
-        const spread=Math.max(0,f.radius-.34);
-        return [{x:f.x,y:f.y},{x:f.x+spread,y:f.y},
-          {x:f.x-spread,y:f.y},{x:f.x,y:f.y+spread},
-          {x:f.x,y:f.y-spread}];
-      }) : []),
-    ];
-  }
-
-  setNavigationPresentation(active) {
-    const wasActive=this.navPresentationActive;
-    this.navPresentationActive=Boolean(active);
-    if(active&&!wasActive&&this.cameraMode==='orbit'){
-      // Frame the route rather than only a robot-sized patch of grass.
-      this.navSavedOrbit={position:this.camera.position.clone(),
-                          target:this.controls.target.clone()};
-      const p=this.navigationPose();
-      this.controls.target.set(p.x,p.y,.12);
-      this.camera.position.set(p.x-3.4,p.y-4.0,3.8);
-      this.controls.update();
-    } else if(!active&&wasActive&&this.navSavedOrbit){
-      if(this.cameraMode==='orbit'){
-        this.camera.position.copy(this.navSavedOrbit.position);
-        this.controls.target.copy(this.navSavedOrbit.target);
-        this.controls.update();
-      }
-      this.navSavedOrbit=null;
-    }
-    // Navigation changes camera and route overlay ONLY. It must never
-    // modify neural control, heading P, current velocity, or commands.
-    if(!active)this.clearNavigationOverlay();
-  }
-
-  terrainHeightAt(x,y) {
-    return ['park','carpet'].includes(this.terrainMode) && this.park ? this.park.sampleHeight(x,y) : 0;
-  }
   makeCarpetTileOverlay(){
     this.carpetTileOverlay=new THREE.LineSegments(new THREE.BufferGeometry(),
       new THREE.LineBasicMaterial({color:0xf2d59a,transparent:true,
@@ -992,65 +803,6 @@ export class EmuBrowserSim {
     this.carpetTileOverlay.geometry.setAttribute('position',
       new THREE.Float32BufferAttribute(positions,3));
     this.carpetTileOverlay.visible=this.showGrid;
-  }
-
-  createNavigationGuides() {
-    const mat=new THREE.MeshBasicMaterial({color:0xfce38b,side:THREE.DoubleSide,
-                                           depthWrite:false,depthTest:true});
-    this.targetRing=new THREE.Mesh(new THREE.RingGeometry(.16,.205,40),mat);
-    this.targetRing.renderOrder=9;
-    this.scene.add(this.targetRing);
-    this.targetArrow=new THREE.ArrowHelper(new THREE.Vector3(1,0,0),
-       new THREE.Vector3(0,0,.06),.50,0xffd96e,.15,.075);
-    this.targetArrow.renderOrder=9;
-    this.scene.add(this.targetArrow);
-    this.routeLine=new THREE.Line(new THREE.BufferGeometry(),
-      new THREE.LineBasicMaterial({color:0x54f8da,depthTest:true,
-                                   depthWrite:false,transparent:true,opacity:.95}));
-    this.routeLine.renderOrder=8;
-    this.scene.add(this.routeLine);
-    this.arenaCircle=new THREE.LineLoop(new THREE.BufferGeometry(),
-      new THREE.LineBasicMaterial({color:0x7eb8ff,transparent:true,
-                                   opacity:.46,depthWrite:false}));
-    this.arenaCircle.renderOrder=7;
-    this.scene.add(this.arenaCircle);
-    this.navGoalSeen=null;this.navRouteSeen=null;
-    this.clearNavigationOverlay();
-  }
-
-  clearNavigationOverlay() {
-    this.targetRing.visible=false;
-    this.targetArrow.visible=false;
-    this.routeLine.visible=false;
-    this.arenaCircle.visible=false;
-    this.navGoalSeen=null;this.navRouteSeen=null;
-  }
-
-  setNavigationOverlay(goal,route) {
-    if(!goal||!route){this.clearNavigationOverlay();return;}
-    if(this.navGoalSeen===goal && this.navRouteSeen===route)return;
-    const z=this.terrainHeightAt(goal.x,goal.y);
-    this.targetRing.position.set(goal.x,goal.y,z+.030);
-    this.targetArrow.position.set(goal.x,goal.y,z+.045);
-    this.targetArrow.setDirection(new THREE.Vector3(Math.cos(goal.heading),
-      Math.sin(goal.heading),0));
-    // Refresh the predicted route on new targets or meaningful replans.
-    const pose=this.navigationPose();
-    const points=[new THREE.Vector3(pose.x,pose.y,
-      this.terrainHeightAt(pose.x,pose.y)+.038),
-      ...route.steps.map(p=>new THREE.Vector3(p.x,p.y,this.terrainHeightAt(p.x,p.y)+.038))];
-    this.routeLine.geometry.dispose();
-    this.routeLine.geometry=new THREE.BufferGeometry().setFromPoints(points);
-    const circle=[];
-    for(let i=0;i<128;i++){
-      const a=2*Math.PI*i/128,x=4*Math.cos(a),y=4*Math.sin(a);
-      circle.push(new THREE.Vector3(x,y,this.terrainHeightAt(x,y)+.032));
-    }
-    this.arenaCircle.geometry.dispose();
-    this.arenaCircle.geometry=new THREE.BufferGeometry().setFromPoints(circle);
-    for(const mesh of [this.targetRing,this.targetArrow,this.routeLine,this.arenaCircle])
-      mesh.visible=true;
-    this.navGoalSeen=goal;this.navRouteSeen=route;
   }
 
   canSwapPolicy(next) {
