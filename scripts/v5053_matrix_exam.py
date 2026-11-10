@@ -23,7 +23,8 @@ EXAM_SOURCE_PATHS=(
     "scripts/v5053_matrix_exam.py","emu/environment.py","emu/ppo.py",
     "emu/terrain_carpet_mjx.py","emu/carpet_prism_mjx.py",
     "emu/contracts.py","emu/tof_geometry.py","emu/training_config.py",
-    "emu/rewards.py","emu/robot.xml",
+    "emu/rewards.py","emu/physical_variants.py","emu/policy_export.py",
+    "emu/robot.xml",
 )
 
 
