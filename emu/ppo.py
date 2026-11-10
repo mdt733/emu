@@ -728,7 +728,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             OBS_SCHEMA_TERRAIN).index(name) for name in TERRAIN_VALID_FIELDS)
         bias = jnp.asarray(gyro_bias,dtype=jnp.float32)
         limit = env.yaw_max_rad_s
-        # The live v5046+ world is a 2x2 window of 75cm tiles, NOT the
+        # The live H40 world is a 2x2 window of 1m tiles, NOT the
         # retired nine 50cm slabs. Share this single terrain ownership
         # contract with the physical independent scorer.
         from .terrain_carpet_mjx import (
@@ -760,7 +760,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             gy=jnp.where(u+v<=1.,chosen[:,2]-chosen[:,0],
                                     chosen[:,3]-chosen[:,1])
             # hfield samples are scaled by 0.50m on the actual prism
-            # surface. Divide that real rise by the 0.75m tile width:
+            # surface. Divide that real rise by the current 1m tile width:
             # normalized hfield deltas alone would double the grade.
             gradient_scale=TILE_SIZE_Z_M/TILE_M
             normal=jnp.stack((-gx*gradient_scale,-gy*gradient_scale,
