@@ -1,6 +1,64 @@
 # EMU handover — H40 120M mainline
 
-Updated 2026-11-09. **This is the one active handover.** Git history preserves all retired experiments and runbooks; the canonical source maintains just one physical robot, 360-input actor, terrain generator, and modern browser.
+**Updated 2026-11-10. START HERE.** This is the single maintained entry point for resuming work after any chat or interruption. It records the current implementation, source identities, measured/unmeasured claims, operating rules and next action. The canonical **checkbox tracker** is [EMU master roadmap — issue #62](https://github.com/mdt733/emu/issues/62). Do not maintain a second, competing checkbox list here.
+
+**At the start of each new chat:** read this file, [issue #62](https://github.com/mdt733/emu/issues/62), current `main` and any open PRs. Select the next unchecked, unblocked item; work on a short-lived branch; merge and remove experimental scaffolding; update the issue and this handover whenever the baseline, findings, restrictions or next action change. Git is the archive, not the current working tree.
+
+## Fast orientation
+
+| Area | Current answer |
+| --- | --- |
+| Robot / actor | H40 ~40 cm; 6 chassis-mounted 12 V C018 servos; 360 sensor history inputs → 256 → 256 → 6 position targets |
+| Active policy | **120,061,952 steps**, seed **735**; `showcase/champion.emupolicy`; original training source `301d18b7b1cd1b165e6578fc53f9f8cda94fb680` |
+| Terrain | Training: **4 rolling 1 m tiles / 8 true convex MJX prisms**. Viewer: **one Infinite Meadow** with **225 streaming CPU heightfields** |
+| What works | Owner-reported good fast gait, slopes around 15° in viewer; not independently certified MJX capability |
+| What does not work reliably | Up/down genuine steps, controlled post-step progress and heading; current H40 independent physical capability matrix missing |
+| Hardware truth | Mass, transmission, motor thermal/torque-speed, ToF PCB mapping and sim2real are provisional |
+| Source protection | Keep `main` champion and original private `final.pkl` untouched; code merges never silently retrain or republish actor |
+| Planning authority | [Issue #62](https://github.com/mdt733/emu/issues/62) controls task checkboxes and completion references; this page controls handover/context |
+| Next work | **Step 0**: merge this planning-only handover PR; then **two lanes:** baseline exam alongside housekeeping. No GPU megacampaign yet |
+
+## Roadmap and branch strategy
+
+**Use two lanes, not a stack of eight speculative branches.** Issue #62 has the detailed task-level checkboxes, acceptance criteria, research questions and completion record. Here is the dependency map:
+
+```text
+Step 0: planning/h40-forward-roadmap-20261110 [documentation only]
+  |
+  +-- Lane A: maintenance/h40-source-tidy
+  |       -> viewer/h40-laboratory-ui (Explore / Experiment / Diagnostics)
+  |
+  +-- Lane B: science/h40-capability-exam
+          -> science/h40-stair-autopsy
+          -> ONE evidence-led stair-learning experiment (20M acceptance first)
+
+Independent later: physical-model/calibration ledger; measured GPU performance.
+```
+
+**Safe parallelism:** a maintenance/GUI change and independent, read-only GPU examiner can proceed on separate fresh-`main` branches. **Serialise** overlapping edits in `environment.py`, `ppo.py`, `training.py`, `handover.md`, and browser `main.js`. Merge small complete PRs, delete branches, and refresh the next branch from the merged `main`. Do not stack multiple unfinished PRs or maintain alternate learner/terrain implementations.
+
+**Immediate priority gates:**
+1. **Planning only** — link the one roadmap checklist, save the known baseline and branch rules; no actor, model, PPO, trainer, curriculum, terrain or viewer changes.
+2. **Capability exam (P0)** — verify/reuse the actual H40 prism exam and exact 1 m geometry (some historical matrix comments refer to 75 cm); add paired **UP and DOWN** signed lips, authentic support/transfer/traversal versus strict parking, full command/heading/slope/recovery/effort profile. Run against the **frozen** H40 actor with no PPO updates. Keep raw trials and a source-pinned summary.
+3. **Housekeeping (P1)** — broken README research-backlog link (#17 was deleted), stale viewer mode and 60° sensor copy, outdated 75 cm wording, release-state documentation, and proven-dead experimental options. No numerical physics changes by stealth. Maintain ~24 substantive Python tests and the eight current docs.
+4. **Viewer lab (P1)** — one Infinite Meadow with cleaner Explore / Experiment / Diagnostics settings, deterministic signed-step/scenario controls, sensor/foot/force/failure overlays and measured rendering/physics performance. Distinguish browser scenes and inspector targets from GPU exam facts.
+5. **Stair autopsy (P1, exam-dependent)** — inspect obstacle visibility/lookahead and ToF ablations, gait phase and stationary behaviour, actual PPO terminal/advantage credit, C018 joint torque/hip-roll saturation, knee support, foot clearance, and virtual non-foot collisions; isolate the first failed stage.
+6. **Targeted PPO (P2, autopsy-dependent)** — one controlled hypothesis and matched no-change comparison; 2048-world GPU/contact/solver + source-pinned checkpoint gate; 20M cold acceptance before a long run. No improvement claim without independent signed UP/DOWN traversal **and** preserved flat gait/heading/resilience.
+7. **Physical fidelity + efficiency (P2–P3)** — measure hardware assumptions and small-batch full-contact/solver parity before changing high-speed approximation; then profile CUDA/JAX/MJX/WASM and keep setup and results workflow lean.
+
+**Acceptance for every PR:** `bash scripts/check.sh --quick`, `bash scripts/check.sh --full` as applicable, GitHub CI, read-only policy identity verification and actual physics/GPU smoke if that PR touches it. Publishing GitHub Pages is a separately gated, user-reviewed action. A good viewer clip, a training frontier or a successful workflow alone does not certify physical locomotion.
+
+**Completion convention:** tick a task **in issue #62 only when it passed its gates**; reference its PR/commit, the run/exam evidence (or 'docs-only') and cleanup. Update this file when the next recommended action or authoritative source changes. Leave retired experiments in Git history and concise conclusions in [research findings](docs/RESEARCH_FINDINGS.md), not as permanent one-off launch scripts.
+
+## Research facts worth carrying into every stair discussion
+
+- Historical pre-H40 experiments distinguished first upper-foot contact, independent five-frame top support of each foot, forward traversal and strict stop/parking. One older 20 mm screen showed **89/100 two-foot support** and **86/100 downstream crossing**, yet only **1/100 strict parked arrival**. Those are **not H40 measurements**.
+- Older longer-training stair attempts sometimes regressed on 32.5–40 mm obstacles. Never assume more steps means more competent stair crossing.
+- A stationary-command activity gate and phase shaping may influence the tippy-tap gait; that is a **testable hypothesis**, not an established cause of stair failure.
+- PPO terminal success can have negative advantage if the critic expected a larger value. Existing diagnostics must be checked against **actual H40 learner events** before claiming wrong credit.
+- **Fast MJX contacts are foot-focused**; knees/shins/thigh/torso use virtual intrusion sentinels rather than full collision impulses. Full-contact parity on small worlds may be needed to test hardware realism, and 2/4 solver settings are not automatically certified physically equivalent.
+- Existing `scripts/v5053_matrix_exam.py` uses a `stairs` setting that currently tests **uphill only** and contains 75 cm-era comments: repair/verify, not blindly use it to certify H40. Training, browser rendering and physical exam must be named separately.
+- Save full checkpoint + optimiser/normaliser/teacher health outside Git in `~/emu-data/runs/`; preserve immutable original H40 files. A `.emupolicy` is **not** a resume checkpoint.
 
 ## Status and lineage
 
@@ -8,7 +66,7 @@ Updated 2026-11-09. **This is the one active handover.** Git history preserves a
 - **Complete cold-start run:** `h40-1m-tof70-120m-s735`, seed 735, **120,061,952** world-steps, trained at exact commit `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`. Source, final checkpoint, metrics, and intermediate checkpoints in `~/emu-h40-120m` and `~/emu-data/runs/h40-1m-tof70-120m-s735/` must remain frozen.
 - **Proven policy export:** `showcase/champion.emupolicy`, uploaded owner-supplied bytes SHA-256 `178c201af661d3172d701a7d1d8a7711f9b2106e1f7058bc4902aa9c64a37c7a`, Git blob `eef79b1010f2a9561d0b72dd7aae3e0fcef512ae`; 360→256→256→6 network; actor SHA-256 `d4e35f814baef5e46afa6e96e942c86ab100ef25a4ae1913c76bbdb22615e673`.
 - **Research code:** [PR #52](https://github.com/mdt733/emu/pull/52) at `f7e3fc851c2942b5f2785aaf068882c6fd7d32c5`; training physics used for the 120M policy was frozen at the earlier exact source commit. Subsequent code includes CPU/browser fixture improvements and must not be represented as having retrained the policy.
-- **Promotion completed:** H40 source and the byte-identical 120M export entered `main` via [PR #53](https://github.com/mdt733/emu/pull/53), commit `1b796144b128b326be1ac54f6a289ad87857cde6`; its 24 Python tests, CPU MJX checks and browser CI passed. Public GitHub Pages deployment is **still separate** and requires exact actor approval, retained checkpoint SHA-256, and `python scripts/verify_showcase_release.py`. A source merge must not deploy the site.
+- **Promotion completed:** H40 source and the byte-identical 120M export entered `main` via [PR #53](https://github.com/mdt733/emu/pull/53), commit `1b796144b128b326be1ac54f6a289ad87857cde6`; its 24 Python tests, CPU MJX checks and browser CI passed. Pages publication is **a separate, manually approved workflow**, not a side-effect of a source merge. The [10 Nov 2026 Pages workflow](https://github.com/mdt733/emu/actions/runs/42794739700) and [source/browser CI](https://github.com/mdt733/emu/actions/runs/42794505755) both report success at `79c9f43`. This confirms workflow results, **not an independent live-site/browser acceptance**; verify the deployed actor in the actual browser before marking that task complete.
 
 ### What is demonstrated
 
@@ -33,14 +91,7 @@ sha256sum ~/emu-data/runs/h40-1m-tof70-120m-s735/checkpoints/final.pkl
 - VL53L8CX 4×4 approximation: 45°×45° FoV, 70° down, 0 mm forward, 30 mm below torso, no lateral/yaw offset. Sixteen centre-of-zone rays, delayed/noisy confidence and nearest foot-sphere occlusion.
 - ST receiving lens inverts both axes. Nominal scene-to-raw zone order: `3,2,1,0 | 7,6,5,4 | 11,10,9,8 | 15,14,13,12`; real PCB orientation and which bottom zones feet occlude still need hardware checks.
 - Canonical sensor SHA-256: `d8f559641d240f6eb4bd54a3dc7e96f414994682ebc1b478209df202cc903995`. Older sensor/checkpoint schemas are rejected.
-- MJX trainer uses rolling 2×2 four **1 m** tiles, eight true convex triangular prisms, with recycler support safety and signed step goals. CPU browser **Training Carpet** uses a static eight-prism fixture, not an infinite/stochastic terrain replay. **Field** mode is a separate longer gait/slope diagnostic.
-
-## Next work: no branch explosion
-
-1. **Complete:** H40 promotion PR #53 passed Python/physics and browser CI; source and trained actor identities remained unchanged. Continue to run these checks on future maintenance changes.
-2. **Checksum and release approval supplied:** the original `final.pkl` SHA-256 is recorded in strict `showcase/release_approval.json`. Verify it against the policy and the final compiled site in CI before triggering the **manual** Pages workflow; the old public site stays untouched until a successful deployment.
-3. Keep the H40 baseline stable. Future step experiments start from a new feature branch **after** promotion; do not rewrite its source, checkpoint or weights.
-4. For stairs, use a **source-pinned independent MJX exam** with successful actual up/down lip crossing, controlled post-step movement, and command/heading survival. Browser footage is not a valid pass condition.
+- **GPU training and frozen physical exams:** rolling 2×2 four **1 m** tiles, eight genuine convex triangular prisms, with recycler support safety and signed step goals. **Browser viewing:** [PR #61](https://github.com/mdt733/emu/pull/61) replaced retired Field/Park with one **Infinite Meadow**: deterministic endless global coordinates inside a moving **15×15 m / 225 physical CPU heightfield** window, with prettier scenery. This is **not** the GPU contact topology and cannot certify stair ability. The untrained sensor/calibration laboratory still exists separately.
 
 ## Run it
 
@@ -54,3 +105,25 @@ bash scripts/start_sensor_lab_wsl.sh
 ```
 
 The local trained actor may also be loaded directly from `~/emu-data/actors/emu-h40-120m.emupolicy`. Do not invoke `--sensor-lab` to view neural inference. The old champion, older compatible interfaces and research data stay available through Git history, not active code.
+
+## Maintained references and checks
+
+- [Master roadmap, open tasks and completion record](https://github.com/mdt733/emu/issues/62)
+- [Core skeleton](docs/CORE_SKELETON.md) · [Physical-quality examiner criteria](docs/PHYSICAL_QUALITY.md) · [Research findings](docs/RESEARCH_FINDINGS.md)
+- [Maintenance contract](docs/MAINTENANCE.md) · [Clean WSL installation](docs/INSTALL.md) · [Playground](docs/PLAYGROUND.md) · [Release gates](docs/RELEASE_READINESS.md)
+- [H40 promotion PR #53](https://github.com/mdt733/emu/pull/53) · [Single H40 cleanup PR #57](https://github.com/mdt733/emu/pull/57) · [Infinite Meadow PR #61](https://github.com/mdt733/emu/pull/61)
+
+```bash
+cd ~/emu
+git pull --ff-only
+bash scripts/check.sh --quick
+bash scripts/check.sh --full
+# Examine supported frozen-policy commands before running matched H40 MJX:
+python -m emu.cli prism-exam --help
+# GPU training acceptance only on the approved source-pinned research branch:
+python -m emu.cli doctor --require-gpu
+```
+
+**Checkpoint rule:** Original training source SHA `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`, exact robot XML/sensor contract, `~/emu-data/runs/h40-1m-tof70-120m-s735/checkpoints/final.pkl` and policy `showcase/champion.emupolicy` are protected. Do not assume the present `main` training config can resume the frozen original checkpoint. Creating a changed physics/sensor source requires a new identity and independently tested actor.
+
+**Fresh-chat prompt:** “Read `handover.md` and [issue #62](https://github.com/mdt733/emu/issues/62), inspect current `main` and open PRs. Pick the next unblocked checkbox, protect the H40 120M baseline, use one short-lived branch, validate and merge, delete old implementation/temporary scripts, and update the issue and handover with actual evidence. Avoid new training until the examiner and stair failure are understood.”
