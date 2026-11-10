@@ -8,7 +8,7 @@ export const LAB_FIELD_SIDE=15; // 7m physical margin around the player
 export const LAB_FIELD_HALF=7;
 export const LAB_TILE_COUNT=LAB_FIELD_SIDE*LAB_FIELD_SIDE;
 export const LAB_HFIELD_COUNT=LAB_TILE_COUNT;
-export const LAB_HFIELD_Z=.5;
+export const LAB_HFIELD_Z=1.0;
 export const LAB_HIDDEN_Z=-40;
 const clamp=(n,lo,hi)=>Math.max(lo,Math.min(hi,n));
 const number=(x,d=0)=>Number.isFinite(Number(x))?Number(x):d;
@@ -23,43 +23,78 @@ function noise(x,y,seed){
   return ((a+(b-a)*u)*(1-v)+(c+(d-c)*u)*v)*2-1;
 }
 
-// World +Y is NORTH; X is east/west. Latitude governs the envelope, while
-// the global seed/coordinates make scenery and geology repeat on any revisit.
-// It reaches a cap rather than demanding physically impossible stairs.
-export function carpetLatitudeDifficulty(y){
-  return clamp((y+6)/42,0,1);
+// One authoritative viewer difficulty contract. Unlike the legacy specialist
+// inspector, these settings directly control terrain at the START latitude.
+// North (+Y) scales them smoothly; east/west has new features at equal grade.
+export const MEADOW_DEFAULTS=Object.freeze({
+  seed:735,hillPeakDeg:10,hillScaleM:9.5,
+  stepUpM:.02,stepDownM:.02,stepFrequency:.28,
+  northGainPerM:.022
+});
+export function normalizedMeadowSettings(changes={}){
+  const c={...MEADOW_DEFAULTS,...changes};
+  const value=(v,fallback,lo,hi)=>
+    clamp(Number.isFinite(Number(v))?Number(v):fallback,lo,hi);
+  return {
+    seed:Math.floor(value(c.seed,735,0,4294967295)),
+    hillPeakDeg:value(c.hillPeakDeg,10,0,20),
+    hillScaleM:value(c.hillScaleM,9.5,3,18),
+    stepUpM:value(c.stepUpM,.02,0,.1),
+    stepDownM:value(c.stepDownM,.02,0,.1),
+    stepFrequency:value(c.stepFrequency,.28,0,.75),
+    northGainPerM:value(c.northGainPerM,.022,0,.06)
+  };
 }
-export function carpetLocalLimits(y,config={}){
-  const d=carpetLatitudeDifficulty(y);
-  return {difficulty:d,
-    slopeDeg:clamp(number(config.slopeDeg,10),0,15)*(.08+.92*d),
-    stepUpM:clamp(number(config.stepUpM,.025),0,.15)*d,
-    stepDownM:clamp(number(config.stepDownM,.025),0,.15)*d,
-    resilience:d};
+export function carpetLatitudeDifficulty(y,config=MEADOW_DEFAULTS){
+  const settings=normalizedMeadowSettings(config);
+  return clamp(1+settings.northGainPerM*y,.08,1.8);
+}
+export function carpetLocalLimits(y,config=MEADOW_DEFAULTS){
+  const c=normalizedMeadowSettings(config);
+  const multiple=carpetLatitudeDifficulty(y,c);
+  return {difficulty:multiple,
+    slopeDeg:clamp(c.hillPeakDeg*multiple,0,20),
+    stepUpM:clamp(c.stepUpM*multiple,0,.12),
+    stepDownM:clamp(c.stepDownM*multiple,0,.12),
+    stepFrequency:clamp(c.stepFrequency*multiple,0,.9),
+    resilience:clamp(multiple/1.8,0,1)};
 }
 function continuousRelief(x,y,config){
-  const seed=Math.floor(number(config.seed,735));
-  const caps=carpetLocalLimits(y,config);
-  const slope=Math.tan(caps.slopeDeg*Math.PI/180);
-  // Smooth global vertex noise. Max derivatives are bounded by the user
-  // slope envelope; no strong north-facing ramp accumulates without limit.
-  // Two wavelengths give long walkable grades and small foothold
-  // undulations; at the northern cap they approach (but should not
-  // routinely exceed) the configured slope ceiling.
-  return (noise(x/3.4,y/3.4,seed)*.48+
-    noise(x/1.9+.3,y/1.9-.7,seed+17)*.17)*slope;
+  const c=normalizedMeadowSettings(config);
+  const peak=Math.tan(carpetLocalLimits(y,c).slopeDeg*Math.PI/180);
+  if(peak===0)return 0;
+  const scale=c.hillScaleM/9.5;
+  const seed=c.seed,twopi=2*Math.PI;
+  // Three smoothly rotating terrain wavelengths. Their coefficients are
+  // calibrated so when "10°" is requested at y=0, ~90th-percentile
+  // physical 1m grades are ~10°. Most ground is milder; crests, saddles,
+  // side-slopes and ridges have naturally changing compass headings.
+  // The slow sine in each phase bends the contours rather than producing
+  // endless straight parallel embankments. No tile-based randomness here:
+  // every vertex shares one coherent global world-height source.
+  const p1=twopi*(.82*x+.57*y)/(9.5*scale)+
+    .32*Math.sin(twopi*(-.28*x+.96*y)/(31*scale)+.4+.05*(seed%7));
+  const p2=twopi*(-.44*x+.90*y)/(5.8*scale)+
+    .40*Math.sin(twopi*(.83*x+.55*y)/(21*scale)+1.9+.03*(seed%11));
+  const p3=twopi*(.17*x-.985*y)/(3.8*scale)+
+    .20*Math.sin(twopi*(.57*x-.82*y)/(12*scale)+2.3+.03*(seed%17));
+  return peak*scale/twopi*(
+    .90*9.5*Math.sin(p1)+
+    .48*5.8*Math.sin(p2+1.5)+
+    .16*3.8*Math.sin(p3-1.1));
 }
-export function carpetTileCorners(i,j,config={}){
-  const seed=Math.floor(number(config.seed,735));
-  const l=carpetLocalLimits(j+.5,config);
-  const h=hash(i,j,seed+91);
-  // Independent per-tile signed lips, no seam on flat/easy south when
-  // requested up/down both zero; same x/y tile is bit-deterministic.
-  const signed=(h>=.5?(h-.5)*2*l.stepUpM:-(.5-h)*2*l.stepDownM);
-  return [continuousRelief(i,j,config)+signed,
-    continuousRelief(i+1,j,config)+signed,
-    continuousRelief(i,j+1,config)+signed,
-    continuousRelief(i+1,j+1,config)+signed];
+export function carpetTileCorners(i,j,config=MEADOW_DEFAULTS){
+  const c=normalizedMeadowSettings(config),l=carpetLocalLimits(j+.5,c);
+  const h=hash(i,j,c.seed+91),event=hash(i,j,c.seed+73);
+  const eligible=event<l.stepFrequency;
+  const signed=!eligible?0:(h>=.5
+    ?(h-.5)*2*l.stepUpM:-(.5-h)*2*l.stepDownM);
+  return [
+    continuousRelief(i,j,c)+signed,
+    continuousRelief(i+1,j,c)+signed,
+    continuousRelief(i,j+1,c)+signed,
+    continuousRelief(i+1,j+1,c)+signed
+  ];
 }
 export function fieldSlot(i,j){
   return mod(j,LAB_FIELD_SIDE)*LAB_FIELD_SIDE+mod(i,LAB_FIELD_SIDE);
