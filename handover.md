@@ -16,7 +16,7 @@
 | Hardware truth | Mass, transmission, motor thermal/torque-speed, ToF PCB mapping and sim2real are provisional |
 | Source protection | Keep `main` champion and original private `final.pkl` untouched; code merges never silently retrain or republish actor |
 | Planning authority | [Issue #62](https://github.com/mdt733/emu/issues/62) controls task checkboxes and completion references; this page controls handover/context |
-| Next work | **Step 0 complete** in [PR #63](https://github.com/mdt733/emu/pull/63) (`4932a5c`); start housekeeping and a separate frozen-H40 baseline examiner. No GPU megacampaign yet |
+| Next work | **Frozen H40 CUDA baseline smoke**, using the corrected read-only physical examiner from [PR #65](https://github.com/mdt733/emu/pull/65). First maintenance copy fix [PR #64](https://github.com/mdt733/emu/pull/64) is complete; deeper audit and broader exam remain open in #62. No PPO megacampaign yet |
 
 ## Roadmap and branch strategy
 
@@ -39,8 +39,8 @@ Independent later: physical-model/calibration ledger; measured GPU performance.
 
 **Immediate priority gates:**
 1. **Planning only** — link the one roadmap checklist, save the known baseline and branch rules; no actor, model, PPO, trainer, curriculum, terrain or viewer changes.
-2. **Capability exam (P0)** — verify/reuse the actual H40 prism exam and exact 1 m geometry (some historical matrix comments refer to 75 cm); add paired **UP and DOWN** signed lips, authentic support/transfer/traversal versus strict parking, full command/heading/slope/recovery/effort profile. Run against the **frozen** H40 actor with no PPO updates. Keep raw trials and a source-pinned summary.
-3. **Housekeeping (P1)** — broken README research-backlog link (#17 was deleted), stale viewer mode and 60° sensor copy, outdated 75 cm wording, release-state documentation, and proven-dead experimental options. No numerical physics changes by stealth. Maintain ~24 substantive Python tests and the eight current docs.
+2. **Capability exam (P0)** — the 1 m seam spawn/lane, true-prism CPU checks, dual UP/DOWN trial allocation and separate actor/policy/XML hashes were corrected in [PR #65](https://github.com/mdt733/emu/pull/65) ([green CI](https://github.com/mdt733/emu/actions/runs/42801912985)). **Next:** run the CUDA smoke below on the frozen H40 actor (zero PPO updates). Only after it passes, collect 2048-world paired stairs/flat and broader command/heading/slope/recovery/effort evidence. Keep raw trials and a source-pinned summary.
+3. **Housekeeping (P1)** — first copy/release fixes landed via [PR #64](https://github.com/mdt733/emu/pull/64) ([green CI](https://github.com/mdt733/emu/actions/runs/42801111504)); disabled/dead research switches, large-module ownership, outdated comments and test-value audit remain open. No numerical physics changes by stealth. Maintain ~24 substantive Python tests and the eight current docs.
 4. **Viewer lab (P1)** — one Infinite Meadow with cleaner Explore / Experiment / Diagnostics settings, deterministic signed-step/scenario controls, sensor/foot/force/failure overlays and measured rendering/physics performance. Distinguish browser scenes and inspector targets from GPU exam facts.
 5. **Stair autopsy (P1, exam-dependent)** — inspect obstacle visibility/lookahead and ToF ablations, gait phase and stationary behaviour, actual PPO terminal/advantage credit, C018 joint torque/hip-roll saturation, knee support, foot clearance, and virtual non-foot collisions; isolate the first failed stage.
 6. **Targeted PPO (P2, autopsy-dependent)** — one controlled hypothesis and matched no-change comparison; 2048-world GPU/contact/solver + source-pinned checkpoint gate; 20M cold acceptance before a long run. No improvement claim without independent signed UP/DOWN traversal **and** preserved flat gait/heading/resilience.
@@ -57,7 +57,7 @@ Independent later: physical-model/calibration ledger; measured GPU performance.
 - A stationary-command activity gate and phase shaping may influence the tippy-tap gait; that is a **testable hypothesis**, not an established cause of stair failure.
 - PPO terminal success can have negative advantage if the critic expected a larger value. Existing diagnostics must be checked against **actual H40 learner events** before claiming wrong credit.
 - **Fast MJX contacts are foot-focused**; knees/shins/thigh/torso use virtual intrusion sentinels rather than full collision impulses. Full-contact parity on small worlds may be needed to test hardware realism, and 2/4 solver settings are not automatically certified physically equivalent.
-- Existing `scripts/v5053_matrix_exam.py` uses a `stairs` setting that currently tests **uphill only** and contains 75 cm-era comments: repair/verify, not blindly use it to certify H40. Training, browser rendering and physical exam must be named separately.
+- The retired v5053 matrix **previously tested uphill only** and carried 75 cm exam spawn/lane assumptions. [PR #65](https://github.com/mdt733/emu/pull/65) corrected the H40 1 m exam-only spawn to 0.78/0.50 m and `stairs` now tests **both** signs; tested with actual four-world CPU MJX. **Real 2048-world GPU and H40 capability outcomes remain unmeasured.** Training, browser rendering and physical exam must be named separately.
 - Save full checkpoint + optimiser/normaliser/teacher health outside Git in `~/emu-data/runs/`; preserve immutable original H40 files. A `.emupolicy` is **not** a resume checkpoint.
 
 ## Status and lineage
@@ -111,15 +111,20 @@ The local trained actor may also be loaded directly from `~/emu-data/actors/emu-
 - [Master roadmap, open tasks and completion record](https://github.com/mdt733/emu/issues/62)
 - [Core skeleton](docs/CORE_SKELETON.md) · [Physical-quality examiner criteria](docs/PHYSICAL_QUALITY.md) · [Research findings](docs/RESEARCH_FINDINGS.md)
 - [Maintenance contract](docs/MAINTENANCE.md) · [Clean WSL installation](docs/INSTALL.md) · [Playground](docs/PLAYGROUND.md) · [Release gates](docs/RELEASE_READINESS.md)
-- [H40 promotion PR #53](https://github.com/mdt733/emu/pull/53) · [Single H40 cleanup PR #57](https://github.com/mdt733/emu/pull/57) · [Infinite Meadow PR #61](https://github.com/mdt733/emu/pull/61)
+- [H40 promotion PR #53](https://github.com/mdt733/emu/pull/53) · [Infinite Meadow PR #61](https://github.com/mdt733/emu/pull/61) · [Housekeeping PR #64](https://github.com/mdt733/emu/pull/64) · [Examiner PR #65](https://github.com/mdt733/emu/pull/65)
 
 ```bash
 cd ~/emu
 git pull --ff-only
 bash scripts/check.sh --quick
 bash scripts/check.sh --full
-# Examine supported frozen-policy commands before running matched H40 MJX:
-python -m emu.cli prism-exam --help
+# Read-only, one-time 64-world CUDA examiner smoke against the FROZEN H40 actor:
+python -m scripts.v5053_matrix_exam \
+  --policy showcase/champion.emupolicy \
+  --output ~/emu-data/exams/h40-matrix-smoke64-s1701 \
+  --mode stairs --worlds 64 --levels 20 --trials-per-level 1 \
+  --horizon 350 --seed 1701 --device cuda
+# If smoke passes, see issue #62 for 2048-world signed stairs + paired flat.
 # GPU training acceptance only on the approved source-pinned research branch:
 python -m emu.cli doctor --require-gpu
 ```
