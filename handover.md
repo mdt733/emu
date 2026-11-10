@@ -11,12 +11,12 @@
 | Robot / actor | H40 ~40 cm; 6 chassis-mounted 12 V C018 servos; 360 sensor history inputs → 256 → 256 → 6 position targets |
 | Active policy | **120,061,952 steps**, seed **735**; `showcase/champion.emupolicy`; original training source `301d18b7b1cd1b165e6578fc53f9f8cda94fb680` |
 | Terrain | Training: **4 rolling 1 m tiles / 8 true convex MJX prisms**. Viewer: **one Infinite Meadow** with **225 streaming CPU heightfields** |
-| What works | Owner-reported fast gait and ~15° viewer slopes, **plus a first 64-world MJX CUDA signed-step smoke**: 10/20 downhill controlled traversals, 0/20 uphill; only 1 trial/height, **not a validated capability curve** |
-| What does not work reliably | Controlled uphill traversal, repeatable down steps and stable arrival. 64-world smoke is preliminary; **paired 2048-world stairs/flat and broad H40 exam still missing** |
+| What works | Owner-reported fast gait and ~15° viewer slopes. **Measured same-world CUDA exam:** +2.5–27.5mm uphill traversal **179/550** vs matched flat **192/550**, 50 trials per exact height. Flat itself succeeds only 37.25% under strict lane/foot-contact gates. |
+| What does not work reliably | Abrupt UP first-foot support cliff near **+30–32.5mm**, and 0/350 first footholds at +35–50mm. DOWN first-foot contact always succeeded, but trailing-foot support/lane decline with height. Broad command, slope, recovery and effort H40 exams still needed. |
 | Hardware truth | Mass, transmission, motor thermal/torque-speed, ToF PCB mapping and sim2real are provisional |
 | Source protection | Keep `main` champion and original private `final.pkl` untouched; code merges never silently retrain or republish actor |
 | Planning authority | [Issue #62](https://github.com/mdt733/emu/issues/62) controls task checkboxes and completion references; this page controls handover/context |
-| Next work | **64-world CUDA smoke passed** (2026-11-11). Run **separate matched 2048-world signed stairs and flat** with current examiner; compare the saved per-world results using [PR #69](https://github.com/mdt733/emu/pull/69)'s read-only comparison mode, then investigate failures. No PPO megacampaign yet |
+| Next work | **2,000 paired stair/flat worlds analysed**. Investigate first-foot clearance/sensing/torque/phase at **+27.5,+30,+32.5,+35mm**; complete broader frozen-actor capability baseline independently. **No PPO until causal autopsy.** |
 
 ## Roadmap and branch strategy
 
@@ -39,7 +39,7 @@ Independent later: physical-model/calibration ledger; measured GPU performance.
 
 **Immediate priority gates:**
 1. **Planning only** — link the one roadmap checklist, save the known baseline and branch rules; no actor, model, PPO, trainer, curriculum, terrain or viewer changes.
-2. **Capability exam (P0)** — the 1 m seam spawn/lane, true-prism CPU checks, dual UP/DOWN trial allocation and separate actor/policy/XML hashes were corrected in [PR #65](https://github.com/mdt733/emu/pull/65) ([green CI](https://github.com/mdt733/emu/actions/runs/42801912985)). **64-world CUDA smoke passed on 2026-11-11** (zero PPO updates). Next collect separate 2048-world signed stairs/flat, then broader command/heading/slope/recovery/effort evidence. Keep raw trials and a source-pinned summary.
+2. **Capability exam (P0)** — true 1 m prism seam and actor identity repaired in [PR #65](https://github.com/mdt733/emu/pull/65). The **64-world CUDA smoke and 2000 same-world UP/DOWN vs flat pairs are complete** ([PR #69](https://github.com/mdt733/emu/pull/69), findings in [issue #62](https://github.com/mdt733/emu/issues/62)). Controlled UP traversals +2.5–27.5mm **179/550** vs flat **192/550**; first-foot support +35–50mm **0/350**. Keep remaining command, slope, recovery, effort and physical hardware metrics open.
 3. **Housekeeping (P1)** — first copy/release fixes landed via [PR #64](https://github.com/mdt733/emu/pull/64) ([green CI](https://github.com/mdt733/emu/actions/runs/42801111504)); disabled/dead research switches, large-module ownership, outdated comments and test-value audit remain open. No numerical physics changes by stealth. Maintain ~24 substantive Python tests and the eight current docs.
 4. **Viewer lab (P1)** — one Infinite Meadow with cleaner Explore / Experiment / Diagnostics settings, deterministic signed-step/scenario controls, sensor/foot/force/failure overlays and measured rendering/physics performance. Distinguish browser scenes and inspector targets from GPU exam facts.
 5. **Stair autopsy (P1, exam-dependent)** — inspect obstacle visibility/lookahead and ToF ablations, gait phase and stationary behaviour, actual PPO terminal/advantage credit, C018 joint torque/hip-roll saturation, knee support, foot clearance, and virtual non-foot collisions; isolate the first failed stage.
@@ -57,7 +57,7 @@ Independent later: physical-model/calibration ledger; measured GPU performance.
 - A stationary-command activity gate and phase shaping may influence the tippy-tap gait; that is a **testable hypothesis**, not an established cause of stair failure.
 - PPO terminal success can have negative advantage if the critic expected a larger value. Existing diagnostics must be checked against **actual H40 learner events** before claiming wrong credit.
 - **Fast MJX contacts are foot-focused**; knees/shins/thigh/torso use virtual intrusion sentinels rather than full collision impulses. Full-contact parity on small worlds may be needed to test hardware realism, and 2/4 solver settings are not automatically certified physically equivalent.
-- The retired v5053 matrix **previously tested uphill only** and carried 75 cm exam spawn/lane assumptions. [PR #65](https://github.com/mdt733/emu/pull/65) corrected the H40 1 m exam-only spawn to 0.78/0.50 m and `stairs` now tests **both** signs; four-world CPU MJX and 64-world CUDA smoke both passed. Across only 20 unique heights/direction (one attempt each), 10/20 DOWN and 0/20 UP met five-frame physical controlled traversal, but uphill 5/20 reached separate support of both destination feet. **Full 2048-world paired CUDA and validated capability probabilities remain unmeasured.** Training, browser rendering and physical exam must be named separately.
+- The retired v5053 matrix **previously tested uphill only** and carried 75 cm exam spawn/lane assumptions. [PR #65](https://github.com/mdt733/emu/pull/65) corrected the exam-only spawn to 0.78/0.50 m and signed UP/DOWN. **Now the 2000 same-world pairs replace the 64-world smoke as stair evidence.** UP foothold cliff near +30–32.5mm; DOWN loss accumulates after first contact. Training, browser rendering and GPU physical exams are different sources of truth.
 - Save full checkpoint + optimiser/normaliser/teacher health outside Git in `~/emu-data/runs/`; preserve immutable original H40 files. A `.emupolicy` is **not** a resume checkpoint.
 
 ## Status and lineage
@@ -118,26 +118,17 @@ cd ~/emu
 git pull --ff-only
 bash scripts/check.sh --quick
 bash scripts/check.sh --full
-# 64-world CUDA smoke PASSED on 2026-11-11 (results in issue #62).
-# NEXT: two separate read-only GPU exams; same 2048-world batch, seed and horizon.
-# Use distinct fresh output dirs. Requires sufficient free 8GB GPU VRAM.
+# COMPLETED 2026-11-11: 64-world smoke and same-world 2048-world
+# signed-stair and zero-lip flat exams; existing comparator in PR #69.
+# Outputs in ~/emu-data/exams/h40-{stairs,flat}-2048-s1701
+# and ~/emu-data/exams/h40-paired-stairs-flat-s1701.
+# Do not rerun into the completed nonempty output directories.
+# Remaining broad current-H40 capability exam (read-only, if requested):
 python -m scripts.v5053_matrix_exam \
   --policy showcase/champion.emupolicy \
-  --output ~/emu-data/exams/h40-stairs-2048-s1701 \
-  --mode stairs --worlds 2048 --horizon 350 --seed 1701 --device cuda
-python -m scripts.v5053_matrix_exam \
-  --policy showcase/champion.emupolicy \
-  --output ~/emu-data/exams/h40-flat-2048-s1701 \
-  --mode flat --worlds 2048 --trials-per-level 2000 \
-  --horizon 350 --seed 1701 --device cuda
-# Keep matrix_worlds.csv and matrix_summary.json from EACH exam.
-# CPU-only comparison: reject unpaired worlds, different source fingerprints,
-# unmatched commands/seeds/robot, or unlabeled physical step geometry.
-python -m scripts.v5053_matrix_exam \
-  --compare-stairs ~/emu-data/exams/h40-stairs-2048-s1701 \
-  --compare-flat ~/emu-data/exams/h40-flat-2048-s1701 \
-  --output ~/emu-data/exams/h40-paired-stairs-flat-s1701
-# Inspect matrix_compare.md, matrix_pairs.csv and matrix_paired_curves.csv.
+  --output ~/emu-data/exams/h40-balanced-2048-s1701 \
+  --mode balanced --worlds 2048 --horizon 350 --seed 1701 --device cuda
+# This is the existing ten-capability matrix, not a motor-current/hardware test.
 # GPU training acceptance only on the approved source-pinned research branch:
 python -m emu.cli doctor --require-gpu
 ```
