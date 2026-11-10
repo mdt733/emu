@@ -129,14 +129,15 @@ jobs:
           mujoco.mj_forward(model,data)
           assert data.ncon==0,'evicted ground must not be ghost support'
           # Runtime hfield_data writes are explicitly supported by MuJoCo.
-          # Restore the ORIGINAL hill sample values with a small positive
-          # height offset. An arbitrary low ramp could sit below the foot
-          # on real rolling terrain and falsely report missing contact.
+          # Runtime-edit the actual hill samples, then restore the body at
+          # a slightly HIGHER base. Source hfields legitimately normalize
+          # their highest corner to exactly 1.0, so adding .04 to samples
+          # would saturate/clamp the hill and invalidate this contact test.
           h0=int(model.hfield_adr[slot])
           original=model.hfield_data[h0:h0+4].copy()
-          assert max(original)<.95, 'source heightfield exceeds test headroom'
-          model.hfield_data[h0:h0+4]=[min(1.,float(h)+.04) for h in original]
-          data.mocap_pos[mid,2]=old_z
+          assert max(original)>.1, 'source heightfield should be nonflat'
+          model.hfield_data[h0:h0+4]=[.95*float(h) for h in original]
+          data.mocap_pos[mid,2]=old_z+.08
           mujoco.mj_forward(model,data)
           assert data.ncon>=1,'reused mutable terrain must restore real support'
           print('H40 LIVE HFIELD REUSE PASS:',
