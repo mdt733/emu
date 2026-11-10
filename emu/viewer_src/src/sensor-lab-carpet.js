@@ -16,11 +16,25 @@ const mod=(x,n)=>((x%n)+n)%n;
 const hash=(i,j,seed)=>{let a=(Math.imul(i|0,374761393)^
   Math.imul(j|0,668265263)^(seed|0))|0;
   a=Math.imul(a^(a>>>13),1274126177);return((a^(a>>>16))>>>0)/4294967296;};
-const smooth=t=>t*t*(3-2*t);
-function noise(x,y,seed){
-  const i=Math.floor(x),j=Math.floor(y),u=smooth(x-i),v=smooth(y-j);
-  const a=hash(i,j,seed),b=hash(i+1,j,seed),c=hash(i,j+1,seed),d=hash(i+1,j+1,seed);
-  return ((a+(b-a)*u)*(1-v)+(c+(d-c)*u)*v)*2-1;
+// Gradient noise is spatially continuous and has NO repeating sine
+// wavelengths. Hash random lattice *directions*, not heights; quintic
+// interpolation gives smooth terrain derivatives even across noise cells.
+// Precompute 16 directions once, never use trig during tile generation.
+const TAU=Math.PI*2;
+const GRADIENTS=Array.from({length:16},(_,k)=>[
+  Math.cos(k*TAU/16),Math.sin(k*TAU/16)
+]);
+const fade=t=>t*t*t*(t*(t*6-15)+10);
+function gradientNoise(x,y,seed){
+  const i=Math.floor(x),j=Math.floor(y),u=x-i,v=y-j;
+  const dot=(a,b,dx,dy)=>{
+    const g=GRADIENTS[Math.floor(hash(a,b,seed)*16)];
+    return g[0]*dx+g[1]*dy;
+  };
+  const a=dot(i,j,u,v),b=dot(i+1,j,u-1,v),
+        c=dot(i,j+1,u,v-1),d=dot(i+1,j+1,u-1,v-1);
+  const sx=fade(u),sy=fade(v);
+  return (a+(b-a)*sx)*(1-sy)+(c+(d-c)*sx)*sy;
 }
 
 // One authoritative viewer difficulty contract. Unlike the legacy specialist
@@ -64,25 +78,38 @@ function continuousRelief(x,y,config){
   const c=normalizedMeadowSettings(config);
   const peak=Math.tan(carpetLocalLimits(y,c).slopeDeg*Math.PI/180);
   if(peak===0)return 0;
-  const scale=c.hillScaleM/9.5;
-  const seed=c.seed,twopi=2*Math.PI;
-  // Three smoothly rotating terrain wavelengths. Their coefficients are
-  // calibrated so when "10°" is requested at y=0, ~90th-percentile
-  // physical 1m grades are ~10°. Most ground is milder; crests, saddles,
-  // side-slopes and ridges have naturally changing compass headings.
-  // The slow sine in each phase bends the contours rather than producing
-  // endless straight parallel embankments. No tile-based randomness here:
-  // every vertex shares one coherent global world-height source.
-  const p1=twopi*(.82*x+.57*y)/(9.5*scale)+
-    .32*Math.sin(twopi*(-.28*x+.96*y)/(31*scale)+.4+.05*(seed%7));
-  const p2=twopi*(-.44*x+.90*y)/(5.8*scale)+
-    .40*Math.sin(twopi*(.83*x+.55*y)/(21*scale)+1.9+.03*(seed%11));
-  const p3=twopi*(.17*x-.985*y)/(3.8*scale)+
-    .20*Math.sin(twopi*(.57*x-.82*y)/(12*scale)+2.3+.03*(seed%17));
-  return peak*scale/twopi*(
-    .90*9.5*Math.sin(p1)+
-    .48*5.8*Math.sin(p2+1.5)+
-    .16*3.8*Math.sin(p3-1.1));
+  const scale=c.hillScaleM/9.5,seed=c.seed;
+  const u=x/scale,v=y/scale;
+
+  // Gentle, large-scale domain warp breaks the straight contours and tidy
+  // parallel ridges of the old three-sine-wave terrain. Independent warp
+  // vectors wind the hill crests and valleys across *global* world space;
+  // adjacent squares always call this same continuous height function.
+  const wx=5.8*gradientNoise(u/19+.31,v/18-.82,seed+11)+
+           1.15*gradientNoise(u/8-.73,v/9+.42,seed+13);
+  const wy=5.8*gradientNoise(u/20-.67,v/17+.38,seed+17)+
+           1.15*gradientNoise(u/9+.59,v/8+.13,seed+19);
+  const X=u+wx,Y=v+wy;
+
+  // Hierarchical landforms: broad watersheds (~13 m), irregular rolling
+  // hills (~6 m), small weathered undulations (~4 m), and a subdued
+  // ridged/valley signal. Octaves use different orientations and seeds,
+  // so slopes bend, crest, flatten and change compass direction naturally.
+  // This is cheap procedural geomorphology, not simulated water erosion.
+  const broad=13*1.20*gradientNoise(X/13+.2,Y/12-.5,seed+31);
+  const rolling=6.4*.77*gradientNoise(
+    (.88*X-.48*Y)/6.4,(.48*X+.88*Y)/6.4,seed+37);
+  const detail=3.7*.25*gradientNoise(
+    (.68*X+.73*Y)/3.7,(-.73*X+.68*Y)/3.7,seed+41);
+  const basin=gradientNoise(X/11-.4,Y/10+.2,seed+47);
+  const ridges=11*.34*(.24-Math.abs(basin));
+
+  // Calibrated against ACTUAL 1m MuJoCo triangle slopes: a selected
+  // 10° frontier corresponds to ~10° near the 90th percentile, not a
+  // uniform ten-degree hillside. Most terrain is considerably gentler.
+  // Increasing hill size expands the landforms without changing typical
+  // grades. The +Y latitude envelope remains the sole difficulty control.
+  return peak*scale*.49*(broad+rolling+detail+ridges);
 }
 export function carpetTileCorners(i,j,config=MEADOW_DEFAULTS){
   const c=normalizedMeadowSettings(config),l=carpetLocalLimits(j+.5,c);
