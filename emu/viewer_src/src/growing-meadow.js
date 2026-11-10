@@ -142,15 +142,8 @@ export function createGrowingMeadowScenery(THREE,scene,park){
     // decorative patches just as it hides the old physical terrain.
     for(const [slot,mesh] of trees)
       mesh.visible=Boolean(park.tiles[slot]?.active);
-    for(const tile of park.window()){
+    for(const tile of park.window())
       if(!trees.has(tile.slot))createTree(tile);
-      for(let k=0;k<2;k++){
-        const x=tile.i+.18+.65*hash(tile.i+k+13,tile.j-31,park.seed);
-        const y=tile.j+.16+.68*hash(tile.i-17,tile.j+k+41,park.seed);
-        const z=park.sampleHeight(x,y);
-        if(Number.isFinite(z))flowers.push(x,y,z+.015);
-      }
-    }
     // Rebuild a tiny points-only tuft set. The set is bounded by 225 tiles.
     flowers.length=0;
     for(const tile of park.window())for(let k=0;k<2;k++){
