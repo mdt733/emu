@@ -347,7 +347,7 @@ export function withTerrain(robotXml,mode='flat',options={}) {
     // convex prisms are still the separate, unchanged reference physics.
     const geom=streamingCarpetXml(park);
     let xml=robotXml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
-    if(xml===robotXml)throw Error('Prism carpet needs source ground plane');
+    if(xml===robotXml)throw Error('Streaming CPU terrain requires the source ground plane');
     if(xml.includes('</asset>'))
       xml=xml.replace('</asset>',geom.assets+'\n</asset>');
     else xml=xml.replace('<worldbody>','<asset>'+geom.assets+'</asset>\n<worldbody>');
@@ -382,8 +382,8 @@ export function surfaceSlope(mode,park,x,y,robotHeading=0,lab=null) {
     return {supported:false,degrees:0,arrowDegrees:0};
   let gx=0,gy=0;
   if(mode==='carpet'){
-    // No square-world boundary assumption: use only the current ACTIVE
-    // prism. A sharp signed step must not be misreported as a local slope.
+    // No square-world boundary assumption: use the current 2x2 hfield.
+    // A discrete signed step must not be reported as continuous slope.
     if(!park||!Number.isFinite(park.sampleHeight(x,y)))
       return {supported:false,degrees:0,arrowDegrees:0};
     const tile=park.tileSizeM||1,i=Math.floor(x/tile),j=Math.floor(y/tile);
