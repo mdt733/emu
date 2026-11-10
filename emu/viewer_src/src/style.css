@@ -510,10 +510,7 @@ button:disabled { opacity: .4; cursor: default; }
 #viewerExercise {color:#a5f1d6;}
 @media(max-width:430px){.telemetry{width:196px}.telemetry-primary{gap:6px 7px}}
 
-/* Focused Carpet inspector: specialist selection first, then editable
-   role-scaled values. General preferences and sensor diagnostics are
-   collapsed at the bottom. No floating role/nav overlays on Carpet. */
-body[data-world="carpet"] .nav-hud {display:none !important;}
+/* One Infinite Meadow world. The historical training inspector stays collapsed. */
 .specialty-picker {display:flex !important;flex-direction:column;align-items:stretch !important;
   gap:7px !important;font-size:12px;font-weight:700;color:#c1f9e0;}
 .specialty-picker b {font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:#a8d4bf;}
