@@ -158,7 +158,7 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
         reward = reward + stride_pay
         payments['stride_efficiency'] = stride_pay
     # Position-based stair nursery: true measured reduction in distance
-    # to the centre of the NEXT 75cm physical tile, in a fixed global +X
+    # to the centre of the NEXT 1m physical tile, in a fixed global +X
     # frame. Changes in commanded speed do NOT erase or rebase this goal.
     # Positive approach pays, moving away is negative, standing still = 0;
     # oscillating around one location cannot accumulate positive distance.

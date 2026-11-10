@@ -16,7 +16,7 @@
 | Hardware truth | Mass, transmission, motor thermal/torque-speed, ToF PCB mapping and sim2real are provisional |
 | Source protection | Keep `main` champion and original private `final.pkl` untouched; code merges never silently retrain or republish actor |
 | Planning authority | [Issue #62](https://github.com/mdt733/emu/issues/62) controls task checkboxes and completion references; this page controls handover/context |
-| Next work | **64-world CUDA smoke passed** (2026-11-11, source/actor identity verified). Next: **separate paired 2048-world signed stair + flat CUDA exams**, same seed, frozen actor. See [issue #62](https://github.com/mdt733/emu/issues/62) for evidence and uncompleted full baseline. No PPO megacampaign yet |
+| Next work | **64-world CUDA smoke passed** (2026-11-11). Run **separate matched 2048-world signed stairs and flat** with current examiner; compare the saved per-world results using [PR #69](https://github.com/mdt733/emu/pull/69)'s read-only comparison mode, then investigate failures. No PPO megacampaign yet |
 
 ## Roadmap and branch strategy
 
@@ -46,7 +46,7 @@ Independent later: physical-model/calibration ledger; measured GPU performance.
 6. **Targeted PPO (P2, autopsy-dependent)** — one controlled hypothesis and matched no-change comparison; 2048-world GPU/contact/solver + source-pinned checkpoint gate; 20M cold acceptance before a long run. No improvement claim without independent signed UP/DOWN traversal **and** preserved flat gait/heading/resilience.
 7. **Physical fidelity + efficiency (P2–P3)** — measure hardware assumptions and small-batch full-contact/solver parity before changing high-speed approximation; then profile CUDA/JAX/MJX/WASM and keep setup and results workflow lean.
 
-**Acceptance for every PR:** `bash scripts/check.sh --quick`, `bash scripts/check.sh --full` as applicable, GitHub CI, read-only policy identity verification and actual physics/GPU smoke if that PR touches it. Publishing GitHub Pages is a separately gated, user-reviewed action. A good viewer clip, a training frontier or a successful workflow alone does not certify physical locomotion.
+**Acceptance risk tiers (owner preference):** do a careful diff review and meaningful quick checks; **do not wait/poll CI** before advancing or merging small documentation, UI or isolated read-only work. CI runs as a safety net and actual failures are fixed if reported. For physics, PPO, observation/actor contracts, source-pinned release and new GPU training, retain explicit physical/GPU acceptance. Publishing GitHub Pages is separately gated and user-reviewed. A good viewer clip, a training frontier or a successful workflow alone does not certify physical locomotion.
 
 **Completion convention:** tick a task **in issue #62 only when it passed its gates**; reference its PR/commit, the run/exam evidence (or 'docs-only') and cleanup. Update this file when the next recommended action or authoritative source changes. Leave retired experiments in Git history and concise conclusions in [research findings](docs/RESEARCH_FINDINGS.md), not as permanent one-off launch scripts.
 
@@ -131,6 +131,13 @@ python -m scripts.v5053_matrix_exam \
   --mode flat --worlds 2048 --trials-per-level 2000 \
   --horizon 350 --seed 1701 --device cuda
 # Keep matrix_worlds.csv and matrix_summary.json from EACH exam.
+# CPU-only comparison: reject unpaired worlds, different source fingerprints,
+# unmatched commands/seeds/robot, or unlabeled physical step geometry.
+python -m scripts.v5053_matrix_exam \
+  --compare-stairs ~/emu-data/exams/h40-stairs-2048-s1701 \
+  --compare-flat ~/emu-data/exams/h40-flat-2048-s1701 \
+  --output ~/emu-data/exams/h40-paired-stairs-flat-s1701
+# Inspect matrix_compare.md, matrix_pairs.csv and matrix_paired_curves.csv.
 # GPU training acceptance only on the approved source-pinned research branch:
 python -m emu.cli doctor --require-gpu
 ```

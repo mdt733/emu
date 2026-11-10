@@ -158,10 +158,9 @@ class TrainingConfig:
     # Compare only against a matched no-guidance branch after physics exams.
     motor_guidance_weight: float = 0.0
 
-    # G4 opt-in: allocate a fixed-topology finite platform from episode zero,
-    # but keep it physically buried throughout the flat foundation. Exposure
-    # and height are controlled independently by RegimeGovernor; both start 0.
-    # No learner/curriculum automatically activates terrain yet.
+    # Current H40 stores real-prism terrain difficulty in the same source-pinned
+    # configuration: zero means flat exposure, not a retired finite platform.
+    # The physical four-tile topology is always present.
     terrain_step_max_m: float = 0.0
     # v5023 overnight: off=historical sampling, speed=matched speed × ledge
     # coverage, foothold=same sampling plus first physical upper-foot touchdown.
@@ -202,10 +201,10 @@ class TrainingConfig:
     science_step_retreat_mm: float = 0.0    # zero = 0.82 multiplier
     science_step_min_attempts: int = 4     # per direction / near or easy
     # Streaming three-platform teaching from scratch; share ramps through births.
-    terrain_carpet: bool = False  # v5041 opt-in: 3x3 real two-triangle MJX terrain
-    terrain_carpet_prisms: bool = False  # v5043 research-only 18 true convex dynamic prisms
+    terrain_carpet: bool = False  # H40 requires true 2x2 one-metre tile terrain
+    terrain_carpet_prisms: bool = False  # H40 requires eight physical convex prisms
     carpet_transition_cap_deg: float = 3.0  # degree-bound for smoothly changing local gradients
-    academy_stream: bool = False  # opt-in: three recyclable real platforms
+    academy_stream: bool = False  # streamed lessons on the shared 2x2 prism world
     academy_intro_steps: int = 60_000_000
     academy_intro_share: float = 0.10
     academy_start_steps: int = 80_000_000
