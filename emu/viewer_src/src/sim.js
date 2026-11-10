@@ -1594,6 +1594,7 @@ export class EmuBrowserSim {
     if (this.cameraMode === 'orbit') this.controls.update();
     else if (this.cameraMode === 'chase') this.updateChaseCamera(dt);
     else this.updateFirstPersonCamera();
+    this.carpetScenery?.update(this.camera.position);
     this.renderer.render(this.scene, this.camera);
   }
 
