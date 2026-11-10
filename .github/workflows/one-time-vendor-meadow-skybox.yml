@@ -15,7 +15,7 @@ jobs:
       - name: Vendor the original user-owned Meadow panorama without recompression
         run: |
           set -euo pipefail
-          target=emu/viewer_src/public/meadow-skybox.png
+          target=emu/viewer_src/src/assets/meadow-skybox.png
           if test -f "$target"; then
             echo "Original panorama already vendored"
             exit 0
