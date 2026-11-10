@@ -183,16 +183,21 @@ test('infinite world: deterministic north difficulty and unlimited east/west rev
   assert.ok(hard.difficulty>1);
   assert.ok(easy.slopeDeg<base.slopeDeg&&base.slopeDeg<hard.slopeDeg);
   assert.ok(easy.stepUpM<base.stepUpM&&base.stepUpM<hard.stepUpM);
-  const meanGrade=y=>{
-    let sum=0;
-    for(let x=-18;x<=18;x++){
+  const meanGrade=latitude=>{
+    let sum=0,count=0;
+    // Natural hills include flats, saddles and ridges. Verify that the
+    // NORTH difficulty trend holds statistically over a broad landscape,
+    // not that every arbitrary 37m strip north is steeper than one south.
+    for(let y=latitude-3;y<=latitude+3;y++)for(let x=-90;x<=90;x++){
       const [a,b,c]=carpetTileCorners(x,y,config);
-      sum+=Math.hypot(b-a,c-a);
+      sum+=Math.hypot(b-a,c-a);count++;
     }
-    return sum/37;
+    return sum/count;
   };
-  assert.ok(meanGrade(35)>meanGrade(-25)*2.2,
-    'actual physical slope magnitudes must rise north, not just a UI number');
+  const south=meanGrade(-25),north=meanGrade(35);
+  assert.ok(north>south*2.2,
+    'actual physical landscape must steepen statistically north: '+
+    north.toFixed(4)+' vs '+south.toFixed(4));
   assert.notDeepEqual(carpetTileCorners(5,35,config),
     carpetTileCorners(6,35,config),
     'east/west must vary terrain without changing the latitude envelope');
