@@ -180,6 +180,19 @@ test('infinite world: deterministic north difficulty and unlimited east/west rev
   assert.equal(hard.difficulty,1);
   assert.ok(easy.slopeDeg<base.slopeDeg&&base.slopeDeg<hard.slopeDeg);
   assert.ok(easy.stepUpM<base.stepUpM&&base.stepUpM<hard.stepUpM);
+  const meanGrade=y=>{
+    let sum=0;
+    for(let x=-18;x<=18;x++){
+      const [a,b,c]=carpetTileCorners(x,y,config);
+      sum+=Math.hypot(b-a,c-a);
+    }
+    return sum/37;
+  };
+  assert.ok(meanGrade(35)>meanGrade(-25)*5,
+    'actual physical slope magnitudes must rise north, not just a UI number');
+  assert.notDeepEqual(carpetTileCorners(5,35,config),
+    carpetTileCorners(6,35,config),
+    'east/west must vary terrain without changing the latitude envelope');
   assert.deepEqual(carpetLocalLimits(50,config),carpetLocalLimits(50,config));
   const park=createSensorLabCarpet(config);
   const origin=carpetTileCorners(0,0,config);
