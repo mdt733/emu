@@ -726,6 +726,15 @@ carpetDrive.addEventListener('change',()=>{
   syncCarpetExercise();
 });
 carpetShoves.addEventListener('change',syncCarpetExercise);
+const meadowPresets=Object.freeze({
+  gentle:{hillPeakDeg:2,hillScaleM:12,stepUpM:0,stepDownM:0,
+    stepFrequency:0,northGainPerM:.015},
+  rolling:{...MEADOW_DEFAULTS},
+  rugged:{hillPeakDeg:10,hillScaleM:8.5,stepUpM:.02,stepDownM:.02,
+    stepFrequency:.28,northGainPerM:.022},
+  extreme:{hillPeakDeg:15,hillScaleM:6.5,stepUpM:.04,stepDownM:.04,
+    stepFrequency:.45,northGainPerM:.03}
+});
 const meadowControls=[
   ['hillPeakDeg','meadowHill',v=>v.toFixed(1)+'°'],
   ['hillScaleM','meadowSize',v=>v.toFixed(1)+' m'],
@@ -750,6 +759,7 @@ function applyMeadowControls(){
   for(const [key,id,,conversion=1] of meadowControls)
     next[key]=Number($(id).value)*conversion;
   meadowSettings=normalizedMeadowSettings(next);
+  $('meadowPreset').value='custom';
   renderMeadowControls();
   try{
     sim?.setMeadowSettings(meadowSettings);
@@ -762,8 +772,18 @@ for(const [key,id,fmt] of meadowControls){
   $(id).addEventListener('input',()=>{$(id+'Out').textContent=fmt(Number($(id).value));});
   $(id).addEventListener('change',applyMeadowControls);
 }
+$('meadowPreset').addEventListener('change',()=>{
+  const preset=meadowPresets[$('meadowPreset').value];
+  if(!preset)return; // 'custom' keeps the current physical settings
+  meadowSettings=normalizedMeadowSettings({...MEADOW_DEFAULTS,...preset});
+  renderMeadowControls();
+  try{sim?.setMeadowSettings(meadowSettings);}
+  catch(err){setStatus('Meadow terrain: '+String(err?.message||err),'error');}
+  syncCarpetExercise();
+});
 $('meadowReset').addEventListener('click',()=>{
   meadowSettings={...MEADOW_DEFAULTS};
+  $('meadowPreset').value='rolling';
   renderMeadowControls();
   sim?.setMeadowSettings(meadowSettings);
   syncCarpetExercise();
