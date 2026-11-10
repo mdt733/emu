@@ -2,10 +2,11 @@
 from __future__ import annotations
 
 import unittest
+from dataclasses import asdict
 import numpy as np
 
 from scripts.v5053_matrix_exam import (
-    assignments,reduce_results,wilson_95)
+    assignments,reduce_results,wilson_95,compare_paired_exams,PAIRED_GATES)
 from emu.terrain_carpet_mjx import (
     TILE_M,exact_exam_lip_profiles,tile_geometry)
 
@@ -101,6 +102,52 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(flat_curve[0]["completed_destinations"],1)
         self.assertEqual(flat_curve[0]["traversed_5frame"],1)
 
+
+
+    def test_same_index_paired_flat_comparison_rejects_false_pairs(self):
+        stairs=assignments(4,mode="stairs",levels=1,trials_per_level=2)
+        flats=assignments(4,mode="flat",trials_per_level=4)
+        def row(t,ok):
+            record=asdict(t)
+            record["actual_lip_m"]=t.exact_step_m
+            record["speed_mae_mps"]=.02 if t.kind=="flat_control" else .05
+            for key in PAIRED_GATES:
+                record[key]=str(ok)  # same strings read from CSV
+            return record
+        sr=[row(t,i%2==0) for i,t in enumerate(stairs)]
+        fr=[row(t,True) for t in flats]
+        common=dict(schema="h40_true_prism_heterogeneous_matrix_v4",
+                    policy_sha256="policy",actor_sha256="weights",
+                    robot_model_sha256="model",actor_training_source={"step":120061952},
+                    exam_source_sha256="same-exam-source",
+                    seed=1701,worlds=4,horizon=350,device="gpu",
+                    collision="8 true prisms",first_life_only=True,
+                    zero_optimizer_updates=True,assigned_worlds=4)
+        up={"manifest":dict(common,mode="stairs")}
+        flat={"manifest":dict(common,mode="flat")}
+        pairs,curves=compare_paired_exams(up,sr,flat,fr)
+        self.assertEqual(len(pairs),4)
+        self.assertEqual(len(curves),2)
+        for entry in curves:
+            self.assertEqual(entry["pairs"],2)
+            self.assertEqual(entry["traversed_5frame_stair"],1)
+            self.assertEqual(entry["traversed_5frame_flat"],2)
+            self.assertEqual(entry["traversed_5frame_lost"],1)
+            self.assertEqual(entry["traversed_5frame_gained"],0)
+            self.assertEqual(entry["traversed_5frame_difference_pct"],-50.)
+            self.assertAlmostEqual(entry["speed_mae_excess_mps"],.03)
+        with self.assertRaisesRegex(ValueError,"exam_source_sha256"):
+            compare_paired_exams(up,sr,{"manifest":dict(flat["manifest"],exam_source_sha256="different")},fr)
+        with self.assertRaisesRegex(ValueError,"seed"):
+            compare_paired_exams(up,sr,{"manifest":dict(flat["manifest"],seed=99)},fr)
+        with self.assertRaisesRegex(ValueError,"misindexed"):
+            compare_paired_exams(up,sr,flat,fr[:-1])
+        with self.assertRaisesRegex(ValueError,"unmatched vx"):
+            compare_paired_exams(up,sr,flat,[dict(fr[0],vx=.12),*fr[1:]])
+        with self.assertRaisesRegex(ValueError,"mismatched physical seam"):
+            compare_paired_exams(up,sr,flat,[dict(fr[0],actual_lip_m=.01),*fr[1:]])
+        with self.assertRaisesRegex(ValueError,"Unrecognised physical"):
+            compare_paired_exams(up,[dict(sr[0],traversed_5frame="maybe"),*sr[1:]],flat,fr)
 
     def test_signed_exact_step_and_continuous_grade_geometry(self):
         heights=np.array([.0025,.05,-.0375,0.],np.float32)
