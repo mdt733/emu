@@ -5,6 +5,7 @@ import { joystickToCommands, DemoHandoff, commandStickPositions } from './contro
 import { EmuBrowserSim } from './sim.js';
 import { terrainHeightOffsetsCm } from './sensor.js';
 import { CARPET_DEFAULT, parseCarpetMetrics, trainingLimits } from './training-carpet.js';
+import { MEADOW_DEFAULTS, normalizedMeadowSettings } from './sensor-lab-carpet.js';
 import { carpetLearningStage, carpetRepresentativeRole, terrainRoleEnvelope } from './training-solid-carpet.js';
 import { specialistLesson, friendlyFrontiers, SLIDER_FIELDS, roleSliders, customRoleOverride, carpetGeometrySignature } from './training-inspector.js';
 import { GoalNavigator } from './goal-navigation.js';
@@ -41,6 +42,8 @@ let carpetExerciseClock=0;
 let carpetLastExercise='';
 
 let carpetDifficulty={...CARPET_DEFAULT};
+// The sole physical authority for Meadow geology, independent of specialists.
+let meadowSettings={...MEADOW_DEFAULTS};
 let carpetSource='Illustrative defaults';
 let carpetFetching=false;
 let carpetLastAppliedSignature='';
@@ -298,6 +301,7 @@ async function activatePolicy(index) {
     sim.setParkChallengeLevel(parkChallengeLevel.value);
     sim.setTrainingCarpet({role:carpetRepresentativeRole(carpetEffectiveLimits(),carpetRole.value),
                            limits:carpetEffectiveLimits()});
+    sim.setMeadowSettings(meadowSettings);
     sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
     updateParkCourseInfo();
     updateDepthSettings();
@@ -482,16 +486,13 @@ function syncCarpetExercise(){
   }
   const lesson=currentCarpetLesson();
   sim.autoReset=carpetDrive.value==='lesson'||autoResetToggle.checked;
-  // In matched mode use only the configured physical ceiling, not a
-  // standalone teacher frontier that might be physically unattainable.
-  const actualPush=carpetMatch.checked
-    ?Math.min(lesson.caps.push,Number(carpetDifficulty.pushMaxForceN??4))
-    :lesson.caps.push;
+  // Optional physical shoves obey the unified Meadow settings, NOT
+  // training specialist settings or an invisible teacher assignment.
+  const strength=Number($('meadowShove').value)/100;
   sim.setShovePreview({
-    enabled:carpetShoves.checked && lesson.intensity>0 &&
-      (lesson.role==='resilience'||!carpetMatch.checked),
-    forceLimitN:carpetShoves.checked?Math.max(0,actualPush):0,
-    intensity:lesson.intensity,
+    enabled:carpetShoves.checked&&strength>0,
+    forceLimitN:carpetShoves.checked?4*strength:0,
+    intensity:strength,
     mode:carpetPushRate.value
   });
   if(carpetDrive.value==='lesson'&&demoActive)stopDemo();
@@ -562,8 +563,8 @@ function renderCarpetValues(){
     (carpetDifficulty.trainingCarpetPrisms
       ? 'SOURCE: 4 recycled convex-prism MJX tiles. VIEWER: 225 runtime-updated heightfield tiles.'
       : 'VIEWER: infinite coordinates, 225 moving CPU heightfields; not an exact MJX prism exam.'),
-    `Global grade ${Number(carpetDifficulty.slopeDeg||0).toFixed(2)}°; physical role ${lesson.terrain.slopeDeg.toFixed(3)}°`,
-    `Physical up/down ${(lesson.terrain.stepUpM*1000).toFixed(3)} / ${(lesson.terrain.stepDownM*1000).toFixed(3)} mm`,
+    `Training frontier slope ${Number(carpetDifficulty.slopeDeg||0).toFixed(2)}°; specialist target ${lesson.terrain.slopeDeg.toFixed(3)}° (INSPECTOR ONLY)`,
+    `Inspector target up/down ${(lesson.terrain.stepUpM*1000).toFixed(3)} / ${(lesson.terrain.stepDownM*1000).toFixed(3)} mm (NOT Meadow terrain)`,
     `Role velocity ${f.speed} · strafe ${f.lateral} · yaw ${f.yaw}`,
     `Push cap ${f.shove} · effective push chance fraction ${lesson.intensity.toFixed(3)}`,
     `Recovery at spawn (different quantity): ${lesson.birthRecovery.toFixed(2)}`,
@@ -620,7 +621,7 @@ function applyCarpetTerrain(automatic=false){
     carpetLastAppliedSignature=signature;
     syncCarpetExercise();
     carpetStatus.textContent=(automatic?'Auto-followed':'Applied')+
-      ' this specialist preview. Only the browser world may reset.';
+      ' this specialist exercise. Meadow terrain remains controlled above.';
   }catch(err){setStatus('Training terrain: '+err.message,'error');}
 }
 function updateTerrain(){
@@ -725,6 +726,53 @@ carpetDrive.addEventListener('change',()=>{
   syncCarpetExercise();
 });
 carpetShoves.addEventListener('change',syncCarpetExercise);
+const meadowControls=[
+  ['hillPeakDeg','meadowHill',v=>v.toFixed(1)+'°'],
+  ['hillScaleM','meadowSize',v=>v.toFixed(1)+' m'],
+  ['stepUpM','meadowUp',v=>v.toFixed(1)+' cm',.01],
+  ['stepDownM','meadowDown',v=>v.toFixed(1)+' cm',.01],
+  ['stepFrequency','meadowSteps',v=>v.toFixed(0)+'%',.01],
+  ['northGainPerM','meadowNorth',v=>v.toFixed(1)+'% / m',.01]
+];
+function renderMeadowControls(){
+  for(const [key,id,fmt,conversion=1] of meadowControls){
+    $(id).value=String(meadowSettings[key]/conversion);
+    $(id+'Out').textContent=fmt(Number($(id).value));
+  }
+  $('meadowDifficultyInfo').textContent=
+    'Natural hills regularly approach '+meadowSettings.hillPeakDeg.toFixed(1)+
+    '° at the starting latitude, alternating from gentle valleys to ridges.'+
+    ' North difficulty rises '+(meadowSettings.northGainPerM*100).toFixed(1)+
+    '% per metre; south is easier; east and west vary the shapes at the same level.';
+}
+function applyMeadowControls(){
+  const next={...meadowSettings};
+  for(const [key,id,,conversion=1] of meadowControls)
+    next[key]=Number($(id).value)*conversion;
+  meadowSettings=normalizedMeadowSettings(next);
+  renderMeadowControls();
+  try{
+    sim?.setMeadowSettings(meadowSettings);
+    if(sim?.terrainMode==='carpet')
+      carpetStatus.textContent='New hills applied; viewer robot reset to protect foot contacts.';
+    syncCarpetExercise();
+  }catch(err){setStatus('Meadow terrain: '+String(err?.message||err),'error');}
+}
+for(const [key,id,fmt] of meadowControls){
+  $(id).addEventListener('input',()=>{$(id+'Out').textContent=fmt(Number($(id).value));});
+  $(id).addEventListener('change',applyMeadowControls);
+}
+$('meadowReset').addEventListener('click',()=>{
+  meadowSettings={...MEADOW_DEFAULTS};
+  renderMeadowControls();
+  sim?.setMeadowSettings(meadowSettings);
+  syncCarpetExercise();
+});
+renderMeadowControls();
+$('meadowShove').addEventListener('input',()=>{
+  $('meadowShoveOut').textContent=$('meadowShove').value+'%';
+});
+$('meadowShove').addEventListener('change',syncCarpetExercise);
 carpetPushRate.addEventListener('change',syncCarpetExercise);
 carpetTestShove.addEventListener('click',()=>{
   if(sim&&terrainMode.value==='carpet'&&!sim.triggerShove())
@@ -995,8 +1043,9 @@ function updateTelemetry(now, dt) {
   const local=sim.park?.physics==='streaming-heightfield'
     ?sim.park.difficultyAt(worldY):null;
   $('carpetGrowth').textContent=local
-    ? Math.round(100*local.difficulty)+'% · '+Math.abs(worldY).toFixed(1)+
-      'm '+(worldY>=0?'N':'S')+' · '+sim.park.tiles.length+' live tiles'
+    ? Math.round(100*local.difficulty)+'% difficulty · '+
+      local.slopeDeg.toFixed(1)+'° hill peaks · '+
+      Math.abs(worldY).toFixed(1)+'m '+(worldY>=0?'N':'S')
     :'—';
   $('slopeArrow').hidden = !s.supported || s.flat;
   $('slopeArrow').style.transform = `rotate(${s.arrowDegrees.toFixed(1)}deg)`;
