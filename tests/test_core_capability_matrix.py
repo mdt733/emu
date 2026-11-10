@@ -106,7 +106,8 @@ class MatrixExamTests(unittest.TestCase):
 
 
 
-    def test_same_index_paired_flat_comparison_rejects_false_pairs(self):
+        # Same basic-assignment test also verifies identical-world pairing.
+        # Keep one core case, not a separate test-of-the-comparison test.
         stairs=assignments(4,mode="stairs",levels=1,trials_per_level=2)
         flats=assignments(4,mode="flat",trials_per_level=4)
         def row(t,ok):
