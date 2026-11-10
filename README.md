@@ -23,7 +23,7 @@ The owner-selected H40 actor was trained **from scratch to 120,061,952 world ste
 | Exported policy SHA-256 | `178c201af661d3172d701a7d1d8a7711f9b2106e1f7058bc4902aa9c64a37c7a` |
 | Sensor contract SHA-256 | `d8f559641d240f6eb4bd54a3dc7e96f414994682ebc1b478209df202cc903995` |
 
-**Capability status:** The owner reports a stable, fast gait and successful slopes up to about 15° in viewer use. That is **not** an independent frozen MJX exam. **Reliable step ascent remains unsolved.** Do not label the browser's static carpet or park as equivalent to MJX recycling terrain. Never use this policy to imply tested hardware feasibility.
+**Capability status:** The owner reports a stable, fast gait and successful slopes up to about 15° in viewer use. That is **not** an independent frozen MJX exam. **Reliable step ascent remains unsolved.** Infinite Meadow's streaming CPU heightfields are a qualitative playground, **not** the GPU trainer's eight convex-prism physics or a step-certification exam. Never use this policy to imply tested hardware feasibility.
 
 The exact training `final.pkl`, its normalizer/optimizer state, logs and GPU run directory stay **outside Git**, frozen in `~/emu-data/runs/h40-1m-tof70-120m-s735/` on the training PC. The checked-in `.emupolicy` contains only the deployable actor and its model/sensor contract.
 
@@ -36,7 +36,7 @@ python -m emu.cli viewer-build
 python -m emu.cli viewer showcase/champion.emupolicy --no-open --port 8765
 ```
 
-Open [http://127.0.0.1:8765/](http://127.0.0.1:8765/). **Field** mode is useful for longer gait/slope inspection; **Training Carpet** is a fixed 2×2 m, eight-prism CPU fixture, not the endless MJX terrain. No GPU training environment is needed for playback.
+Open [http://127.0.0.1:8765/](http://127.0.0.1:8765/). **Infinite Meadow is the only viewer world and the public showcase's default.** A seeded 15×15 m physical CPU heightfield window streams indefinitely through natural hills; +Y north gradually increases hill and step difficulty, and returning to old coordinates reproduces the same ground and walk-through trees. It features the original locally bundled Meadow panorama. The public trained-policy showcase begins with an optional **scripted eastbound stroll** (not learned navigation), and joystick/WASD takes manual control. No GPU training environment is needed for playback.
 
 For the **untrained geometry/ToF calibration lab**:
 
