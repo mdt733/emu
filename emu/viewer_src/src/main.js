@@ -512,8 +512,9 @@ function renderCarpetValues(){
   }[stage];
   $('carpetContext').textContent=`${lesson.heading}: ${lesson.description}.
     ${measured?'Training targets (not achieved skill).':'Editable viewer scenario; NOT live training difficulty.'}
-    Growing physical Carpet: real prism tiles expand ahead and remain behind.
-    The Meadow scenery is decorative; the CPU scene is not a held-out MJX exam.`;
+    Infinite procedural Meadow: terrain increases in difficulty to the NORTH (+Y),
+    becomes easier to the south and varies at steady difficulty east/west.
+    15×15m collision window, deterministic return visits, extra visual fallaway.`;
   if(terrainMode.value==='carpet')$('viewerExercise').textContent=lesson.heading;
   const values=roleSliders(base,carpetRole.value);
   for(const [key,id,unit,,digits] of SLIDER_FIELDS){
@@ -558,8 +559,8 @@ function renderCarpetValues(){
     `Source: ${carpetDifficulty.source==='training'?carpetDifficulty.run:'Illustrative defaults'}`,
     `Age ${Number(carpetDifficulty.step||0).toLocaleString()} steps · phase: ${phase}`,
     (carpetDifficulty.trainingCarpetPrisms
-      ? 'SOURCE: 4 recycled MJX tiles. BROWSER: 15×15m growing physical reserve, no tile recycling.'
-      : 'BROWSER: up to 225 real 1m CPU tiles, revealed as EMU walks; no MJX replay.'),
+      ? 'SOURCE: 4 recycled convex-prism MJX tiles. VIEWER: 225 runtime-updated heightfield tiles.'
+      : 'VIEWER: infinite coordinates, 225 moving CPU heightfields; not an exact MJX prism exam.'),
     `Global grade ${Number(carpetDifficulty.slopeDeg||0).toFixed(2)}°; physical role ${lesson.terrain.slopeDeg.toFixed(3)}°`,
     `Physical up/down ${(lesson.terrain.stepUpM*1000).toFixed(3)} / ${(lesson.terrain.stepDownM*1000).toFixed(3)} mm`,
     `Role velocity ${f.speed} · strafe ${f.lateral} · yaw ${f.yaw}`,
@@ -989,9 +990,13 @@ function updateTelemetry(now, dt) {
   const s = t.slope;
   $('slopeRead').textContent = !s.supported ? 'No terrain underfoot'
     : s.flat ? '0.0° · level' : `${s.degrees.toFixed(1)}°`;
-  $('carpetGrowth').textContent=sim.park?.physics==='growing-prism-field'
-    ? sim.park.count().toLocaleString()+' / '+sim.park.tiles.length.toLocaleString()
-    : '—';
+  const worldY=Number(sim.data?.qpos?.[1]??0);
+  const local=sim.park?.physics==='streaming-heightfield'
+    ?sim.park.difficultyAt(worldY):null;
+  $('carpetGrowth').textContent=local
+    ? Math.round(100*local.difficulty)+'% · '+Math.abs(worldY).toFixed(1)+
+      'm '+(worldY>=0?'N':'S')+' · '+sim.park.tiles.length+' live tiles'
+    :'—';
   $('slopeArrow').hidden = !s.supported || s.flat;
   $('slopeArrow').style.transform = `rotate(${s.arrowDegrees.toFixed(1)}deg)`;
   $('leanRead').textContent = `${fmtSigned(deg(t.robotLean),1)}°`;
@@ -1216,8 +1221,8 @@ async function startViewerFeed() {
         }
         if (config.live) {
           discoverCarpetFromLive=true;
-          // Current real-prism sources auto-enter the growing CPU Carpet.
-          // This is a precompiled finite field, not MJX per-world recycling.
+          // Current real-prism sources auto-enter the infinite-coordinate CPU Meadow.
+          // Its recycled heightfields are NOT the MJX convex-prism teacher.
           // The frozen champion and older runs keep the
           // original Terrain Park until the user explicitly selects it.
           await refreshCarpetLive(true);
