@@ -1,6 +1,6 @@
 """v5053: one GPU matrix of independent physical capability trials.
 
-Read-only frozen .emupolicy evaluation. EXACT signed 75cm-seam steps and
+Read-only frozen .emupolicy evaluation. EXACT signed 1m-seam steps and
 continuous signed grades use the same 8 real convex prisms as live training.
 The per-world result accumulator is JIT-compiled and returns no traces.
 Nothing here updates a neural weight, optimizer or curriculum.
@@ -74,19 +74,22 @@ def trial_spec(kind: str, level: int, levels: int, replicate: int, world: int) -
 
 def assignments(worlds: int, *, mode: str="balanced", levels: int=20,
                 trials_per_level: int|None=None) -> list[Trial]:
-    if mode not in ("balanced","stairs","flat") or not 1<=levels<=40 or worlds<2:
+    if mode not in ("balanced","stairs","stairs_up","stairs_down","flat") or not 1<=levels<=40 or worlds<2:
         raise ValueError("invalid matrix mode/geometry")
     if mode=="flat":
         levels=1  # A zero-height seam, exactly matched to the stair commands.
-    trials=10 if trials_per_level is None and mode=="balanced" else (
-        100 if trials_per_level is None else trials_per_level)
+    trials=(10 if mode=="balanced" else 50 if mode=="stairs" else 100)
+    if trials_per_level is not None:
+        trials=trials_per_level
     # Matched flat-vs-stair evaluation needs all 2,000 *same indexed*
     # reset keys in a 2,048-world JAX batch. Other modes keep their cap.
     cap=2000 if mode=="flat" else 1000
     if not 1<=trials<=cap:
         raise ValueError(f"trials_per_level must be 1..{cap} for {mode}")
-    kinds=KINDS if mode=="balanced" else (
-        ("flat_control",) if mode=="flat" else ("step_up",))
+    kinds=(KINDS if mode=="balanced" else
+           ("flat_control",) if mode=="flat" else
+           ("step_up","step_down") if mode=="stairs" else
+           ("step_up",) if mode=="stairs_up" else ("step_down",))
     count=len(kinds)*levels*trials
     if count>worlds:
         raise ValueError(
@@ -299,13 +302,13 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     save_csv(output/"matrix_worlds.csv",detail)
     save_csv(output/"matrix_curve.csv",curves)
     manifest=dict(
-        schema="v5053_true_prism_heterogeneous_matrix_v3",
+        schema="h40_true_prism_heterogeneous_matrix_v4",
         actor_sha256=hashlib.sha256(policy.read_bytes()).hexdigest(),
         actor_training_source=actor["source"],
         seed=seed,worlds=worlds,assigned_worlds=len(detail),
         horizon=horizon,mode=mode,levels=levels,
         trials_per_level=trials_per_level if trials_per_level is not None
-                           else (10 if mode=="balanced" else 100),
+                           else (10 if mode=="balanced" else 50 if mode=="stairs" else 100),
         device=jax.default_backend(),wall_seconds=round(wall,3),
         world_steps_per_second=round(worlds*horizon/max(wall,.001),1),
         collision="8 real convex-triangle prisms, 4 source tiles, exact signed exam-only X seam",
@@ -318,8 +321,8 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
         worlds_csv="matrix_worlds.csv",curve_csv="matrix_curve.csv")
     (output/"matrix_summary.json").write_text(
         json.dumps(dict(manifest=manifest,curves=curves),indent=2)+"\n")
-    up=[x for x in curves if x["kind"] in ("step_up","flat_control")]
-    lines=["# v5053 heterogeneous GPU physical capability matrix","",
+    stair_rows=[x for x in curves if x["kind"] in ("step_up","step_down","flat_control")]
+    lines=["# H40 heterogeneous GPU physical capability matrix","",
            f"Actor SHA256: `{manifest['actor_sha256']}`",
            f"Hardware backend: {manifest['device']}; "
            f"worlds={worlds}, physical frames={horizon}, "
@@ -327,7 +330,10 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
            "Both-feet contact, continuous traversal and strict stable arrival",
            "are three DIFFERENT physical outcomes. Original strict score is",
            "preserved; traversal does not require a stop or low stance slip.",
+           "Signed step heights: positive = uphill, negative = downhill.",
            "The flat control is a real zero-height seam at 0.25m/s.",
+           "The stairs mode uses 50 trials per height and direction (2,000",
+           "active worlds); stairs_up/stairs_down use 100 per height.",
            "For a truly paired random-reset comparison, use the same 2,048",
            "world batch and seed in BOTH modes (2,000 active flat trials).",
            "A 128-world flat batch does not share the same per-world JAX",
@@ -335,7 +341,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
            "## Upright stair traversal versus strict arrival","",
            "| Height | Trials | Lead top | Both feet >=5 | Cross after feet | Traversed 5f | Strict stable |",
            "|---:|---:|---:|---:|---:|---:|---:|"]
-    for x in up:
+    for x in stair_rows:
         lines.append(
             f"| {x['requested_step_mm']:.1f}mm | {x['worlds']} | "
             f"{x['leading_top']} | {x['each_foot_top_five']} | "
@@ -345,7 +351,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     lines+=["","## Why didn't the robot traverse or arrive?","",
             "| Height | Cross (after feet) | 5f upright crossing | 5f also within Y lane | 5f also aligned | X window after feet | X+Y after feet | Mean X at both-feet proof |",
             "|---:|---:|---:|---:|---:|---:|---:|---:|"]
-    for x in up:
+    for x in stair_rows:
         first=(f"{x['first_both_foot_x_mean_m']:.3f}m"
                if x["first_both_foot_x_mean_m"] is not None else "—")
         lines.append(
@@ -362,7 +368,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
             "## Ordered strict-arrival gates (ever reached within first life)","",
             "| Height | Goal line | After both feet | Inside goal window | Heading | Upright/support/contact | Also low slip | Five stable frames |",
             "|---:|---:|---:|---:|---:|---:|---:|---:|"]
-    for x in up:
+    for x in stair_rows:
         lines.append(
             f"| {x['requested_step_mm']:.1f}mm | {x['goal_line_crossed']} | "
             f"{x['goal_line_after_both']} | {x['goal_window_after_both']} | "
@@ -399,7 +405,7 @@ def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("--policy",type=Path,required=True)
     p.add_argument("--output",type=Path,required=True)
-    p.add_argument("--mode",choices=("balanced","stairs","flat"),default="balanced")
+    p.add_argument("--mode",choices=("balanced","stairs","stairs_up","stairs_down","flat"),default="balanced")
     p.add_argument("--worlds",type=int,default=2048)
     p.add_argument("--horizon",type=int,default=350)
     p.add_argument("--seed",type=int,default=1701)
