@@ -172,7 +172,10 @@ def one_run_config(args) -> TrainingConfig:
         if not math.isfinite(value) or not lo<=value<=hi:
             raise ValueError(f'{key} must be finite and in [{lo},{hi}]')
         science_args[key]=value
+    school_v1=bool(getattr(args,'science_stair_school_v1',False))
     finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
+    if school_v1 and (not finish_on_transfer or not academy_stream):
+        raise ValueError('--science-stair-school-v1 requires --academy-stream and --science-step-finish-on-transfer')
     if finish_on_transfer and not academy_stream:
         raise ValueError('--science-step-finish-on-transfer requires Academy stream')
     approach=science_args['science_step_approach_m']
@@ -201,6 +204,7 @@ def one_run_config(args) -> TrainingConfig:
                    terrain_lesson=terrain_lesson, force_program=force_program,
                    temporal_vx_reward_share=temporal_share,
                    science_gate_mode=science_gate,
+                   science_stair_school_v1=school_v1,
                    science_step_finish_on_transfer=finish_on_transfer,
                    **science_args,
                    stillness_birth_frac=stillness_birth_frac,
