@@ -43,8 +43,11 @@ function continuousRelief(x,y,config){
   const slope=Math.tan(caps.slopeDeg*Math.PI/180);
   // Smooth global vertex noise. Max derivatives are bounded by the user
   // slope envelope; no strong north-facing ramp accumulates without limit.
-  return (noise(x/3.4,y/3.4,seed)*.30+
-    noise(x/1.9+.3,y/1.9-.7,seed+17)*.09)*slope;
+  // Two wavelengths give long walkable grades and small foothold
+  // undulations; at the northern cap they approach (but should not
+  // routinely exceed) the configured slope ceiling.
+  return (noise(x/3.4,y/3.4,seed)*.48+
+    noise(x/1.9+.3,y/1.9-.7,seed+17)*.17)*slope;
 }
 export function carpetTileCorners(i,j,config={}){
   const seed=Math.floor(number(config.seed,735));
