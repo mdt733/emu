@@ -1,6 +1,6 @@
 # EMU — retained research findings
 
-**Current source:** [H40 handover](../handover.md). This is a concise **evidence ledger**, not a second set of runbooks. The full 2026 experiments, source, commands, reports and discarded proposals remain in [the pre-cleanup Git snapshot](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs) and their original PRs. Each result below identifies **its own** physics, source, seeds and exam fixtures. Historical v50xx results must **not** be treated as H40's measured capability; the H40 preliminary CUDA smoke is identified explicitly.
+**Current source:** [H40 handover](../handover.md). This is a concise **evidence ledger**, not a second set of runbooks. The full 2026 experiments, source, commands, reports and discarded proposals remain in [the pre-cleanup Git snapshot](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs) and their original PRs. Each result below identifies **its own** physics, source, seeds and exam fixtures. Historical v50xx results must **not** be treated as H40's measured capability; the matched frozen-H40 CUDA study below is the current measured stair baseline.
 
 ## H40 2,000 same-world frozen-actor signed stair vs flat — 11 November 2026
 
