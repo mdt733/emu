@@ -27,7 +27,7 @@ export function createGrowingMeadowScenery(THREE,scene,park){
   // Original user-owned Meadow skybox.png is the preferred panorama.
   // This viewer is not a copy of Meadow's WebGL engine; sample the SAME
   // 360° equirectangular image directly in a lightweight Three.js sphere.
-  // Until the image downloads (or offline), retain a procedural fallback.
+  // Until the image loads, retain the original procedural fallback.
   const skyFallback=new THREE.DataTexture(
     new Uint8Array([126,178,222,255]),1,1,THREE.RGBAFormat);
   skyFallback.needsUpdate=true;
@@ -83,9 +83,9 @@ export function createGrowingMeadowScenery(THREE,scene,park){
     })
   );
   sky.name='Original Meadow panorama with procedural offline fallback';
-  // Download the exact panorama already committed in the user's Meadow repo.
-  // CORS on raw.githubusercontent.com permits use as a WebGL texture.
-  const originalSkyUrl='https://raw.githubusercontent.com/mdt733/meadow/6a56516386883c820a8b5ae283101c7dd636728f/skybox.png';
+  // Exact original Meadow PNG is vendored locally (same Git blob SHA).
+  // Vite bundles the image from this source-relative URL for offline use.
+  const originalSkyUrl=new URL('./assets/meadow-skybox.png',import.meta.url).href;
   new THREE.TextureLoader().load(originalSkyUrl,texture=>{
     if(skyDisposed){texture.dispose();return;}
     texture.flipY=false;
@@ -97,7 +97,7 @@ export function createGrowingMeadowScenery(THREE,scene,park){
     sky.material.uniforms.uSky.value=texture;
     sky.material.uniforms.uUseSkyImage.value=1;
   },undefined,()=>{
-    // Original panorama unavailable (e.g. offline). Shader fallback remains.
+    // Image loading failed; the shader fallback remains.
     console.info('Meadow panorama unavailable; using procedural sky');
   });
   sky.renderOrder=-1000;
