@@ -136,8 +136,8 @@ jobs:
           h0=int(model.hfield_adr[slot])
           original=model.hfield_data[h0:h0+4].copy()
           assert max(original)>.1, 'source heightfield should be nonflat'
-          model.hfield_data[h0:h0+4]=[.95*float(h) for h in original]
-          data.mocap_pos[mid,2]=old_z+.08
+          model.hfield_data[h0:h0+4]=[.995*float(h) for h in original]
+          data.mocap_pos[mid,2]=old_z+.007  # 2–7mm higher, no deep penetration
           mujoco.mj_forward(model,data)
           assert data.ncon>=1,'reused mutable terrain must restore real support'
           print('H40 LIVE HFIELD REUSE PASS:',
