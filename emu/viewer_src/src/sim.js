@@ -615,6 +615,8 @@ export class EmuBrowserSim {
         ? createSensorLabCarpet(terrainRoleEnvelope(
             this.carpetDifficulty,this.carpetRole))
         : null;
+    this.scene.fog=this.park?.physics==='streaming-heightfield'
+      ?new THREE.Fog(0xb1c8c1,7,22):new THREE.Fog(0xbad7e2,15,49);
     const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park,obstacle:this.sensorObstacle,
       slopeDegrees:this.surfaceSlopeDegrees,stepHeightCm:this.surfaceStepHeightCm});
     this.model = this.mujoco.MjModel.from_xml_string(xml);
@@ -623,8 +625,8 @@ export class EmuBrowserSim {
     this.mjvScene = new this.mujoco.MjvScene(this.model, this.maxGeoms);
     this.resolveIds();
     if(this.park?.physics==='streaming-heightfield'){
-      // Physical browser geoms render directly, not as decorative heightfields.
-      // Do not put a decorative hfield over their real vertical contact faces.
+      // Real CPU collision hfields and render triangles share the SAME four
+      // corner samples. Outer 2.5m scenery is deliberately visual-only.
       this.makeCarpetTileOverlay();
       this.makeSensorLabSurface();
       this.carpetScenery=createGrowingMeadowScenery(THREE,this.scene,this.park);
