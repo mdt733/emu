@@ -844,8 +844,8 @@ export class EmuBrowserSim {
   stepControl() {
     const cdt = Number(this.bundle.control.control_dt || 0.02);
     this.smoothCommands(cdt);
-    // One shared yaw controller for joystick and autonomous navigation.
-    // Navigation is only an upstream producer of vx/vy/yaw/pitch requests.
+    // One shared H40 yaw controller for the joystick, exercises and
+    // scripted Meadow showcase stroll.
     const steering = nextYawCommand(this.requestedYaw,this.commandTarget.yaw,
       this.headingTarget,this.actualHeading(),cdt,this.headingHold,this.headingKp,
       Number(this.bundle.control.command_limits.yaw_abs));
@@ -921,7 +921,7 @@ export class EmuBrowserSim {
     // MuJoCo freejoint angular qvel is body-local, not world angular velocity.
     const gyro=Array.from(this.data.qvel.slice(3,6));
     const heightAt=(x,y)=>{
-      if(['park','carpet'].includes(this.terrainMode)&&this.park) return this.park.sampleHeight(x,y);
+      if(this.park)return this.park.sampleHeight(x,y);
       if(this.terrainMode==='ramp'&&Math.abs(y)<.44){
         if(x>=.85&&x<=1.65)return .008+(x-.85)*Math.tan(Math.PI/180);
         if(x>1.65&&x<2.17)return .015;
@@ -929,7 +929,7 @@ export class EmuBrowserSim {
       }
       return 0;
     };
-    // Neither the park heightfield nor the Carpet's eight convex meshes is
+    // Neither the Meadow heightfield nor the internal sensor geometry is
     // a supported plane/box in our pure 360-observation raycaster. Supply
     // the ACTUAL world surface to optical flow; never fake z=0 ground.
     const terrainHeightAt=terrainSensorHeightFallback(this.terrainMode,this.park);
@@ -937,13 +937,13 @@ export class EmuBrowserSim {
   }
 
   terrainActorPose() {
-    // Same torso-origin physical rays as MJX. On the park hfield, sample its
+    // Same torso-origin physical rays as MJX. On the Meadow hfield, sample its
     // shared height surface rather than pretending it is a flat plane.
     const R=this.bodyRotation(),offset=this.torsoId*3;
     return {R,torso:Array.from(this.data.xpos.slice(offset,offset+3)),
       // Streaming 2x2 heightfield geoms are not handled by the fast
       // plane/box raycaster; the exact CPU collision height sampler
-      // must supply physical ToF returns, as in the ordinary park.
+      // must supply physical ToF returns.
       terrainHeightAt:terrainSensorHeightFallback(this.terrainMode,this.park)};
   }
 
@@ -1034,9 +1034,8 @@ export class EmuBrowserSim {
     const grade=this.terrainMode==='sensor' ?
       surfaceLabGradient(this.sensorObstacle,this.surfaceSlopeDegrees) : null;
     const root=this.data.qpos;
-    const supportZ=grade ? grade.gx*root[0]+grade.gy*root[1] :
-      ['park','carpet'].includes(this.terrainMode)&&this.park
-        ? this.park.sampleHeight(root[0],root[1]) : 0;
+    const supportZ=grade?grade.gx*root[0]+grade.gy*root[1]:
+      this.park?.sampleHeight(root[0],root[1])??0;
     return clearanceAboveSupport(this.heightM(),supportZ) < 0.145 ||
       gravityZ < 0.35;
   }
@@ -1116,7 +1115,7 @@ export class EmuBrowserSim {
       let mesh = this.meshes[i];
       if (!mesh) {
         const isFloor = Number(vg.type) === mj.mjtGeom.mjGEOM_PLANE.value;
-        const isParkHeightfield = Number(vg.type) === mj.mjtGeom.mjGEOM_HFIELD.value;
+        const isTerrainHeightfield=Number(vg.type)===mj.mjtGeom.mjGEOM_HFIELD.value;
         // Two-sided raycasting is essential when the configurable optical
         // origin sits INSIDE the torso at 0mm, and for floor/support normals.
         // Otherwise Three.js ignores the exit face and sees through the body.
@@ -1128,7 +1127,7 @@ export class EmuBrowserSim {
         // mjvGeom.objid is the actual MuJoCo geom ID. The unrelated
         // dataid identifies a mesh/heightfield asset, NOT a physical geom.
         // Recomputed for each rendered geom below, as display order may vary.
-        mesh.userData.parkHeightfield = isParkHeightfield;
+        mesh.userData.terrainHeightfield=isTerrainHeightfield;
         mesh.castShadow = !isFloor;
         mesh.receiveShadow = isFloor;
         mesh.matrixAutoUpdate = false;
@@ -1150,7 +1149,7 @@ export class EmuBrowserSim {
       // MuJoCo WASM returns a visual record for each mesh geom, but the
       // JS geometryFor fallback cannot reconstruct its triangles. The
       // sensor-lab's eight exact authored triangles are drawn separately.
-      mesh.visible = !mesh.userData.parkHeightfield &&
+      mesh.visible = !mesh.userData.terrainHeightfield &&
         !mesh.userData.sensorLabPrism;
       if (!mesh.userData.floor) mesh.material.color.setRGB(rgba[0], rgba[1], rgba[2]);
       mesh.material.opacity = rgba[3];
@@ -1205,8 +1204,7 @@ export class EmuBrowserSim {
                    Number(this.data.xpos[o + 2])];
     this.chaseHeading = first ? heading
       : smoothHeading(this.chaseHeading, heading, smoothFactor(dt, 6));
-    const terrainAt = (x, y) =>
-      ['park','carpet'].includes(this.terrainMode) && this.park ? this.park.sampleHeight(x, y) : 0;
+    const terrainAt=(x,y)=>this.park?.sampleHeight(x,y)??0;
     const desired = chasePose(torso, this.chaseHeading, terrainAt);
     const position = new THREE.Vector3(...desired.position);
     const target = new THREE.Vector3(...desired.target);
@@ -1273,10 +1271,9 @@ export class EmuBrowserSim {
     const rotation=this.bodyRotation();
     const pose=depthProbeRays(torso,rotation,this.depthConfig);
     // Shared viewer geometry (including movable robot parts) matches the
-    // displayed MuJoCo scene. The park hfield uses its matching grass mesh.
+    // displayed MuJoCo scene. The Meadow ground uses matching grass triangles.
     const targets=this.meshes.filter(mesh=>mesh.visible &&
       !mesh.userData.sensorLabPrism);
-    if(this.parkSurface)targets.push(this.parkSurface);
     if(this.sensorLabSurface)targets.push(...this.sensorLabSurface.children);
     for(const mesh of targets)mesh.updateMatrixWorld(true);
     const raycaster=this.depthRaycaster;
@@ -1289,7 +1286,7 @@ export class EmuBrowserSim {
       radius:Number(this.model.geom_size[3*id])}));
     // Auto protects the large hfield mesh from 64 costly triangle casts.
     // Selecting 4 or 5 overrides this and shows the actual cost.
-    const sampleCount=n==='auto'?(['park','carpet'].includes(this.terrainMode)?1:4):n;
+    const sampleCount=n==='auto'?(this.terrainMode==='carpet'?1:4):n;
     const reading=readDepthProbe(pose,(start,dir,maxRange)=>{
       raycaster.set(origin,direction.set(...dir).normalize());
       raycaster.far=maxRange;
