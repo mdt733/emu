@@ -25,8 +25,13 @@ class MatrixExamTests(unittest.TestCase):
         self.assertAlmostEqual(max(x.exact_step_m for x in steps),.05)
         # Dedicated exact-height allocation: same world, different challenge.
         a=assignments(2048,mode="stairs")
-        self.assertEqual(sum(x.kind=="step_up" for x in a),2000)
+        self.assertEqual(sum(x.kind=="step_up" for x in a),1000)
+        self.assertEqual(sum(x.kind=="step_down" for x in a),1000)
         self.assertEqual(len({x.level for x in a if x.kind=="step_up"}),20)
+        self.assertEqual(len({x.level for x in a if x.kind=="step_down"}),20)
+        self.assertEqual(min(x.exact_step_m for x in a if x.kind=="step_down"),-.05)
+        self.assertEqual(sum(x.kind=="step_up" for x in assignments(2048,mode="stairs_up")),2000)
+        self.assertEqual(sum(x.kind=="step_down" for x in assignments(2048,mode="stairs_down")),2000)
         flat=assignments(128,mode="flat")
         self.assertEqual(sum(t.kind=="flat_control" for t in flat),100)
         self.assertTrue(all(t.exact_step_m==0. for t in flat))
@@ -44,7 +49,7 @@ class MatrixExamTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             assignments(2048,mode="unknown")
         # Grouped numerators must never average away labels or padding.
-        a=assignments(4,mode="stairs",levels=1,trials_per_level=3)
+        a=assignments(4,mode="stairs_up",levels=1,trials_per_level=3)
         result=dict(
             actual_lip_m=np.array([.05,.05,.05,0.]),
             actual_grade_deg=np.zeros(4),
@@ -160,6 +165,10 @@ class MatrixExamTests(unittest.TestCase):
             epochs=1,minibatches=1,
             entropy_cost=PPO_ENTROPY_COST,value_cost=PPO_VALUE_COST)
         init=trainer["make_initial_state"](teacher)
+        # Exact H40 one-metre tile: 22cm upstream and centred in Y.
+        spawn_xy=np.asarray(jax.device_get(init.env_state.data.qpos[:,:2]))
+        np.testing.assert_allclose(spawn_xy[:,0],.78,atol=1e-6)
+        np.testing.assert_allclose(spawn_xy[:,1],.50,atol=1e-6)
         # The new success/reset curriculum must retain the EXACT first
         # signed physical seam at birth, even after a later foot transfer.
         np.testing.assert_allclose(
