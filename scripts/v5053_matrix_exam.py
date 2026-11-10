@@ -404,9 +404,123 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     return manifest,curves
 
 
+
+PAIRED_GATES=("lead_foot_top","both_feet_top_five",
+              "traversed_upright_5frame","traversed_in_lane_5frame",
+              "traversed_5frame","completed_destination")
+
+
+def compare_paired_exams(stair_summary,stair_rows,flat_summary,flat_rows):
+    """Compare read-only, same-index first-life worlds. Fail closed on mismatch."""
+    a,b=stair_summary["manifest"],flat_summary["manifest"]
+    if a.get("mode")!="stairs" or b.get("mode")!="flat":
+        raise ValueError("Need stairs and flat modes for matched comparison")
+    for key in ("schema","policy_sha256","actor_sha256","robot_model_sha256",
+                "actor_training_source","seed","worlds","horizon","device",
+                "collision","first_life_only","zero_optimizer_updates"):
+        if a.get(key)!=b.get(key):
+            raise ValueError(f"Unmatched frozen exam: {key}")
+    if (a["schema"]!="h40_true_prism_heterogeneous_matrix_v4" or
+            not a["first_life_only"] or not a["zero_optimizer_updates"]):
+        raise ValueError("Unsupported or trainable exam")
+    flat={int(r["world"]):r for r in flat_rows}
+    stair_worlds={int(r["world"]) for r in stair_rows}
+    if (len(flat)!=len(flat_rows) or len(stair_worlds)!=len(stair_rows)
+            or stair_worlds!=set(flat) or stair_worlds!=set(range(len(flat)))
+            or len(flat)!=a["assigned_worlds"] or len(flat)!=b["assigned_worlds"]):
+        raise ValueError("Paired worlds are missing, duplicated or misindexed")
+
+    def gate(value):
+        v=str(value).strip().lower()
+        if v not in ("true","false","1","0","1.0","0.0"):
+            raise ValueError(f"Unrecognised physical contact gate {value}")
+        return int(v in ("true","1","1.0"))
+
+    pairs=[]
+    grouped={}
+    for s in stair_rows:
+        world=int(s["world"])
+        f=flat[world]
+        if s["kind"] not in ("step_up","step_down") or f["kind"]!="flat_control":
+            raise ValueError(f"Wrong challenge type at world {world}")
+        for key in ("vx","vy","yaw","initial_kick_mps","exact_grade_deg"):
+            if not np.isclose(float(s[key]),float(f[key]),atol=1e-7):
+                raise ValueError(f"World {world}: unmatched {key}")
+        if (abs(float(f["exact_step_m"]))>1e-7 or
+                abs(float(f["actual_lip_m"]))>.0005 or
+                abs(float(s["actual_lip_m"])-float(s["exact_step_m"]))>.0005):
+            raise ValueError(f"World {world}: mismatched physical seam")
+        row=dict(world=world,kind=s["kind"],level=int(s["level"]),
+                 signed_step_mm=round(1000.*float(s["exact_step_m"]),4))
+        for key in PAIRED_GATES:
+            stair_ok,flat_ok=gate(s[key]),gate(f[key])
+            row.update({f"{key}_{tag}":value for tag,value in (
+                ("stair",stair_ok),("flat",flat_ok),
+                ("lost",int(flat_ok and not stair_ok)),
+                ("gained",int(stair_ok and not flat_ok)))})
+        row["speed_mae_excess_mps"]=round(
+            float(s["speed_mae_mps"])-float(f["speed_mae_mps"]),5)
+        pairs.append(row)
+        grouped.setdefault((row["kind"],row["level"]),[]).append(row)
+    curves=[]
+    for (kind,level),rows in sorted(grouped.items()):
+        n=len(rows)
+        result=dict(kind=kind,level=level,pairs=n,
+                    signed_step_mm=rows[0]["signed_step_mm"])
+        for key in PAIRED_GATES:
+            for tag in ("stair","flat","lost","gained"):
+                result[f"{key}_{tag}"]=sum(r[f"{key}_{tag}"] for r in rows)
+            result[f"{key}_difference_pct"]=round(100.*(
+                result[f"{key}_stair"]-result[f"{key}_flat"])/n,1)
+        result["speed_mae_excess_mps"]=round(float(np.mean(
+            [r["speed_mae_excess_mps"] for r in rows])),5)
+        curves.append(result)
+    return pairs,curves
+
+
+def write_paired_comparison(stairs:Path,flat:Path,output:Path):
+    stairs,flat,output=(p.expanduser().resolve() for p in (stairs,flat,output))
+    if (stairs==flat or output in (stairs,flat) or
+            output in stairs.parents or output in flat.parents or
+            stairs in output.parents or flat in output.parents):
+        raise ValueError("Input/output directories must be separate")
+    if output.exists() and (not output.is_dir() or any(output.iterdir())):
+        raise FileExistsError("Comparison output must be new or empty")
+    def read(directory):
+        summary=json.loads((directory/"matrix_summary.json").read_text())
+        with (directory/"matrix_worlds.csv").open(newline="",encoding="utf-8") as fd:
+            return summary,list(csv.DictReader(fd))
+    pairs,curves=compare_paired_exams(*read(stairs),*read(flat))
+    output.mkdir(parents=True,exist_ok=True)
+    save_csv(output/"matrix_pairs.csv",pairs)
+    save_csv(output/"matrix_paired_curves.csv",curves)
+    (output/"matrix_compare.json").write_text(
+        json.dumps(dict(stairs=str(stairs),flat=str(flat),curves=curves),
+                   indent=2)+"\n")
+    lines=["# H40 same-world signed stair vs flat physical comparison","",
+           "Same actor, seed, world index, command, robot and exam geometry.",
+           "Lost = passed flat, failed stair. Gained = failed flat, passed stair.",
+           "Differences are stair minus flat, not changes from PPO training.","",
+           "| Lip | Paired | Flat traverse | Stair traverse | Lost | Gained | Difference |",
+           "|---:|---:|---:|---:|---:|---:|---:|"]
+    for r in curves:
+        lines.append(
+            f"| {r['signed_step_mm']:+.1f}mm | {r['pairs']} | "
+            f"{r['traversed_5frame_flat']} | {r['traversed_5frame_stair']} | "
+            f"{r['traversed_5frame_lost']} | {r['traversed_5frame_gained']} | "
+            f"{r['traversed_5frame_difference_pct']:+.1f}pp |")
+    lines+=["","All six first-life physical gates and per-world speed MAE",
+            "differences are in matrix_pairs.csv. Independently verify both",
+            "checkout source revisions before claiming exact solver parity."]
+    (output/"matrix_compare.md").write_text("\n".join(lines)+"\n")
+    return pairs,curves
+
+
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--policy",type=Path,required=True)
+    p.add_argument("--policy",type=Path)
+    p.add_argument("--compare-stairs",type=Path)
+    p.add_argument("--compare-flat",type=Path)
     p.add_argument("--output",type=Path,required=True)
     p.add_argument("--mode",choices=("balanced","stairs","stairs_up","stairs_down","flat"),default="balanced")
     p.add_argument("--worlds",type=int,default=2048)
@@ -416,7 +530,19 @@ def main(argv=None):
     p.add_argument("--trials-per-level",type=int,default=None)
     p.add_argument("--device",choices=("cpu","cuda"),default="cuda")
     a=p.parse_args(argv)
-    run_matrix(**vars(a))
+    if a.compare_stairs is not None or a.compare_flat is not None:
+        if a.compare_stairs is None or a.compare_flat is None or a.policy is not None:
+            p.error("provide both --compare-stairs and --compare-flat, without --policy")
+        pairs,curves=write_paired_comparison(
+            a.compare_stairs,a.compare_flat,a.output)
+        print(f"Paired {len(pairs)} frozen worlds across {len(curves)} exact lips")
+    else:
+        if a.policy is None:
+            p.error("frozen actor evaluation requires --policy")
+        kw=vars(a)
+        kw.pop("compare_stairs")
+        kw.pop("compare_flat")
+        run_matrix(**kw)
 
 
 if __name__=="__main__":
