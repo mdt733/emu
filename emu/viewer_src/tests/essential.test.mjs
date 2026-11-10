@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {readFileSync} from 'node:fs';
 import {measuredAttitude,sampleEpisodeCadence,smoothFactor,chasePose,sampleShove,clearanceAboveSupport} from '../src/sim-math.js';
 import assert from 'node:assert/strict';
 import {parsePolicy} from '../src/policy.js';
@@ -256,6 +257,41 @@ test('streaming ground is still visible to the frozen H40 4x4 ToF and optical fl
     [7.95,.5,.4],[.5,0,-Math.sqrt(.75)],surface),0,
     'after the active physical fringe, no made-up ground exists');
 });
+
+test('real MuJoCo browser WASM reuses an hfield collider without resetting H40',async()=>{
+  const {default:loadMujoco}=await import('@mujoco/mujoco');
+  const mj=await loadMujoco();
+  const actor=JSON.parse(readFileSync(
+    new URL('../../../showcase/champion.emupolicy',import.meta.url),'utf8'));
+  const park=createSensorLabCarpet({slopeDeg:0,stepUpM:0,stepDownM:0});
+  const model=mj.MjModel.from_xml_string(
+    withTerrain(actor.robot_xml,'carpet',{park}));
+  const data=new mj.MjData(model);
+  try{
+    assert.equal(Number(model.nhfield),225);
+    assert.equal(Number(model.nmocap),225);
+    assert.ok(model.hfield_data.length>=900);
+    data.qpos[0]=data.qpos[1]=.5;
+    data.qpos[2]-=.004;
+    mj.mj_forward(model,data);
+    assert.ok(data.ncon>=1,'the first 1m patch must support the robot');
+    const body=mj.mj_name2id(model,mj.mjtObj.mjOBJ_BODY.value,
+      'sensor_lab_tile_0');
+    const mocap=Number(model.body_mocapid[body]);
+    const savedZ=data.mocap_pos[3*mocap+2];
+    data.mocap_pos[3*mocap+2]=-30;
+    mj.mj_forward(model,data);
+    assert.equal(data.ncon,0,'evicted hfield must not be a ghost floor');
+    const offset=Number(model.hfield_adr[0]);
+    model.hfield_data[offset]=.02;
+    model.hfield_data[offset+1]=.04;
+    model.hfield_data[offset+2]=.02;
+    model.hfield_data[offset+3]=.04;
+    data.mocap_pos[3*mocap+2]=savedZ;
+    mj.mj_forward(model,data);
+    assert.ok(data.ncon>=1,'recycled in-WASM hfield must restore real contact');
+  }finally{data.delete();model.delete();}
+},{timeout:120000});
 
 test('streaming Carpet places neutral H40 ball feet above actual terrain',()=>{
   const p=createSensorLabCarpet({slopeDeg:12,stepUpM:.02,stepDownM:0});
