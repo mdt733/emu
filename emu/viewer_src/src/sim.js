@@ -9,7 +9,7 @@ import { joystickToCommands, nextYawCommand } from './controls.js';
 import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient, terrainSensorHeightFallback } from './terrain.js';
 import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
 import { terrainRoleEnvelope } from './training-solid-carpet.js';
-import { createSensorLabCarpet, sensorLabPrismVertices, carpetSpawnSoleLift, LAB_PRISM_FACES, LAB_TILE_M, LAB_PRISM_COUNT } from './sensor-lab-carpet.js';
+import { createSensorLabCarpet, carpetSpawnSoleLift, carpetHeightfieldPatch, LAB_TILE_M, LAB_TILE_COUNT } from './sensor-lab-carpet.js';
 import { createGrowingMeadowScenery } from './growing-meadow.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
@@ -622,7 +622,7 @@ export class EmuBrowserSim {
     this.data = new this.mujoco.MjData(this.model);
     this.mjvScene = new this.mujoco.MjvScene(this.model, this.maxGeoms);
     this.resolveIds();
-    if(this.park?.physics==='growing-prism-field'){
+    if(this.park?.physics==='streaming-heightfield'){
       // Physical browser geoms render directly, not as decorative heightfields.
       // Do not put a decorative hfield over their real vertical contact faces.
       this.makeCarpetTileOverlay();
@@ -658,73 +658,85 @@ export class EmuBrowserSim {
   }
 
   makeSensorLabSurface(){
-    // One 1m tile = two exact MuJoCo convex prism collision meshes.
-    // Only activated terrain is visible; crossed ground is retained.
-    this.sensorLabSurface=new THREE.Group();
-    this.scene.add(this.sensorLabSurface);
-    this.carpetRenderedPrisms.clear();
-    this.appendGrowingCarpetVisuals();
-  }
-
-  appendGrowingCarpetVisuals(){
-    if(!this.sensorLabSurface)return;
-    for(const prism of sensorLabPrismVertices(this.park,{activeOnly:true})){
-      if(this.carpetRenderedPrisms.has(prism.k))continue;
-      const points=[],uv=[],colors=[];
-      for(const [faceIndex,face] of LAB_PRISM_FACES.entries())
-        for(const v of face){
-          const p=prism.world[v];
-          points.push(...p);
-          // One grass-texture repeat per physical metre, seamless at tiles.
-          uv.push(p[0],p[1]);
-          // Prism top = lush Meadow grass; vertical cliff faces and bottom
-          // are darker exposed earth, not a decorative invisible platform.
-          const tint=faceIndex===0?[.96,1,.90]:
-            faceIndex===1?[.29,.26,.19]:[.49,.43,.30];
-          colors.push(...tint);
-        }
-      const geom=new THREE.BufferGeometry();
-      geom.setAttribute('position',new THREE.Float32BufferAttribute(points,3));
-      geom.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
-      geom.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
-      geom.computeVertexNormals();
-      const mesh=new THREE.Mesh(geom,new THREE.MeshStandardMaterial({
-        map:this.grassTexture,color:0xffffff,vertexColors:true,
-        roughness:.98,side:THREE.DoubleSide,flatShading:true}));
-      mesh.userData.robotPart=false;
-      mesh.userData.sensorLabPrism=true;
-      mesh.userData.tileSlot=prism.tile.slot;
+    // Mesh triangles are reconstructed only for the spectator renderer.
+    // Physical contacts are from the same mutable MuJoCo 2x2 heightfields.
+    const group=new THREE.Group();
+    this.sensorLabSurface=group;
+    const material=new THREE.MeshStandardMaterial({
+      map:this.grassTexture,color:0xffffff,vertexColors:true,
+      roughness:.98,side:THREE.DoubleSide,flatShading:true});
+    for(const tile of this.park.tiles){
+      const mesh=new THREE.Mesh(new THREE.BufferGeometry(),material);
+      mesh.userData.tileSlot=tile.slot;
+      mesh.userData.sensorLabPrism=true; // hide duplicate MuJoCo view geom
       mesh.receiveShadow=true;
-      mesh.castShadow=false;
-      this.sensorLabSurface.add(mesh);
-      this.carpetRenderedPrisms.add(prism.k);
+      group.add(mesh);
     }
+    this.carpetSurfaceMaterial=material;
+    this.scene.add(group);
+    this.syncGrowingCarpetVisuals();
   }
 
-  syncGrowingCarpetVisuals(){
+  updateTerrainTileVisual(tile){
+    if(!this.sensorLabSurface)return;
+    const mesh=this.sensorLabSurface.children[tile.slot];
+    const x=tile.i,y=tile.j,[a,b,c,d]=tile.corners,down=.5;
+    const v=[[x,y,a],[x+1,y,b],[x,y+1,c],[x+1,y+1,d]];
+    const faces=[[0,1,2],[3,2,1]];
+    const points=[],uv=[],colors=[];
+    function add(tri,earth=false){
+      for(const xyz of tri){
+        points.push(...xyz);uv.push(xyz[0],xyz[1]);
+        colors.push(...(earth?[.48,.42,.31]:[.96,1,.91]));
+      }
+    }
+    for(const face of faces)add(face.map(i=>v[i]));
+    for(const [q,r] of [[0,1],[1,3],[3,2],[2,0]]){
+      const p=v[q],w=v[r],p0=[p[0],p[1],p[2]-down],
+            w0=[w[0],w[1],w[2]-down];
+      add([p,w,p0],true);add([w,w0,p0],true);
+    }
+    const g=new THREE.BufferGeometry();
+    g.setAttribute('position',new THREE.Float32BufferAttribute(points,3));
+    g.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+    g.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
+    g.computeVertexNormals();
+    mesh.geometry.dispose();mesh.geometry=g;
+  }
+
+  syncGrowingCarpetVisuals(changed=this.park?.tiles||[]){
     if(!this.sensorLabSurface||!this.park)return;
-    for(const mesh of this.sensorLabSurface.children)
-      mesh.visible=Boolean(this.park.tiles[mesh.userData.tileSlot]?.active);
-    this.appendGrowingCarpetVisuals();
+    for(const tile of changed)this.updateTerrainTileVisual(tile);
     this.carpetScenery?.sync();
     this.carpetTileCenter=null;
   }
 
-  growCarpetNearRobot(){
-    if(this.park?.physics!=='growing-prism-field'||!this.data)return;
-    const fresh=this.park.growAround(Number(this.data.qpos[0]),
-                                     Number(this.data.qpos[1]));
-    if(!fresh.length)return;
-    const mocap=this.data.mocap_pos;
-    for(const tile of fresh)for(let half=0;half<2;half++){
-      const id=this.carpetMocapIds[tile.slot*2+half];
-      if(!Number.isInteger(id)||id<0)
-        throw Error('Growing Carpet lost a real MuJoCo prism mocap');
-      mocap[id*3+2]=0; // parked body at -40m -> actual terrain elevation
+  applyCarpetTilePhysics(changed){
+    // MuJoCo explicitly permits modifying hfield_data in a compiled
+    // model. Mesh vertex edits would be unsafe for collision BVHs.
+    const samples=this.model.hfield_data,pos=this.data.mocap_pos;
+    for(const tile of changed){
+      const off=Number(this.model.hfield_adr[tile.slot]);
+      const data=carpetHeightfieldPatch(tile);
+      for(let k=0;k<4;k++)samples[off+k]=data[k];
+      const id=this.carpetMocapIds[tile.slot];
+      pos[3*id]=tile.x;pos[3*id+1]=tile.y;pos[3*id+2]=tile.base;
     }
-    // Need actual contacts/geom_xpos to update before the next ToF sample.
     this.mujoco.mj_forward(this.model,this.data);
-    this.syncGrowingCarpetVisuals();
+  }
+
+  growCarpetNearRobot(){
+    if(this.park?.physics!=='streaming-heightfield'||!this.data)return;
+    const feet=this.footGeomIds.map(id=>({
+      x:Number(this.data.geom_xpos[3*id]),
+      y:Number(this.data.geom_xpos[3*id+1]),
+      radius:Number(this.model.geom_size[3*id])
+    }));
+    const changes=this.park.growAround(Number(this.data.qpos[0]),
+                                      Number(this.data.qpos[1]),feet);
+    if(!changes.length)return;
+    this.applyCarpetTilePhysics(changes);
+    this.syncGrowingCarpetVisuals(changes);
   }
 
   name2id(objEnum, name) {
@@ -746,17 +758,17 @@ export class EmuBrowserSim {
     this.footIds = ['r_foot', 'l_foot'].map(n => this.name2id(mj.mjtObj.mjOBJ_BODY, n));
     this.footGeomIds = ['r_foot_ball','l_foot_ball'].map(n =>
       this.name2id(mj.mjtObj.mjOBJ_GEOM,n));
-    if(this.park?.physics==='growing-prism-field'){
-      this.carpetMocapIds=Array.from({length:LAB_PRISM_COUNT},(_,i)=>{
+    if(this.park?.physics==='streaming-heightfield'){
+      this.carpetMocapIds=Array.from({length:LAB_TILE_COUNT},(_,i)=>{
         const body=this.name2id(mj.mjtObj.mjOBJ_BODY,'sensor_lab_tile_'+i);
         const id=Number(this.model.body_mocapid[body]);
-        if(id<0)throw Error('Growing Carpet requires physical mocap bodies');
+        if(id<0)throw Error('Streaming Carpet requires 225 mocap bodies');
         return id;
       });
-      if(new Set(this.carpetMocapIds).size!==LAB_PRISM_COUNT)
-        throw Error('Growing Carpet needs one unique mocap for each prism');
-      this.carpetGeomIds=new Set(Array.from({length:LAB_PRISM_COUNT},(_,i)=>
-        this.name2id(mj.mjtObj.mjOBJ_GEOM,'sensor_lab_prism_'+i)));
+      if(new Set(this.carpetMocapIds).size!==LAB_TILE_COUNT)
+        throw Error('Each streaming hfield needs a distinct mocap');
+      this.carpetGeomIds=new Set(Array.from({length:LAB_TILE_COUNT},(_,i)=>
+        this.name2id(mj.mjtObj.mjOBJ_GEOM,'sensor_lab_ground_'+i)));
     }
 
   }
@@ -796,9 +808,10 @@ export class EmuBrowserSim {
     this.resetGeneration=(this.resetGeneration||0)+1;
     const mj = this.mujoco;
     mj.mj_resetData(this.model, this.data);
-    if(this.park?.physics==='growing-prism-field'){
-      this.park.resetGrowth();
-      this.syncGrowingCarpetVisuals();
+    if(this.park?.physics==='streaming-heightfield'){
+      const restored=this.park.resetGrowth();
+      this.applyCarpetTilePhysics(restored);
+      this.syncGrowingCarpetVisuals(restored);
     }
     this.data.ctrl.fill(0);
     this.data.qvel.fill(0);
@@ -809,13 +822,13 @@ export class EmuBrowserSim {
     this.requestedYaw = this.commandTarget.yaw;
     this.command.yaw = this.requestedYaw;
     this.data.qvel[5] = this.command.yaw;
-    if(this.park?.physics==='growing-prism-field'){
+    if(this.park?.physics==='streaming-heightfield'){
       this.data.qpos[0]=LAB_TILE_M*.5;
       this.data.qpos[1]=LAB_TILE_M*.5;
       this.carpetWindowCenter=[0,0];
     }
     mj.mj_forward(this.model, this.data);
-    if(this.park?.physics==='growing-prism-field'){
+    if(this.park?.physics==='streaming-heightfield'){
       // qpos0 is neutral on the original z=0 floor, but this tile may be
       // raised by a slope or a signed step. Align actual 18mm foot spheres
       // against the true CPU MuJoCo prism surface BEFORE starting inference
