@@ -97,6 +97,7 @@ def compatible_academy_evidence_recipe(parent: TrainingConfig,
         return False
     return all(getattr(parent, name) == getattr(current, name)
                for name in (
+                   'science_stair_school_v1',
                    'science_step_finish_on_transfer',
                    'science_step_goal_weight', 'science_step_approach_m',
                    'academy_stream', 'academy_height_cap_m',
@@ -135,6 +136,7 @@ def env_kwargs_from_args(args) -> dict:
         science_step_goal_weight=args.science_step_goal_weight,
         science_step_velocity_relief=args.science_step_velocity_relief,
         science_step_approach_m=args.science_step_approach_m,
+        science_stair_school_v1=args.science_stair_school_v1,
         science_step_finish_on_transfer=args.science_step_finish_on_transfer,
         academy_stream=args.academy_stream,
         terrain_carpet=args.terrain_carpet,
