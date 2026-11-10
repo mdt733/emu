@@ -917,7 +917,7 @@ function updateTelemetry(now, dt) {
   $('vxRead').textContent = `${fmtSigned(t.vx)} / ${fmtSigned(t.cmd.vx)}`;
   $('vyRead').textContent = `${fmtSigned(t.vy)} / ${fmtSigned(t.cmd.vy)}`;
   $('yawRead').textContent = `${fmtSigned(t.yaw)} / ${fmtSigned(t.cmd.yaw)}`;
-  $('yawRequestRead').textContent = `${fmtSigned(t.requestedYaw)} ${demoActive ? '· auto' : '· manual'}`;
+  $('yawRequestRead').textContent = `${fmtSigned(t.requestedYaw)} ${demoActive ? '· stroll' : '· manual'}`;
   $('headingRead').textContent=t.headingHold
     ? `${fmtSigned(deg(t.headingTarget),0)}° / ${fmtSigned(deg(t.headingActual),0)}°`
     : 'direct yaw-rate';
@@ -944,86 +944,60 @@ function updateTelemetry(now, dt) {
   updateCarpetShoveStatus();
 }
 
-function frame(ms) {
-  // Schedule the NEXT browser frame before doing anything that can throw.
-  // An exception in the experimental navigator may never freeze the actor.
+function frame(ms){
   requestAnimationFrame(frame);
   try{
-  const now = ms / 1000;
-  const dt = Math.max(0, Math.min(0.1, now - lastFrame));
-  lastFrame = now;
-  if (dt > 0) {
-    const fps = 1/dt;
-    fpsEma = fpsEma ? 0.92*fpsEma + 0.08*fps : fps;
-  }
-  if (sim) {
-    if (!demoActive && terrainMode.value==='park' && !navigationFault && handoff.shouldResume(now,
-       held.size>0 || leftStick.pointerId!==null || rightStick.pointerId!==null ||
-       Math.hypot(left.x,left.y)>.06 || Math.hypot(right.x,right.y)>.06)) {
-      startDemo();
+    const now=ms/1000,dt=Math.max(0,Math.min(.1,now-lastFrame));
+    lastFrame=now;
+    if(dt>0){
+      const fps=1/dt;
+      fpsEma=fpsEma?.92*fps+.08*fps:fps;
     }
-    if (demoActive && terrainMode.value==='park' && !sim.paused) {
-      try{navigationUpdate(dt);}
-      catch(error){
-        console.error('Goal navigation:',error);
-        navigationFault=true;
-        stopDemo();
-        sim.setDemoCommands({vx:0,vy:0,yaw:0,pitch:0});
-        setStatus('Navigation error: '+String(error?.message||error), 'error');
-      }
+    if(sim){
+      const manual=held.size>0||leftStick.pointerId!==null||
+        rightStick.pointerId!==null||Math.hypot(left.x,left.y)>.06||
+        Math.hypot(right.x,right.y)>.06;
+      if(!demoActive&&handoff.shouldResume(now,manual))startDemo();
+      if(demoActive)meadowStroll(dt);
+      runCarpetLesson(dt);
+      sim.advance(dt);
+      sim.render(dt);
+      updateTelemetry(now,dt);
     }
-    runCarpetLesson(dt);
-    sim.advance(dt);
-    sim.render(dt);
-    updateTelemetry(now, dt);
-  }
   }catch(error){
-    console.error('Viewer frame error:',error);
-    // Keep the next browser animation frame alive for recovery.
-    navigationFault=true;
-    if(goalDemoActive())stopDemo();
-    setStatus('Viewer frame error: '+String(error?.message||error),'error');
+    console.error('Meadow frame error:',error);
+    if(demoActive)stopDemo();
+    setStatus('Meadow frame error: '+String(error?.message||error),'error');
   }
 }
-
 function stopDemo(){
   demoActive=false;
   handoff.takeControl(performance.now()/1000);
   $('liveDemo').checked=false;
   syncGoalMode();
-  // Reset the heading setpoint to the ACTUAL chassis heading. Otherwise the
-  // P controller can keep completing the discarded autonomous turn.
   sim?.setHeadingHold(headingHoldToggle.checked);
   $('demoKind').textContent='Manual control';
   leftStick.setDisplay(left.x,left.y);
   rightStick.setDisplay(right.x,right.y);
   updateStickLabels();
+  updateWorldTabs();
 }
 function startDemo(){
-  if(!sim||navigationFault)return;
-  if(terrainMode.value==='carpet'){
-    $('liveDemo').checked=false;
-    setStatus('Autonomous navigation is for Field mode; Carpet uses specialist exercises.','warn');
-    return;
-  }
+  if(!sim)return;
   demoActive=true;
   handoff.resume();
   $('liveDemo').checked=true;
+  carpetDrive.value='manual';
+  strollClock=Infinity;
   left={x:0,y:0};right={x:0,y:0};
   syncGoalMode();
   sim.setHeadingHold(headingHoldToggle.checked);
-  $('demoKind').textContent='Finding next destination…';
+  $('demoKind').textContent='Walking east through the meadow';
   updateStickLabels();
+  updateWorldTabs();
 }
 $('liveDemo').addEventListener('change',()=>{
   if($('liveDemo').checked)startDemo();else stopDemo();
-});
-$('navNext').addEventListener('click',()=>{
-  if(!sim)return;
-  if(!demoActive)startDemo();
-  navigator.nextGoal(sim.navigationPose(),bundle.control.command_limits,sim.navigationTrees());
-  const state=navigator.status(sim.navigationPose());
-  sim.setNavigationOverlay(state.goal,state.route);
 });
 async function pollLive() {
   if (livePolling) return;
@@ -1062,7 +1036,7 @@ async function startShowcaseFeed() {
   const manifestResponse = await fetch(new URL('./showcase.json', document.baseURI), {cache:'no-store'});
   const manifest = await readShowcaseManifest(manifestResponse);
   showcaseManifest = manifest;
-  $('modeLabel').textContent = 'public playground';
+  $('modeLabel').textContent = 'Infinite Meadow · public showcase';
   $('showcaseBanner').hidden = false;
   $('showcaseTitle').textContent = manifest.trained ? 'CHAMPION POLICY' : 'UNTRAINED PREVIEW';
   $('showcaseSubtitle').textContent = manifest.trained
@@ -1071,7 +1045,7 @@ async function startShowcaseFeed() {
   $('showcaseNote').hidden = false;
   const buildLabel = manifest.source_commit ? ` · Viewer build ${manifest.source_commit.slice(0, 8)}` : '';
   $('showcaseNote').textContent = (manifest.trained
-    ? 'Autonomous commands are demonstrations, not held-out evaluation.'
+    ? 'A scripted Meadow stroll, not a held-out locomotion evaluation.'
     : 'Preview weights are untrained. A trained champion has not been published yet.') + buildLabel;
   if (manifest.source_url) {
     $('sourceLink').href = manifest.source_url;
@@ -1084,9 +1058,10 @@ async function startShowcaseFeed() {
   policyLibrary.push({fileName:manifest.label, bundle:parsed, isShowcase:true});
   const ok = await activatePolicy(policyLibrary.length - 1);
   if (!ok) throw new Error('Showcase policy could not be started');
-  demoActive = manifest.trained;
+  demoActive=manifest.trained&&manifest.autoplay;
+  if(demoActive){carpetDrive.value='manual';strollClock=Infinity;}
   handoff.resume();
-  $('liveDemo').checked = demoActive;
+  $('liveDemo').checked=demoActive;
   // The public playground gets the same demo controls as the live watcher.
   livePanel.hidden = false;
   $('demoPanelTitle').textContent = 'DEMO CONTROLS';
@@ -1096,7 +1071,7 @@ async function startShowcaseFeed() {
   $('liveNote').textContent = manifest.trained
     ? 'Static, published policy — no training server required'
     : 'Demo fixture: explore the controls, not the walking performance';
-  $('demoKind').textContent = demoActive ? 'Finding next destination…' : 'Manual control';
+  $('demoKind').textContent = demoActive?'Walking east through the meadow':'Manual control';
   sim.autoReset = autoResetToggle.checked || demoActive;
   syncGoalMode();
   return true;
@@ -1152,7 +1127,7 @@ async function startViewerFeed() {
               updateWorldTabs();
               updateDepthSettings();
               $('modeLabel').textContent='40 cm CPU SENSOR LAB — no trained gait';
-              setStatus('40cm h40 · 4×1m / 8 real CPU prisms · neural actor OFF','ok');
+              setStatus('40cm H40 · CPU Meadow sensor calibration · neural actor OFF','ok');
               $('depthNote').textContent=
                 'Mount: 70° down, 0mm forward, -30mm below torso, zero yaw/sideways. Scan actual feet and terrain to confirm your zone pattern.';
             }
@@ -1160,10 +1135,8 @@ async function startViewerFeed() {
         }
         if (config.live) {
           discoverCarpetFromLive=true;
-          // Current real-prism sources auto-enter the infinite-coordinate CPU Meadow.
-          // Its recycled heightfields are NOT the MJX convex-prism teacher.
-          // The frozen champion and older runs keep the
-          // original Terrain Park until the user explicitly selects it.
+          // All policy sources use the single infinite-coordinate CPU Meadow.
+          // The GPU trainer's eight convex prisms remain unchanged.
           await refreshCarpetLive(true);
           if(carpetDifficulty.trainingCarpet){
             terrainMode.value='carpet';
