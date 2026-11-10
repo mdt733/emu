@@ -167,6 +167,10 @@ jobs:
           fi
       - name: Build browser
         run: npm run build --prefix emu/viewer_src
+      - name: Protect the original Meadow panorama and its offline viewer bundle
+        run: |
+          test "$(git hash-object emu/viewer_src/src/assets/meadow-skybox.png)" = 9eaed55fcc9a9f86846336808d5ecae56b43097c
+          find emu/viewer_src/dist -type f -name 'meadow-skybox*.png' | grep -q .
       - name: Verify approved Pages bundle (only when reviewed)
         run: |
           if test -f showcase/release_approval.json; then
