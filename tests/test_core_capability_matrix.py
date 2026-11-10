@@ -318,6 +318,42 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(out["first_both_foot_frame"].shape,(4,))
         self.assertEqual(out["traversed_upright_5frame"].shape,(4,))
         self.assertEqual(out["traversed_in_lane_5frame"].shape,(4,))
+        # Compile/step the REAL opt-in Stair School physics, not only the
+        # NumPy predicates. The frozen examiner above remains an unchanged
+        # no-school control; this branch exercises the extra JAX event path.
+        school_env=EmuMJXEnv(
+            str(ROBOT_XML),num_envs=4,seed=1735,
+            observation_schema=OBS_SCHEMA_TERRAIN,
+            unified_capability_focus=True,
+            terrain_carpet=True,terrain_carpet_prisms=True,
+            terrain_step_max_m=.08,academy_stream=True,
+            science_stair_school_v1=True,
+            science_step_finish_on_transfer=True,
+            science_step_approach_m=.22,
+            science_step_goal_weight=.20,
+            solver_iterations=2,solver_ls_iterations=4)
+        school_teacher=dict(teacher,specialist_mix=1.,
+                            academy_episode_probability=1.,
+                            focus_weight_command=0.,
+                            focus_weight_resilience=0.,
+                            focus_weight_slope=0.,
+                            focus_weight_step=1.,
+                            focus_weight_transition=0.,
+                            focus_weight_control=0.)
+        school_state,_=school_env.reset(school_teacher)
+        self.assertTrue(np.asarray(jax.device_get(
+            school_state.academy_active)).all())
+        self.assertEqual(school_state.academy_clearance_seen.shape,(4,))
+        # Force a genuine one-frame transition in the compiled 8-prism
+        # step path, with no synthetic contact/fake transfer injection.
+        school_out=school_env.step(
+            school_state,jnp.zeros((4,6),dtype=jnp.float32),
+            school_teacher)
+        for name in ("academy_clearance_new","academy_foothold_new",
+                     "academy_transfer_new","academy_finish_new"):
+            self.assertEqual(school_out.metrics[name].shape,(4,))
+        self.assertTrue(np.isfinite(np.asarray(jax.device_get(
+            school_out.reward))).all())
 
 
 if __name__=="__main__":
