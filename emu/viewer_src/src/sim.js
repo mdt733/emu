@@ -492,7 +492,7 @@ export class EmuBrowserSim {
       const push=sampleShove({
         intensity:v.enabled?v.intensity*(.05+.95*north):0,
         mode:v.mode,
-        maxForceN:v.forceLimitN*(automatic?.12+.88*north:1),
+        maxForceN:v.forceLimitN*(automatic ? .12+.88*north : 1),
         manual:v.manualPending
       });
       v.manualPending=false;
