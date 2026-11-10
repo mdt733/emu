@@ -538,12 +538,12 @@ function renderCarpetValues(){
   $('carpetStepTrackRow').hidden=!roleIsStep;
   const activeStepTrack=roleIsStep?carpetStepTrack.value:'ordinary';
   $('carpetHudTerrain').textContent=
-    `${lesson.terrain.slopeDeg.toFixed(2)}° · +${(lesson.terrain.stepUpM*1000).toFixed(2)}/−${(lesson.terrain.stepDownM*1000).toFixed(2)} mm`;
+    `Meadow at start: ${meadowSettings.hillPeakDeg.toFixed(1)}° hill peaks · +${(meadowSettings.stepUpM*1000).toFixed(0)}/−${(meadowSettings.stepDownM*1000).toFixed(0)} mm max`;
   $('carpetPhysicalEvidence').textContent=[
     `GLOBAL FRONTIER · grade ≤${fmt(frontier.slopeDeg)}° · ${activeStepTrack==='academy'?'Academy signed':'Ordinary signed'} lips ≤${fmt(frontier.stepUpM*1000,3)}/${fmt(frontier.stepDownM*1000,3)} mm`,
     `BIRTH EXPOSURE · slope ${fmt(slopeExposure*100,1)}% of ordinary births · steps ${fmt(stepExposure*100,1)}% of ordinary births; Academy has its own allocation`,
     `SELECTED ${lesson.role.toUpperCase()} · source birth ${fmt(sourceRole.slope)}° · +${fmt(sourceRole.up,3)}/−${fmt(sourceRole.down,3)} mm`,
-    `VIEWER COLLIDERS · ${fmt(lesson.terrain.slopeDeg)}° · +${fmt(lesson.terrain.stepUpM*1000,3)}/−${fmt(lesson.terrain.stepDownM*1000,3)} mm`,
+    `INSPECTOR TARGET (NOT VIEWER COLLIDERS) · ${fmt(lesson.terrain.slopeDeg)}° · +${fmt(lesson.terrain.stepUpM*1000,3)}/−${fmt(lesson.terrain.stepDownM*1000,3)} mm`,
     activeStepTrack==='academy'&&!frontier.academyEligible
       ?'Academy births are NOT currently allocated in the source; this is an illustrative Academy preview.'
       :carpetDifficultyMode.value==='frontier'
@@ -1047,6 +1047,10 @@ function updateTelemetry(now, dt) {
       local.slopeDeg.toFixed(1)+'° hill peaks · '+
       Math.abs(worldY).toFixed(1)+'m '+(worldY>=0?'N':'S')
     :'—';
+  if(local)$('carpetHudTerrain').textContent=
+    local.slopeDeg.toFixed(1)+'° natural hill peaks · +'+
+    Math.round(local.stepUpM*1000)+'/−'+Math.round(local.stepDownM*1000)+
+    ' mm max';
   $('slopeArrow').hidden = !s.supported || s.flat;
   $('slopeArrow').style.transform = `rotate(${s.arrowDegrees.toFixed(1)}deg)`;
   $('leanRead').textContent = `${fmtSigned(deg(t.robotLean),1)}°`;
