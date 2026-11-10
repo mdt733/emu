@@ -140,11 +140,11 @@
             Waiting for the latest training frontiers.
           </div>
           <div id="carpetTuning" class="tuning-group">
-            <div class="tuning-heading"><b>Terrain</b><small>Specialist-scaled assignments</small></div>
-            <label class="tuning-row">Slope angle <output id="tuneSlopeOut">—</output><input id="tuneSlope" type="range" min="0" max="20" step=".01"></label>
-            <label class="tuning-row">Grade transition <output id="tuneTransitionOut">—</output><input id="tuneTransition" type="range" min="0" max="15" step=".01"></label>
-            <label class="tuning-row">Step up <output id="tuneUpOut">—</output><input id="tuneUp" type="range" min="0" max="150" step=".025"></label>
-            <label class="tuning-row">Step down <output id="tuneDownOut">—</output><input id="tuneDown" type="range" min="0" max="150" step=".025"></label>
+            <div class="tuning-heading"><b>Training terrain targets</b><small>Read-only diagnostic; geology sliders above control the world</small></div>
+            <label class="tuning-row">Slope angle <output id="tuneSlopeOut">—</output><input id="tuneSlope" type="range" disabled min="0" max="20" step=".01"></label>
+            <label class="tuning-row">Grade transition <output id="tuneTransitionOut">—</output><input id="tuneTransition" type="range" disabled min="0" max="15" step=".01"></label>
+            <label class="tuning-row">Step up <output id="tuneUpOut">—</output><input id="tuneUp" type="range" disabled min="0" max="150" step=".025"></label>
+            <label class="tuning-row">Step down <output id="tuneDownOut">—</output><input id="tuneDown" type="range" disabled min="0" max="150" step=".025"></label>
             <div class="tuning-heading"><b>Commands</b><small>Preview requests bounded by policy limits</small></div>
             <label class="tuning-row">Forward speed <output id="tuneForwardOut">—</output><input id="tuneForward" type="range" min="0" max="1.5" step=".01"></label>
             <label class="tuning-row">Reverse speed <output id="tuneReverseOut">—</output><input id="tuneReverse" type="range" min="0" max=".8" step=".01"></label>
@@ -171,7 +171,7 @@
           </select></label>
           <small id="shoveRateNote">The viewer runs one robot; the GPU trainer runs 2,048 worlds with independent disturbances.</small>
           <button id="carpetTestShove" type="button">Apply one random shove</button>
-          <small id="carpetShoveState">Random push angle, strength and duration; frequency scales with the resilience setting.</small>
+          <small id="carpetShoveState">Shoves are optional. Their strength and frequency increase naturally as EMU travels north.</small>
           <div id="lessonCommand" class="lesson-command">Viewer command: —</div>
           <details class="inspector-details" id="carpetDiagnostics">
             <summary>Training evidence &amp; live connection</summary>
