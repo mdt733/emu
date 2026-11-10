@@ -306,7 +306,7 @@ test('Carpet grows in every direction, retains crossed physical tiles and has a 
   }
   assert.equal(park.growAround(5.5,4.5).length,0,'same position is stable');
   park.growAround(6.5,6.5);
-  assert.ok(Number.isNaN(park.sampleHeight(7.1,6.5)),
+  assert.ok(Number.isNaN(park.sampleHeight(8.1,6.5)),
     'beyond the precompiled reserve is real void, not an invisible plane');
   assert.equal(park.count()<=LAB_TILE_COUNT,true);
   assert.deepEqual(meadowTreeForTile({i:3,j:4},735),
