@@ -77,7 +77,7 @@ jobs:
           test ! -e scripts/v5051_train_campaign.py
           test ! -e scripts/v5052_step_school.py
           python -m pytest -q tests
-      - name: Compile the h40 CPU sensor laboratory's eight genuine prism meshes
+      - name: Compile growing 15x15 H40 MuJoCo prism field and verify real contact activation
         run: |
           python - <<'PY'
           import json
@@ -126,13 +126,30 @@ jobs:
           assert model.nu == 6
           assert sum(mujoco.mj_id2name(model, mujoco.mjtObj.mjOBJ_GEOM, i)
                      .startswith('sensor_lab_prism_')
-                     for i in range(model.ngeom)) == 8
+                     for i in range(model.ngeom)) == 450
           data = mujoco.MjData(model)
           data.qpos[0] = data.qpos[1] = .5
           data.qpos[2] -= .002  # slight contact penetration, not a tangent rounding test
           mujoco.mj_forward(model, data)
           assert data.ncon >= 1, 'neutral h40 feet must contact real prism tops'
-          print(f'h40 SENSOR LAB CPU PASS: {model.ngeom} geoms, {data.ncon} contacts')
+          # A preallocated tile is NOT ghost support until the viewer reveals it.
+          data.qpos[0], data.qpos[1] = 2.5, .5
+          mujoco.mj_forward(model, data)
+          assert data.ncon == 0, 'unrevealed tiles must provide no contact'
+          # Reveal the *same two compiled convex prisms* by elevating their
+          # mocap bodies: model remains constant, robot qpos/velocity untouched.
+          for half in range(2):
+              slot=(0+7)*15+(2+7)
+              bid=mujoco.mj_name2id(
+                  model,mujoco.mjtObj.mjOBJ_BODY,
+                  f'sensor_lab_tile_{slot*2+half}')
+              mocap_id=int(model.body_mocapid[bid])
+              assert mocap_id>=0
+              data.mocap_pos[mocap_id,2]=0
+          mujoco.mj_forward(model,data)
+          assert data.ncon >= 1, 'newly revealed field tile must truly support H40'
+          print(f'h40 GROWING CARPET CPU PASS: {model.ngeom} geoms, '
+                f'{model.nmocap} mocaps, {data.ncon} contacts after reveal')
           PY
       - name: Actual eight-prism CPU MJX contacts, sidewalls, mesh and robot
         run: timeout 540s python scripts/probe_carpet_prism_mjx.py --worlds 4 --frames 2

@@ -10,6 +10,7 @@ import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient, ter
 import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
 import { terrainRoleEnvelope } from './training-solid-carpet.js';
 import { createSensorLabCarpet, sensorLabPrismVertices, carpetSpawnSoleLift, LAB_PRISM_FACES, LAB_TILE_M, LAB_PRISM_COUNT } from './sensor-lab-carpet.js';
+import { createGrowingMeadowScenery } from './growing-meadow.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
 const TWO_PI = Math.PI * 2;
@@ -121,6 +122,8 @@ export class EmuBrowserSim {
     this.carpetWindowCenter = null;
     this.carpetMocapIds = [];
     this.carpetGeomIds = new Set();
+    this.carpetRenderedPrisms = new Set();
+    this.carpetScenery = null;
     // Actual browser MuJoCo torso forces, not merely SVG decorations.
     // The real GPU trainer samples independent stochastic pushes; this
     // visibly repeatable spectator demo is NOT a replay of those RNG draws.
@@ -332,6 +335,11 @@ export class EmuBrowserSim {
     this.carpetWindowCenter=null;
     this.carpetMocapIds=[];
     this.carpetGeomIds.clear();
+    this.carpetRenderedPrisms.clear();
+    if(this.carpetScenery){
+      this.carpetScenery.dispose();
+      this.carpetScenery=null;
+    }
     this.shovePreview.stepsLeft=0;
     this.shovePreview.visualLeft=0;
     this.shoveArrow.visible=false;
@@ -614,11 +622,12 @@ export class EmuBrowserSim {
     this.data = new this.mujoco.MjData(this.model);
     this.mjvScene = new this.mujoco.MjvScene(this.model, this.maxGeoms);
     this.resolveIds();
-    if(this.park?.physics==='eight-1m-prisms'){
+    if(this.park?.physics==='growing-prism-field'){
       // Physical browser geoms render directly, not as decorative heightfields.
       // Do not put a decorative hfield over their real vertical contact faces.
       this.makeCarpetTileOverlay();
       this.makeSensorLabSurface();
+      this.carpetScenery=createGrowingMeadowScenery(THREE,this.scene,this.park);
     }else if(this.park){
       this.parkSurface=createParkSurface(THREE,this.park,this.grassTexture);
       this.scene.add(this.parkSurface);
@@ -649,24 +658,73 @@ export class EmuBrowserSim {
   }
 
   makeSensorLabSurface(){
-    // Viewer triangles and CPU MuJoCo contact meshes share one vertex source.
-    const group=new THREE.Group();
-    for(const prism of sensorLabPrismVertices(this.park)){
-      const points=[];
-      for(const face of LAB_PRISM_FACES)
-        for(const v of face)points.push(...prism.world[v]);
+    // One 1m tile = two exact MuJoCo convex prism collision meshes.
+    // Only activated terrain is visible; crossed ground is retained.
+    this.sensorLabSurface=new THREE.Group();
+    this.scene.add(this.sensorLabSurface);
+    this.carpetRenderedPrisms.clear();
+    this.appendGrowingCarpetVisuals();
+  }
+
+  appendGrowingCarpetVisuals(){
+    if(!this.sensorLabSurface)return;
+    for(const prism of sensorLabPrismVertices(this.park,{activeOnly:true})){
+      if(this.carpetRenderedPrisms.has(prism.k))continue;
+      const points=[],uv=[],colors=[];
+      for(const [faceIndex,face] of LAB_PRISM_FACES.entries())
+        for(const v of face){
+          const p=prism.world[v];
+          points.push(...p);
+          // One grass-texture repeat per physical metre, seamless at tiles.
+          uv.push(p[0],p[1]);
+          // Prism top = lush Meadow grass; vertical cliff faces and bottom
+          // are darker exposed earth, not a decorative invisible platform.
+          const tint=faceIndex===0?[.96,1,.90]:
+            faceIndex===1?[.29,.26,.19]:[.49,.43,.30];
+          colors.push(...tint);
+        }
       const geom=new THREE.BufferGeometry();
       geom.setAttribute('position',new THREE.Float32BufferAttribute(points,3));
+      geom.setAttribute('uv',new THREE.Float32BufferAttribute(uv,2));
+      geom.setAttribute('color',new THREE.Float32BufferAttribute(colors,3));
       geom.computeVertexNormals();
       const mesh=new THREE.Mesh(geom,new THREE.MeshStandardMaterial({
-        color:0x599c69,roughness:.92,side:THREE.DoubleSide}));
+        map:this.grassTexture,color:0xffffff,vertexColors:true,
+        roughness:.98,side:THREE.DoubleSide,flatShading:true}));
       mesh.userData.robotPart=false;
       mesh.userData.sensorLabPrism=true;
+      mesh.userData.tileSlot=prism.tile.slot;
       mesh.receiveShadow=true;
-      group.add(mesh);
+      mesh.castShadow=false;
+      this.sensorLabSurface.add(mesh);
+      this.carpetRenderedPrisms.add(prism.k);
     }
-    this.sensorLabSurface=group;
-    this.scene.add(group);
+  }
+
+  syncGrowingCarpetVisuals(){
+    if(!this.sensorLabSurface||!this.park)return;
+    for(const mesh of this.sensorLabSurface.children)
+      mesh.visible=Boolean(this.park.tiles[mesh.userData.tileSlot]?.active);
+    this.appendGrowingCarpetVisuals();
+    this.carpetScenery?.sync();
+    this.carpetTileCenter=null;
+  }
+
+  growCarpetNearRobot(){
+    if(this.park?.physics!=='growing-prism-field'||!this.data)return;
+    const fresh=this.park.growAround(Number(this.data.qpos[0]),
+                                     Number(this.data.qpos[1]));
+    if(!fresh.length)return;
+    const mocap=this.data.mocap_pos;
+    for(const tile of fresh)for(let half=0;half<2;half++){
+      const id=this.carpetMocapIds[tile.slot*2+half];
+      if(!Number.isInteger(id)||id<0)
+        throw Error('Growing Carpet lost a real MuJoCo prism mocap');
+      mocap[id*3+2]=0; // parked body at -40m -> actual terrain elevation
+    }
+    // Need actual contacts/geom_xpos to update before the next ToF sample.
+    this.mujoco.mj_forward(this.model,this.data);
+    this.syncGrowingCarpetVisuals();
   }
 
   name2id(objEnum, name) {
@@ -688,8 +746,15 @@ export class EmuBrowserSim {
     this.footIds = ['r_foot', 'l_foot'].map(n => this.name2id(mj.mjtObj.mjOBJ_BODY, n));
     this.footGeomIds = ['r_foot_ball','l_foot_ball'].map(n =>
       this.name2id(mj.mjtObj.mjOBJ_GEOM,n));
-    if(this.park?.physics==='eight-1m-prisms'){
-      this.carpetMocapIds=[];
+    if(this.park?.physics==='growing-prism-field'){
+      this.carpetMocapIds=Array.from({length:LAB_PRISM_COUNT},(_,i)=>{
+        const body=this.name2id(mj.mjtObj.mjOBJ_BODY,'sensor_lab_tile_'+i);
+        const id=Number(this.model.body_mocapid[body]);
+        if(id<0)throw Error('Growing Carpet requires physical mocap bodies');
+        return id;
+      });
+      if(new Set(this.carpetMocapIds).size!==LAB_PRISM_COUNT)
+        throw Error('Growing Carpet needs one unique mocap for each prism');
       this.carpetGeomIds=new Set(Array.from({length:LAB_PRISM_COUNT},(_,i)=>
         this.name2id(mj.mjtObj.mjOBJ_GEOM,'sensor_lab_prism_'+i)));
     }
@@ -731,6 +796,10 @@ export class EmuBrowserSim {
     this.resetGeneration=(this.resetGeneration||0)+1;
     const mj = this.mujoco;
     mj.mj_resetData(this.model, this.data);
+    if(this.park?.physics==='growing-prism-field'){
+      this.park.resetGrowth();
+      this.syncGrowingCarpetVisuals();
+    }
     this.data.ctrl.fill(0);
     this.data.qvel.fill(0);
     // Training births already moving near the commanded state. Do the same for
@@ -740,13 +809,13 @@ export class EmuBrowserSim {
     this.requestedYaw = this.commandTarget.yaw;
     this.command.yaw = this.requestedYaw;
     this.data.qvel[5] = this.command.yaw;
-    if(this.park?.physics==='eight-1m-prisms'){
+    if(this.park?.physics==='growing-prism-field'){
       this.data.qpos[0]=LAB_TILE_M*.5;
       this.data.qpos[1]=LAB_TILE_M*.5;
       this.carpetWindowCenter=[0,0];
     }
     mj.mj_forward(this.model, this.data);
-    if(this.park?.physics==='eight-1m-prisms'){
+    if(this.park?.physics==='growing-prism-field'){
       // qpos0 is neutral on the original z=0 floor, but this tile may be
       // raised by a slope or a signed step. Align actual 18mm foot spheres
       // against the true CPU MuJoCo prism surface BEFORE starting inference
@@ -862,70 +931,28 @@ export class EmuBrowserSim {
   terrainHeightAt(x,y) {
     return ['park','carpet'].includes(this.terrainMode) && this.park ? this.park.sampleHeight(x,y) : 0;
   }
-  makeCarpetTileOverlay() {
-    // Read-only visual ruler following the robot. The collision hfield is
-    // static for this preview; moving these lines does NOT move collision.
-    const geometry=new THREE.BufferGeometry();
-    this.carpetTileOverlay=new THREE.LineSegments(geometry,
-      new THREE.LineBasicMaterial({color:0xe7bc78,transparent:true,
-         opacity:.85,depthTest:true,depthWrite:false}));
+  makeCarpetTileOverlay(){
+    this.carpetTileOverlay=new THREE.LineSegments(new THREE.BufferGeometry(),
+      new THREE.LineBasicMaterial({color:0xf2d59a,transparent:true,
+        opacity:.74,depthTest:true,depthWrite:false}));
     this.carpetTileOverlay.renderOrder=4;
     this.carpetTileOverlay.frustumCulled=false;
     this.scene.add(this.carpetTileOverlay);
     this.carpetTileCenter=null;
   }
-  updateCarpetTileOverlay() {
+  updateCarpetTileOverlay(){
     if(!this.carpetTileOverlay||!this.park||!this.data)return;
-    const x=this.data.qpos[0],y=this.data.qpos[1],
-      size=this.park.tileSizeM||.5;
-    const cx=this.carpetWindowCenter?.[0]??Math.floor(x/size);
-    const cy=this.carpetWindowCenter?.[1]??Math.floor(y/size);
-    const key=cx+','+cy;
+    const key=this.park.revision;
     if(key===this.carpetTileCenter)return;
     this.carpetTileCenter=key;
-    const positions=[];
-    const add=(a,b)=>positions.push(...a,...b);
-    if(this.park.physics==='eight-1m-prisms'){
-      // Fixed 2x2 prism boundary; NEVER draw fictitious recycled tiles.
-      for(let i=0;i<=2;i++){
-        const u=i*size;
-        add([u,0,.008],[u,2*size,.008]);
-        add([0,u,.008],[2*size,u,.008]);
-      }
-      for(let j=0;j<2;j++)for(let i=0;i<2;i++){
-        const a=this.park.at(i,j),corners=a.corners;
-        add([i*size,j*size,corners[0]+.009],
-          [(i+1)*size,(j+1)*size,corners[3]+.009]);
-      }
-      this.carpetTileOverlay.geometry.dispose();
-      this.carpetTileOverlay.geometry=new THREE.BufferGeometry();
-      this.carpetTileOverlay.geometry.setAttribute('position',
-        new THREE.Float32BufferAttribute(positions,3));
-      this.carpetTileOverlay.visible=this.showGrid;
-      return;
-    }
-    for(let i=-1;i<=2;i++){
-      const xx=(cx+i)*size;
-      for(let j=-1;j<=1;j++){
-        const y0=(cy+j)*size,y1=y0+size;
-        const a=[xx,y0,this.park.sampleHeight(xx,y0)+.006];
-        const b=[xx,y1,this.park.sampleHeight(xx,y1)+.006];
-        add(a,b);
-      }
-    }
-    for(let j=-1;j<=2;j++){
-      const yy=(cy+j)*size;
-      for(let i=-1;i<=1;i++){
-        const x0=(cx+i)*size,x1=x0+size;
-        add([x0,yy,this.park.sampleHeight(x0,yy)+.006],
-            [x1,yy,this.park.sampleHeight(x1,yy)+.006]);
-      }
-    }
-    // Diagonal boundaries show each tile's two physical triangular prisms.
-    for(let j=-1;j<=1;j++)for(let i=-1;i<=1;i++){
-      const x0=(cx+i)*size,y0=(cy+j)*size;
-      add([x0,y0,this.park.sampleHeight(x0,y0)+.006],
-          [x0+size,y0+size,this.park.sampleHeight(x0+size,y0+size)+.006]);
+    const size=this.park.tileSizeM;
+    const positions=[],add=(a,b)=>positions.push(...a,...b);
+    for(const t of this.park.window()){
+      const x=t.i*size,y=t.j*size,[a,b,c,d]=t.corners;
+      const ll=[x,y,a+.008],lr=[x+size,y,b+.008],
+        ul=[x,y+size,c+.008],ur=[x+size,y+size,d+.008];
+      add(ll,lr);add(lr,ur);add(ur,ul);add(ul,ll);
+      add(lr,ul); // same real two-prism diagonal, not a fake square.
     }
     this.carpetTileOverlay.geometry.dispose();
     this.carpetTileOverlay.geometry=new THREE.BufferGeometry();
@@ -1057,6 +1084,7 @@ export class EmuBrowserSim {
     const nsub = Number(this.bundle.control.control_substeps || 4);
     const beforeJoints=this.actQpos.map(i=>Number(this.data.qpos[i]));
     for (let k = 0; k < nsub; k++) this.mujoco.mj_step(this.model, this.data);
+    this.growCarpetNearRobot();
     for(let i=0;i<this.actQpos.length;i++)
       this.motorTravelRad+=Math.abs(Number(this.data.qpos[this.actQpos[i]])-beforeJoints[i]);
 
@@ -1578,6 +1606,7 @@ export class EmuBrowserSim {
     if (this.cameraMode === 'orbit') this.controls.update();
     else if (this.cameraMode === 'chase') this.updateChaseCamera(dt);
     else this.updateFirstPersonCamera();
+    this.carpetScenery?.update(this.camera.position);
     this.renderer.render(this.scene, this.camera);
   }
 

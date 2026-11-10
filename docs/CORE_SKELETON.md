@@ -67,9 +67,7 @@ Every run lives outside Git at `~/emu-data/runs/<name>/` and includes resolved c
 ## Known fidelity boundaries
 
 1. **VL53L8CX physical contract updated:** current h40 training and viewer use one 45°×45° square optical frustum (16 zone-centre rays), 70° down, 30mm below torso, zero forward/lateral/yaw; the 360 observation width is unchanged but its cryptographically-pinned geometry revision is new. The ST 4×4 zone-ID map explicitly accounts for the **two-axis lens inversion** in UM3109; verify PCB rotation before feeding ranges to the actor. A zone-centre ray is still an approximation of the sensor's multi-return optical histogram; validate foot occlusion against actual hardware.
-2. **Terrain upgraded:** current MJX uses four 1m rolling source tiles, exactly eight triangular convex prism colliders, midpoint recycling with real foot-clearance hold, shared teacher/raycast surface source. The CPU sensor-lab has the same 1m tile geometry but a fixed 2×2 testing fixture, not MJX recycling. The current trained-policy browser Carpet uses the same eight convex prism
-contact topology and 1m tile dimensions, but is a **fixed** 2×2m
-CPU MuJoCo fixture, NOT a rolling MJX course; it cannot certify steps.
+2. **Terrain upgraded:** current MJX training uses four 1m rolling source tiles, eight triangular convex prism colliders, midpoint recycling with real foot-clearance hold, shared teacher/raycast surface source. The separate **viewer** uses the same physical 1m two-prism tile topology, but precompiles a bounded 15×15m CPU reserve and progressively activates permanent terrain without moving any walked-on support. This is a growing Meadow-style visual field, **not** the stochastic MJX curriculum, and cannot certify steps.
 3. **New cold start completed and source promoted:** seed 735, 2048 worlds,
 120,061,952 steps on the central-servo/carbon/1m/physical-ToF model.
 The frozen `.emupolicy` is current in `main`. Independent matched

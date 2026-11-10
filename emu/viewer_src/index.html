@@ -18,7 +18,7 @@
       </div>
       <nav class="world-switch" aria-label="Simulation world">
         <button id="worldField" class="world-tab active" type="button" aria-pressed="true">🌿 Field</button>
-        <button id="worldCarpet" class="world-tab" type="button" aria-pressed="false">▦ Training Carpet</button>
+        <button id="worldCarpet" class="world-tab" type="button" aria-pressed="false">🌄 Growing Meadow</button>
       </nav>
       <div id="status" class="status" data-kind="idle">Load an .emupolicy file</div>
       <div class="top-actions">
@@ -42,6 +42,10 @@
         <div id="carpetHudRow" class="metric terrain-assigned" hidden>
           <span>Physical carpet · grade, signed UP / DOWN</span>
           <b id="carpetHudTerrain">—</b>
+        </div>
+        <div id="carpetGrowthRow" class="metric terrain-assigned" hidden>
+          <span>Meadow · real tiles grown</span>
+          <b id="carpetGrowth">4 / 225</b>
         </div>
         <div class="metric"><span>Height / posture</span><b id="height">—</b></div>
         <div class="metric"><span>Forward · actual / requested</span><b id="vxRead">—</b></div>
@@ -67,7 +71,7 @@
       <section class="controls-panel">
       <div class="control-row">
 
-        <select id="terrainMode" hidden aria-hidden="true"><option value="park" selected>Field</option><option value="carpet">Training Carpet</option></select>
+        <select id="terrainMode" hidden aria-hidden="true"><option value="park" selected>Field</option><option value="carpet">Growing Meadow Carpet</option></select>
         <section id="fieldPanel" class="world-settings" aria-label="Natural field options">
         <div class="world-settings-heading">🌿 Field <small>Grass, trees, rolling hills and optional real-collision course</small></div>
         <label>Park max slope <output id="terrainMaxOut">10°</output><input id="terrainMax" type="range" min="1" max="20" value="10" step="1" /></label>
@@ -84,7 +88,7 @@
           <small>Changing difficulty rebuilds the browser physics and resets the robot. Training weights are unchanged; these are not held-out MJX exams.</small>
         </div>
         </section>
-        <section id="carpetPanel" class="carpet-panel" hidden aria-label="Training Carpet settings">
+        <section id="carpetPanel" class="carpet-panel" hidden aria-label="Growing Meadow Carpet settings">
           <label class="specialty-picker"><b>Training specialist</b>
             <select id="carpetRole" aria-label="Representative specialist to inspect">
         <option value="auto" selected>Auto phase</option>

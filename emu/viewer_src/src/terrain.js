@@ -340,11 +340,11 @@ export function withTerrain(robotXml,mode='flat',options={}) {
   if(!['park','carpet'].includes(mode))throw new Error('Unknown terrain mode');
   const park=options.park||generateTerrainPark(options);
   if(mode==='carpet'){
-    if(park?.physics!=='eight-1m-prisms')
-      throw Error('Current EMU carpet must use exactly eight 1m triangular prisms');
-    // The same MuJoCo convex meshes and exact vertices serve the trained
-    // policy and the untrained sensor lab. Fixed 2x2 playback is NOT an
-    // implementation of MJX terrain recycling.
+    if(park?.physics!=='growing-prism-field')
+      throw Error('Current EMU Carpet requires its real growing prism field');
+    // Real MuJoCo convex prisms are precompiled but kept 40m below until
+    // activated. This field grows and keeps old ground; the GPU recycler
+    // remains a separate source-pinned training implementation.
     const geom=sensorLabPrismXml(park);
     let xml=robotXml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
     if(xml===robotXml)throw Error('Prism carpet needs source ground plane');
@@ -381,7 +381,15 @@ export function surfaceSlope(mode,park,x,y,robotHeading=0,lab=null) {
   if (![x,y,robotHeading].every(Number.isFinite))
     return {supported:false,degrees:0,arrowDegrees:0};
   let gx=0,gy=0;
-  if(mode==='park'||mode==='carpet') {
+  if(mode==='carpet'){
+    // No square-world boundary assumption: use only the current ACTIVE
+    // prism. A sharp signed step must not be misreported as a local slope.
+    if(!park||!Number.isFinite(park.sampleHeight(x,y)))
+      return {supported:false,degrees:0,arrowDegrees:0};
+    const tile=park.tileSizeM||1,i=Math.floor(x/tile),j=Math.floor(y/tile);
+    const a=park.at(i,j).corners;
+    gx=(a[1]-a[0])/tile;gy=(a[2]-a[0])/tile;
+  } else if(mode==='park') {
     if(!park||Math.abs(x)>=park.radius||Math.abs(y)>=park.radius)
       return {supported:false,degrees:0,arrowDegrees:0};
     const delta=Math.max(park.cell*0.5,0.05);
