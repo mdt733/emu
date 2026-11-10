@@ -1,8 +1,8 @@
 # EMU release readiness — H40 120M
 
-**As of 9 November 2026:** H40 is the **current source and inference actor on `main`**, promoted in [PR #53](https://github.com/mdt733/emu/pull/53) (commit `1b796144b128b326be1ac54f6a289ad87857cde6`). That merge is **not** a claim of hardware readiness, reliable stair climbing or a GitHub Pages deployment.
+**As of 10 November 2026:** H40 is the **current source and inference actor on `main`**, promoted in [PR #53](https://github.com/mdt733/emu/pull/53) (commit `1b796144b128b326be1ac54f6a289ad87857cde6`). That merge is **not** a claim of hardware readiness, reliable stair climbing or a GitHub Pages deployment.
 
-The public playground is a **separate manual release decision**. Its [workflow](../.github/workflows/emu-playground.yml) only deploys after `scripts/verify_showcase_release.py` finds an exact policy/approval pair.
+The public playground is a **separate manual release decision**. Its [workflow](../.github/workflows/emu-playground.yml) only deploys after `scripts/verify_showcase_release.py` finds an exact policy/approval pair. The manual dispatch succeeded on 10 November 2026; the remaining release task is independent verification of the actual deployed site.
 
 ## The one candidate
 
@@ -26,13 +26,14 @@ The owner reports a pleasing fast gait and approximately 15° slopes in the **vi
 - [x] 120M inference-only export retains the exact robot XML and sensor contract. Full training state is retained on the operator's computer, **not** inside this repository.
 - [ ] Independently run a matched physical exam for all meaningful step/grade/command/recovery claims. This is a **capability validation**, not an excuse to label viewer evidence as real-world proof.
 
-## Public GitHub Pages gate (not complete)
+## Public GitHub Pages gate (workflow passed; live-browser review outstanding)
 
 - [x] The new actor bytes are committed unmodified.
 - [x] Operator measured the original full `final.pkl` SHA-256 on the training computer: `632c09788613e0e5fdc077637efd0a4bf4fc1be7ae0c07dc3662087c6c12970b` (checkpoint file itself remains private/off GitHub).
 - [x] Created strict schema-1 `showcase/release_approval.json` from the operator's checkpoint checksum and exact existing policy, with the actor/sensor/training-source/Git blob identities verified.
-- [ ] Pass `python scripts/verify_showcase_release.py` and prepare/build/verify the exact approved `dist` assets in release PR CI (publication remains blocked if it fails).
-- [ ] Explicitly dispatch the protected/manual GitHub Pages workflow **from `main`**; verify the deployed artifact and actual browser gait. A normal source merge must never publish an actor automatically.
+- [x] Source/browser CI prepared and verified the approved actor and compiled `dist` assets at `79c9f43` ([successful workflow](https://github.com/mdt733/emu/actions/runs/42794505755)); strict `showcase/release_approval.json` validation remains enabled.
+- [x] The protected **manual** GitHub Pages workflow was explicitly dispatched from `main` at `79c9f43` and [reported success on 10 November 2026](https://github.com/mdt733/emu/actions/runs/42794739700). A source merge alone never publishes an actor.
+- [ ] Independently open the deployed GitHub Pages site and check its actual H40 actor identity, gait and mobile/desktop interactions; successful Actions are **not** equivalent to a human browser check.
 
 With approval checked in, `bash scripts/check.sh --quick` and `--full` validate both the physical actor and its immutable release manifest. Source/PR CI also verifies the final static website; publication itself remains **manual**.
 

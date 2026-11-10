@@ -16,14 +16,14 @@
 | Hardware truth | Mass, transmission, motor thermal/torque-speed, ToF PCB mapping and sim2real are provisional |
 | Source protection | Keep `main` champion and original private `final.pkl` untouched; code merges never silently retrain or republish actor |
 | Planning authority | [Issue #62](https://github.com/mdt733/emu/issues/62) controls task checkboxes and completion references; this page controls handover/context |
-| Next work | **Step 0**: merge this planning-only handover PR; then **two lanes:** baseline exam alongside housekeeping. No GPU megacampaign yet |
+| Next work | **Step 0 complete** in [PR #63](https://github.com/mdt733/emu/pull/63) (`4932a5c`); start housekeeping and a separate frozen-H40 baseline examiner. No GPU megacampaign yet |
 
 ## Roadmap and branch strategy
 
 **Use two lanes, not a stack of eight speculative branches.** Issue #62 has the detailed task-level checkboxes, acceptance criteria, research questions and completion record. Here is the dependency map:
 
 ```text
-Step 0: planning/h40-forward-roadmap-20261110 [documentation only]
+Step 0: unified roadmap/hand-over merged via PR #63
   |
   +-- Lane A: maintenance/h40-source-tidy
   |       -> viewer/h40-laboratory-ui (Explore / Experiment / Diagnostics)
