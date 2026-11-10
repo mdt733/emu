@@ -234,6 +234,7 @@ async function activatePolicy(index) {
                            limits:carpetEffectiveLimits()});
     sim.setMeadowSettings(meadowSettings);
     sim.setTerrainMode('carpet');
+    updateWorldTabs();
     updateDepthSettings();
     // Automatic stroll and lesson commands are mutually exclusive.
     if(demoActive)carpetDrive.value='manual';
