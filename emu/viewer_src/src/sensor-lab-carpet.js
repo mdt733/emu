@@ -113,7 +113,7 @@ export function carpetSpawnSoleLift(park,geomXpos,geomSize,footGeomIds){
     const radius=Number(geomSize[o]),z=Number(geomXpos[o+2]);
     const ground=park.sampleHeight(x,y);
     if(![x,y,radius,z,ground].every(Number.isFinite)||radius<=0)
-      throw Error('Carpet feet require valid physical prism support');
+      throw Error('Carpet feet require valid prism support');
     return ground+radius*Math.hypot(1,slope)-z;
   }));
 }
