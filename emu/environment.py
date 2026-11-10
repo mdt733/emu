@@ -204,6 +204,7 @@ class EnvState(NamedTuple):
     academy_up_crossings: Any
     academy_down_crossings: Any
     academy_foothold_seen: Any
+    academy_clearance_seen: Any  # one honest UP swing-clearance payment per birth
     # v5051 five-frame simultaneous bilateral real-top support after a lip.
     academy_transfer_streak: Any
     academy_transfer_seen: Any
@@ -1010,6 +1011,7 @@ class EmuMJXEnv(TaskSampler):
                  science_step_goal_weight: float = 0.0,
                  science_step_velocity_relief: float = 0.0,
                  science_step_approach_m: float = 0.0,
+                 science_stair_school_v1: bool = False,
                  science_step_finish_on_transfer: bool = False,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
@@ -1098,6 +1100,12 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError("step finish switch must be boolean")
         if science_step_finish_on_transfer and not academy_stream:
             raise ValueError("step finish requires streamed real-prism Academy")
+        if type(science_stair_school_v1) is not bool:
+            raise ValueError("Stair School v1 option must be boolean")
+        if science_stair_school_v1 and (not science_step_finish_on_transfer or
+                                     not academy_stream or science_step_approach_m==0.):
+            raise ValueError("Stair School v1 needs Academy, near-lip spawn and short finish")
+        self.science_stair_school_v1=science_stair_school_v1
         self.science_step_finish_on_transfer=science_step_finish_on_transfer
         self.science_gate_mode=science_gate_mode
         self.observation_schema = observation_schema
@@ -1914,6 +1922,7 @@ class EmuMJXEnv(TaskSampler):
             academy_up_crossings=academy['up_count'],
             academy_down_crossings=academy['down_count'],
             academy_foothold_seen=academy['foothold_seen'],
+            academy_clearance_seen=academy['clearance_seen'],
             academy_transfer_streak=academy['transfer_streak'],
             academy_transfer_seen=academy['transfer_seen'],
             academy_transfer_armed=academy['transfer_armed'],
@@ -3009,6 +3018,7 @@ class EmuMJXEnv(TaskSampler):
             academy_up_crossings=izeros,
             academy_down_crossings=izeros,
             academy_foothold_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_clearance_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_transfer_streak=izeros,
             academy_transfer_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_transfer_armed=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
