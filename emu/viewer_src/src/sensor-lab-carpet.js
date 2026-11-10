@@ -173,7 +173,12 @@ export function createSensorLabCarpet(config={}){
   return park;
 }
 export function carpetHeightfieldPatch(tile){
-  return tile.corners.map(h=>clamp((h-tile.base)/LAB_HFIELD_Z,0,1));
+  const values=tile.corners.map(h=>(h-tile.base)/LAB_HFIELD_Z);
+  // No invisible clipping: slider grades must be physically representable
+  // by the compiled 1m vertical range or the scene is invalid.
+  if(values.some(v=>!Number.isFinite(v)||v<-.000001||v>1.000001))
+    throw Error('Meadow hill exceeds compiled heightfield vertical range');
+  return values.map(v=>clamp(v,0,1));
 }
 export function carpetSpawnSoleLift(park,geomXpos,geomSize,footGeomIds){
   if(park?.physics!=='streaming-heightfield'||footGeomIds?.length!==2)
@@ -195,9 +200,12 @@ export function streamingCarpetXml(park){
     throw Error('Streaming Carpet requires exactly 225 source tiles');
   const assets=[],bodies=[];
   for(const t of park.tiles){
+    // IMPORTANT MuJoCo normalizes XML elevation to [0,1] at compile
+    // time. Supplying actual 0.1m differences here would incorrectly
+    // expand them to a 1m cliff. Allocate ZERO data in XML and write the
+    // correct metric samples directly to model.hfield_data at runtime.
     assets.push('<hfield name="sensor_lab_hfield_'+t.slot+
-      '" nrow="2" ncol="2" size="0.5 0.5 '+LAB_HFIELD_Z+' 0.5" elevation="'+
-      carpetHeightfieldPatch(t).map(fmt).join(' ')+'"/>');
+      '" nrow="2" ncol="2" size="0.5 0.5 '+LAB_HFIELD_Z+' 0.5"/>');
     bodies.push('<body name="sensor_lab_tile_'+t.slot+
       '" mocap="true" pos="'+[t.x,t.y,t.base].map(fmt).join(' ')+'">'+
       '<geom name="sensor_lab_ground_'+t.slot+
