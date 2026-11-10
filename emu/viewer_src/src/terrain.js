@@ -340,11 +340,11 @@ export function withTerrain(robotXml,mode='flat',options={}) {
   if(!['park','carpet'].includes(mode))throw new Error('Unknown terrain mode');
   const park=options.park||generateTerrainPark(options);
   if(mode==='carpet'){
-    if(park?.physics!=='growing-prism-field')
-      throw Error('Current EMU Carpet requires its real growing prism field');
-    // Real MuJoCo convex prisms are precompiled but kept 40m below until
-    // activated. This field grows and keeps old ground; the GPU recycler
-    // remains a separate source-pinned training implementation.
+    if(park?.physics!=='streaming-heightfield')
+      throw Error('Current EMU Carpet requires its real streaming heightfield');
+    // CPU MuJoCo supports safe runtime changes to 2x2 hfield_data. A
+    // fixed 225-tile window streams any global position; trained GPU
+    // convex prisms are still the separate, unchanged reference physics.
     const geom=sensorLabPrismXml(park);
     let xml=robotXml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
     if(xml===robotXml)throw Error('Prism carpet needs source ground plane');
