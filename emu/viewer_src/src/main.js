@@ -8,8 +8,6 @@ import { CARPET_DEFAULT, parseCarpetMetrics, trainingLimits } from './training-c
 import { MEADOW_DEFAULTS, normalizedMeadowSettings } from './sensor-lab-carpet.js';
 import { carpetLearningStage, carpetRepresentativeRole, terrainRoleEnvelope } from './training-solid-carpet.js';
 import { specialistLesson, friendlyFrontiers, SLIDER_FIELDS, roleSliders, customRoleOverride, carpetGeometrySignature } from './training-inspector.js';
-import { GoalNavigator } from './goal-navigation.js';
-import { GoalPlannerWorker } from './goal-planner-client.js';
 import { showcasePolicyUrl, isJsonResponse, isViewerConfig, readShowcaseManifest, assertShowcasePolicyResponse } from './showcase.js';
 
 const $ = id => document.getElementById(id);
@@ -26,7 +24,6 @@ const gridToggle = $('gridToggle');
 const trailToggle = $('trailToggle');
 const shadowToggle = $('shadowToggle');
 const terrainMode = $('terrainMode');
-const terrainMax = $('terrainMax');
 const carpetRole=$('carpetRole'),carpetPanel=$('carpetPanel'),carpetImport=$('carpetImport');
 const carpetValues=$('carpetValues'),carpetStatus=$('carpetStatus');
 const carpetLive=$('carpetLive'),carpetFetch=$('carpetFetch'),carpetApply=$('carpetApply');
@@ -35,7 +32,6 @@ const carpetMatch=$('carpetMatch'),carpetDrive=$('carpetDrive');
 const carpetShoves=$('carpetShoves'),carpetTestShove=$('carpetTestShove');
 const carpetPushRate=$('carpetPushRate'),carpetResetLimits=$('carpetResetLimits');
 const carpetDifficultyMode=$('carpetDifficultyMode'),carpetStepTrack=$('carpetStepTrack');
-const worldField=$('worldField'),worldCarpet=$('worldCarpet'),fieldPanel=$('fieldPanel');
 const carpetEdits=new Map();
 const tuningInputs=Object.fromEntries(SLIDER_FIELDS.map(([key,id])=>[key,$(id)]));
 let carpetExerciseClock=0;
@@ -57,10 +53,6 @@ const depthCells=Array.from({length:16},()=>{
   cell.className='depth-cell invalid';cell.textContent='—';
   $('depthGrid').appendChild(cell);return cell;
 });
-const treesToggle = $('treesToggle');
-const parkFeaturesToggle = $('parkFeaturesToggle');
-const parkChallengeLevel = $('parkChallengeLevel');
-const parkCourseList = $('parkCourseList');
 const headingHoldToggle = $('headingHoldToggle');
 const headingGain = $('headingGain');
 const cameraBtn = $('cameraBtn');
@@ -78,89 +70,32 @@ const dropOverlay = $('dropOverlay');
 const leftValues = $('leftValues');
 const rightValues = $('rightValues');
 const livePanel = $('livePanel');
-const navigator = new GoalNavigator();
-let navWorker;
-let workerUnavailable=null;
-try{navWorker=new GoalPlannerWorker();}
-catch(error){workerUnavailable=String(error?.message||error);console.error('Goal worker:',error);}
-navigator.useBackgroundPlanner(request=>{
-  if(!navWorker)throw new Error(workerUnavailable||'Background navigation unavailable');
-  return navWorker.request(request);
-});
-const navHud = $('navHud');
-let lastResetGeneration = -1;
-let navCommandClock = Infinity;
-let navCommandUpdates = 0;
-let navLastCommand = {vx:0,vy:0,yaw:0};
-let demoActive = true;
-let navigationFault = false;
-const handoff = new DemoHandoff();
-const goalDemoActive = () => demoActive;
-function syncGoalMode() {
-  const enabled=Boolean(sim && goalDemoActive() && terrainMode.value==='park');
-  navigator.active=enabled;
-  navigator.reset();
-  navCommandClock=Infinity;
-  navCommandUpdates=0;
-  navLastCommand={vx:0,vy:0,yaw:0};
-  if(sim) {
-    // Autonomy and manual use the same policy command/observation path.
-    sim.setNavigationPresentation(enabled);
+// No Field destinations or background planner. The public showcase is a
+// scripted, modest eastbound stroll using the same commands as manual H40.
+// This is a demo, not an autonomous obstacle-navigation or step exam.
+let demoActive=true;
+const handoff=new DemoHandoff();
+let navLastCommand={vx:0,vy:0,yaw:0,pitch:0};
+let strollClock=Infinity;
+function syncGoalMode(){
+  if(sim){
+    sim.setNavigationPresentation(false);
     sim.autoReset=autoResetToggle.checked||demoActive;
   }
-  // Field navigation is never visible in Carpet, even during a
-  // manual-control handoff or when the 30s timer reaches zero.
-  navHud.hidden=!enabled;
-  $('navNext').disabled=!enabled;
 }
-// One proven command delivery path for every autonomous input source.
-function applyAutonomousCommand(command) {
+function applyAutonomousCommand(command){
   sim.setDemoCommands(command);
   navLastCommand={...command};
   updateStickLabels();
 }
-function navigationUpdate(dt) {
-  const pose=sim.navigationPose();
-  if(sim.resetGeneration!==lastResetGeneration) {
-    lastResetGeneration=sim.resetGeneration;
-    navigator.reset();
-  }
-  let plannedCommand=null;
-  navigator.tick(dt,pose,bundle.control.command_limits,
-    sim.navigationTrees(),command=>{plannedCommand=command;});
-  // Both modes still use the same tested setDemoCommands() pipeline.
-  // Higher cruising speed needs tighter steering corrections than the
-  // initial 650ms zero-order hold (which travelled ~0.6m at full speed).
-  // Route feedback up to 10 Hz through the same command path.
-  // Neural actor inference remains at its normal 50 Hz.
-  const commandPeriod=.10;
-  navCommandClock+=Math.min(Math.max(dt,0),.1);
-  if(plannedCommand && navCommandClock>=commandPeriod){
-    applyAutonomousCommand(plannedCommand);
-    navCommandClock=0;
-    navCommandUpdates++;
-  }
-  const state=navigator.status(pose);
-  sim.setNavigationOverlay(state.goal,state.route);
-  $('demoKind').textContent=state.reason;
-  if(!state.goal){
-    $('navHudTitle').textContent=state.reason;
-    $('navHudInfo').textContent='Planning a route…';
-    $('navEstimate').textContent=state.plannerError
-      ? 'Planner error: '+state.plannerError
-      : `Actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmds ${navCommandUpdates}`;
-    return;
-  }
-  const degrees=n=>Math.round(n*180/Math.PI);
-  $('navHudTitle').textContent=`TARGET ${state.arrivals+1} · ${state.reason}`;
-  $('navHudInfo').textContent=`${state.distance.toFixed(2)} m · heading ${degrees(state.headingError)}° · ${state.arrivals} parked${state.failures?' · '+state.failures+' timed out':''}`;
-  $('navHudInfo').textContent+=` · line ${state.crossTrack>=0?'+':''}${state.crossTrack.toFixed(2)} m (avg ${state.meanTrackError.toFixed(2)}) · crosses ${state.crossings}`;
-  $('navHudInfo').textContent+=` · profile speed ${state.referenceSpeed.toFixed(2)} / observed ${state.observedSpeed.toFixed(2)} m/s`;
-  $('navEstimate').textContent=state.plannerError
-    ? 'Background planner error: '+state.plannerError
-    : state.route?.solved
-      ? `${state.route.planner||'pose lattice'} · ~${state.route.estimatedSeconds.toFixed(1)} s plan / ${state.elapsed.toFixed(1)} s actual · mean heading Δ ${degrees(state.meanHeadingError)}° · mean speed Δ ${state.meanSpeedError.toFixed(2)} m/s · frames ${sim.controlFrames||0}`
-      : `Searching · actor frames ${sim.controlFrames||0} · joints ${sim.motorTravelRad.toFixed(3)} rad · cmd ${navCommandUpdates}`;
+function meadowStroll(dt){
+  if(!sim||sim.paused)return;
+  strollClock+=Math.min(Math.max(dt,0),.10);
+  if(strollClock<.25)return;
+  strollClock=0;
+  const speed=Math.max(0,Math.min(.23,Number(limits().vx_max)));
+  applyAutonomousCommand({vx:speed,vy:0,yaw:0,pitch:0});
+  $('demoKind').textContent='Eastbound stroll · '+speed.toFixed(2)+' m/s requested';
 }
 let liveRevision = null;
 let livePolling = false;
@@ -296,21 +231,14 @@ async function activatePolicy(index) {
     sim.setCameraMode(cameraMode);
     sim.setHeadingHold(headingHoldToggle.checked);
     applyHeadingGain();
-    sim.setTreesEnabled(treesToggle.checked);
-    sim.setParkFeaturesEnabled(parkFeaturesToggle.checked);
-    sim.setParkChallengeLevel(parkChallengeLevel.value);
     sim.setTrainingCarpet({role:carpetRepresentativeRole(carpetEffectiveLimits(),carpetRole.value),
                            limits:carpetEffectiveLimits()});
     sim.setMeadowSettings(meadowSettings);
-    sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
-    updateParkCourseInfo();
+    sim.setTerrainMode('carpet');
     updateDepthSettings();
-    // Retired sensor worlds are no longer reachable from the UI.
-    if(terrainMode.value==='carpet'){
-      demoActive=false;
-      $('liveDemo').checked=false;
-      carpetExerciseClock=0;
-    }
+    // Automatic stroll and lesson commands are mutually exclusive.
+    if(demoActive)carpetDrive.value='manual';
+    carpetExerciseClock=0;
     sim.follow = followToggle.checked;
     sim.autoReset = autoResetToggle.checked || demoActive;
     sim.sensorNoise = noiseToggle.checked;
@@ -349,7 +277,6 @@ async function activatePolicy(index) {
       demoActive = $('liveDemo').checked;
     }
     lastResetGeneration=-1;
-    navigationFault=false;
     syncGoalMode();
     syncCarpetExercise();
     return true;
@@ -402,48 +329,13 @@ cameraBtn.addEventListener('click', () => {
   cameraBtn.textContent = cameraLabel(cameraMode);
   cameraBtn.setAttribute('aria-label', `Camera: ${cameraDescription(cameraMode)}`);
 });
-function updateParkCourseInfo() {
-  parkCourseList.closest('.park-course-info').hidden=terrainMode.value!=='park';
-  parkCourseList.replaceChildren();
-  if(terrainMode.value!=='park' || !parkFeaturesToggle.checked ||
-     !sim?.park?.features?.length){
-    const item=document.createElement('li');
-    item.textContent='Select the terrain park and enable the course.';
-    parkCourseList.appendChild(item);
-    return;
-  }
-  for(const feature of sim.park.features){
-    const item=document.createElement('li');
-    const title=document.createElement('strong');
-    title.textContent=feature.label+' — ';
-    item.appendChild(title);
-    item.appendChild(document.createTextNode(feature.challenge));
-    parkCourseList.appendChild(item);
-  }
-}
-function setWorld(world){
-  if(!['park','carpet'].includes(world))throw Error('Unknown world');
-  terrainMode.value=world;
-  discoverCarpetFromLive=false;
-  updateTerrain();
-}
-worldField.addEventListener('click',()=>setWorld('park'));
-worldCarpet.addEventListener('click',()=>setWorld('carpet'));
 function updateWorldTabs(){
-  const carpet=terrainMode.value==='carpet';
-  for(const [btn,on] of [[worldField,!carpet],[worldCarpet,carpet]]){
-    btn.classList.toggle('active',on);
-    btn.setAttribute('aria-pressed',String(on));
-  }
-  fieldPanel.hidden=carpet;
-  carpetPanel.hidden=!carpet;
-  $('liveDemo').disabled=carpet;
-  navHud.hidden=carpet||!sim||!demoActive;
-  document.body.dataset.world=carpet?'carpet':'field';
-  $('carpetHudRow').hidden=!carpet;
-  $('carpetGrowthRow').hidden=!carpet;
-  $('viewerExercise').textContent=carpet
-    ?currentCarpetLesson().heading:'Field exploration';
+  carpetPanel.hidden=false;
+  document.body.dataset.world='meadow';
+  $('carpetHudRow').hidden=false;
+  $('carpetGrowthRow').hidden=false;
+  $('viewerExercise').textContent=demoActive
+    ?'Meadow stroll':currentCarpetLesson().heading;
 }
 function carpetSourceLimits(){
   const role=carpetRepresentativeRole(carpetDifficulty,carpetRole.value);
@@ -625,36 +517,22 @@ function applyCarpetTerrain(automatic=false){
   }catch(err){setStatus('Training terrain: '+err.message,'error');}
 }
 function updateTerrain(){
-  $('terrainMaxOut').textContent=`${terrainMax.value}°`;
-  const isPark=terrainMode.value==='park';
+  terrainMode.value='carpet';
   updateWorldTabs();
-  treesToggle.disabled=!isPark;
-  parkFeaturesToggle.disabled=!isPark;
-  parkChallengeLevel.disabled=!isPark;
-  terrainMax.disabled=!isPark;
   renderCarpetValues();
-  if(!isPark&&demoActive)stopDemo();
   if(!sim)return;
   try{
     const limits=carpetEffectiveLimits();
-    if(!isPark)sim.setTrainingCarpet({
-      role:carpetRepresentativeRole(limits,carpetRole.value),limits});
-    sim.setTerrainMode(terrainMode.value,Number(terrainMax.value));
-    if(isPark&&demoActive)navigator.reset();
-    if(!isPark)carpetLastAppliedSignature=carpetTerrainSignature();
+    sim.setTrainingCarpet({role:carpetRepresentativeRole(limits,carpetRole.value),limits});
+    sim.setTerrainMode('carpet');
+    carpetLastAppliedSignature=carpetTerrainSignature();
     carpetExerciseClock=0;
     syncCarpetExercise();
     updateStickLabels();
-    updateParkCourseInfo();
-  }catch(err){
-    terrainMode.value='park';
-    sim.setTerrainMode('park');
-    updateWorldTabs();
-    setStatus(`Terrain unavailable: ${err.message}`,'error');
-  }
+  }catch(err){setStatus('Meadow unavailable: '+String(err?.message||err),'error');}
 }
 function runCarpetLesson(dt){
-  if(!sim||sim.paused||terrainMode.value!=='carpet'||carpetDrive.value!=='lesson')return;
+  if(!sim||sim.paused||demoActive||carpetDrive.value!=='lesson')return;
   const lesson=currentCarpetLesson();
   carpetExerciseClock+=Math.max(0,Math.min(.10,dt));
   const command=lesson.commandAt(carpetExerciseClock);
@@ -974,19 +852,6 @@ function updateDepthGrid(){
       ' · '+(mode==='height'?'signed cm from flat z=0 (colour ±15 cm)':'raw slant cm');
 }
 
-// World switches are the two explicit Field / Carpet buttons above.
-terrainMax.addEventListener('change',updateTerrain);
-treesToggle.addEventListener('change',()=>{if(sim)try{sim.setTreesEnabled(treesToggle.checked);if(goalDemoActive())navigator.reset();}catch(err){setStatus(`Tree collision unavailable: ${err.message}`,'error');}});
-parkFeaturesToggle.addEventListener('change',()=>{if(sim)try{
-  sim.setParkFeaturesEnabled(parkFeaturesToggle.checked);
-  if(goalDemoActive())navigator.reset();
-  updateParkCourseInfo();
-}catch(err){setStatus(`Park course unavailable: ${err.message}`,'error');}});
-parkChallengeLevel.addEventListener('change',()=>{if(sim)try{
-  sim.setParkChallengeLevel(parkChallengeLevel.value);
-  if(goalDemoActive())navigator.reset();
-  updateParkCourseInfo();
-}catch(err){setStatus(`Park difficulty unavailable: ${err.message}`,'error');}});
 headingHoldToggle.addEventListener('change',()=>sim?.setHeadingHold(headingHoldToggle.checked));
 headingGain.addEventListener('input',applyHeadingGain);
 followToggle.addEventListener('change', () => { if (sim) sim.follow = followToggle.checked; });
@@ -999,7 +864,7 @@ for (const control of [gridToggle, trailToggle, shadowToggle]) control.addEventL
 
 
 window.addEventListener('resize', () => sim?.resize());
-window.addEventListener('beforeunload', () => {navWorker?.dispose();sim?.dispose();});
+window.addEventListener('beforeunload',()=>sim?.dispose());
 
 let dragDepth = 0;
 window.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; dropOverlay.hidden = false; });
