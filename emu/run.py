@@ -181,6 +181,8 @@ def one_run_config(args) -> TrainingConfig:
     approach=science_args['science_step_approach_m']
     if 0. < approach < .15:
         raise ValueError('science-step-approach-m must be zero or >=0.15m')
+    if school_v1 and approach==0.:
+        raise ValueError('--science-stair-school-v1 requires --science-step-approach-m 0.15..0.35')
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
                    physical_profile=selected_profile(),
                    solver_iterations=solver_iterations,
