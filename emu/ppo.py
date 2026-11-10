@@ -1128,7 +1128,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             aligned=jnp.abs(jnp.arctan2(
                 jnp.sin(m['physical_heading_rad_after_step']),
                 jnp.cos(m['physical_heading_rad_after_step'])))<=.35
-            y_near=jnp.abs(xy[:,1]-.375)<=.12
+            y_near=jnp.abs(xy[:,1]-.5*TILE_M)<=.12
             beyond=xy[:,0]>=(TILE_M+.60)
             near_goal=(jnp.abs(xy[:,0]-(TILE_M+.60))<=.07)&y_near
             upright=(m['gravity_z']>=.80)

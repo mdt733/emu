@@ -2722,7 +2722,7 @@ class EmuMJXEnv(TaskSampler):
             params[P.slope_exposure],params[P.terrain_exposure],seeds)
         xprof,yprof=carpet_make_profiles(jnp,seeds,up,down)
         if self.exam_fixture_steps is not None:
-            # No sampled ±X sign, jitter or extra lip. Exact 0.75m seam,
+            # No sampled ±X sign, jitter or extra lip. Exact 1m seam,
             # optional continuous signed grade, unchanged real colliders.
             xprof,yprof=carpet_exam_lip_profiles(
                 jnp,self.exam_fixture_steps)
@@ -2909,7 +2909,7 @@ class EmuMJXEnv(TaskSampler):
             # Every frozen trial begins 22cm before the first real seam,
             # centred in Y. Kicks are velocity initial conditions, not
             # phantom impulses/reward flags. Non-exam births unaffected.
-            qpos=data.qpos.at[:,0].set(.53).at[:,1].set(.375)
+            qpos=data.qpos.at[:,0].set(CARPET_TILE_M-.22).at[:,1].set(.5*CARPET_TILE_M)
             qvel=data.qvel.at[:,0].add(self.exam_fixture_kicks)
             data=data.replace(qpos=qpos,qvel=qvel)
         # One episode-local collision course. The standard flat path above
@@ -2919,7 +2919,7 @@ class EmuMJXEnv(TaskSampler):
             task[:,T.athletic_rehearsal])
         if self.science_step_approach_m > 0.:
             # Academic stair nursery: Academy-only births land a fixed safe
-            # distance BEFORE the next authentic 75cm prism seam. The
+            # distance BEFORE the next authentic 1m prism seam. The
             # physical profile (including its signed up/down lip), ToF and
             # foot contacts are then recomputed from the new birth position
             # by the ordinary _carpet_birth + MJX forward path.
