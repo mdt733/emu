@@ -9,7 +9,7 @@ import { joystickToCommands, nextYawCommand } from './controls.js';
 import { withTerrain, generateTerrainPark, surfaceSlope, surfaceLabGradient, terrainSensorHeightFallback } from './terrain.js';
 import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
 import { terrainRoleEnvelope } from './training-solid-carpet.js';
-import { createSensorLabCarpet, carpetSpawnSoleLift, carpetHeightfieldPatch, LAB_TILE_M, LAB_TILE_COUNT } from './sensor-lab-carpet.js';
+import { createSensorLabCarpet, carpetSpawnSoleLift, carpetHeightfieldPatch, normalizedMeadowSettings, MEADOW_DEFAULTS, LAB_TILE_M, LAB_TILE_COUNT } from './sensor-lab-carpet.js';
 import { createGrowingMeadowScenery } from './growing-meadow.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, createParkGridTexture, createParkSurface, createTreeCrowns, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
 
@@ -117,6 +117,7 @@ export class EmuBrowserSim {
     this.parkChallengeLevel = 'balanced';
     this.carpetRole = 'step';
     this.carpetDifficulty = {...CARPET_DEFAULT};
+    this.meadowSettings = {...MEADOW_DEFAULTS};
     this.carpetTileOverlay = null;
     this.carpetTileCenter = null;
     this.carpetWindowCenter = null;
@@ -441,6 +442,15 @@ export class EmuBrowserSim {
     if(role===this.carpetRole&&JSON.stringify(next)===JSON.stringify(this.carpetDifficulty))return;
     this.carpetRole=role;
     this.carpetDifficulty=next;
+    // Training specialist selection changes only the exercises.
+    // The physical Meadow has one independent difficulty source.
+  }
+  setMeadowSettings(settings){
+    const next=normalizedMeadowSettings(settings);
+    if(JSON.stringify(next)===JSON.stringify(this.meadowSettings))return;
+    this.meadowSettings=next;
+    // Changing a hill beneath a foot mid-stride creates a false impulse.
+    // Rebuild/reset the spectator only after an explicit slider change.
     if(this.terrainMode==='carpet')this.loadModel();
   }
   setShovePreview({enabled=false,forceLimitN=0,intensity=0,mode='drill'}={}){
@@ -618,8 +628,7 @@ export class EmuBrowserSim {
                              trees:this.parkTreesEnabled,features:this.parkFeaturesEnabled,
                              challengeLevel:this.parkChallengeLevel})
       : this.terrainMode==='carpet'
-        ? createSensorLabCarpet(terrainRoleEnvelope(
-            this.carpetDifficulty,this.carpetRole))
+        ? createSensorLabCarpet(this.meadowSettings)
         : null;
     this.scene.fog=this.park?.physics==='streaming-heightfield'
       ?new THREE.Fog(0xb1c8c1,7,22):new THREE.Fog(0xbad7e2,15,49);
