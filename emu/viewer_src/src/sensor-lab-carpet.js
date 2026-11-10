@@ -151,7 +151,7 @@ export function carpetSpawnSoleLift(park,geomXpos,geomSize,footGeomIds){
   }));
 }
 const fmt=n=>Number(n).toFixed(7);
-export function sensorLabPrismXml(park){
+export function streamingCarpetXml(park){
   if(park?.physics!=='streaming-heightfield'||park.tiles.length!==LAB_TILE_COUNT)
     throw Error('Streaming Carpet requires exactly 225 source tiles');
   const assets=[],bodies=[];
