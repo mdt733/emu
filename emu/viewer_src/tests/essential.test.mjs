@@ -11,6 +11,20 @@ import {meadowTreeForTile} from '../src/growing-meadow.js';
 import {withTerrain,terrainSensorHeightFallback} from '../src/terrain.js';
 import {trainingLimits} from '../src/training-carpet.js';
 
+test('the main and static showcase expose one Infinite Meadow, not the retired Field',()=>{
+  const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+  const main=readFileSync(new URL('../src/main.js',import.meta.url),'utf8');
+  const sim=readFileSync(new URL('../src/sim.js',import.meta.url),'utf8');
+  assert.match(html,/<option value="carpet" selected>Infinite Meadow<\/option>/);
+  assert.match(html,/Automatic Meadow stroll/);
+  assert.doesNotMatch(html,/id="worldField"|id="worldCarpet"|value="park"|id="fieldPanel"|id="navNext"/);
+  assert.match(sim,/this\.terrainMode\s*=\s*'carpet'/);
+  assert.doesNotMatch(sim,/generateTerrainPark|createParkMarkers|setParkFeaturesEnabled/);
+  assert.doesNotMatch(main,/GoalNavigator|GoalPlannerWorker|setWorld\('park'\)|navWorker/);
+  assert.match(main,/function meadowStroll\(/);
+  assert.match(main,/sim\.setTerrainMode\('carpet'\)/);
+});
+
 const limits={vx_min:-.53,vx_max:1.04,vy_abs:.22,yaw_abs:1.5,pitch_abs_rad:.08};
 const measured=(step,more={})=>({source:'training',seed:735,step,
   foundationSteps:20_000_000,academyIntroSteps:60_000_000,
