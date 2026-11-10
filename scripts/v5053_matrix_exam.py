@@ -323,6 +323,21 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     (output/"matrix_summary.json").write_text(
         json.dumps(dict(manifest=manifest,curves=curves),indent=2)+"\n")
     stair_rows=[x for x in curves if x["kind"] in ("step_up","step_down","flat_control")]
+    stage_counts={}
+    for kind in ("flat_control","step_up","step_down"):
+        selected=[r for r in curves if r["kind"]==kind]
+        if not selected:
+            continue
+        gates=("leading_top","each_foot_top_five",
+               "traversed_upright_5frame","traversed_in_lane_5frame",
+               "traversed_5frame","completed_destinations")
+        stage_counts[kind]=dict(
+            trials=sum(r["worlds"] for r in selected),
+            **{gate:sum(r[gate] for r in selected) for gate in gates})
+    def stage_cell(kind,gate):
+        data=stage_counts[kind]
+        count=data[gate]
+        return f"{count}/{data['trials']} ({count/data['trials']:.1%})"
     lines=["# H40 heterogeneous GPU physical capability matrix","",
            f"Actor weights SHA256: `{manifest['actor_sha256']}`",
            f"Exported policy SHA256: `{manifest['policy_sha256']}`",
@@ -335,15 +350,34 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
            "preserved; traversal does not require a stop or low stance slip.",
            "Signed step heights: positive = uphill, negative = downhill.",
            "The flat control is a real zero-height seam at 0.25m/s.",
-           "The stairs mode uses 50 trials per height and direction (2,000",
-           "active worlds); stairs_up/stairs_down use 100 per height.",
+           f"This run: mode={mode}, {manifest['trials_per_level']} trials per height",
+           f"and direction where applicable; {len(detail)} active worlds.",
            "For a truly paired random-reset comparison, use the same 2,048",
            "world batch and seed in BOTH modes (2,000 active flat trials).",
            "A 128-world flat batch does not share the same per-world JAX",
            "random reset keys as a 2,048-world stair batch.","",
-           "## Upright stair traversal versus strict arrival","",
+           "## Physical outcome funnel (first life, full batch)","",
+           "Each row is a separate increasingly strict event gate;",
+           "five-frame proof of *each* foot does not imply simultaneous stance.",
+           "Crossing requires five frames beyond the lip; lane and heading",
+           "requirements are applied to increasingly strict crossing gates.",
+           "Strict stable arrival is a different task from continuing gait.","",
+           "| Event | " + " | ".join(stage_counts) + " |",
+           "|---|" + "|---:|"*len(stage_counts)]
            "| Height | Trials | Lead top | Both feet >=5 | Cross after feet | Traversed 5f | Strict stable |",
            "|---:|---:|---:|---:|---:|---:|---:|"]
+    for gate,label in (
+        ("leading_top","First destination foot"),
+        ("each_foot_top_five","Each foot supported for 5 frames"),
+        ("traversed_upright_5frame","Upright crossing for 5 frames"),
+        ("traversed_in_lane_5frame","Crossing plus lane for 5 frames"),
+        ("traversed_5frame","Crossing plus lane and heading for 5 frames"),
+        ("completed_destinations","Strict stable destination arrival")):
+        lines.append("| "+label+" | "+" | ".join(
+            stage_cell(kind,gate) for kind in stage_counts)+" |")
+    lines += ["","## Upright stair traversal versus strict arrival","",
+              "| Height | Trials | Lead top | Both feet >=5 | Cross after feet | Traversed 5f | Strict stable |",
+              "|---:|---:|---:|---:|---:|---:|---:|"]
     for x in stair_rows:
         lines.append(
             f"| {x['requested_step_mm']:.1f}mm | {x['worlds']} | "
