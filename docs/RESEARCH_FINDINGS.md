@@ -1,6 +1,24 @@
 # EMU — retained research findings
 
-**Current source:** [H40 handover](../handover.md). This is a concise **evidence ledger**, not a second set of runbooks. The full 2026 experiments, source, commands, reports and discarded proposals remain in [the pre-cleanup Git snapshot](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs) and their original PRs. Numbers below refer to **their own** physics, source, seeds and exam fixtures; do **not** treat them as H40's measured capability.
+**Current source:** [H40 handover](../handover.md). This is a concise **evidence ledger**, not a second set of runbooks. The full 2026 experiments, source, commands, reports and discarded proposals remain in [the pre-cleanup Git snapshot](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs) and their original PRs. Each result below identifies **its own** physics, source, seeds and exam fixtures. Historical v50xx results must **not** be treated as H40's measured capability; the H40 preliminary CUDA smoke is identified explicitly.
+
+## H40 first measured CUDA smoke — 11 November 2026 (not final capability baseline)
+
+A **read-only** frozen 120M H40 actor from `showcase/champion.emupolicy` ran [the corrected H40 physical matrix from PR #65](https://github.com/mdt733/emu/pull/65) on **64 GPU worlds** (40 assigned, 24 padding; 20 signed 2.5–50 mm lip heights in each direction, **one attempt per height**, seed 1701, 350 frames, 46.9 seconds including compile/setup). Original actor source `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`; policy SHA-256 `178c201af661d3172d701a7d1d8a7711f9b2106e1f7058bc4902aa9c64a37c7a`; actor weights `d4e35f814baef5e46afa6e96e942c86ab100ef25a4ae1913c76bbdb22615e673`. Exact signed 1 m seam and zero-grade physical fixture values matched the requests in all 40 reported curves. No gradient/optimizer updates.
+
+| Physical first-life event | Step DOWN (20 trials) | Step UP (20 trials) |
+| --- | ---: | ---: |
+| Leading destination foot support | 20 | 11 |
+| Independently five-frame supported both destination feet | 13 | 5 |
+| Five-frame upright crossing after both feet | 13 | 5 |
+| Five-frame **controlled in-lane, aligned traversal** | **10** | **0** |
+| Every strict arrival gate at least once (not sustained) | 11 | 1 |
+| Five-frame **strict stable destination arrival** | **0** | **0** |
+| Survived first life | 19 | 19 |
+
+A single **−40 mm** descent passed controlled traversal. Uphill **+7.5, +10, +15, +25, +27.5 mm** achieved separate top support of each foot, but no uphill trial passed full controlled traversal; ≥+30 mm did not attain first-foot target support *in this one-attempt screen*. The nonmonotonic downhill successes mean these results cannot establish a repeatable step-height threshold. Strict arrival also failed on many downhill trials that passed ordinary continuous traversal; do **not** conflate parking with walking. Full per-height probability, matched flat control, other commands, slopes, recovery and energetic efficiency remain **unmeasured**.
+
+**Next exam:** two independent, same-seed **2048-world** runs: `stairs` (2000 active trials, 50 per height × direction) versus `flat --trials-per-level 2000` (same world indexes and reset keys), both 350 frames and seed 1701. Original file-level results and run commands are retained with [master issue #62](https://github.com/mdt733/emu/issues/62); the full per-world CSV was not attached with the smoke, so no precise per-world failure trace is available from that upload.
 
 ## Findings that changed the design
 
