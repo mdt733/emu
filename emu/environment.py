@@ -2763,7 +2763,7 @@ class EmuMJXEnv(TaskSampler):
         """Midpoint-driven 2x2 window: recycle only foot-clear prisms.
 
         The requested neighbour switches at the robot's halfway point in
-        each 75cm tile, not at the terrain edge. The CURRENT tile always
+        each 1m tile, not at the terrain edge. The CURRENT tile always
         remains; both feet must clear any outgoing square's actual solid
         footprint before its two prism halves move together. Oscillating
         near a midpoint only reassigns distant empty tiles.
@@ -2784,7 +2784,7 @@ class EmuMJXEnv(TaskSampler):
         foot_radii=jnp.asarray(self.mj_model.geom_size[foot_geom_ids,0])
         foot_safe=foot_inside_new_window&feet_clear_of_abandoned_prisms(
             jnp,state.carpet_center,desired,feet_xy,foot_radii)
-        # A controller should never jump two full 75cm tiles in 20ms.
+        # A controller should never jump two full 1m tiles in 20ms.
         # Refuse such a teleport even if neither foot is detected.
         near=jnp.all(jnp.abs(desired-state.carpet_center)<=1,axis=1)
         move=foot_safe&near&jnp.any(desired!=state.carpet_center,axis=1)
