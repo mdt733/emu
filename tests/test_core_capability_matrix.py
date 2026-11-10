@@ -119,6 +119,7 @@ class MatrixExamTests(unittest.TestCase):
         common=dict(schema="h40_true_prism_heterogeneous_matrix_v4",
                     policy_sha256="policy",actor_sha256="weights",
                     robot_model_sha256="model",actor_training_source={"step":120061952},
+                    exam_source_sha256="same-exam-source",
                     seed=1701,worlds=4,horizon=350,device="gpu",
                     collision="8 true prisms",first_life_only=True,
                     zero_optimizer_updates=True,assigned_worlds=4)
@@ -135,6 +136,8 @@ class MatrixExamTests(unittest.TestCase):
             self.assertEqual(entry["traversed_5frame_gained"],0)
             self.assertEqual(entry["traversed_5frame_difference_pct"],-50.)
             self.assertAlmostEqual(entry["speed_mae_excess_mps"],.03)
+        with self.assertRaisesRegex(ValueError,"exam_source_sha256"):
+            compare_paired_exams(up,sr,{"manifest":dict(flat["manifest"],exam_source_sha256="different")},fr)
         with self.assertRaisesRegex(ValueError,"seed"):
             compare_paired_exams(up,sr,{"manifest":dict(flat["manifest"],seed=99)},fr)
         with self.assertRaisesRegex(ValueError,"misindexed"):
