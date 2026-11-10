@@ -1,4 +1,4 @@
-import { sensorLabPrismXml } from './sensor-lab-carpet.js';
+import { streamingCarpetXml } from './sensor-lab-carpet.js';
 
 // Browser-only landscape: one continuous MuJoCo heightfield for collision
 // and one matching Three.js triangle mesh for appearance. No training changes.
@@ -345,7 +345,7 @@ export function withTerrain(robotXml,mode='flat',options={}) {
     // CPU MuJoCo supports safe runtime changes to 2x2 hfield_data. A
     // fixed 225-tile window streams any global position; trained GPU
     // convex prisms are still the separate, unchanged reference physics.
-    const geom=sensorLabPrismXml(park);
+    const geom=streamingCarpetXml(park);
     let xml=robotXml.replace(/<geom\s+name="floor"[^>]*\/>/,'');
     if(xml===robotXml)throw Error('Prism carpet needs source ground plane');
     if(xml.includes('</asset>'))
