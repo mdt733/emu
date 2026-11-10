@@ -333,6 +333,7 @@ class MatrixExamTests(unittest.TestCase):
             science_step_goal_weight=.20,
             solver_iterations=2,solver_ls_iterations=4)
         school_teacher=dict(teacher,specialist_mix=1.,
+                            athletic_rehearsal_frac=0.,
                             academy_episode_probability=1.,
                             focus_weight_command=0.,
                             focus_weight_resilience=0.,
