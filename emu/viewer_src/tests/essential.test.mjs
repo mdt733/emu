@@ -161,9 +161,10 @@ test('trained-policy Carpet begins with eight real active prisms in a 15x15 phys
   assert.equal((xml.match(/sensor_lab_prism_\d+" type="mesh"/g)||[]).length,LAB_PRISM_COUNT);
   assert.doesNotMatch(xml,/name="floor"/);
   assert.doesNotMatch(xml,/viewer_carpet_solid_/);
-  assert.equal(carpet.tiles.length,4);
+  assert.equal(carpet.tiles.length,LAB_TILE_COUNT);
+  assert.equal(carpet.window().length,4);
   assert.equal(carpet.tileSizeM,1);
-  assert.equal(carpet.physics,'eight-1m-prisms');
+  assert.equal(carpet.physics,'growing-prism-field');
 
   // This is a MESH-only contact world, but the JS fast raycaster handles
   // only box/plane geoms. Until Carpet passed its actual terrain surface as
@@ -308,8 +309,9 @@ test('Carpet grows in every direction, retains crossed physical tiles and has a 
   assert.ok(Number.isNaN(park.sampleHeight(7.1,6.5)),
     'beyond the precompiled reserve is real void, not an invisible plane');
   assert.equal(park.count()<=LAB_TILE_COUNT,true);
-  assert.ok(meadowTreeForTile({i:13,j:4},735)===
-    meadowTreeForTile({i:13,j:4},735)); // stable deterministic decoration
+  assert.deepEqual(meadowTreeForTile({i:3,j:4},735),
+    meadowTreeForTile({i:3,j:4},735),
+    'Meadow trees are deterministic per global tile coordinate');
   park.resetGrowth();
   assert.equal(park.count(),4,'reset restores the original source 2x2 birth');
   assert.equal(park.sampleHeight(.25,.25),startHeight);
