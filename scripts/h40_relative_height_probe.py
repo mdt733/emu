@@ -134,6 +134,8 @@ def run(*,device:str,worlds:int,output:Path,seed:int=735,
     import jax
 
     heights = np.tile(np.asarray(heights_mm,np.float32),worlds//len(heights_mm))
+    # Explicit single unit conversion, exactly at the MJX fixture boundary.
+    signed_lips_m = heights * np.float32(1.0e-3)
     print(f"H40 raw ToF / 2-foot projection: {worlds} {device} "
           f"MJX worlds, exact prism seam, seed={seed} — compiling",flush=True)
     env=EmuMJXEnv(
@@ -142,7 +144,7 @@ def run(*,device:str,worlds:int,output:Path,seed:int=735,
         unified_capability_focus=True,terrain_carpet=True,
         terrain_carpet_prisms=True,academy_stream=True,
         terrain_lesson="coherent-careful",
-        exam_fixture_steps_m=heights/1000.,
+        exam_fixture_steps_m=signed_lips_m,
         exam_fixture_grades_deg=np.zeros(worlds,np.float32),
         exam_fixture_kicks_mps=np.zeros(worlds,np.float32),
     )
