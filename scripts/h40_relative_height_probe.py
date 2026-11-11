@@ -127,7 +127,7 @@ def frozen_actor_sensitivity(packet, requested_mm, policy):
         "ground_forward_grade_rad","ground_sideways_grade_rad",
         "ground_visibility_confidence")]
     raw_idx=ray+bits
-    def replace(source, indices):
+    def replace(indices):
         v=flat.copy()
         v[:,:,indices]=hist[:,:,indices]
         return v.reshape((len(packet),-1))
@@ -145,9 +145,9 @@ def frozen_actor_sensitivity(packet, requested_mm, policy):
         return np.clip(z @ last["w"]+last["b"],-1.,1.)
 
     baseline=actor_mean(flat.reshape((len(packet),-1)))
-    raw=actor_mean(replace(hist,raw_idx))
-    fitted=actor_mean(replace(hist,fit))
-    both=actor_mean(replace(hist,raw_idx+fit))
+    raw=actor_mean(replace(raw_idx))
+    fitted=actor_mean(replace(fit))
+    both=actor_mean(replace(raw_idx+fit))
     rows=[]
     for i in range(len(packet)):
         def metrics(arr):
@@ -167,6 +167,10 @@ def frozen_actor_sensitivity(packet, requested_mm, policy):
         policy_sha256=actor["artifact_sha256"],
         actor_weights_sha256=actor["source"]["actor_sha256"],
         comparison="fixed flat actor input + measured per-height vision swaps",
+        limitation=("Flat and ledge ray packets are sampled from different "
+                    "reset worlds; only actor non-vision channels are held "
+                    "identical. This isolates frozen policy sensitivity but "
+                    "not closed-loop action or guaranteed same-pose sensor rays."),
         frozen_actor=True,optimizer_updates=0,hold_nonvision_fields=True)
 
 
@@ -347,8 +351,8 @@ def run(*,device:str,worlds:int,output:Path,seed:int=735,
            "| Lip | Worlds | Raw valid | Plane valid | Fit RMS | Far−near hit | Largest row jump |",
            "|---:|---:|---:|---:|---:|---:|---:|"]
     for x in stats:
-        best=(f"{x['max_ray_hit_height_above_candidate_foot_mm']:.1f}mm"
-              if x["max_ray_hit_height_above_candidate_foot_mm"] is not None else "unknown")
+        # Extremal maxima remain in JSON for lineage, but are deliberately
+        # absent from the decision-facing table: a wall hit is not a top.
         contrast=x["median_far_minus_near_hit_mm"]
         jump=x["median_largest_signed_row_jump_mm"]
         lines.append(
