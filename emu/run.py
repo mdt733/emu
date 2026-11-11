@@ -172,7 +172,8 @@ def one_run_config(args) -> TrainingConfig:
         if not math.isfinite(value) or not lo<=value<=hi:
             raise ValueError(f'{key} must be finite and in [{lo},{hi}]')
         science_args[key]=value
-    outcome=bool(getattr(args,'outcome_graduation',False))
+    school=bool(getattr(args,'progressive_school',False))
+    outcome=bool(getattr(args,'outcome_graduation',False)) or school
     walk_start=int(getattr(args,'outcome_walk_start_steps',60_000_000))
     approved=bool(getattr(args,'outcome_stair_approved',False))
     approved_start=int(getattr(args,'outcome_approval_start_steps',0))
@@ -188,6 +189,26 @@ def one_run_config(args) -> TrainingConfig:
         # Signed 50..80mm prism nursery: physical data must not saturate
         # silently while the governor reports a taller fictitious frontier.
         height_cap=min(height_cap,.08)
+    if school:
+        # A single source-pinned lesson recipe, not 20M/60M/80M train jobs.
+        # Old outcome mode remains available on its original research branch.
+        if (foundation_steps != 20_000_000 or
+                walk_start != 60_000_000 or
+                not unified or not terrain_actor or not terrain_carpet or
+                not carpet_prisms or not academy_stream or
+                terrain_lesson != 'coherent-careful' or
+                approved or not .08 <= terrain_max <= .08 or
+                teaching_schedule != 'staged'):
+            raise ValueError(
+                'progressive school requires: 20M foundation, 60M walking fade, '
+                'staged specialists, coherent-careful true-prism Academy, '
+                '80mm physical capacity, and no premature stair approval')
+        # No Academy births before walking has graduated. The teacher gates
+        # this schedule by evidence as well as by the 80M age boundary.
+        intro=start=80_000_000
+        ramp=20_000_000
+        intro_share=.10
+        academy_share=.55
     finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
     if finish_on_transfer and not academy_stream:
         raise ValueError('--science-step-finish-on-transfer requires Academy stream')
@@ -219,6 +240,7 @@ def one_run_config(args) -> TrainingConfig:
                    science_gate_mode=science_gate,
                    science_step_finish_on_transfer=(finish_on_transfer or outcome),
                    outcome_graduation=outcome,
+                   progressive_school=school,
                    outcome_walk_start_steps=walk_start,
                    outcome_stair_approved=approved,
                    outcome_approval_start_steps=approved_start,
