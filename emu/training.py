@@ -359,7 +359,10 @@ def train(args: TrainingConfig) -> int:
                         / 'training_config.json')
                     if parent_cfg_path.is_file():
                         try:
-                            parent_cfg = TrainingConfig.load(parent_cfg_path)
+                            # run.py already verified the external ancestor's source
+                            # and whole-checkpoint SHA256 before training.
+                            parent_cfg = TrainingConfig.load(
+                                parent_cfg_path, research_parent=True)
                             safe_evidence_fork = (
                                 compatible_academy_evidence_recipe(
                                     parent_cfg, args))
