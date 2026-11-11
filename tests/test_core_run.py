@@ -177,6 +177,12 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     assert migrated == first
     from emu.run import verify_experiment_fork
     verify_experiment_fork(migrated, replace(first, outcome_graduation=True))
+    # Parent recipe is parseable, but its old success semantics must not
+    # masquerade as measured 50mm stair-completion evidence.
+    from emu.training import compatible_academy_evidence_recipe
+    assert not compatible_academy_evidence_recipe(
+        migrated, replace(first, outcome_graduation=True,
+                          science_step_finish_on_transfer=True))
     for key, value in (('cloud_final_probes', 10),
                        ('cloud_probes_per_eval', 1),
                        ('science_reset_step_evidence_on_fork', True)):
