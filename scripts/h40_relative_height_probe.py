@@ -44,6 +44,132 @@ def _zone_indices():
     return fields, [fields[k] for k in keys], [fields[k] for k in valid], feet
 
 
+def per_world_row_contrasts(projected, requested_mm):
+    """Robust *ray-hit* height differences, no stance-foot selection.
+
+    The four physical sensor rows look successively nearer (0 = far,
+    3 = near). Subtracting elevations cancels the unknown foot-reference
+    height, so NO contact oracle is needed for this particular feature.
+    Sharp between-row differences are evidence of nonplanar geometry,
+    NOT proof of an accessible upper foothold: a vertical wall can also
+    produce an abrupt return. Never treat unknown/missing rows as flat.
+    """
+    valid=np.asarray(projected["return_valid"])[:,0,:].reshape(-1,4,4)
+    z=np.asarray(projected["return_height_over_foot_m"])[:,0,:].reshape(-1,4,4)
+    x=np.asarray(projected["return_forward_from_foot_m"])[:,0,:].reshape(-1,4,4)
+    out=[]
+    for w in range(valid.shape[0]):
+        hh=[];xx=[]
+        for row in range(4):
+            keep=valid[w,row]
+            hh.append(float(np.median(z[w,row,keep])) if np.count_nonzero(keep)>=2 else None)
+            xx.append(float(np.median(x[w,row,keep])) if np.count_nonzero(keep)>=2 else None)
+        complete=all(v is not None for v in hh+xx)
+        jumps=[hh[i]-hh[i+1] for i in range(3)] if complete else []
+        winner=int(np.argmax(np.abs(jumps))) if complete else -1
+        out.append(dict(
+            world=w, requested_lip_mm=float(requested_mm[w]),
+            valid_row_count=sum(a is not None for a in hh),
+            far_minus_near_hit_mm=round((hh[0]-hh[3])*1000.,3) if complete else None,
+            largest_signed_adjacent_row_jump_mm=(
+                round(jumps[winner]*1000.,3) if complete else None),
+            largest_jump_between_rows=(f"{winner}-{winner+1}" if complete else None),
+            largest_jump_forward_of_foot_mm=(
+                round(.5*(xx[winner]+xx[winner+1])*1000.,3)
+                if complete else None),
+            ray_row_hit_heights_mm=json.dumps(
+                [round(v*1000.,3) if v is not None else None for v in hh]),
+            ray_row_forward_mm=json.dumps(
+                [round(v*1000.,3) if v is not None else None for v in xx]),
+        ))
+    return out
+
+
+def frozen_actor_sensitivity(packet, requested_mm, policy):
+    """Only perturb vision fields of a FIXED FLAT reference actor packet.
+
+    The exact exported actor + normalizer is used; no training and no
+    hidden terrain truth enters the policy. Counterfactual ToF rays are
+    measured from the corresponding REAL mesh-height birth. Non-vision
+    fields (joints, IMU, commands, actuation history) are held constant.
+    Flat reference is matched within each repeat of the height schedule.
+
+    This is a frozen *action-response* assay, NOT a moving-robot success
+    test. Raw-only isolates 16 zone ranges/valid bits; fit-only isolates
+    grade/visibility; both uses the union. If grade confidence collapses
+    but raw changes are clearly visible, compare which input the actor
+    actually responds to.
+    """
+    from emu.contracts import (
+        HISTORY_LEN, OBS_SCHEMA_TERRAIN, TERRAIN_OBS_FIELDS)
+    from emu.ppo import build_obs_norm_mask
+    from emu.policy_export import load_exported_actor_for_exam
+    params,norm,actor=load_exported_actor_for_exam(policy)
+    if "pi" not in params or actor["obs_dim"]!=packet.shape[1]:
+        raise ValueError("Exported 360-input actor does not match sensor packet")
+    if 0. not in requested_mm:
+        raise ValueError("--policy sensitivity needs a 0mm flat reference class")
+    # Each supplied height appears once per repeating cycle. Reject other
+    # assignments rather than silently pairing unrelated random resets.
+    period=int(np.where(requested_mm==requested_mm[0])[0][1]) if (
+        np.count_nonzero(requested_mm==requested_mm[0])>1) else len(requested_mm)
+    if len(requested_mm)%period or not np.all(
+            requested_mm.reshape(-1,period)==requested_mm[:period][None,:]):
+        raise ValueError("Frozen policy comparison needs repeated height schedule")
+    flat_column=int(np.where(requested_mm[:period]==0.)[0][0])
+    ref_idx=(np.arange(len(requested_mm))//period)*period+flat_column
+    hist=packet.reshape((-1,HISTORY_LEN,len(TERRAIN_OBS_FIELDS)))
+    flat=hist[ref_idx].copy()
+    fields={name:i for i,name in enumerate(TERRAIN_OBS_FIELDS)}
+    ray=[fields[f"tof4x4_range_{r}{c}_m"] for r in range(4) for c in range(4)]
+    bits=[fields[f"tof4x4_valid_{r}{c}"] for r in range(4) for c in range(4)]
+    fit=[fields[k] for k in (
+        "ground_forward_grade_rad","ground_sideways_grade_rad",
+        "ground_visibility_confidence")]
+    raw_idx=ray+bits
+    def replace(source, indices):
+        v=flat.copy()
+        v[:,:,indices]=hist[:,:,indices]
+        return v.reshape((len(packet),-1))
+
+    mask=np.asarray(build_obs_norm_mask(OBS_SCHEMA_TERRAIN),np.float32)
+    mean=np.asarray(norm["mean"],np.float32)
+    std=np.asarray(norm["std"],np.float32)
+    def actor_mean(v):
+        v=np.asarray(v,np.float32)
+        z=np.where(mask[None,:]>.5,np.clip(
+            (v-mean[None,:])/std[None,:],-10.,10.),v)
+        for layer in params["pi"][:-1]:
+            z=np.tanh(z @ layer["w"]+layer["b"])
+        last=params["pi"][-1]
+        return np.clip(z @ last["w"]+last["b"],-1.,1.)
+
+    baseline=actor_mean(flat.reshape((len(packet),-1)))
+    raw=actor_mean(replace(hist,raw_idx))
+    fitted=actor_mean(replace(hist,fit))
+    both=actor_mean(replace(hist,raw_idx+fit))
+    rows=[]
+    for i in range(len(packet)):
+        def metrics(arr):
+            change=arr[i]-baseline[i]
+            return round(float(np.linalg.norm(change)),6)
+        rows.append(dict(
+            world=i,requested_lip_mm=float(requested_mm[i]),
+            raw_range_l2_m=round(float(np.linalg.norm(
+                hist[i,-1,ray]-flat[i,-1,ray])),6),
+            raw_only_action_l2=metrics(raw),
+            fit_only_action_l2=metrics(fitted),
+            raw_and_fit_action_l2=metrics(both),
+            baseline_action=json.dumps(baseline[i].round(5).tolist()),
+            raw_and_fit_action=json.dumps(both[i].round(5).tolist()),
+        ))
+    return rows, dict(
+        policy_sha256=actor["artifact_sha256"],
+        actor_weights_sha256=actor["source"]["actor_sha256"],
+        comparison="fixed flat actor input + measured per-height vision swaps",
+        frozen_actor=True,optimizer_updates=0,hold_nonvision_fields=True)
+
+
 def analyze_packet(packet: np.ndarray, requested_mm: np.ndarray):
     """Pure host analysis of the exact sensor observation, no simulator truth."""
     from emu.contracts import TERRAIN_OBS_FIELDS
