@@ -91,7 +91,7 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
                                    relaxed,command_tracking)
     (upright_height, feet_only_contact, stance_anti_slip,
      swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(
-        m, jnp, phase_sync_strength=science_phase_sync_strength,
+        m, jnp, phase_sync_strength=science_phase_sync_strength*(1.-alpha),
         crouch_allowance_m=science_crouch_allowance_m,
         outcome_step_alpha=alpha*m['science_step_focus'])
     locomotion_maturity, stepping_gate = _gait_maturity(
@@ -281,10 +281,9 @@ def _physical_qualities(m, jnp, *, phase_sync_strength=1.0,
     # Reward emerging alternating foot lift, without prescribing foot timing.
     # Preserve the original expression and compilation when strength=1.
     organic = m['organic_step_shape']
-    if phase_sync_strength != 1.0:
-        organic = jnp.clip(
-            organic - (1.0-phase_sync_strength)*.30*m['phase_sync']*
-            m['step_evidence'],0.,1.)
+    organic = jnp.where(phase_sync_strength==1.,organic,
+            jnp.clip(organic-(1.-phase_sync_strength)*.30*
+                     m['phase_sync']*m['step_evidence'],0.,1.))
     swing_clearance = jnp.clip(0.55 * raw_swing + 0.45 * organic, 0.0, 1.0)
     servo_smoothness = jnp.exp(-0.22 * m['action_delta_norm'])
     joint_safety = jnp.exp(-(5.0 * m['joint_limit_pressure'] + 2.0 * m['scissor_pressure']))
