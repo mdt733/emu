@@ -367,6 +367,22 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     assert varied_limits.shape == (8,6,2)
     assert np.max(np.abs(varied_limits)) <= SERVO_RATED_CONTINUOUS_TORQUE_NM+1e-6
 
+    # The user's genuine-stair question must distinguish geometrical leg
+    # reach from servo/load/stance feasibility. Exercise the existing H40
+    # reachability audit against the same source-generated real MuJoCo XML.
+    # This is a cheap coarse-grid smoke; the full diagnostic has finer steps
+    # and optional real native dynamic trials, NOT a proof of stair ascent.
+    from scripts.h40_lift_feasibility import physical_setup, reachability
+    lift_model, lift_address, _, lift_geoms = physical_setup()
+    poses, candidates = reachability(
+        lift_model, lift_address, lift_geoms,
+        height_mm=20., forward_mm=0., grid_step_deg=30.)
+    assert len(poses)>=20
+    assert all(np.isfinite([p['toe_lift_mm'],p['toe_forward_mm']]).all()
+               for p in poses)
+    assert any(p['toe_lift_mm']>20. for p in poses)
+    assert all(p['meets_geometry'] for p in candidates)
+
 
 def test_midpoint_2x2_window_covers_30cm_and_preserves_present_tile():
     """All torso positions are >=37.5cm from an unloaded XY boundary."""
