@@ -62,7 +62,7 @@ class CoreAcademyTests(unittest.TestCase):
         np.testing.assert_allclose(no_contact,no_contact_baseline,atol=1e-7)
         self.assertIn("science_step_goal_active",REWARD_ONLY_METRICS)
 
-    def test_academy_birth_is_exactly_upstream_of_real_prism_seam(self):
+    def _assert_academy_birth_is_exactly_upstream_of_real_prism_seam(self):
         starts=np.array([-.02,.02,TILE_M*.5,TILE_M+.05],dtype=np.float32)
         near=academy_near_lip_spawn_x(np,starts,.22)
         np.testing.assert_allclose(near,[-.22,TILE_M-.22,TILE_M-.22,2*TILE_M-.22],atol=1e-6)
@@ -75,6 +75,7 @@ class CoreAcademyTests(unittest.TestCase):
             academy_near_lip_spawn_x(np,starts,0.),starts)
 
     def test_fixed_destination_never_chases_next_tile(self):
+        self._assert_academy_birth_is_exactly_upstream_of_real_prism_seam()
         start=np.array([[TILE_M-.22,.10],[-.22,-.06]],dtype=np.float32)
         goal=destination_from_birth(np,start)
         np.testing.assert_allclose(goal,[[TILE_M+.60,.10],[.60,-.06]],atol=1e-6)
