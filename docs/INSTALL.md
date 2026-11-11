@@ -294,3 +294,61 @@ Troubleshooting:
 References: [JAX installation](https://docs.jax.dev/en/latest/installation.html),
 [NVIDIA's CUDA-on-WSL guide](https://docs.nvidia.com/cuda/wsl-user-guide/),
 [uv Python installation](https://docs.astral.sh/uv/guides/install-python/).
+
+
+## Opt-in experimental H40 outcome graduation (draft PR #76)
+
+This is **not yet promoted to main**. Follow the immutable-source workflow: keep `~/emu` unchanged, use a detached worktree, put output under `~/emu-data`, and do not confuse the checked-in 120M `.emupolicy` inference asset with a complete `final.pkl` PPO checkpoint. The latter must exist locally with its optimiser, normaliser and curriculum state.
+
+```bash
+cd ~/emu
+git fetch origin
+git worktree add --detach ~/emu-outcome-pr76 origin/feature/h40-outcome-stair-graduation
+cd ~/emu-outcome-pr76
+source ~/emu/.venv/bin/activate
+export PYTHONPATH="$PWD" EMU_PHYSICAL_PROFILE=h40
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+
+# Minimal two-update GPU JIT/PPO acceptance (8 worlds, no claim of learned stairs).
+EMU_UNIFIED_ACCEPTANCE=bounded-ppo-lifecycle python -m emu.cli train \
+  --run-dir "$HOME/emu-data/runs/outcome-pr76-ppo-smoke" \
+  --device cuda --envs 8 --steps 512 --seed 735 \
+  --terrain-actor --unified-capabilities --terrain-carpet --carpet-prisms \
+  --academy-stream --terrain-step-max-m .08 --outcome-graduation
+
+# Point at an EXISTING, complete, compatible H40 final checkpoint.
+PARENT="$HOME/emu-data/runs/YOUR_VERIFIED_H40_RUN/checkpoints/final.pkl"
+test -f "$PARENT" || { echo "Missing full PPO parent final.pkl"; false; }
+read -r PARENT_STEP PARENT_SOURCE < <(python - "$PARENT" <<'PY'
+from pathlib import Path
+import sys
+from emu.checkpoint_io import load_checkpoint
+meta=load_checkpoint(Path(sys.argv[1]),validate=False)['meta']
+print(meta['step'],meta['source_provenance']['git_commit'])
+PY
+)
+PARENT_SHA256="$(sha256sum "$PARENT" | awk '{print $1}')"
+RUN="$HOME/emu-data/runs/h40-outcome-pr76-s735-2m"
+
+TRAIN=(python -m emu.cli train
+  --run-dir "$RUN" --device cuda --envs 2048 --seed 735
+  --steps "$((PARENT_STEP + 2000000))"
+  --profile sim2real --terrain-actor --unified-capabilities
+  --terrain-carpet --carpet-prisms --academy-stream
+  --terrain-step-max-m .08 --terrain-lesson coherent-careful
+  --growth-recipe main-mature --athletic-rehearsal-share .15
+  --retention-share .20 --science-step-velocity-relief .80
+  --outcome-graduation --outcome-walk-start-steps "$PARENT_STEP"
+  --resume "$PARENT"
+  --research-parent-source "$PARENT_SOURCE"
+  --research-parent-sha256 "$PARENT_SHA256")
+
+"${TRAIN[@]}" --plan
+"${TRAIN[@]}" --check-resume-only
+EMU_UNIFIED_CONTINUOUS=cold-growth-approved "${TRAIN[@]}"
+```
+
+The independent CPU physical tests are also available via `python -m pytest -q tests/test_core_stair_teaching.py`. After the 2M fork, inspect actual height/footholds/chassis transfer, episode failures, gait retention, PPO terminal credit and the source-pinned report **before** increasing the target. A completed same-source lineage can be extended by repeating the same config with `--steps $((PARENT_STEP + 10000000)) --resume auto` in the **same** run directory and removing the external parent-hash arguments. Do not change the branch source commit when resuming an existing run.
+
+`python -m emu.cli export-policy "$RUN/checkpoints/final.pkl" "$HOME/emu-data/actors/h40-outcome-2m.emupolicy"` exports only the inference actor for an independent frozen test. `emu prism-exam --mode step --lip-cm 5` samples a **frontier up to 5cm**, not a fixed exact 50mm cohort; inspect measured signed physical heights. Require separately demonstrated repeatable actual +50mm supported climbs against a frozen main actor before using `--outcome-stair-approved --outcome-approval-start-steps <absolute-step>` in a **new checkpoint fork**. That explicit, evidence-gated approval starts the 10M fade of dense stair shaping and independent downhill expansion. No automatic unseen PR is permitted to approve climbing.
+
