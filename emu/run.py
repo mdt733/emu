@@ -452,7 +452,7 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str,
             parent_cfg=parent.parent.parent/'training_config.json'
             if not parent_cfg.is_file():
                 raise RuntimeError('research parent has no training_config.json')
-            verify_experiment_fork(TrainingConfig.load(parent_cfg), config)
+            verify_experiment_fork(TrainingConfig.load(parent_cfg, research_parent=True), config)
         parent_step = int(payload['meta']['step'])
         if parent_step >= expected:
             raise RuntimeError(f'Parent step {parent_step:,} is at/beyond target {expected:,}')
