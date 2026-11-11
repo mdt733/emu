@@ -32,7 +32,7 @@ def exact_exam_lip_profiles(xp, signed_height_m):
 
     Built from the same REAL prism meshes as training. Zero jitter, no
     fictional collision ledge. Signed height is per world; negative means
-    a descent. Only the isolated frozen-policy exam calls this helper.
+    a descent. The frozen exam and physical stair nursery both use it.
     """
     height=xp.asarray(signed_height_m,dtype=xp.float32)
     idx=xp.arange(-PROFILE_HALF,PROFILE_HALF,dtype=xp.int32)

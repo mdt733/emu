@@ -13,6 +13,9 @@ import math
 from .contracts import CONTROL_DT
 from .training_health import TrainingHealth  # stable public import
 from .training_config import FRONTIER_GROWTH_FRAC, FRONTIER_RETREAT_FRAC, FRONTIER_SENSOR_SAFETY
+from .capability_focus import (school_lesson, SCHOOL_STAIRS_EARLIEST,
+    SCHOOL_MIN_WALK_CORE, SCHOOL_STAIR_PROOF_ATTEMPTS,
+    SCHOOL_STAIR_PROOF_RATE, SCHOOL_STAIR_PROOF_WINDOWS)
 
 # ---------------------------------------------------------------------------
 # Compact organic-birth curriculum/governor.
@@ -141,8 +144,20 @@ class RegimeGovernor:
                  unified_capability_focus: bool = False,
                  science_step_promotion_mm: float = 0.0,
                  science_step_retreat_mm: float = 0.0,
-                 science_step_min_attempts: int = 4):
+                 science_step_min_attempts: int = 4,
+                 outcome_mode: bool = False,
+                 progressive_school: bool = False):
         self.params = RegimeParams()
+        self.outcome_mode=bool(outcome_mode)
+        self.progressive_school=bool(progressive_school)
+        # Serialized physical-competence gates; never keyed to wall-clock time
+        # or an uncheckpointed Python closure. A curriculum resume restores
+        # these alongside PPO and its optimizer.
+        self.school_walking_graduated=False
+        self.school_stair_mastered_step=-1
+        self.school_up_window_attempts=0.
+        self.school_up_window_successes=0.
+        self.school_up_good_windows=0
         self.unified_capability_focus = bool(unified_capability_focus)
         if (not math.isfinite(science_step_promotion_mm) or
                 not 0. <= science_step_promotion_mm <= 10. or
@@ -248,6 +263,11 @@ class RegimeGovernor:
             '_updates_done_total': self._updates_done_total,
             'terrain_evidence': dict(self.terrain_evidence),
             'academy_evidence': dict(self.academy_evidence),
+            'school_walking_graduated': self.school_walking_graduated,
+            'school_stair_mastered_step': self.school_stair_mastered_step,
+            'school_up_window_attempts': self.school_up_window_attempts,
+            'school_up_window_successes': self.school_up_window_successes,
+            'school_up_good_windows': self.school_up_good_windows,
             'frontier_precision_ema': dict(self.frontier_precision_ema),
             'frontier_bad_streak': dict(self.frontier_bad_streak),
             **({'command_evidence': {k:dict(v) for k,v in
@@ -338,6 +358,24 @@ class RegimeGovernor:
                     values['easy_successes']>values['easy_attempts']):
                     raise ValueError(f'bad slope evidence {direction}')
             self.slope_evidence={k:dict(v) for k,v in entries.items()}
+        # Incompatible historical governor schemas are never adapted.
+        # Only this new school lineage has the following persisted gates.
+        if (type(d['school_walking_graduated']) is not bool or
+                type(d['school_stair_mastered_step']) is not int or
+                d['school_stair_mastered_step'] < -1 or
+                type(d['school_up_good_windows']) is not int or
+                not 0 <= d['school_up_good_windows'] <= SCHOOL_STAIR_PROOF_WINDOWS or
+                any(not math.isfinite(float(d[k])) or float(d[k]) < 0.
+                    for k in ('school_up_window_attempts',
+                              'school_up_window_successes')) or
+                d['school_up_window_successes'] > d['school_up_window_attempts'] or
+                (d['school_stair_mastered_step'] >= 0 and
+                 not d['school_walking_graduated'])):
+            raise ValueError('invalid progressive school graduation state')
+        for k in ('school_walking_graduated','school_stair_mastered_step',
+                  'school_up_window_attempts','school_up_window_successes',
+                  'school_up_good_windows'):
+            setattr(self,k,d[k])
         self.params = RegimeParams(**saved_params)
         for name in ('competence', 'fall_ema', '_falls_ema', '_episodes_ema',
                      'frontier_precision_ema', 'frontier_bad_streak'):
@@ -622,7 +660,8 @@ class RegimeGovernor:
             easy_n=evidence[f'{direction}_easy_attempts']
             near_n=evidence[f'{direction}_near_attempts']
             if (easy_n>=nmin and evidence[f'{direction}_easy_successes']/easy_n<.25):
-                setattr(self.params,frontier,max(self.ACADEMY_MIN_LIP_M,
+                floor=(.050 if self.outcome_mode and direction=='up' else self.ACADEMY_MIN_LIP_M)
+                setattr(self.params,frontier,max(floor,
                     getattr(self.params,frontier)-self.ACADEMY_HEIGHT_GROWTH_M))
                 event='retreat'
             elif near_n>=nmin:
@@ -827,6 +866,45 @@ class RegimeGovernor:
                 events[k]=action
         return events
 
+
+    def observe_school_evidence(self, row: dict[str,float], *, step: int,
+                                stairs_enabled: bool) -> str:
+        """Gate TWO separate >=100-encounter real +50mm uphill proof windows.
+
+        A real attempt is a closed birth near the 50mm physical frontier;
+        success demands the supported 15-frame climb, not lift or position.
+        Failed windows reset the consecutive-proof count. Expansion and the
+        coaching fade are forbidden until BOTH windows are successful.
+        """
+        if not self.progressive_school:
+            return 'not_school'
+        if (not stairs_enabled or self.school_stair_mastered_step >= 0 or
+                self.params.academy_height_up_m > .0505):
+            return 'no_new_50mm_proof'
+        n=float(row.get('academy_near_attempts_up',0.))
+        good=float(row.get('academy_near_successes_up',0.))
+        if (not math.isfinite(n) or not math.isfinite(good)
+                or n<0. or good<0. or good>n):
+            raise ValueError('invalid actual 50mm physical proof')
+        self.school_up_window_attempts+=n
+        self.school_up_window_successes+=good
+        if self.school_up_window_attempts < SCHOOL_STAIR_PROOF_ATTEMPTS:
+            return 'collect_50mm'
+        ratio=self.school_up_window_successes / self.school_up_window_attempts
+        if ratio >= SCHOOL_STAIR_PROOF_RATE:
+            self.school_up_good_windows+=1
+            verdict='50mm_window_pass'
+        else:
+            self.school_up_good_windows=0
+            verdict='50mm_window_retry'
+        # A new independent window must earn its own >=100 attempts.
+        self.school_up_window_attempts=0.
+        self.school_up_window_successes=0.
+        if self.school_up_good_windows>=SCHOOL_STAIR_PROOF_WINDOWS:
+            self.school_stair_mastered_step=step
+            verdict='50mm_training_mastery'
+        return verdict
+
     def advance_curriculum(self, row: dict[str, float], *, step: int,
                            max_height_m: float, foundation_steps: int,
                            kl_ok_to_expand: bool = True,
@@ -843,6 +921,43 @@ class RegimeGovernor:
         report = self.update(
             row, kl_ok_to_expand=kl_ok_to_expand,
             specialist_growth_enabled=growth_enabled)
+        if self.progressive_school:
+            # Approval is earned only after the 80M milestone AND a
+            # reasonably reliable core walking cohort. Persist it once
+            # earned so later hard stair lessons cannot turn gait shaping
+            # back on just because the overall core metric dips.
+            prior=school_lesson(
+                step=step,core_competence=self.core_competence,
+                walking_graduated=self.school_walking_graduated,
+                stair_mastered_step=self.school_stair_mastered_step)
+            if (step>=SCHOOL_STAIRS_EARLIEST and not self.school_walking_graduated
+                    and self.core_competence>=SCHOOL_MIN_WALK_CORE
+                    and prior['walk_alpha']>=.99):
+                self.school_walking_graduated=True
+            school=school_lesson(
+                step=step,core_competence=self.core_competence,
+                walking_graduated=self.school_walking_graduated,
+                stair_mastered_step=self.school_stair_mastered_step)
+            report['school_stair_proof_event']=self.observe_school_evidence(
+                row,step=step,stairs_enabled=school['stairs_enabled'])
+            school=school_lesson(
+                step=step,core_competence=self.core_competence,
+                walking_graduated=self.school_walking_graduated,
+                stair_mastered_step=self.school_stair_mastered_step)
+            report.update(school_stage=school['stage'],
+                          school_walk_alpha=school['walk_alpha'],
+                          school_stairs_enabled=float(school['stairs_enabled']),
+                          school_stair_alpha=school['stair_alpha'],
+                          school_stair_mastered_step=self.school_stair_mastered_step,
+                          school_walk_graduated=float(self.school_walking_graduated),
+                          school_up_proof_window_attempts=self.school_up_window_attempts,
+                          school_up_proof_window_successes=self.school_up_window_successes,
+                          school_up_good_windows=float(self.school_up_good_windows))
+            if not school['stairs_enabled']:
+                max_height_m=0.
+                academy_max_height_m=0.
+            elif self.school_stair_mastered_step < 0:
+                academy_max_height_m=min(academy_max_height_m,.05)
         report['terrain_event'] = (
             self.advance_terrain(
                 row, max_height_m=max_height_m, kl_ok=kl_ok_to_expand)

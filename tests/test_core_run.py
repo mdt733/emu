@@ -99,6 +99,55 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     m["cmd_vx"]=np.asarray([.12],np.float32)
     assert float(_gait_maturity(m,np,allow_zero_command_balance=True)[1][0])==pytest.approx(.30)
     assert cfg.physical_profile=="h40"
+    # The real overnight school is ONE cold 180M trainer, not a
+    # 120M checkpoint fork with walking and stair coaching overlapped.
+    school_flags=[
+        "train","--run-dir",str(tmp_path/"progressive"),
+        "--steps","180000000","--envs","2048","--device","cuda",
+        "--seed","735","--profile","sim2real",
+        "--terrain-actor","--terrain-step-max-m",".08",
+        "--unified-capabilities","--terrain-carpet","--carpet-prisms",
+        "--academy-stream","--terrain-lesson","coherent-careful",
+        "--growth-recipe","main-mature","--teaching-schedule","staged",
+        "--progressive-school",
+    ]
+    with patch("emu.run.train_one",side_effect=capture):
+        assert emu_cli_main(school_flags)==0
+    school_cfg=seen[-1]
+    assert school_cfg.progressive_school and school_cfg.outcome_graduation
+    assert school_cfg.foundation_steps==20_000_000
+    assert school_cfg.outcome_walk_start_steps==60_000_000
+    assert school_cfg.academy_intro_steps==80_000_000
+    assert school_cfg.academy_start_steps==80_000_000
+    assert school_cfg.academy_ramp_steps==20_000_000
+    assert school_cfg.academy_height_cap_m==pytest.approx(.08)
+    assert school_cfg.science_step_finish_on_transfer
+    from emu.capability_focus import school_lesson,school_without_steps
+    assert school_lesson(step=0,core_competence=0.,
+                         walking_graduated=False,stair_mastered_step=-1)['stage']=='foundation'
+    assert school_lesson(step=40_000_000,core_competence=.9,
+                         walking_graduated=False,stair_mastered_step=-1)['stage']=='supported_growth'
+    fading=school_lesson(step=70_000_000,core_competence=.9,
+                         walking_graduated=False,stair_mastered_step=-1)
+    assert fading['stage']=='walking_graduation'
+    assert fading['walk_alpha']==pytest.approx(.5)
+    not_ready=school_lesson(step=100_000_000,core_competence=.38,
+                         walking_graduated=False,stair_mastered_step=-1)
+    assert not not_ready['stairs_enabled']
+    assert not_ready['stair_alpha']==0.
+    approved=school_lesson(step=80_000_000,core_competence=.55,
+                         walking_graduated=True,stair_mastered_step=-1)
+    assert approved['stairs_enabled'] and approved['stair_alpha']==0.
+    assert approved['down_share']==0.
+    mastered=school_lesson(step=110_000_000,core_competence=.20,
+                         walking_graduated=True,stair_mastered_step=100_000_000)
+    assert mastered['stair_alpha']==pytest.approx(.5)
+    assert mastered['down_share']==pytest.approx(.1)
+    weights=school_without_steps((.2,.2,.2,.2,.1,.1))
+    assert sum(weights)==pytest.approx(1.) and weights[3]==0.
+    with pytest.raises(ValueError,match='progressive school requires'):
+        with patch("emu.run.train_one",side_effect=lambda ns:one_run_config(ns)):
+            emu_cli_main(school_flags+["--foundation-steps","10000000"])
     assert not {"cloud_probes_per_eval","cloud_final_probes",
                 "science_reset_step_evidence_on_fork"} & asdict(cfg).keys()
     assert training_sensor_contract(cfg) is not None
@@ -160,6 +209,41 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     cfg_path = tmp_path / "training_config.json"
     first.save(cfg_path)
     assert TrainingConfig.load(cfg_path) == first
+    # Actual H40 120M ancestor schema: five new graduation fields absent,
+    # three retired settings present. Adapt only for an external research fork,
+    # not for a same-source retry or checkpoint continuation.
+    ancestor=asdict(first)
+    for key in ('outcome_graduation', 'outcome_walk_start_steps',
+                'outcome_stair_approved', 'outcome_approval_start_steps',
+                'outcome_down_share'):
+        ancestor.pop(key)
+    ancestor.update(cloud_final_probes=0, cloud_probes_per_eval=0,
+                    science_reset_step_evidence_on_fork=False)
+    cfg_path.write_text(json.dumps(ancestor), encoding="utf-8")
+    with pytest.raises(ValueError, match="training config keys mismatch"):
+        TrainingConfig.load(cfg_path)
+    migrated=TrainingConfig.load(cfg_path, research_parent=True)
+    assert migrated == first
+    from emu.run import verify_experiment_fork
+    verify_experiment_fork(migrated, replace(first, outcome_graduation=True))
+    # Parent recipe is parseable, but its old success semantics must not
+    # masquerade as measured 50mm stair-completion evidence.
+    from emu.training import compatible_academy_evidence_recipe
+    assert not compatible_academy_evidence_recipe(
+        migrated, replace(first, outcome_graduation=True,
+                          science_step_finish_on_transfer=True))
+    for key, value in (('cloud_final_probes', 10),
+                       ('cloud_probes_per_eval', 1),
+                       ('science_reset_step_evidence_on_fork', True)):
+        invalid={**ancestor, key:value}
+        cfg_path.write_text(json.dumps(invalid), encoding="utf-8")
+        with pytest.raises(ValueError, match="non-default"):
+            TrainingConfig.load(cfg_path, research_parent=True)
+    cfg_path.write_text(json.dumps({**ancestor, 'unknown_legacy_switch':0}),
+                        encoding="utf-8")
+    with pytest.raises(ValueError, match="training config keys mismatch"):
+        TrainingConfig.load(cfg_path, research_parent=True)
+    first.save(cfg_path)
     partial = json.loads(cfg_path.read_text(encoding="utf-8"))
     # The new physical lineage has no pre-v5054 migration exceptions.
     # A missing teaching field is a different recipe, not a compatible run.

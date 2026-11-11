@@ -294,3 +294,210 @@ Troubleshooting:
 References: [JAX installation](https://docs.jax.dev/en/latest/installation.html),
 [NVIDIA's CUDA-on-WSL guide](https://docs.nvidia.com/cuda/wsl-user-guide/),
 [uv Python installation](https://docs.astral.sh/uv/guides/install-python/).
+
+
+## Opt-in experimental H40 outcome graduation (draft PR #76)
+
+This is **not yet promoted to main**. Follow the immutable-source workflow: keep `~/emu` unchanged, use a detached worktree, put output under `~/emu-data`, and do not confuse the checked-in 120M `.emupolicy` inference asset with a complete `final.pkl` PPO checkpoint. The latter must exist locally with its optimiser, normaliser and curriculum state.
+
+```bash
+cd ~/emu
+git fetch origin
+git worktree add --detach ~/emu-outcome-pr76 origin/feature/h40-outcome-stair-graduation
+cd ~/emu-outcome-pr76
+source ~/emu/.venv/bin/activate
+export PYTHONPATH="$PWD" EMU_PHYSICAL_PROFILE=h40
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+
+# Minimal two-update GPU JIT/PPO acceptance (8 worlds, no claim of learned stairs).
+EMU_UNIFIED_ACCEPTANCE=bounded-ppo-lifecycle python -m emu.cli train \
+  --run-dir "$HOME/emu-data/runs/outcome-pr76-ppo-smoke" \
+  --device cuda --envs 8 --steps 512 --seed 735 \
+  --terrain-actor --unified-capabilities --terrain-carpet --carpet-prisms \
+  --academy-stream --terrain-step-max-m .08 \
+  --terrain-lesson coherent-careful --outcome-graduation
+
+# Point at an EXISTING, complete, compatible H40 final checkpoint.
+PARENT="$HOME/emu-data/runs/YOUR_VERIFIED_H40_RUN/checkpoints/final.pkl"
+test -f "$PARENT" || { echo "Missing full PPO parent final.pkl"; false; }
+read -r PARENT_STEP PARENT_SOURCE < <(python - "$PARENT" <<'PY'
+from pathlib import Path
+import sys
+from emu.checkpoint_io import load_checkpoint
+meta=load_checkpoint(Path(sys.argv[1]),validate=False)['meta']
+print(meta['step'],meta['source_provenance']['git_commit'])
+PY
+)
+PARENT_SHA256="$(sha256sum "$PARENT" | awk '{print $1}')"
+RUN="$HOME/emu-data/runs/h40-outcome-pr76-s735-2m"
+
+TRAIN=(python -m emu.cli train
+  --run-dir "$RUN" --device cuda --envs 2048 --seed 735
+  --steps "$((PARENT_STEP + 2000000))"
+  --profile sim2real --terrain-actor --unified-capabilities
+  --terrain-carpet --carpet-prisms --academy-stream
+  --terrain-step-max-m .08 --terrain-lesson coherent-careful
+  --growth-recipe main-mature --athletic-rehearsal-share .15
+  --retention-share .20 --science-step-velocity-relief .80
+  --outcome-graduation --outcome-walk-start-steps "$PARENT_STEP"
+  --resume "$PARENT"
+  --research-parent-source "$PARENT_SOURCE"
+  --research-parent-sha256 "$PARENT_SHA256")
+
+if "${TRAIN[@]}" --plan && "${TRAIN[@]}" --check-resume-only; then
+  EMU_UNIFIED_CONTINUOUS=cold-growth-approved "${TRAIN[@]}"
+fi
+```
+
+If this draft branch is updated before the *first* 2M run, refresh the
+existing **detached**, clean worktree explicitly (not `git pull`):
+
+```bash
+cd ~/emu
+git fetch origin
+cd ~/emu-outcome-pr76
+if [ -z "$(git status --porcelain)" ]; then
+  git switch --detach origin/feature/h40-outcome-stair-graduation
+  git rev-parse HEAD
+else
+  echo "Worktree has local edits; not switching."
+fi
+```
+
+The original 120M `training_config.json` may contain neutral retired keys
+`cloud_final_probes`, `cloud_probes_per_eval`, and
+`science_reset_step_evidence_on_fork`. Only a source- and SHA256-verified
+**external research fork** accepts these when they are exactly `0, 0, false`.
+Unknown or non-default retired fields fail closed; an ordinary same-run resume
+still rejects the older schema. Do not edit the parent config or checkpoint.
+
+The independent CPU physical tests are also available via `python -m pytest -q tests/test_core_stair_teaching.py`. After the 2M fork, inspect actual height/footholds/chassis transfer, episode failures, gait retention, PPO terminal credit and the source-pinned report **before** increasing the target. A completed same-source lineage can be extended by repeating the same config with `--steps $((PARENT_STEP + 10000000)) --resume auto` in the **same** run directory and removing the external parent-hash arguments. Do not change the branch source commit when resuming an existing run.
+
+`python -m emu.cli export-policy "$RUN/checkpoints/final.pkl" "$HOME/emu-data/actors/h40-outcome-2m.emupolicy"` exports only the inference actor for an independent frozen test. `emu prism-exam --mode step --lip-cm 5` samples a **frontier up to 5cm**, not a fixed exact 50mm cohort; inspect measured signed physical heights. Require separately demonstrated repeatable actual +50mm supported climbs against a frozen main actor before using `--outcome-stair-approved --outcome-approval-start-steps <absolute-step>` in a **new checkpoint fork**. That explicit, evidence-gated approval starts the 10M fade of dense stair shaping and independent downhill expansion. No automatic unseen PR is permitted to approve climbing.
+
+## Follow-on H40 30M outcome school from the completed 122M checkpoint
+
+The initial 2M research fork ended at 122,093,568 steps, source
+`51c1d60ea734898496f0d26cbb7d946cbab22ca8`. It is an immutable
+external parent, **not** an existing run to extend with newly changed code.
+Create a NEW run directory, source-pinned to the updated PR #76 commit.
+The new campaign target is `PARENT_STEP + 30000000` (about 152.1M
+absolute world steps), 2,048 worlds, seed 735, with independent
+held-out evaluations every 10M world steps.
+
+Use the earlier explicit cross-source fork recipe, replacing the parent with:
+
+```bash
+PARENT="$HOME/emu-data/runs/h40-outcome-pr76-s735-2m/checkpoints/final.pkl"
+RUN="$HOME/emu-data/runs/h40-outcome-30m-from122m-s735"
+EXTRA=(--fixed-eval-every-steps 10000000)
+```
+
+Require `PARENT_STEP=122093568` and source
+`51c1d60ea734898496f0d26cbb7d946cbab22ca8` before starting.
+Use the *original* walking fade start `--outcome-walk-start-steps 120061952`.
+Add `${EXTRA[@]}` to TRAIN before the plan/check-resume/train gate.
+Derive the full parent source and SHA256 from the local immutable `final.pkl`.
+Never rerun in the completed 2M directory or disable lineage checks.
+
+Unlike the initial 2M run, successful nursery resets now bootstrap value
+from the next reset observation (continuing task); physical falls remain
+absorbing and timeouts use their pre-reset observation. The GAE done mask
+still blocks gradients from separate episodes. This removes the old
+artificial loss of all future walking value, but **does not promise positive
+advantages**. Inspect the reported next-birth bootstrap values and
+normalised completion advantages throughout the campaign.
+
+Nursery reward and six bounded high-water progress payments are now
+reported per rollout and cumulatively across ALL PPO updates via
+`ppo_stair_audit_nursery_*`, not merely sampled every 10 updates.
+Do not approve stair graduation or merge to main without independent
+same-world frozen +50mm testing and retained core walking capability.
+
+## H40 progressive school — ONE cold training run (draft PR #77)
+
+Do **not** resume the 120M main actor, the 122M PR #76 fork or the 30M
+adaptation. This is a new **zero-step** lineage on feature branch
+`feature/h40-progressive-skill-school`. The trained actor shape, physics,
+optimizer and observer remain the same: 360 inputs, one PPO, eight physical
+convex prisms, H40 rated-torque motors, 2,048 shared GPU worlds.
+
+### Learning stages (no automatic clock-based skill claims)
+
+- 0–20M: raw standing/balance/gait foundation, no specialist STEP births.
+- 20–60M: growing command, slope, resilience and control specialists;
+  STEP is excluded, ordinary step exposure remains **zero**.
+- 60–80M+: walk gait/phase shaping gradually fades over 20M, modulated by
+  genuine core competence. After 80M, a core competence of at least
+  **0.55** is required to lock walking graduation. Until earned, 5cm
+  school is held off even if the counter passes 80M.
+- Upon walking graduation: real +50mm (+/-4%) prism stair nursery, 15–30cm
+  variable distance, 10% birth share rising toward 55%, independent
+  real foot-plant and stable supported body-transfer reward.
+- Proof gate: two **separate 100+ actual near-50mm uphill attempts**
+  with >=70% verified supported climb success *in each window*.
+  Failed windows reset the consecutive pass streak.
+- AFTER proof only: phase out stair shaping over 20M, gradually introduce
+  downhill episodes and expand physical uphill step heights toward
+  the 80mm geometry ceiling. Keep rehearsing easier 50mm lips.
+
+These are TRAINING curriculum gates, **not** held-out demonstrated skills.
+Independent same-world matched frozen exams and walking retention remain
+required before claiming +50mm capability or merging to main.
+
+### Overnight run from scratch
+
+Use a new clean detached worktree from this draft branch, and run `--plan`,
+`--check-resume-only`, one 8-world CUDA smoke and the 180M continuous learner.
+Never change branch source or reuse an existing run directory in the middle.
+
+```bash
+set -euo pipefail
+cd ~/emu
+git fetch origin
+git worktree add --detach ~/emu-school-pr77 origin/feature/h40-progressive-skill-school
+cd ~/emu-school-pr77
+source ~/emu/.venv/bin/activate
+export PYTHONPATH="$PWD"
+export EMU_PHYSICAL_PROFILE=h40
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+unset EMU_UNIFIED_ACCEPTANCE
+
+RUN="$HOME/emu-data/runs/h40-progressive-school-180m-s735"
+TRAIN=(python -m emu.cli train
+  --run-dir "$RUN" --device cuda --envs 2048 --seed 735
+  --steps 180000000 --profile sim2real
+  --terrain-actor --terrain-step-max-m .08
+  --unified-capabilities --terrain-carpet --carpet-prisms
+  --academy-stream --terrain-lesson coherent-careful
+  --teaching-schedule staged --growth-recipe main-mature
+  --athletic-rehearsal-share .15 --retention-share .20
+  --science-step-velocity-relief .80
+  --fixed-eval-every-steps 10000000
+  --progressive-school)
+
+"${TRAIN[@]}" --plan
+"${TRAIN[@]}" --check-resume-only
+EMU_UNIFIED_ACCEPTANCE=bounded-ppo-lifecycle python -m emu.cli train \
+  --run-dir "$HOME/emu-data/runs/h40-progressive-smoke-s735" \
+  --device cuda --envs 8 --steps 512 --seed 735 \
+  --profile sim2real --terrain-actor --terrain-step-max-m .08 \
+  --unified-capabilities --terrain-carpet --carpet-prisms \
+  --academy-stream --terrain-lesson coherent-careful \
+  --teaching-schedule staged --growth-recipe main-mature \
+  --progressive-school
+EMU_UNIFIED_CONTINUOUS=cold-growth-approved "${TRAIN[@]}"
+```
+
+Resume after a crash **only with the exact same source commit**, same
+run folder and same flags; change only `--resume auto` and omit any external
+parent-hash flags (there should be none). The trainer checks source SHA and
+checkpoint schema, rejects changed learning knobs, and logs `SCHOOL` stage
+transitions. Stage and physical mastery evidence are persisted in curriculum
+checkpoint state. Requested target 180,000,000; PPO boundary 180,027,392.
+
+Expected report diagnostics: `school_stage`, `school_walk_alpha`,
+`school_stairs_enabled`, `school_stair_mastered_step`,
+`school_up_good_windows`, `academy_height_up_m`,
+`ppo_stair_audit_nursery_*` and actual freeze-evaluation retention.
+

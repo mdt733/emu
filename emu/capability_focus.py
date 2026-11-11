@@ -47,6 +47,65 @@ def attention_weights(*, schedule: str, step: int,
     return tuple((1.-t)*x+t*y for x,y in zip(before,after))
 COMMAND, RESILIENCE, SLOPE, STEP, TRANSITION, CONTROL = range(6)
 
+# One H40 education programme. Time opens LESSON opportunities; it never
+# silently certifies a capability. Keep gates on the host and their evidence
+# in the checkpointed RegimeGovernor, not inside the deployable 360 actor.
+SCHOOL_WALK_FADE_START = 60_000_000
+SCHOOL_STAIRS_EARLIEST = 80_000_000
+SCHOOL_WALK_FADE_STEPS = 20_000_000
+SCHOOL_STAIR_FADE_STEPS = 20_000_000
+SCHOOL_MIN_WALK_CORE = .55
+SCHOOL_STAIR_PROOF_ATTEMPTS = 100
+SCHOOL_STAIR_PROOF_RATE = .70
+SCHOOL_STAIR_PROOF_WINDOWS = 2
+
+
+def school_lesson(*, step: int, core_competence: float,
+                  walking_graduated: bool, stair_mastered_step: int) -> dict:
+    """Pure staged teacher decision; never inferred from network age alone.
+
+    0..20M foundation; 20..60M supported specialist growth;
+    60..80M (or longer) competence-gated walking teacher fade.
+    Only AFTER walking graduation: true +50mm nursery with full coaching.
+    Two independently measured 100-encounter proof windows permit staged
+    stair-coaching fade, signed descent and expansion beyond +50mm.
+    """
+    import math
+    if step < 0 or not math.isfinite(float(core_competence)):
+        raise ValueError('invalid school step/competence')
+    if stair_mastered_step >= 0 and not walking_graduated:
+        raise ValueError('stair mastery cannot precede walking graduation')
+    dose=min(1.,max(0.,(step-SCHOOL_WALK_FADE_START) /
+                    SCHOOL_WALK_FADE_STEPS))
+    readiness=min(1.,max(0.,(core_competence-.35) /
+                         (SCHOOL_MIN_WALK_CORE-.35)))
+    walk_alpha=1. if walking_graduated else dose*readiness
+    active=(walking_graduated and step>=SCHOOL_STAIRS_EARLIEST)
+    stair_alpha=(min(1.,max(0.,(step-stair_mastered_step)/
+                      SCHOOL_STAIR_FADE_STEPS))
+                 if active and stair_mastered_step>=0 else 0.)
+    stage=('foundation' if step<=20_000_000 else
+           'supported_growth' if step<SCHOOL_WALK_FADE_START else
+           'walking_graduation' if not active else
+           'assisted_stairs' if stair_mastered_step<0 else
+           'stair_graduation')
+    return dict(stage=stage, walk_alpha=walk_alpha,
+                stairs_enabled=active, stair_alpha=stair_alpha,
+                # Descent remains absent until real +50mm mastery.
+                down_share=.20*stair_alpha)
+
+
+def school_without_steps(weights):
+    """Before stair school, preserve six walking specialists' other roles."""
+    import math
+    if len(weights)!=6 or not math.isclose(sum(weights),1.,abs_tol=1e-4):
+        raise ValueError('invalid school specialist weights')
+    w=list(weights)
+    w[STEP]=0.
+    denom=sum(w)
+    return tuple(v/denom for v in w)
+
+
 
 # The cold-start gait has first refusal through 20M world steps. Thereafter
 # the only time-driven quantity is TEACHING SHARE; physical targets always

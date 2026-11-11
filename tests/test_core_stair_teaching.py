@@ -22,6 +22,9 @@ class CoreStairPhysicsTests(unittest.TestCase):
             unified_capability_focus=True,terrain_carpet=True,
             terrain_carpet_prisms=True,academy_stream=True,
             terrain_lesson="coherent-careful",
+            outcome_graduation=True,
+            progressive_school=True,
+            science_step_finish_on_transfer=True,
             solver_iterations=2,solver_ls_iterations=4,
             science_gate_mode="zero-only",
             science_phase_lowcmd_scale=.25,
@@ -53,6 +56,15 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertEqual(out.obs.shape,(4,360))
         self.assertTrue(np.isfinite(np.asarray(jax.device_get(out.reward))).all())
         self.assertEqual(out.state.academy_progress_origin_xy.shape,(4,2))
+        self.assertEqual(out.state.nursery_best.shape,(4,6))
+        self.assertIn('nursery_reward',out.metrics)
+        self.assertIn('nursery_progress_r_lift',out.metrics)
+        self.assertIn('nursery_progress_l_over',out.metrics)
+        # Real 50mm (+/-4%) prism seam exists at birth, not a 3mm seed.
+        lips=np.asarray(jax.device_get(state.academy_birth_lip_m))
+        self.assertTrue(np.all((lips>.047)&(lips<.053)),lips)
+        born=np.asarray(jax.device_get(state.data.qpos))
+        self.assertTrue(np.all((born[:,0]>=.70)&(born[:,0]<=.85)))
         self.assertIn("academy_followthrough_new",out.metrics)
         self.assertIn("academy_goal_complete_new",out.metrics)
         self.assertIn("academy_episode_first_lip_armed",out.metrics)
@@ -83,7 +95,77 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertTrue(np.isfinite(
             np.asarray(jax.device_get(out.state.academy_goal_xy))).all())
 
+    def _assert_real_millimetre_credit_cannot_farm_or_cross_wall_low(self):
+        from emu.step_goal import nursery_progress
+        foot=np.array([[[.96,.48,.14],[.90,.53,.12]]],np.float32)
+        body=np.array([[.79,.5]],np.float32)
+        bottom=np.array([[.13,.11]],np.float32)
+        top=np.array([[.10,.10]],np.float32)
+        lip=np.array([.05],np.float32)
+        edge=np.array([1.],np.float32)
+        seen=np.array([[False,False]])
+        ok=np.array([True])
+        zero=np.zeros((1,6),np.float32)
+        best,first,gains=nursery_progress(np,zero,body,foot,bottom,edge,top,lip,seen,ok)
+        self.assertGreater(float(first[0]),0.)
+        self.assertEqual(float(best[0,3]),0.)  # below upper surface; no crossing credit
+        same,twice,_=nursery_progress(np,best,body,foot,bottom,edge,top,lip,seen,ok)
+        np.testing.assert_array_equal(same,best)
+        self.assertEqual(float(twice[0]),0.)
+        down,again,_=nursery_progress(np,best,body,foot,np.array([[.11,.10]],np.float32),edge,top,lip,seen,ok)
+        self.assertEqual(float(again[0]),0.)
+        high=foot.copy()
+        high[:,:,2]=.20
+        third,earned,_=nursery_progress(np,best,body,high,
+                            np.array([[.19,.19]],np.float32),edge,top,lip,seen,ok)
+        self.assertGreater(float(earned[0]),0.)
+        exhausted,last,_=nursery_progress(np,third,body,high,
+                            np.array([[.19,.19]],np.float32),edge,top,lip,seen,ok)
+        self.assertEqual(float(last[0]),0.)
+        self.assertLessEqual(float(third.max()),1.)
+        disabled,pay,_=nursery_progress(np,zero,body,high,
+                            np.array([[.19,.19]],np.float32),edge,top,lip,seen,np.array([False]))
+        self.assertEqual(float(pay[0]),0.)
+        np.testing.assert_array_equal(disabled,zero)
+
     def test_sync_off_reduces_only_phase_payment(self):
+        self._assert_real_millimetre_credit_cannot_farm_or_cross_wall_low()
+        # Checkpoint-persistent stair graduation: two independent successful
+        # 100-attempt windows at REAL near-50mm uphill lips. A failed
+        # window must reset proof streak; 0/partial footholds never pass.
+        from emu.curriculum import RegimeGovernor
+        g=RegimeGovernor(unified_capability_focus=True,outcome_mode=True,
+                         progressive_school=True)
+        g.params.academy_height_up_m=.05
+        assert g.observe_school_evidence(
+            {'academy_near_attempts_up':100.,
+             'academy_near_successes_up':100.},
+            step=80_000_000,stairs_enabled=False)=='no_new_50mm_proof'
+        self.assertEqual(g.school_up_window_attempts,0.)
+        g.school_walking_graduated=True
+        def evidence(attempts,successes,step):
+            return g.observe_school_evidence(
+                {'academy_near_attempts_up':attempts,
+                 'academy_near_successes_up':successes},
+                step=step,stairs_enabled=True)
+        self.assertEqual(evidence(100.,75.,90_000_000),'50mm_window_pass')
+        self.assertEqual(g.school_up_good_windows,1)
+        self.assertEqual(evidence(100.,40.,90_100_000),'50mm_window_retry')
+        self.assertEqual(g.school_up_good_windows,0)
+        self.assertEqual(evidence(100.,80.,90_200_000),'50mm_window_pass')
+        self.assertEqual(evidence(100.,71.,90_300_000),'50mm_training_mastery')
+        self.assertEqual(g.school_stair_mastered_step,90_300_000)
+        trained=g.state_dict()
+        restored=RegimeGovernor(unified_capability_focus=True,outcome_mode=True,
+                                progressive_school=True)
+        restored.load_state_dict(trained)
+        self.assertEqual(restored.state_dict(),trained)
+        damaged=dict(trained,school_up_window_successes=1.,
+                     school_up_window_attempts=0.)
+        with self.assertRaisesRegex(ValueError,'invalid progressive school'):
+            restored.load_state_dict(damaged)
+        # Mastery is a TRAINING gate. Independent frozen +50mm exams are
+        # still mandatory before making an external capability claim.
         m=dict(cmd_pitch=np.ones(1)*0.,height_error=np.zeros(1),
                attitude_quality=np.ones(1),foot_mid_cone=np.ones(1),
                bad_contact=np.zeros(1),support=np.ones(1),
@@ -97,6 +179,17 @@ class CoreStairPhysicsTests(unittest.TestCase):
         stripped=_physical_qualities(m,np,phase_sync_strength=0.)
         self.assertAlmostEqual(float(baseline[0][0]),float(stripped[0][0]))
         self.assertAlmostEqual(float(baseline[3][0]-stripped[3][0]),.135)
+        # The 60–80M walking graduation removes hidden foot pose shaping
+        # while continuing to reward real body uprightness/height.
+        low_cone=dict(m,foot_mid_cone=np.zeros(1))
+        coached_low=_physical_qualities(low_cone,np)
+        self.assertLess(float(coached_low[0][0]),float(baseline[0][0]))
+        independent_low=_physical_qualities(
+            low_cone,np,outcome_walk_alpha=1.)
+        independent_high=_physical_qualities(
+            m,np,outcome_walk_alpha=1.)
+        self.assertAlmostEqual(float(independent_low[0][0]),
+                               float(independent_high[0][0]))
         # Crouch tolerance uses a teacher-only STEP flag; non-STEP unchanged.
         low=dict(m,height_error=np.array([-.045]),
                  science_step_focus=np.array([1.]))
