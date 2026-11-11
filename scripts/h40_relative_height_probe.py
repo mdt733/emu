@@ -183,6 +183,7 @@ def analyze_packet(packet: np.ndarray, requested_mm: np.ndarray):
     projected = returns_relative_to_feet(
         np, ranges, valid, gravity, feet)
     ground = fit_forward_array_ground(np, ranges, valid, gravity)
+    spatial=per_world_row_contrasts(projected,requested_mm)
     details = []
     for world in range(frame.shape[0]):
         for zone in range(16):
@@ -235,11 +236,24 @@ def analyze_packet(packet: np.ndarray, requested_mm: np.ndarray):
                           max_ray_hit_height_above_candidate_foot_mm=(
                               round(max_hit_m*1000.,2) if max_hit_m is not None else None),
                           valid_ahead_fraction=float(np.mean(ahead))))
-    return details, stats
+        contrasts=[spatial[int(w)]["far_minus_near_hit_mm"] for w in selected
+                   if spatial[int(w)]["far_minus_near_hit_mm"] is not None]
+        jumps=[spatial[int(w)]["largest_signed_adjacent_row_jump_mm"]
+               for w in selected
+               if spatial[int(w)]["largest_signed_adjacent_row_jump_mm"] is not None]
+        stats[-1].update(
+            sampled_valid_row_contrasts=len(contrasts),
+            median_far_minus_near_hit_mm=(
+                round(float(np.median(contrasts)),2) if contrasts else None),
+            median_largest_signed_row_jump_mm=(
+                round(float(np.median(jumps)),2) if jumps else None),
+        )
+    return details, stats, spatial
 
 
 def run(*,device:str,worlds:int,output:Path,seed:int=735,
-        heights_mm:tuple[float,...]=DEFAULT_HEIGHTS_MM):
+        heights_mm:tuple[float,...]=DEFAULT_HEIGHTS_MM,
+        policy:Path|None=None):
     if not heights_mm or not all(np.isfinite(heights_mm)):
         raise ValueError("Need finite signed heights")
     # Input heights are MILLIMETRES. The real-prism examiner accepts
@@ -281,16 +295,45 @@ def run(*,device:str,worlds:int,output:Path,seed:int=735,
         regime_frac_resilience=0.,
     ))
     packet=np.asarray(jax.device_get(packet),dtype=np.float32)
-    details,stats=analyze_packet(packet,heights)
+    details,stats,spatial=analyze_packet(packet,heights)
+    # Both analyses consume the SAME measured 360 observation, with no
+    # privileged step height beyond its output grouping labels.
+    sensitivity=None
+    policy_info=None
+    if policy is not None:
+        sensitivity,policy_info=frozen_actor_sensitivity(
+            packet,heights,policy.expanduser().resolve())
     output.mkdir(parents=True,exist_ok=True)
     with (output/"vision_birth.csv").open("w",newline="") as fd:
         wr=csv.DictWriter(fd,fieldnames=list(details[0]))
         wr.writeheader();wr.writerows(details)
+    with (output/"vision_spatial.csv").open("w",newline="") as fd:
+        wr=csv.DictWriter(fd,fieldnames=list(spatial[0]))
+        wr.writeheader();wr.writerows(spatial)
+    if sensitivity is not None:
+        with (output/"vision_policy_sensitivity.csv").open("w",newline="") as fd:
+            wr=csv.DictWriter(fd,fieldnames=list(sensitivity[0]))
+            wr.writeheader();wr.writerows(sensitivity)
+        by_height=[]
+        for height in dict.fromkeys(heights.tolist()):
+            sample=[v for v in sensitivity if v["requested_lip_mm"]==height]
+            by_height.append(dict(
+                requested_lip_mm=float(height),trials=len(sample),
+                median_raw_only_action_l2=float(np.median(
+                    [v["raw_only_action_l2"] for v in sample])),
+                median_fit_only_action_l2=float(np.median(
+                    [v["fit_only_action_l2"] for v in sample])),
+                median_raw_and_fit_action_l2=float(np.median(
+                    [v["raw_and_fit_action_l2"] for v in sample])),
+                median_raw_input_change_l2_m=float(np.median(
+                    [v["raw_range_l2_m"] for v in sample]))))
+        policy_info["by_height"]=by_height
     (output/"vision_summary.json").write_text(json.dumps(dict(
         sensor_contract=env.sensor_contract,source_kind="deployable-packet-only",
         height_fixture_mm=list(heights_mm),worlds=worlds,seed=seed,
         physical_backend=jax.default_backend(),projected_stats=stats,
-        no_neural_policy_or_training=True,
+        actor_counterfactual=policy_info,
+        no_neural_training=True,
         caveat=("Returns measure 3D hit points, not guaranteed top ground. "
                 "Neither foot is asserted to be weight-bearing.")
     ),indent=2)+"\n")
@@ -301,23 +344,53 @@ def run(*,device:str,worlds:int,output:Path,seed:int=735,
            "A *ray hit* may be a vertical wall rather than a ground top.",
            "Both foot-reference candidates are included in vision_birth.csv;",
            "The included shin 'load' is a flex-angle proxy, not proven foot contact.","",
-           "| Real signed lip | Worlds | Raw valid | Plane valid | Mean plane RMS | Highest ahead return* |",
-           "|---:|---:|---:|---:|---:|---:|"]
+           "| Lip | Worlds | Raw valid | Plane valid | Fit RMS | Far−near hit | Largest row jump |",
+           "|---:|---:|---:|---:|---:|---:|---:|"]
     for x in stats:
         best=(f"{x['max_ray_hit_height_above_candidate_foot_mm']:.1f}mm"
               if x["max_ray_hit_height_above_candidate_foot_mm"] is not None else "unknown")
+        contrast=x["median_far_minus_near_hit_mm"]
+        jump=x["median_largest_signed_row_jump_mm"]
         lines.append(
             f"| {x['requested_lip_mm']:+.1f}mm | {x['sampled_worlds']} | "
             f"{x['raw_valid_fraction']:.0%} | "
             f"{x['single_plane_valid_fraction']:.0%} | "
-            f"{x['mean_plane_residual_mm']:.1f}mm | {best} |")
-    lines.extend(["","*Highest return point within 50–350mm forward, ±250mm sideways",
-                  "of either candidate support foot. It is NOT a certified",
-                  "walkable step top or measured mechanical climbing limit.","",
-                  "Full 16-zone per-foot X/Y/height and explicit flags:",
-                  "`vision_birth.csv`.","",
-                  "Next gate: inspect suspected wall-hit zones and actual stance",
-                  "confidence before promoting any transformed values to an actor."])
+            f"{x['mean_plane_residual_mm']:.1f}mm | "
+            f"{contrast:+.1f}mm | {jump:+.1f}mm |"
+            if contrast is not None and jump is not None else
+            f"| {x['requested_lip_mm']:+.1f}mm | {x['sampled_worlds']} | "
+            f"{x['raw_valid_fraction']:.0%} | "
+            f"{x['single_plane_valid_fraction']:.0%} | "
+            f"{x['mean_plane_residual_mm']:.1f}mm | unknown | unknown |")
+    lines.extend(["","Far−near: median hit-Z of farthest of 4 rows minus nearest row.",
+                  "Largest jump: biggest signed between-adjacent-row height jump",
+                  "per world, then median across matched trials. These geometry",
+                  "features cancel foot-reference height, but WALL hits and ramps",
+                  "are NOT verified walkable upper surfaces.","",
+                  "Full ray/foot coordinates: `vision_birth.csv`.",
+                  "Per-world row geometry: `vision_spatial.csv`."])
+    if policy_info is not None:
+        lines.extend(["","## Frozen actor: vision-only counterfactual",
+                      f"Actor SHA256: `{policy_info['actor_weights_sha256']}`",
+                      "Each row replaces ONLY ToF ranges/valid bits, derived",
+                      "ground fit, or both in an otherwise identical FLAT",
+                      "actor input. Values are L2 changes across SIX normalized",
+                      "servo action commands (not motor current or climbing).",
+                      "All four actor history frames are swapped together.",
+                      "| Lip | Raw input Δ (m L2) | Raw-only action Δ | Fit-only action Δ | Both action Δ |",
+                      "|---:|---:|---:|---:|---:|"])
+        for x in policy_info["by_height"]:
+            lines.append(f"| {x['requested_lip_mm']:+.1f}mm | "
+                         f"{x['median_raw_input_change_l2_m']:.4f} | "
+                         f"{x['median_raw_only_action_l2']:.5f} | "
+                         f"{x['median_fit_only_action_l2']:.5f} | "
+                         f"{x['median_raw_and_fit_action_l2']:.5f} |")
+        lines.extend(["","These are matched sensory counterfactuals, NOT a",
+                      "closed-loop motor or stair-climbing performance test.",
+                      "Individual six-action vectors and worlds:",
+                      "`vision_policy_sensitivity.csv`."])
+    lines.extend(["","Next gate: physical foot-lift feasibility, trusted",
+                  "support inference and a controlled height-aware PPO fork."])
     (output/"vision_summary.md").write_text("\n".join(lines)+"\n")
     print(f"Vision probe complete: {output/'vision_summary.md'}",flush=True)
     return stats
@@ -329,13 +402,15 @@ def main():
     p.add_argument("--worlds",type=int,default=104)
     p.add_argument("--seed",type=int,default=735)
     p.add_argument("--output",type=Path,required=True)
+    p.add_argument("--policy",type=Path,default=None,
+                   help="Optional verified .emupolicy: frozen flat-vs-ledge NN action sensitivity")
     p.add_argument("--heights-mm",default=None,
                    help="comma-separated signed physical heights, e.g. 0,25,35,50,-35")
     a=p.parse_args()
     heights=DEFAULT_HEIGHTS_MM if a.heights_mm is None else tuple(
         float(v) for v in a.heights_mm.split(","))
     run(device=a.device,worlds=a.worlds,output=a.output,seed=a.seed,
-        heights_mm=heights)
+        heights_mm=heights,policy=a.policy)
 
 
 if __name__=="__main__":
