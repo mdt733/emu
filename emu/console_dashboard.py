@@ -205,6 +205,10 @@ def render_screen(row: dict[str, str], *, phase: str,
         (f"  vx actual/cmd {fmt(row,'vx_mean','+.2f')}/"
          f"{fmt(row,'cmd_vx_mean','+.2f')} m/s   "
          f"Walk teacher {walking}"),
+        (f"  vx frontier +{fmt(row,'frontier_vx_hi','.2f')} m/s "
+         f"(Δ5M {metric_delta(history,'frontier_vx_hi',precision=2)}) "
+         f"  shaft≈{fmt(row,'shaft_j_per_m_forward','.1f')} J/m "
+         f"(Δ5M {metric_delta(history,'shaft_j_per_m_forward',precision=1)})"),
         "",
         " STAIRS  [sampled training outcomes, NOT frozen stair exams]",
         "  " + stair_window_trend(history),
@@ -213,8 +217,11 @@ def render_screen(row: dict[str, str], *, phase: str,
         (f"  Footholds {fmt(row,'academy_footholds','.0f')}  "
          f"Transfers {fmt(row,'academy_transfers','.0f')}  "
          f"Up crossings {fmt(row,'academy_up_crossings','.0f')}"),
-        (f"  Frontier +{h_up}/-{h_down}cm   Stair teacher {stair}   "
-         f"Proof {fmt(row,'school_up_good_windows','.0f')}/2"),
+        (f"  Stair frontier +{h_up}cm "
+         f"(Δ5M {metric_delta(history,'academy_height_up_m',scale=100,precision=1,suffix='cm')}) "
+         f" / -{h_down}cm"),
+        (f"  Stair teacher {stair}   "
+         f"5cm proof windows {fmt(row,'school_up_good_windows','.0f')}/2"),
         "",
         " TRAINING / FROZEN WALKING RETENTION",
         (f"  PPO {fmt(row,'train_steps_per_sec',',.0f')}/s   "
@@ -296,7 +303,7 @@ class ConsoleRelay:
             if is_progress:
                 self.history = read_history(self.run_dir / "metrics.csv")
                 self.row = self.history[-1] if self.history else {}
-                self.phase = "PPO training  |  " + str(self.row.get("school_stage", "learning"))
+                self.phase = "PPO training"
             elif "compiling MJX/JAX update" in t:
                 self.phase = "Compiling first PPO update"
             elif "fixed-eval starting" in t:
