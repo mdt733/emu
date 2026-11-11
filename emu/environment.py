@@ -1855,7 +1855,7 @@ class EmuMJXEnv(TaskSampler):
             # shaping from the completed whole-foot transfer lesson.
             bonus=(20.*self.science_step_goal_weight*
                    goal_new.astype(jnp.float32) +
-                   (25. if self.outcome_graduation else 8.)*finish_new.astype(jnp.float32))
+                   (60. if self.outcome_graduation else 8.)*finish_new.astype(jnp.float32))
             reward=reward+bonus
             ep_return=ep_return+bonus
             done=done | goal_new | finish_new
@@ -1876,6 +1876,9 @@ class EmuMJXEnv(TaskSampler):
                               foot[:,:,1],foot[:,:,2]),axis=2)
             source_top=self._carpet_real_top_height(
                 data,sample,state.carpet_hfields)
+            source_top=jnp.where(jnp.isfinite(source_top),source_top,
+                                 foot_bottom)
+
             healthy=(metrics['terminal']<.5)&(metrics['bad_contact']<.5)
             assigned=(state.academy_active & step_focus & healthy &
                       (jnp.abs(state.academy_birth_lip_m)>.03) &
