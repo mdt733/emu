@@ -65,8 +65,18 @@ def analyze_packet(packet: np.ndarray, requested_mm: np.ndarray):
                        range_valid=bool(valid[world, zone]),
                        ground_plane_valid=bool(ground["valid"][world]),
                        ground_plane_confidence=float(ground["ground_visibility_confidence"][world]),
+                       ground_forward_grade_deg=float(
+                           np.rad2deg(ground["ground_forward_grade_rad"][world])),
                        ground_plane_residual_mm=float(ground["fit_residual_m"][world]*1000.))
             for idx, side in enumerate(("right", "left")):
+                suffix="r" if idx==0 else "l"
+                # These 360-input actor values may help test stance inference.
+                # The current 'shin_load' is only a flex-angle proxy.
+                row.update({
+                    f"{side}_shin_flex_rad":float(frame[world,fields[f"shin_flex_{suffix}"]]),
+                    f"{side}_shin_rate_rad_s":float(frame[world,fields[f"shin_rate_{suffix}"]]),
+                    f"{side}_shin_load_proxy":float(frame[world,fields[f"shin_load_{suffix}"]]),
+                })
                 row.update({
                     f"{side}_point_valid":bool(projected["return_valid"][world,idx,zone]),
                     f"{side}_hit_height_mm":float(
@@ -160,7 +170,7 @@ def run(*,device:str,worlds:int,output:Path,seed:int=735,
            "No NN updates, source-based step oracle, or extra hardware.","",
            "A *ray hit* may be a vertical wall rather than a ground top.",
            "Both foot-reference candidates are included in vision_birth.csv;",
-           "shin-flex deflection alone cannot select a planted foot.","",
+           "The included shin 'load' is a flex-angle proxy, not proven foot contact.","",
            "| Real signed lip | Worlds | Raw valid | Plane valid | Mean plane RMS | Highest ahead return* |",
            "|---:|---:|---:|---:|---:|---:|"]
     for x in stats:
