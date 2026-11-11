@@ -375,3 +375,42 @@ The independent CPU physical tests are also available via `python -m pytest -q t
 
 `python -m emu.cli export-policy "$RUN/checkpoints/final.pkl" "$HOME/emu-data/actors/h40-outcome-2m.emupolicy"` exports only the inference actor for an independent frozen test. `emu prism-exam --mode step --lip-cm 5` samples a **frontier up to 5cm**, not a fixed exact 50mm cohort; inspect measured signed physical heights. Require separately demonstrated repeatable actual +50mm supported climbs against a frozen main actor before using `--outcome-stair-approved --outcome-approval-start-steps <absolute-step>` in a **new checkpoint fork**. That explicit, evidence-gated approval starts the 10M fade of dense stair shaping and independent downhill expansion. No automatic unseen PR is permitted to approve climbing.
 
+## Follow-on H40 30M outcome school from the completed 122M checkpoint
+
+The initial 2M research fork ended at 122,093,568 steps, source
+`51c1d60ea734898496f0d26cbb7d946cbab22ca8`. It is an immutable
+external parent, **not** an existing run to extend with newly changed code.
+Create a NEW run directory, source-pinned to the updated PR #76 commit.
+The new campaign target is `PARENT_STEP + 30000000` (about 152.1M
+absolute world steps), 2,048 worlds, seed 735, with independent
+held-out evaluations every 10M world steps.
+
+Use the earlier explicit cross-source fork recipe, replacing the parent with:
+
+```bash
+PARENT="$HOME/emu-data/runs/h40-outcome-pr76-s735-2m/checkpoints/final.pkl"
+RUN="$HOME/emu-data/runs/h40-outcome-30m-from122m-s735"
+EXTRA=(--fixed-eval-every-steps 10000000)
+```
+
+Require `PARENT_STEP=122093568` and source
+`51c1d60ea734898496f0d26cbb7d946cbab22ca8` before starting.
+Use the *original* walking fade start `--outcome-walk-start-steps 120061952`.
+Add `${EXTRA[@]}` to TRAIN before the plan/check-resume/train gate.
+Derive the full parent source and SHA256 from the local immutable `final.pkl`.
+Never rerun in the completed 2M directory or disable lineage checks.
+
+Unlike the initial 2M run, successful nursery resets now bootstrap value
+from the next reset observation (continuing task); physical falls remain
+absorbing and timeouts use their pre-reset observation. The GAE done mask
+still blocks gradients from separate episodes. This removes the old
+artificial loss of all future walking value, but **does not promise positive
+advantages**. Inspect the reported next-birth bootstrap values and
+normalised completion advantages throughout the campaign.
+
+Nursery reward and six bounded high-water progress payments are now
+reported per rollout and cumulatively across ALL PPO updates via
+`ppo_stair_audit_nursery_*`, not merely sampled every 10 updates.
+Do not approve stair graduation or merge to main without independent
+same-world frozen +50mm testing and retained core walking capability.
+
