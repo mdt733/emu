@@ -501,3 +501,42 @@ Expected report diagnostics: `school_stage`, `school_walk_alpha`,
 `school_up_good_windows`, `academy_height_up_m`,
 `ppo_stair_audit_nursery_*` and actual freeze-evaluation retention.
 
+## Future-run live console dashboard (display-only branch)
+
+The parent training process now has an ANSI terminal dashboard that redraws
+one screen instead of printing three long metrics lines per interval.
+**The trainer, PPO, actor observations, curriculum, checkpoints, physics
+and frozen evaluations are unchanged.** Original child output remains
+unaltered in RUN/console.log; metrics.csv and fixed_eval.csv are canonical.
+
+Choose display with EMU_CONSOLE_MODE in the environment for a FUTURE run:
+
+| Mode | Effect |
+| --- | --- |
+| auto (default) | Dashboard on real interactive ANSI-capable terminal, otherwise compact |
+| dashboard | Request dashboard on a real TTY; compact if not a TTY |
+| compact | Append-only status milestones, including signed 5M trends |
+| verbose | Historical long lesson/speed progress lines |
+
+This is a parent-only environment variable, not a training-config or
+checkpoint identity parameter. Do not change the source of an active
+300M lineage; a later source revision requires an explicitly authorised
+new-run research fork, never swapping source SHA in place.
+
+The screen displays age/stage/progress, walking reward/falls/episode
+length/core competence with signed Δ~5M-step differences, stair success
+rate over the most recent 5M compared with the *preceding* 5M, birth
+counts/physical milestones/frontiers, learner/wall throughput, and
+the independent frozen walking score change since the preceding exam.
+
+Stair success percentages require at least 20 sampled completed Academy
+episodes spanning two or more logged rows per window. These are sparse
+training-rollout samples, not exhaustive episode counts and NOT a frozen
+stair exam. The screen says so. Missing or stale trend baselines show --.
+
+No extra dependencies, GPU metrics transfers, or changes to the
+results CSV schema. The dashboard uses standard ANSI terminal sequences
+and restores the cursor on exit. The full raw log retains warnings,
+tracebacks and training diagnostics. An unsuccessful child process still
+emits its diagnostic tail when it exits.
+
