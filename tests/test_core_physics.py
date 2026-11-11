@@ -593,6 +593,58 @@ def test_tof_sees_real_15cm_vertical_uphill_wall():
     np.testing.assert_allclose(
         np.asarray(jax_version['return_height_over_foot_m']),
         higher['return_height_over_foot_m'],atol=1e-6)
+    # The four sensor rows look successively nearer. An unknown
+    # absolute support-foot height cancels from far-minus-near and
+    # from the largest adjacent-row ray-height discontinuity.
+    from scripts.h40_relative_height_probe import (
+        per_world_row_contrasts, frozen_actor_sensitivity)
+    fake_riser=low.copy()
+    fake_riser[:4]=raised[:4]
+    flat_row=per_world_row_contrasts(level,[0.])
+    edge_row=per_world_row_contrasts(project(fake_riser),[40.])
+    assert abs(flat_row[0]['far_minus_near_hit_mm'])<.01
+    assert abs(edge_row[0]['far_minus_near_hit_mm']-40.)<.01
+    assert abs(edge_row[0]['largest_signed_adjacent_row_jump_mm']-40.)<.01
+    # Moving the foot reference changes all absolute hit elevations,
+    # but not the contrast of two measured ray endpoints.
+    other_feet=feet.copy()
+    other_feet[:,:,2]+=.03
+    shifted=per_world_row_contrasts(
+        project(fake_riser,feet=other_feet),[40.])
+    assert abs(shifted[0]['far_minus_near_hit_mm']-
+               edge_row[0]['far_minus_near_hit_mm'])<.01
+    # A test-double frozen actor makes the true 360 normalizer and
+    # exact 4-frame channel substitutions independently executable.
+    from unittest.mock import patch
+    from emu.contracts import HISTORY_LEN, TERRAIN_OBS_FIELDS
+    nch=len(TERRAIN_OBS_FIELDS)*HISTORY_LEN
+    fields={name:i for i,name in enumerate(TERRAIN_OBS_FIELDS)}
+    wk=np.zeros((nch,1),np.float32)
+    wk[fields["tof4x4_range_00_m"],0]=2.
+    wk[fields["ground_visibility_confidence"],0]=1.
+    policy_stub={'pi':[
+        {'w':wk,'b':np.zeros(1,np.float32)},
+        {'w':np.ones((1,6),np.float32),'b':np.zeros(6,np.float32)},
+    ]}
+    norm_stub={'mean':np.zeros(nch,np.float32),
+               'std':np.ones(nch,np.float32)}
+    actor_stub={'obs_dim':nch,'artifact_sha256':'stub',
+                'source':{'actor_sha256':'stub'}}
+    packet=np.zeros((4,nch),np.float32)
+    reshaped=packet.reshape(4,HISTORY_LEN,len(TERRAIN_OBS_FIELDS))
+    reshaped[:,:,fields["tof4x4_range_00_m"]]=.4
+    reshaped[:,:,fields["ground_visibility_confidence"]]=1.
+    reshaped[[1,3],:,fields["tof4x4_range_00_m"]]=.32
+    reshaped[[1,3],:,fields["ground_visibility_confidence"]]=0.
+    with patch("emu.policy_export.load_exported_actor_for_exam",
+               return_value=(policy_stub,norm_stub,actor_stub)):
+        comparisons,identity=frozen_actor_sensitivity(
+            packet,np.asarray([0.,35.,0.,35.]),"unused.emupolicy")
+    assert identity['optimizer_updates']==0
+    assert comparisons[0]['raw_only_action_l2']==0.
+    assert comparisons[1]['raw_only_action_l2']>0.
+    assert comparisons[1]['fit_only_action_l2']>0.
+    assert comparisons[1]['raw_and_fit_action_l2']>0.
 
 
 def test_side_contact_cannot_be_counted_as_supported_top_foothold():
