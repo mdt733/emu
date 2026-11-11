@@ -40,7 +40,7 @@ OWNED_BACKEND: dict[str, tuple[str, ...]] = {
     "learning": ("training", "ppo", "rewards", "curriculum",
                  "capability_focus", "capability_field", "training_health",
                  "step_goal"),
-    "state_and_exams": ("checkpoint_io", "results", "evaluation", "prism_exam", "step_autopsy"),
+    "state_and_exams": ("checkpoint_io", "console_dashboard", "results", "evaluation", "prism_exam", "step_autopsy"),
     "delivery": ("policy_export", "viewer_server", "capability_viewer"),
     "diagnostics": ("doctor",),
 }
@@ -50,7 +50,7 @@ RETIRED_BACKEND = frozenset((
 ))
 
 STAGES: dict[str, tuple[str, ...]] = {
-    "run": ("cli", "run", "training_config", "checkpoint_io"),
+    "run": ("cli", "run", "training_config", "checkpoint_io", "console_dashboard"),
     "physics": ("environment", "terrain_carpet_mjx", "carpet_prism_mjx",
                 "contracts", "domain_randomization", "rewards"),
     "learning": ("training", "ppo", "curriculum", "capability_focus",

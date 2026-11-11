@@ -43,7 +43,7 @@ C018 motors + knee support + shin flex + two spherical feet
 | Eight base reward terms and optional hypotheses | `emu/rewards.py` |
 | Actor/critic, on-policy rollouts, GAE, PPO | `emu/ppo.py` |
 | Training orchestration, immutable recipe, learner health | `emu/training.py`, `emu/training_config.py`, `emu/training_health.py` |
-| Single run CLI, checkpoints and resume | `emu/cli.py`, `emu/run.py`, `emu/checkpoint_io.py` |
+| Single run CLI, checkpoints, resume and read-only parent console | `emu/cli.py`, `emu/run.py`, `emu/checkpoint_io.py`, `emu/console_dashboard.py` |
 | Independent evaluations, reports, held-out stair evidence | `emu/evaluation.py`, `emu/prism_exam.py`, `emu/results.py`, `emu/step_autopsy.py` |
 | Actor export, browser and read-only field atlas | `emu/policy_export.py`, `emu/viewer_server.py`, `emu/viewer_src/`, `emu/capability_viewer.py` |
 | Hardware / environment diagnosis | `emu/doctor.py` |

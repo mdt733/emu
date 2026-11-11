@@ -46,7 +46,11 @@ def training_flags(run_dir: Path, seed: int = 735) -> list[str]:
     ]
 
 
-def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
+def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path, monkeypatch):
+    # Parent console is a read-only part of the launch/CLI contract, not
+    # a new independent physics test or PPO teaching capability.
+    _assert_readonly_console_dashboard_five_million_step_trends_and_tty(
+        tmp_path, monkeypatch)
     from emu.cli import main as emu_cli_main
     cli_args=training_flags(tmp_path/"run")
     seen=[]
@@ -392,3 +396,77 @@ def test_current_360_checkpoint_roundtrip_rejects_sensor_drift(tmp_path):
         load_checkpoint(file,expected_observation_schema=OBS_SCHEMA_TERRAIN,
                         expected_sensor_contract=corrupted)
 
+
+
+def _assert_readonly_console_dashboard_five_million_step_trends_and_tty(tmp_path, monkeypatch):
+    """Display-only: compare two *sampled* 5M windows across resumed history."""
+    import csv
+    import io
+    from emu.console_dashboard import (
+        ConsoleRelay, console_mode, read_history, render_screen,
+        metric_delta, stair_window_trend, latest_heldout,
+    )
+    path = tmp_path / "metrics.csv"
+    data = [
+        dict(step=str(i * 1_000_000),
+             reward_mean=str(1. + i / 10),
+             fall_rate=str(.40 - i / 100),
+             ep_len_mean=str(200 + 10 * i),
+             core_competence=str(.3 + i / 20),
+             academy_episodes="10",
+             academy_short_climb_successes="2" if 1 <= i <= 6 else "5",
+             eval_policy_step=str((i // 5) * 5_000_000),
+             eval_broad_score=str(.80 + (i // 5) * .02))
+        for i in range(12)
+    ]
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(data[0]))
+        writer.writeheader()
+        writer.writerows(data)
+    history = read_history(path)
+    assert len(history) == 12
+    assert metric_delta(history, "reward_mean", precision=2) == "+0.50"
+    assert metric_delta(history, "fall_rate", scale=100, precision=1,
+                        suffix="pp") == "-5.0pp"
+    assert metric_delta(history[:4], "reward_mean") == "--"
+    assert "5M sampled: 25/50 (50.0%)" in stair_window_trend(history)
+    assert "Δ vs prior 5M +30.0pp" in stair_window_trend(history)
+    assert "Δ since 5M +0.020" in latest_heldout(history)
+    screen = render_screen(history[-1], phase="PPO",
+                           target_steps=300_000_000,
+                           run_name="test-run", history=history,
+                           width=80, height=24)
+    assert "WALKING" in screen and "STAIRS" in screen
+    assert "Δ vs prior 5M" in screen
+    assert "-5.0pp" in screen
+    assert all(len(line) < 80 for line in screen.splitlines())
+    assert len(screen.splitlines()) <= 22
+
+    # Empty or sparse histories must NOT fabricate a directional trend.
+    sparse = [dict(step="10000000", academy_episodes="0")]
+    assert metric_delta(sparse, "reward_mean") == "--"
+    assert "insufficient" in stair_window_trend(sparse)
+
+    stream = io.StringIO()
+    assert console_mode("auto", stream) == "compact"
+    compact = ConsoleRelay(tmp_path, target_steps=300_000_000,
+                           mode="compact", stream=stream)
+    compact.forward("[emu_v5015] step=11,000,000 rew=+2.100\n")
+    assert "Δ5M=" in stream.getvalue()
+    assert "\x1b[" not in stream.getvalue()
+
+    class FakeTty(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    tty = FakeTty()
+    relay = ConsoleRelay(tmp_path, target_steps=300_000_000,
+                         mode="dashboard", stream=tty)
+    relay.forward("[emu_v5015] step=11,000,000 rew=+2.100\n")
+    relay.forward("[emu_v5015] SCHOOL assisted_stairs at 11M\n")
+    relay.close()
+    assert "\x1b[2J" in tty.getvalue()
+    assert "Δ vs prior 5M" in tty.getvalue()
+    assert tty.getvalue().endswith("\x1b[?25h\n")
