@@ -59,6 +59,10 @@ class MatrixExamTests(unittest.TestCase):
             survived=np.array([True,True,False,True]),
             lead_foot_top=np.array([True,True,False,False]),
             both_feet_top_five=np.array([True,False,False,False]),
+            preedge_visited=np.array([True,True,True,False]),
+            max_preedge_toe_above_upper_mm=np.array([12.,-4.,-18.,-999.]),
+            any_toe_over_upper_edge=np.array([True,False,False,False]),
+            max_foot_forward_when_above_upper_mm=np.array([9.,-999.,-999.,-999.]),
             goal_line_crossed=np.array([True,True,False,False]),
             goal_line_after_both=np.array([True,False,False,False]),
             goal_x_window_seen=np.array([True,True,False,False]),
@@ -80,6 +84,9 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(len(detail),3)
         self.assertEqual(len(curve),1)
         row=curve[0]
+        self.assertEqual(row["preedge_foot_visited"],3)
+        self.assertEqual(row["toe_over_upper_edge"],1)
+        self.assertAlmostEqual(row["median_best_preedge_clearance_mm"],-4.)
         self.assertEqual(row["leading_top"],2)
         self.assertEqual(row["each_foot_top_five"],1)
         self.assertEqual(row["completed_destinations"],1)
@@ -271,7 +278,7 @@ class MatrixExamTests(unittest.TestCase):
             terrain_step_max_m=.08,academy_stream=True,
             science_step_finish_on_transfer=True,
             solver_iterations=2,solver_ls_iterations=4,
-            exam_fixture_steps_m=np.array([0.,.0025,.02,-.05]),
+            exam_fixture_steps_m=np.array([0.,.0025,.12,-.05]),
             exam_fixture_grades_deg=np.array([0.,0.,0.,0.]))
         teacher=dict(specialist_mix=0.,
             regime_frac_steady=1.,regime_frac_transition=0.,
@@ -289,11 +296,13 @@ class MatrixExamTests(unittest.TestCase):
         spawn_xy=np.asarray(jax.device_get(init.env_state.data.qpos[:,:2]))
         np.testing.assert_allclose(spawn_xy[:,0],.78,atol=1e-6)
         np.testing.assert_allclose(spawn_xy[:,1],.50,atol=1e-6)
+        # Exam +120mm exceeds the 80mm training cap, but remains within
+        # the actual 650mm deep prism geometry.
         # The new success/reset curriculum must retain the EXACT first
         # signed physical seam at birth, even after a later foot transfer.
         np.testing.assert_allclose(
             np.asarray(jax.device_get(init.env_state.academy_birth_lip_m)),
-            [0.,.0025,.02,-.05],atol=.0005)
+            [0.,.0025,.12,-.05],atol=.0005)
         # The difficulty reference is captured at the SAME birth;
         # an eventual promotion must never relabel this older trial.
         birth_ref=np.asarray(jax.device_get(
@@ -309,7 +318,15 @@ class MatrixExamTests(unittest.TestCase):
             jax.random.PRNGKey(1701),3)
         actual=np.asarray(jax.device_get(out["actual_lip_m"]))
         np.testing.assert_allclose(
-            actual,[0.,.0025,.02,-.05],atol=.0005)
+            actual,[0.,.0025,.12,-.05],atol=.0005)
+        # Dynamic lip probe inspects the actual frozen policy on the
+        # genuine 8-prism seam. It must NOT assume the robot can balance
+        # statically on one foot; a hop is a valid toe-over-edge motion.
+        for field in ("preedge_visited",
+                      "max_preedge_toe_above_upper_mm",
+                      "any_toe_over_upper_edge",
+                      "max_foot_forward_when_above_upper_mm"):
+            self.assertEqual(out[field].shape,(4,))
         self.assertEqual(out["lead_foot_top"].shape,(4,))
         self.assertEqual(out["completed_destination"].shape,(4,))
         self.assertEqual(out["traversed_5frame"].shape,(4,))

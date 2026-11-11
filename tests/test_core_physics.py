@@ -367,7 +367,6 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     assert varied_limits.shape == (8,6,2)
     assert np.max(np.abs(varied_limits)) <= SERVO_RATED_CONTINUOUS_TORQUE_NM+1e-6
 
-
 def test_midpoint_2x2_window_covers_30cm_and_preserves_present_tile():
     """All torso positions are >=37.5cm from an unloaded XY boundary."""
     fractions=np.asarray([0.,.001,.24,.499,.5,.501,.77,.9999])
@@ -533,6 +532,118 @@ def test_tof_sees_real_15cm_vertical_uphill_wall():
     # vertical side at x=0 before it could touch the upper top.
     assert t.shape==(1,1)
     assert abs(float(t[0,0])-.15)<1e-4,t
+
+
+    # SAME existing physical-ToF test also checks the new purely
+    # deployable projection (no hidden prism heights, no contact oracle).
+    # A foot at -0.382m body Z with 18mm radius contacts a flat ground
+    # 0.400m beneath the torso. Each slant ray hits the same surface.
+    from emu.tof_geometry import TOF_RAYS_BODY, TOF_MOUNT_BODY_M, returns_relative_to_feet
+    rays=np.asarray(TOF_RAYS_BODY,dtype=np.float32)
+    mount=np.asarray(TOF_MOUNT_BODY_M,dtype=np.float32)
+    feet=np.asarray([[[0.,-.08,-.382],[0.,.08,-.382]]],np.float32)
+    grav=np.asarray([[0.,0.,-1.]],np.float32)
+    low=(-.40-mount[2])/rays[:,2]
+    raised=(-.36-mount[2])/rays[:,2]
+    def project(distance,grav=grav,feet=feet):
+        return returns_relative_to_feet(
+            np,distance[None,:].astype(np.float32),
+            np.ones((1,16),dtype=bool),grav,feet)
+    level=project(low)
+    higher=project(raised)
+    assert np.all(level['return_valid'])
+    np.testing.assert_allclose(
+        level['return_height_over_foot_m'],0.,atol=1e-6)
+    np.testing.assert_allclose(
+        higher['return_height_over_foot_m'],.04,atol=1e-6)
+    # An upper terrace at +40mm is NOT implied by a vertical-riser
+    # hit partway up the wall. Its geometric endpoint is only +20mm.
+    wall=raised.copy()
+    wall[0]=(-.38-mount[2])/rays[0,2]
+    mixed=project(wall)
+    np.testing.assert_allclose(
+        mixed['return_height_over_foot_m'][0,:,0],.02,atol=1e-6)
+    np.testing.assert_allclose(
+        mixed['return_height_over_foot_m'][0,:,1:],.04,atol=1e-6)
+    # A 20-degree body pitch must not turn a horizontal 40mm step
+    # into a false slope: rotate gravity AND physically coherent foot
+    # relative positions, then intersect the same gravity-level top.
+    tilt=np.deg2rad(20.)
+    up=np.asarray([np.sin(tilt),0.,np.cos(tilt)],np.float32)
+    ground=-.4*up
+    rotated_feet=np.asarray([[ground+.018*up,ground+.018*up]],np.float32)
+    top_dot=np.dot(ground,up)+.04
+    slant=(top_dot-np.dot(mount,up))/np.dot(rays,up)
+    pitched=project(slant,grav=-up[None,:],feet=rotated_feet)
+    assert np.all(pitched['return_valid'])
+    np.testing.assert_allclose(
+        pitched['return_height_over_foot_m'],.04,atol=1e-6)
+    # A missing range is not a flat ground return. Preserve validity.
+    invalid=low.copy()
+    invalid[0]=np.nan
+    absent=project(invalid)
+    assert not np.any(absent['return_valid'][0,:,0])
+    assert np.all(absent['return_height_over_foot_m'][0,:,0]==0.)
+    assert np.all(np.isfinite(absent['return_height_over_foot_m']))
+    # Verify JAX and NumPy share a deployable contract (without a new test).
+    jax_version=returns_relative_to_feet(
+        jnp,jnp.asarray(raised[None,:]),jnp.ones((1,16),dtype=bool),
+        jnp.asarray(grav),jnp.asarray(feet))
+    np.testing.assert_allclose(
+        np.asarray(jax_version['return_height_over_foot_m']),
+        higher['return_height_over_foot_m'],atol=1e-6)
+    # The four sensor rows look successively nearer. An unknown
+    # absolute support-foot height cancels from far-minus-near and
+    # from the largest adjacent-row ray-height discontinuity.
+    from scripts.h40_relative_height_probe import (
+        per_world_row_contrasts, frozen_actor_sensitivity)
+    fake_riser=low.copy()
+    fake_riser[:4]=raised[:4]
+    flat_row=per_world_row_contrasts(level,[0.])
+    edge_row=per_world_row_contrasts(project(fake_riser),[40.])
+    assert abs(flat_row[0]['far_minus_near_hit_mm'])<.01
+    assert abs(edge_row[0]['far_minus_near_hit_mm']-40.)<.01
+    assert abs(edge_row[0]['largest_signed_adjacent_row_jump_mm']-40.)<.01
+    # Moving the foot reference changes all absolute hit elevations,
+    # but not the contrast of two measured ray endpoints.
+    other_feet=feet.copy()
+    other_feet[:,:,2]+=.03
+    shifted=per_world_row_contrasts(
+        project(fake_riser,feet=other_feet),[40.])
+    assert abs(shifted[0]['far_minus_near_hit_mm']-
+               edge_row[0]['far_minus_near_hit_mm'])<.01
+    # A test-double frozen actor makes the true 360 normalizer and
+    # exact 4-frame channel substitutions independently executable.
+    from unittest.mock import patch
+    from emu.contracts import HISTORY_LEN, TERRAIN_OBS_FIELDS
+    nch=len(TERRAIN_OBS_FIELDS)*HISTORY_LEN
+    fields={name:i for i,name in enumerate(TERRAIN_OBS_FIELDS)}
+    wk=np.zeros((nch,1),np.float32)
+    wk[fields["tof4x4_range_00_m"],0]=2.
+    wk[fields["ground_visibility_confidence"],0]=1.
+    policy_stub={'pi':[
+        {'w':wk,'b':np.zeros(1,np.float32)},
+        {'w':np.ones((1,6),np.float32),'b':np.zeros(6,np.float32)},
+    ]}
+    norm_stub={'mean':np.zeros(nch,np.float32),
+               'std':np.ones(nch,np.float32)}
+    actor_stub={'obs_dim':nch,'artifact_sha256':'stub',
+                'source':{'actor_sha256':'stub'}}
+    packet=np.zeros((4,nch),np.float32)
+    reshaped=packet.reshape(4,HISTORY_LEN,len(TERRAIN_OBS_FIELDS))
+    reshaped[:,:,fields["tof4x4_range_00_m"]]=.4
+    reshaped[:,:,fields["ground_visibility_confidence"]]=1.
+    reshaped[[1,3],:,fields["tof4x4_range_00_m"]]=.32
+    reshaped[[1,3],:,fields["ground_visibility_confidence"]]=0.
+    with patch("emu.policy_export.load_exported_actor_for_exam",
+               return_value=(policy_stub,norm_stub,actor_stub)):
+        comparisons,identity=frozen_actor_sensitivity(
+            packet,np.asarray([0.,35.,0.,35.]),"unused.emupolicy")
+    assert identity['optimizer_updates']==0
+    assert comparisons[0]['raw_only_action_l2']==0.
+    assert comparisons[1]['raw_only_action_l2']>0.
+    assert comparisons[1]['fit_only_action_l2']>0.
+    assert comparisons[1]['raw_and_fit_action_l2']>0.
 
 
 def test_side_contact_cannot_be_counted_as_supported_top_foothold():

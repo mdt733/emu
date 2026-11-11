@@ -1096,7 +1096,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
              goal_line,goal_line_both,goal_window_both,
              goal_window_heading,goal_window_safe,goal_window_all,
              x_window_any,x_window_both,first_both_frame,first_both_x,
-             open_streak,lane_streak,open_cross,lane_cross)=carry
+             open_streak,lane_streak,open_cross,lane_cross,
+             near_edge_seen,highest_preedge_toe,over_top_edge,
+             forward_while_above_top)=carry
             # Maintain *different* operator instructions in the same
             # JAX program; bypass random command resampling without
             # changing the actual deployable observation format.
@@ -1138,6 +1140,29 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             c=getattr(data,'_impl',data).contact
             feet=data.geom_xpos[:,jnp.asarray(foot_geoms),:]
             bottom=feet[:,:,2]-foot_radii[None,:]
+            # Independent first-life telemetry of the MOVING POLICY.
+            # Dynamic hops, rocking, side steps and brief airborne phases
+            # are allowed; no artificial single-leg support requirement.
+            # Exact prism height is EXAM-ONLY, never actor input or reward.
+            inside_tile=(feet[:,:,1]>=0.) & (feet[:,:,1]<TILE_M)
+            before_edge=((feet[:,:,0]>=TILE_M-.20)&
+                         (feet[:,:,0]<TILE_M))
+            after_edge=((feet[:,:,0]>=TILE_M)&
+                        (feet[:,:,0]<TILE_M+.20))
+            preedge=healthy[:,None]&inside_tile&before_edge
+            postedge=healthy[:,None]&inside_tile&after_edge
+            near_edge_seen=near_edge_seen|jnp.any(preedge,axis=1)
+            toe_above_top=bottom-edge_new[:,None]
+            highest_preedge_toe=jnp.maximum(
+                highest_preedge_toe,
+                jnp.max(jnp.where(preedge,toe_above_top,-jnp.inf),axis=1))
+            over_top_edge=over_top_edge|jnp.any(
+                postedge&(toe_above_top>.005),axis=1)
+            forward_while_above_top=jnp.maximum(
+                forward_while_above_top,
+                jnp.max(jnp.where(
+                    (preedge|postedge)&(toe_above_top>.005),
+                    feet[:,:,0]-TILE_M,-jnp.inf),axis=1))
             top=env._carpet_real_top_height(
                 data,feet,out.state.carpet_hfields)
             top_feet=jnp.any(jnp.stack(tuple(
@@ -1223,7 +1248,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     goal_window_both,goal_window_heading,
                     goal_window_safe,goal_window_all,
                     x_window_any,x_window_both,first_both_frame,first_both_x,
-                    open_streak,lane_streak,open_cross,lane_cross)
+                    open_streak,lane_streak,open_cross,lane_cross,
+                    near_edge_seen,highest_preedge_toe,over_top_edge,
+                    forward_while_above_top)
 
         finished=jax.lax.fori_loop(0,horizon,frame_step,(
             es0,jnp.ones((n,),dtype=jnp.bool_),
@@ -1231,19 +1258,31 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             zero_i,false,zero,zero_i,zero,zero,zero,zero,zero,zero,
             zero_i,false,false,false,false,false,false,false,
             false,false,jnp.full((n,),-1,jnp.int32),zero,
-            zero_i,zero_i,false,false))
+            zero_i,zero_i,false,false,
+            false,jnp.full((n,),-jnp.inf,jnp.float32),
+            false,jnp.full((n,),-jnp.inf,jnp.float32)))
         (_,live,fall,lead,streak,seen,arrival,complete,progress,
          frames,speed_err,yaw_err,support,gravity,lateral,still,
          traverse_streak,traversed,goal_line,goal_line_both,
          goal_window_both,goal_window_heading,
          goal_window_safe,goal_window_all,x_window_any,x_window_both,
          first_both_frame,first_both_x,open_streak,lane_streak,
-         open_cross,lane_cross)=finished
+         open_cross,lane_cross,near_edge_seen,
+         highest_preedge_toe,over_top_edge,
+         forward_while_above_top)=finished
         denom=jnp.maximum(frames,1).astype(jnp.float32)
         return dict(
             actual_lip_m=measured_lip,actual_grade_deg=measured_grade,
             fall_frame=fall,first_life_frames=frames,
             survived=live,lead_foot_top=lead,
+            preedge_visited=near_edge_seen,
+            # -999mm sentinel only when never observed in first life.
+            max_preedge_toe_above_upper_mm=jnp.where(
+                near_edge_seen,highest_preedge_toe*1000.,-999.),
+            any_toe_over_upper_edge=over_top_edge,
+            max_foot_forward_when_above_upper_mm=jnp.where(
+                jnp.isfinite(forward_while_above_top),
+                forward_while_above_top*1000.,-999.),
             foot0_top_five=seen[:,0],foot1_top_five=seen[:,1],
             both_feet_top_five=jnp.all(seen,axis=1),
             completed_destination=complete,
