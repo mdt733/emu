@@ -94,7 +94,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertTrue(np.isfinite(
             np.asarray(jax.device_get(out.state.academy_goal_xy))).all())
 
-    def test_real_millimetre_credit_cannot_farm_or_cross_wall_low(self):
+    def _assert_real_millimetre_credit_cannot_farm_or_cross_wall_low(self):
         from emu.step_goal import nursery_progress
         foot=np.array([[[.96,.48,.14],[.90,.53,.12]]],np.float32)
         body=np.array([[.79,.5]],np.float32)
@@ -128,6 +128,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
         np.testing.assert_array_equal(disabled,zero)
 
     def test_sync_off_reduces_only_phase_payment(self):
+        self._assert_real_millimetre_credit_cannot_farm_or_cross_wall_low()
         m=dict(cmd_pitch=np.ones(1)*0.,height_error=np.zeros(1),
                attitude_quality=np.ones(1),foot_mid_cone=np.ones(1),
                bad_contact=np.zeros(1),support=np.ones(1),
