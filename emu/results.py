@@ -468,6 +468,8 @@ class StairCreditAudit:
         'stair_credit_finish_td', 'stair_credit_finish_adv_raw',
         'stair_credit_finish_adv_normalised',
         'stair_credit_finish_negative_fraction',
+        'stair_credit_finish_next_value',
+        'stair_credit_finish_bootstrap',
     )
     GATE_FIELDS = (
         'academy_episodes', 'academy_episodes_first_lip_armed',
