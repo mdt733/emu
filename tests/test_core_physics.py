@@ -535,6 +535,57 @@ def test_tof_sees_real_15cm_vertical_uphill_wall():
     assert abs(float(t[0,0])-.15)<1e-4,t
 
 
+    # SAME existing physical-ToF test also checks the new purely
+    # deployable projection (no hidden prism heights, no contact oracle).
+    # A foot at -0.382m body Z with 18mm radius contacts a flat ground
+    # 0.400m beneath the torso. Each slant ray hits the same surface.
+    from emu.tof_geometry import TOF_RAYS_BODY, TOF_MOUNT_BODY_M, returns_relative_to_feet
+    rays=np.asarray(TOF_RAYS_BODY,dtype=np.float32)
+    mount=np.asarray(TOF_MOUNT_BODY_M,dtype=np.float32)
+    feet=np.asarray([[[0.,-.08,-.382],[0.,.08,-.382]]],np.float32)
+    grav=np.asarray([[0.,0.,-1.]],np.float32)
+    low=(-.40-mount[2])/rays[:,2]
+    raised=(-.36-mount[2])/rays[:,2]
+    def project(distance,grav=grav,feet=feet):
+        return returns_relative_to_feet(
+            np,distance[None,:].astype(np.float32),
+            np.ones((1,16),dtype=bool),grav,feet)
+    level=project(low)
+    higher=project(raised)
+    assert np.all(level['return_valid'])
+    np.testing.assert_allclose(
+        level['return_height_over_foot_m'],0.,atol=1e-6)
+    np.testing.assert_allclose(
+        higher['return_height_over_foot_m'],.04,atol=1e-6)
+    # A 20-degree body pitch must not turn a horizontal 40mm step
+    # into a false slope: rotate gravity AND physically coherent foot
+    # relative positions, then intersect the same gravity-level top.
+    tilt=np.deg2rad(20.)
+    up=np.asarray([np.sin(tilt),0.,np.cos(tilt)],np.float32)
+    ground=-.4*up
+    rotated_feet=np.asarray([[ground+.018*up,ground+.018*up]],np.float32)
+    top_dot=np.dot(ground,up)+.04
+    slant=(top_dot-np.dot(mount,up))/np.dot(rays,up)
+    pitched=project(slant,grav=-up[None,:],feet=rotated_feet)
+    assert np.all(pitched['return_valid'])
+    np.testing.assert_allclose(
+        pitched['return_height_over_foot_m'],.04,atol=1e-6)
+    # A missing range is not a flat ground return. Preserve validity.
+    invalid=low.copy()
+    invalid[0]=np.nan
+    absent=project(invalid)
+    assert not np.any(absent['return_valid'][0,:,0])
+    assert np.all(absent['return_height_over_foot_m'][0,:,0]==0.)
+    assert np.all(np.isfinite(absent['return_height_over_foot_m']))
+    # Verify JAX and NumPy share a deployable contract (without a new test).
+    jax_version=returns_relative_to_feet(
+        jnp,jnp.asarray(raised[None,:]),jnp.ones((1,16),dtype=bool),
+        jnp.asarray(grav),jnp.asarray(feet))
+    np.testing.assert_allclose(
+        np.asarray(jax_version['return_height_over_foot_m']),
+        higher['return_height_over_foot_m'],atol=1e-6)
+
+
 def test_side_contact_cannot_be_counted_as_supported_top_foothold():
     # Two contacts to the SAME upward tile. The first sphere is pressed
     # into the vertical step riser; the second is standing on the top.
