@@ -46,7 +46,11 @@ def training_flags(run_dir: Path, seed: int = 735) -> list[str]:
     ]
 
 
-def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
+def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path, monkeypatch):
+    # Parent console is a read-only part of the launch/CLI contract, not
+    # a new independent physics test or PPO teaching capability.
+    _assert_readonly_console_dashboard_five_million_step_trends_and_tty(
+        tmp_path, monkeypatch)
     from emu.cli import main as emu_cli_main
     cli_args=training_flags(tmp_path/"run")
     seen=[]
@@ -394,7 +398,7 @@ def test_current_360_checkpoint_roundtrip_rejects_sensor_drift(tmp_path):
 
 
 
-def test_readonly_console_dashboard_five_million_step_trends_and_tty(tmp_path, monkeypatch):
+def _assert_readonly_console_dashboard_five_million_step_trends_and_tty(tmp_path, monkeypatch):
     """Display-only: compare two *sampled* 5M windows across resumed history."""
     import csv
     import io
