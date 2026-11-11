@@ -141,8 +141,10 @@ class RegimeGovernor:
                  unified_capability_focus: bool = False,
                  science_step_promotion_mm: float = 0.0,
                  science_step_retreat_mm: float = 0.0,
-                 science_step_min_attempts: int = 4):
+                 science_step_min_attempts: int = 4,
+                 outcome_mode: bool = False):
         self.params = RegimeParams()
+        self.outcome_mode=bool(outcome_mode)
         self.unified_capability_focus = bool(unified_capability_focus)
         if (not math.isfinite(science_step_promotion_mm) or
                 not 0. <= science_step_promotion_mm <= 10. or
@@ -622,7 +624,8 @@ class RegimeGovernor:
             easy_n=evidence[f'{direction}_easy_attempts']
             near_n=evidence[f'{direction}_near_attempts']
             if (easy_n>=nmin and evidence[f'{direction}_easy_successes']/easy_n<.25):
-                setattr(self.params,frontier,max(self.ACADEMY_MIN_LIP_M,
+                floor=(.050 if self.outcome_mode and direction=='up' else self.ACADEMY_MIN_LIP_M)
+                setattr(self.params,frontier,max(floor,
                     getattr(self.params,frontier)-self.ACADEMY_HEIGHT_GROWTH_M))
                 event='retreat'
             elif near_n>=nmin:

@@ -195,6 +195,12 @@ class TrainingConfig:
     science_step_velocity_relief: float = 0.0  # Academy-only speed-tracking relief [0,1]
     science_step_approach_m: float = 0.0  # Academy birth metres before next physical 1m lip; 0=legacy
     science_step_finish_on_transfer: bool = False  # v5054: absorbing success + reset after real two-foot climb
+    # Opt-in physical nursery. Approval requires an independent 50mm exam.
+    outcome_graduation: bool = False
+    outcome_walk_start_steps: int = 60_000_000
+    outcome_stair_approved: bool = False
+    outcome_approval_start_steps: int = 0
+    outcome_down_share: float = 0.20
     force_program: str = 'aggressive'  # matched gentle vs high-push experiments
     # Post-Pinnacle science switches: default values reproduce the released 260M source.
     science_step_promotion_mm: float = 0.0  # zero = max(1mm, 18%) rule
@@ -253,16 +259,43 @@ class TrainingConfig:
         path.write_text(json.dumps(asdict(self), indent=2, sort_keys=True), encoding="utf-8")
 
     @classmethod
-    def load(cls, path: Path) -> "TrainingConfig":
+    def load(cls, path: Path, *, research_parent: bool = False) -> "TrainingConfig":
+        """Load current configs strictly; adapt only a verified external ancestor.
+
+        The 120M H40 source predated five graduation fields and still saved
+        three now-retired experiment fields. The old JSON is immutable. Only
+        the external research-fork verifier may interpret these neutral legacy
+        values; never relax same-run resume or silently discard a live setting.
+        """
         data = json.loads(path.read_text(encoding="utf-8"))
         expected = {f.name for f in dataclass_fields(cls)}
         missing, extra = expected - set(data), set(data) - expected
-        # No source-pinned v5045 run can accept an incomplete historical
-        # config: re-creating defaults would change teacher and sensor meaning.
-        if missing or extra:
+        new_keys={'outcome_graduation','outcome_walk_start_steps',
+                  'outcome_stair_approved','outcome_approval_start_steps',
+                  'outcome_down_share'}
+        if research_parent:
+            # These were eliminated by source cleanup, not replaced with a
+            # different actor, geometry, optimizer or curriculum contract.
+            # Refuse non-neutral values instead of silently altering history.
+            retired={'cloud_final_probes':0, 'cloud_probes_per_eval':0,
+                     'science_reset_step_evidence_on_fork':False}
+            for key in extra & retired.keys():
+                value=data[key]
+                expected_value=retired[key]
+                if type(value) is not type(expected_value) or value != expected_value:
+                    raise ValueError(
+                        f"research parent retired setting {key}={value!r} "
+                        f"is non-default; refusing implicit migration")
+                data.pop(key)
+            extra=set(data)-expected
+        # Every other historical omission or extra remains an error, including
+        # any old physical/sensor/PPO parameter removed from current source.
+        if (missing-new_keys) or extra:
             raise ValueError(
                 f"training config keys mismatch: missing={sorted(missing)} "
                 f"extra={sorted(extra)}")
+        for key in missing:
+            data[key]=getattr(cls(),key)
         return cls(**data)
 
 

@@ -136,6 +136,7 @@ def env_kwargs_from_args(args) -> dict:
         science_step_velocity_relief=args.science_step_velocity_relief,
         science_step_approach_m=args.science_step_approach_m,
         science_step_finish_on_transfer=args.science_step_finish_on_transfer,
+        outcome_graduation=args.outcome_graduation,
         academy_stream=args.academy_stream,
         terrain_carpet=args.terrain_carpet,
         terrain_carpet_prisms=args.terrain_carpet_prisms,
@@ -324,7 +325,8 @@ def train(args: TrainingConfig) -> int:
                               unified_capability_focus=args.unified_capability_focus,
                               science_step_promotion_mm=args.science_step_promotion_mm,
                               science_step_retreat_mm=args.science_step_retreat_mm,
-                              science_step_min_attempts=args.science_step_min_attempts)
+                              science_step_min_attempts=args.science_step_min_attempts,
+                              outcome_mode=args.outcome_graduation)
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:
@@ -357,7 +359,10 @@ def train(args: TrainingConfig) -> int:
                         / 'training_config.json')
                     if parent_cfg_path.is_file():
                         try:
-                            parent_cfg = TrainingConfig.load(parent_cfg_path)
+                            # run.py already verified the external ancestor's source
+                            # and whole-checkpoint SHA256 before training.
+                            parent_cfg = TrainingConfig.load(
+                                parent_cfg_path, research_parent=True)
                             safe_evidence_fork = (
                                 compatible_academy_evidence_recipe(
                                     parent_cfg, args))
@@ -382,6 +387,12 @@ def train(args: TrainingConfig) -> int:
         except Exception as exc:
             raise RuntimeError(f"--resume curriculum/health restore failed: {exc}") from exc
 
+    # Source-pinned curriculum fork: no 3mm warm-up for the 50mm nursery.
+    if args.outcome_graduation:
+        governor.params.academy_height_up_m=min(args.academy_height_cap_m,
+            max(.050,governor.params.academy_height_up_m))
+        governor.params.academy_height_down_m=min(args.academy_height_cap_m,
+            governor.params.academy_height_down_m)
     # The capability field is built from the SAME rollout
     # metrics already transferred for PPO/governor diagnostics; there is no
     # extra simulation and no per-death host callback.  Held-out cloud results
@@ -441,6 +452,10 @@ def train(args: TrainingConfig) -> int:
                     ramp_steps=args.academy_ramp_steps,
                     intro_share=args.academy_intro_share,
                     max_share=args.academy_max_share)
+                if args.outcome_graduation:
+                    # The mature fork begins meaningful physical lessons immediately.
+                    if step>=args.outcome_walk_start_steps:
+                        academy_share=max(academy_share,.60)
                 # Fast rehearsal was reserved BEFORE focus assignment.
                 # Honour 50% of ALL births rather than accidentally 50% of
                 # the remaining 75% when 25% of worlds rehearse fast gait.
@@ -449,6 +464,11 @@ def train(args: TrainingConfig) -> int:
                 weights,academy_probability=academy_focus_mix(
                     weights,conditional)
             d['academy_episode_probability']=academy_probability
+            if args.outcome_graduation:
+                competence=max(0.,min(1.,(governor.core_competence-.40)/.25))
+                d['outcome_walk_alpha']=(min(1.,max(0.,(step-args.outcome_walk_start_steps)/10_000_000.))*competence)
+                d['outcome_stair_alpha']=(min(1.,max(0.,(step-args.outcome_approval_start_steps)/10_000_000.)) if args.outcome_stair_approved else 0.)
+                d['outcome_down_share']=(args.outcome_down_share if args.outcome_stair_approved else 0.)
             for name,weight in zip(FOCUS_NAMES,weights):
                 d['focus_weight_'+name]=weight
             # Keep the 70-update steady-only bootstrap exactly where the

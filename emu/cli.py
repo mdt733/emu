@@ -109,6 +109,11 @@ def main(argv=None) -> int:
                    help='v5052 loosen forward-speed tracking during Academy step negotiation, 0..1')
     q.add_argument('--science-step-approach-m',type=float,default=0.,
                    help='v5052 respawn Academy robots 0.1..0.35m before next real 1m tile boundary; 0=original spawn')
+    q.add_argument('--outcome-graduation',action='store_true',help='graduate gait rewards and teach 50mm physical stairs')
+    q.add_argument('--outcome-walk-start-steps',type=int,default=60000000,help='absolute steps when 10M walking graduation starts')
+    q.add_argument('--outcome-stair-approved',action='store_true',help='fade dense coaching after independently proven 50mm climbs')
+    q.add_argument('--outcome-approval-start-steps',type=int,default=0,help='absolute steps when independent stair proof was approved')
+    q.add_argument('--outcome-down-share',type=float,default=.20,help='descent share after stair graduation')
     q.add_argument('--science-step-finish-on-transfer',action='store_true',
                    help='v5054 Academy-only: end as success after both feet top + safe 10cm ascent, respawn for next lip')
     q.add_argument('--science-step-promotion-mm',type=float,default=0.,
