@@ -1053,10 +1053,19 @@ class EmuMJXEnv(TaskSampler):
             if any(v.shape!=(num_envs,) or not np.isfinite(v).all()
                    for v in arrays):
                 raise ValueError("Exam fixture must have finite [num_envs] arrays")
-            if (np.max(np.abs(arrays[0]))>.08 or
-                np.max(np.abs(arrays[1]))>15. or
+            # EXAM-ONLY signed lip: this is not a training curriculum cap.
+            # The real convex-prism riser wall is PRISM_DEPTH_M thick;
+            # above that rise, the upper prism would no longer cover the
+            # complete wall down to the lower surface. Restrict only that
+            # physically meaningful geometric boundary. Training still
+            # enforces its independent, source-pinned 0.08m curriculum cap.
+            if np.max(np.abs(arrays[0])) > PRISM_DEPTH_M:
+                raise ValueError(
+                    f"Exam lip exceeds real prism wall depth "
+                    f"({PRISM_DEPTH_M*1000:g}mm); cannot guarantee continuous sidewall")
+            if (np.max(np.abs(arrays[1]))>15. or
                 np.max(np.abs(arrays[2]))>.6):
-                raise ValueError("Exam physical step/grade/kick exceeds design envelope")
+                raise ValueError("Exam physical grade/kick exceeds design envelope")
             self.exam_fixture_steps=jnp.asarray(arrays[0])
             self.exam_fixture_grades=jnp.asarray(arrays[1])
             self.exam_fixture_kicks=jnp.asarray(arrays[2])
