@@ -2238,6 +2238,15 @@ class EmuMJXEnv(TaskSampler):
             'academy_transfer_new':academy['transfer_new'].astype(jnp.float32),
             'academy_followthrough_new':academy['progress_new'].astype(jnp.float32),
             'academy_reward':academy['reward'],
+            'nursery_reward':academy['nursery_payment'],
+            'nursery_progress_approach':academy['nursery_gains'][:,0],
+            'nursery_progress_r_lift':academy['nursery_gains'][:,1],
+            'nursery_progress_l_lift':academy['nursery_gains'][:,2],
+            'nursery_progress_r_over':academy['nursery_gains'][:,3],
+            'nursery_progress_l_over':academy['nursery_gains'][:,4],
+            'nursery_progress_chassis':academy['nursery_gains'][:,5],
+            'outcome_walk_alpha':params[P.outcome_walk_alpha]+jnp.zeros_like(ep_len),
+            'outcome_stair_alpha':params[P.outcome_stair_alpha]+jnp.zeros_like(ep_len),
             # v5052 actual destination completion is separate from legacy
             # Academy "any supported lip before timeout" summaries.
             'academy_goal_complete_new':(
@@ -3394,6 +3403,15 @@ class EmuMJXEnv(TaskSampler):
             top_contacts_by_tile,
             jnp.broadcast_to(target_slot[:,None,None],
                              (self.num_envs,1,2)),axis=1)[:,0,:]
+        # First-lip nursery: the lead foot can genuinely land above the
+        # seam while the chassis remains in the source tile. Track that
+        # independently from the torso/root-cell contact classifier.
+        goal_cell=jnp.floor(state.academy_goal_xy/CARPET_TILE_M).astype(jnp.int32)
+        goal_slot=jnp.mod(goal_cell[:,0],2)+2*jnp.mod(goal_cell[:,1],2)
+        goal_pairs=jnp.take_along_axis(
+            top_contacts_by_tile,
+            jnp.broadcast_to(goal_slot[:,None,None],
+                             (self.num_envs,1,2)),axis=1)[:,0,:]
         foot_cell=jnp.floor(foot_xyz[:,:,:2]/
                             CARPET_TILE_M).astype(jnp.int32)
         on_target_foot=jnp.any(
@@ -3535,8 +3553,11 @@ class EmuMJXEnv(TaskSampler):
             # Separate v5052 stage: each foot's independently real top
             # contact on this root tile (never a sidewall or virtual hfield).
             # Teacher goal code additionally checks the ASSIGNED first tile.
-            goal_top_feet=(jnp.all(foot_cell==root[:,None,:],axis=2)
-                           & target_pairs & healthy[:,None]),
+            goal_top_feet=(
+                (jnp.all(foot_cell==goal_cell[:,None,:],axis=2) & goal_pairs
+                 if self.outcome_graduation else
+                 jnp.all(foot_cell==root[:,None,:],axis=2) & target_pairs)
+                & healthy[:,None]),
             transfer_streak=transfer_streak,
             transfer_seen=transfer_seen,
             transfer_armed=transfer_armed,
