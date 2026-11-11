@@ -110,6 +110,8 @@ def main(argv=None) -> int:
     q.add_argument('--science-step-approach-m',type=float,default=0.,
                    help='v5052 respawn Academy robots 0.1..0.35m before next real 1m tile boundary; 0=original spawn')
     q.add_argument('--outcome-graduation',action='store_true',help='graduate gait rewards and teach 50mm physical stairs')
+    q.add_argument('--progressive-school',action='store_true',
+                   help='cold 0-20-60-80M walking school, then competence-gated 50mm stairs')
     q.add_argument('--outcome-walk-start-steps',type=int,default=60000000,help='absolute steps when 10M walking graduation starts')
     q.add_argument('--outcome-stair-approved',action='store_true',help='fade dense coaching after independently proven 50mm climbs')
     q.add_argument('--outcome-approval-start-steps',type=int,default=0,help='absolute steps when independent stair proof was approved')
