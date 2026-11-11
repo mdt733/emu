@@ -356,9 +356,12 @@ existing **detached**, clean worktree explicitly (not `git pull`):
 cd ~/emu
 git fetch origin
 cd ~/emu-outcome-pr76
-test -z "$(git status --porcelain)" || { echo "Worktree has local edits; stop"; false; }
-git switch --detach origin/feature/h40-outcome-stair-graduation
-git rev-parse HEAD
+if [ -z "$(git status --porcelain)" ]; then
+  git switch --detach origin/feature/h40-outcome-stair-graduation
+  git rev-parse HEAD
+else
+  echo "Worktree has local edits; not switching."
+fi
 ```
 
 The original 120M `training_config.json` may contain neutral retired keys
