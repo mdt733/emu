@@ -1865,7 +1865,7 @@ class EmuMJXEnv(TaskSampler):
             finish_streak=state.academy_finish_streak
         # Six bounded per-episode maxima; no repeated lift/approach farming.
         if self.outcome_graduation:
-            from .stair_nursery import nursery_progress
+            from .step_goal import nursery_progress
             from .step_goal import DESTINATION_AFTER_LIP_M
             foot_geoms=tuple(int(v) for v in self.ids['foot_geoms'])
             foot=data.geom_xpos[:,foot_geoms,:]
