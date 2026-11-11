@@ -414,3 +414,90 @@ reported per rollout and cumulatively across ALL PPO updates via
 Do not approve stair graduation or merge to main without independent
 same-world frozen +50mm testing and retained core walking capability.
 
+## H40 progressive school — ONE cold training run (draft PR #77)
+
+Do **not** resume the 120M main actor, the 122M PR #76 fork or the 30M
+adaptation. This is a new **zero-step** lineage on feature branch
+`feature/h40-progressive-skill-school`. The trained actor shape, physics,
+optimizer and observer remain the same: 360 inputs, one PPO, eight physical
+convex prisms, H40 rated-torque motors, 2,048 shared GPU worlds.
+
+### Learning stages (no automatic clock-based skill claims)
+
+- 0–20M: raw standing/balance/gait foundation, no specialist STEP births.
+- 20–60M: growing command, slope, resilience and control specialists;
+  STEP is excluded, ordinary step exposure remains **zero**.
+- 60–80M+: walk gait/phase shaping gradually fades over 20M, modulated by
+  genuine core competence. After 80M, a core competence of at least
+  **0.55** is required to lock walking graduation. Until earned, 5cm
+  school is held off even if the counter passes 80M.
+- Upon walking graduation: real +50mm (+/-4%) prism stair nursery, 15–30cm
+  variable distance, 10% birth share rising toward 55%, independent
+  real foot-plant and stable supported body-transfer reward.
+- Proof gate: two **separate 100+ actual near-50mm uphill attempts**
+  with >=70% verified supported climb success *in each window*.
+  Failed windows reset the consecutive pass streak.
+- AFTER proof only: phase out stair shaping over 20M, gradually introduce
+  downhill episodes and expand physical uphill step heights toward
+  the 80mm geometry ceiling. Keep rehearsing easier 50mm lips.
+
+These are TRAINING curriculum gates, **not** held-out demonstrated skills.
+Independent same-world matched frozen exams and walking retention remain
+required before claiming +50mm capability or merging to main.
+
+### Overnight run from scratch
+
+Use a new clean detached worktree from this draft branch, and run `--plan`,
+`--check-resume-only`, one 8-world CUDA smoke and the 180M continuous learner.
+Never change branch source or reuse an existing run directory in the middle.
+
+```bash
+set -euo pipefail
+cd ~/emu
+git fetch origin
+git worktree add --detach ~/emu-school-pr77 origin/feature/h40-progressive-skill-school
+cd ~/emu-school-pr77
+source ~/emu/.venv/bin/activate
+export PYTHONPATH="$PWD"
+export EMU_PHYSICAL_PROFILE=h40
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+unset EMU_UNIFIED_ACCEPTANCE
+
+RUN="$HOME/emu-data/runs/h40-progressive-school-180m-s735"
+TRAIN=(python -m emu.cli train
+  --run-dir "$RUN" --device cuda --envs 2048 --seed 735
+  --steps 180000000 --profile sim2real
+  --terrain-actor --terrain-step-max-m .08
+  --unified-capabilities --terrain-carpet --carpet-prisms
+  --academy-stream --terrain-lesson coherent-careful
+  --teaching-schedule staged --growth-recipe main-mature
+  --athletic-rehearsal-share .15 --retention-share .20
+  --science-step-velocity-relief .80
+  --fixed-eval-every-steps 10000000
+  --progressive-school)
+
+"${TRAIN[@]}" --plan
+"${TRAIN[@]}" --check-resume-only
+EMU_UNIFIED_ACCEPTANCE=bounded-ppo-lifecycle python -m emu.cli train \
+  --run-dir "$HOME/emu-data/runs/h40-progressive-smoke-s735" \
+  --device cuda --envs 8 --steps 512 --seed 735 \
+  --profile sim2real --terrain-actor --terrain-step-max-m .08 \
+  --unified-capabilities --terrain-carpet --carpet-prisms \
+  --academy-stream --terrain-lesson coherent-careful \
+  --teaching-schedule staged --growth-recipe main-mature \
+  --progressive-school
+EMU_UNIFIED_CONTINUOUS=cold-growth-approved "${TRAIN[@]}"
+```
+
+Resume after a crash **only with the exact same source commit**, same
+run folder and same flags; change only `--resume auto` and omit any external
+parent-hash flags (there should be none). The trainer checks source SHA and
+checkpoint schema, rejects changed learning knobs, and logs `SCHOOL` stage
+transitions. Stage and physical mastery evidence are persisted in curriculum
+checkpoint state. Requested target 180,000,000; PPO boundary 180,027,392.
+
+Expected report diagnostics: `school_stage`, `school_walk_alpha`,
+`school_stairs_enabled`, `school_stair_mastered_step`,
+`school_up_good_windows`, `academy_height_up_m`,
+`ppo_stair_audit_nursery_*` and actual freeze-evaluation retention.
+
