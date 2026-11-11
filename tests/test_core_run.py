@@ -160,6 +160,35 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     cfg_path = tmp_path / "training_config.json"
     first.save(cfg_path)
     assert TrainingConfig.load(cfg_path) == first
+    # Actual H40 120M ancestor schema: five new graduation fields absent,
+    # three retired settings present. Adapt only for an external research fork,
+    # not for a same-source retry or checkpoint continuation.
+    ancestor=asdict(first)
+    for key in ('outcome_graduation', 'outcome_walk_start_steps',
+                'outcome_stair_approved', 'outcome_approval_start_steps',
+                'outcome_down_share'):
+        ancestor.pop(key)
+    ancestor.update(cloud_final_probes=0, cloud_probes_per_eval=0,
+                    science_reset_step_evidence_on_fork=False)
+    cfg_path.write_text(json.dumps(ancestor), encoding="utf-8")
+    with pytest.raises(ValueError, match="training config keys mismatch"):
+        TrainingConfig.load(cfg_path)
+    migrated=TrainingConfig.load(cfg_path, research_parent=True)
+    assert migrated == first
+    from emu.run import verify_experiment_fork
+    verify_experiment_fork(migrated, replace(first, outcome_graduation=True))
+    for key, value in (('cloud_final_probes', 10),
+                       ('cloud_probes_per_eval', 1),
+                       ('science_reset_step_evidence_on_fork', True)):
+        invalid={**ancestor, key:value}
+        cfg_path.write_text(json.dumps(invalid), encoding="utf-8")
+        with pytest.raises(ValueError, match="non-default"):
+            TrainingConfig.load(cfg_path, research_parent=True)
+    cfg_path.write_text(json.dumps({**ancestor, 'unknown_legacy_switch':0}),
+                        encoding="utf-8")
+    with pytest.raises(ValueError, match="training config keys mismatch"):
+        TrainingConfig.load(cfg_path, research_parent=True)
+    first.save(cfg_path)
     partial = json.loads(cfg_path.read_text(encoding="utf-8"))
     # The new physical lineage has no pre-v5054 migration exceptions.
     # A missing teaching field is a different recipe, not a compatible run.
