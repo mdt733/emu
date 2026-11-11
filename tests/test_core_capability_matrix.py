@@ -312,6 +312,14 @@ class MatrixExamTests(unittest.TestCase):
         actual=np.asarray(jax.device_get(out["actual_lip_m"]))
         np.testing.assert_allclose(
             actual,[0.,.0025,.12,-.05],atol=.0005)
+        # Dynamic lip probe inspects the actual frozen policy on the
+        # genuine 8-prism seam. It must NOT assume the robot can balance
+        # statically on one foot; a hop is a valid toe-over-edge motion.
+        for field in ("preedge_visited",
+                      "max_preedge_toe_above_upper_mm",
+                      "any_toe_over_upper_edge",
+                      "max_foot_forward_when_above_upper_mm"):
+            self.assertEqual(out[field].shape,(4,))
         self.assertEqual(out["lead_foot_top"].shape,(4,))
         self.assertEqual(out["completed_destination"].shape,(4,))
         self.assertEqual(out["traversed_5frame"].shape,(4,))
