@@ -116,8 +116,10 @@ def run(*,device:str,worlds:int,output:Path,seed:int=735,
         heights_mm:tuple[float,...]=DEFAULT_HEIGHTS_MM):
     if not heights_mm or not all(np.isfinite(heights_mm)):
         raise ValueError("Need finite signed heights")
-    if any(abs(x)>.08 for x in heights_mm):
-        raise ValueError("Physical exact lip heights must be <=80mm")
+    # Input heights are MILLIMETRES. The real-prism examiner accepts
+    # METRES and checks the physical mesh geometry after conversion.
+    # This read-only sight probe must not inherit an arbitrary 80mm
+    # TRAINING terrain frontier (or mix the units as the old check did).
     if worlds < len(heights_mm) or worlds%len(heights_mm):
         raise ValueError(f"--worlds must be a positive multiple of {len(heights_mm)} height classes")
     output = output.expanduser().resolve()
