@@ -233,6 +233,7 @@ class EnvState(NamedTuple):
     academy_goal_transfer_ready: Any
     academy_goal_stable_streak: Any
     academy_goal_completed: Any
+    nursery_best: Any  # [6] high-water physical progress, teacher-only
     # v5041 physics-only rolling tile state. All four mutable tiles
     # belong to this same PPO world batch, not a second simulator.
     carpet_hfields: Any
@@ -1011,6 +1012,7 @@ class EmuMJXEnv(TaskSampler):
                  science_step_velocity_relief: float = 0.0,
                  science_step_approach_m: float = 0.0,
                  science_step_finish_on_transfer: bool = False,
+                 outcome_graduation: bool = False,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
                  carpet_transition_cap_deg: float = 3.0,
@@ -1099,6 +1101,9 @@ class EmuMJXEnv(TaskSampler):
         if science_step_finish_on_transfer and not academy_stream:
             raise ValueError("step finish requires streamed real-prism Academy")
         self.science_step_finish_on_transfer=science_step_finish_on_transfer
+        if type(outcome_graduation) is not bool:
+            raise ValueError('outcome_graduation must be bool')
+        self.outcome_graduation=outcome_graduation
         self.science_gate_mode=science_gate_mode
         self.observation_schema = observation_schema
         self.base_obs_fields = actor_observation_fields(observation_schema)
@@ -1686,6 +1691,7 @@ class EmuMJXEnv(TaskSampler):
             science_stride_efficiency_weight=self.science_stride_efficiency_weight,
             science_step_goal_weight=self.science_step_goal_weight,
             science_step_velocity_relief=self.science_step_velocity_relief,
+            outcome_walk_alpha=params[P.outcome_walk_alpha],
             motor_guidance_per_world=(jnp.where(
                     state.academy_active,0.,
                     control_effort_weights(jnp,
@@ -1941,6 +1947,7 @@ class EmuMJXEnv(TaskSampler):
             academy_goal_transfer_ready=goal_transfer_ready,
             academy_goal_stable_streak=goal_stable_streak,
             academy_goal_completed=goal_completed,
+            nursery_best=nursery_best,
             carpet_hfields=carpet_hfields,
             carpet_center=carpet_center,
             carpet_confirmed=academy['confirmed_tile'],
@@ -2724,6 +2731,22 @@ class EmuMJXEnv(TaskSampler):
             params[P.slope_max_deg],up,down,academy,
             params[P.slope_exposure],params[P.terrain_exposure],seeds)
         xprof,yprof=carpet_make_profiles(jnp,seeds,up,down)
+        if self.outcome_graduation:
+            # Physical 50mm first lip; subsequent frontiers stay independent.
+            from .terrain_carpet_mjx import exact_exam_lip_profiles
+            jitter=hash_float(jnp,0,0,seeds,505902)
+            down_draw=(hash_float(jnp,0,0,seeds,505903) <
+                       params[P.outcome_down_share])
+            height=jnp.where(down_draw,
+                -jnp.maximum(.003,params[P.academy_height_down_m]),
+                jnp.maximum(.050,params[P.academy_height_up_m]))
+            signed=jnp.clip(height*(.96+.08*jitter),-.08,.08)
+            nursery_x,nursery_y=exact_exam_lip_profiles(jnp,signed)
+            xprof=jnp.where(academy[:,None],nursery_x,xprof)
+            yprof=jnp.where(academy[:,None],nursery_y,yprof)
+            up=jnp.where(academy,0.,up)
+            down=jnp.where(academy,0.,down)
+            slope=jnp.where(academy,0.,slope)
         if self.exam_fixture_steps is not None:
             # No sampled ±X sign, jitter or extra lip. Exact 1m seam,
             # optional continuous signed grade, unchanged real colliders.
@@ -2920,6 +2943,15 @@ class EmuMJXEnv(TaskSampler):
         academy_active=self._academy_birth(
             keys,params,focus_id,specialist_active,
             task[:,T.athletic_rehearsal])
+        if self.outcome_graduation:
+            # Target the SAME physical x=1m seam in every nursery birth.
+            jitter=jax.vmap(lambda k:jax.random.uniform(
+                jax.random.fold_in(k,505901),(2,)))(keys)
+            x=.70+.15*jitter[:,0]  # 15..30cm before the wall
+            y=.45+.10*jitter[:,1]
+            q=data.qpos.at[:,0].set(jnp.where(academy_active,x,data.qpos[:,0]))
+            q=q.at[:,1].set(jnp.where(academy_active,y,data.qpos[:,1]))
+            data=data.replace(qpos=q)
         if self.science_step_approach_m > 0.:
             # Academic stair nursery: Academy-only births land a fixed safe
             # distance BEFORE the next authentic 1m prism seam. The
@@ -3038,6 +3070,7 @@ class EmuMJXEnv(TaskSampler):
             academy_goal_transfer_ready=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_goal_stable_streak=izeros,
             academy_goal_completed=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            nursery_best=jnp.zeros((self.num_envs,6),dtype=jnp.float32),
             carpet_hfields=carpet['carpet_hfields'],
             carpet_center=carpet['carpet_center'],
             carpet_seed=carpet['carpet_seed'],
