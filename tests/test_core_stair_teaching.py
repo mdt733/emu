@@ -179,6 +179,17 @@ class CoreStairPhysicsTests(unittest.TestCase):
         stripped=_physical_qualities(m,np,phase_sync_strength=0.)
         self.assertAlmostEqual(float(baseline[0][0]),float(stripped[0][0]))
         self.assertAlmostEqual(float(baseline[3][0]-stripped[3][0]),.135)
+        # The 60–80M walking graduation removes hidden foot pose shaping
+        # while continuing to reward real body uprightness/height.
+        low_cone=dict(m,foot_mid_cone=np.zeros(1))
+        coached_low=_physical_qualities(low_cone,np)
+        self.assertLess(float(coached_low[0][0]),float(baseline[0][0]))
+        independent_low=_physical_qualities(
+            low_cone,np,outcome_walk_alpha=1.)
+        independent_high=_physical_qualities(
+            m,np,outcome_walk_alpha=1.)
+        self.assertAlmostEqual(float(independent_low[0][0]),
+                               float(independent_high[0][0]))
         # Crouch tolerance uses a teacher-only STEP flag; non-STEP unchanged.
         low=dict(m,height_error=np.array([-.045]),
                  science_step_focus=np.array([1.]))
