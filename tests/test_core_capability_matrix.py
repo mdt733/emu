@@ -8,7 +8,9 @@ import numpy as np
 from scripts.v5053_matrix_exam import (
     assignments,reduce_results,wilson_95,compare_paired_exams,PAIRED_GATES)
 from emu.terrain_carpet_mjx import (
-    TILE_M,exact_exam_lip_profiles,tile_geometry)
+    TILE_M,exact_exam_lip_profiles,tile_geometry,make_profiles)
+from emu.step_goal import (
+    school_first_foothold,school_uphill_clearance,short_climb_quality)
 
 
 class MatrixExamTests(unittest.TestCase):
@@ -104,7 +106,8 @@ class MatrixExamTests(unittest.TestCase):
 
 
 
-    def test_same_index_paired_flat_comparison_rejects_false_pairs(self):
+        # Same basic-assignment test also verifies identical-world pairing.
+        # Keep one core case, not a separate test-of-the-comparison test.
         stairs=assignments(4,mode="stairs",levels=1,trials_per_level=2)
         flats=assignments(4,mode="flat",trials_per_level=4)
         def row(t,ok):
@@ -179,6 +182,76 @@ class MatrixExamTests(unittest.TestCase):
         self.assertAlmostEqual(float(np.rad2deg(np.arctan(grad[-1]))),
                                12.,places=4)
 
+        # School first-foot credit does NOT require body X to cross 1m.
+        # Only verified *top* contact in the fixed birth target can pay.
+        goal=np.array([[1.60,.50]])
+        body=np.array([[.90,.50]])
+        feet=np.array([[[1.04,.50],[.90,.50]]])
+        top_contact=np.array([[True,False]])
+        lip=np.array([.020])
+        active=np.array([True])
+        paid=np.array([False])
+        new,valid=school_first_foothold(
+            np,goal,body,feet,top_contact,lip,active,
+            paid,np.array([0]))
+        self.assertTrue(bool(new[0]))
+        self.assertTrue(bool(valid[0,0]))
+        self.assertFalse(bool(valid[0,1]))
+        # Sidewalls, merely entering the tile, repeated contact or
+        # an unrelated later lip must not obtain the payment.
+        for contacts,already,lip_number,feet_case,expected in (
+            (np.array([[False,False]]),paid,0,feet,False),
+            (top_contact,np.array([True]),0,feet,False),
+            (top_contact,paid,1,feet,False),
+            (top_contact,paid,0,np.array([[[.95,.50],[.9,.5]]]),False),
+            (top_contact,paid,0,feet,True),
+        ):
+            first,_=school_first_foothold(
+                np,goal,body,feet_case,contacts,lip,active,
+                already,np.array([lip_number]))
+            self.assertEqual(bool(first[0]),expected)
+        # One authentic source-side lifted foot near the riser is a
+        # *precursor*, never scored as a successful two-foot crossing.
+        xyz=np.array([[[.965,.50,.167],[.80,.50,.118]]])
+        bottom=np.array([[.149,.10]])
+        ground=np.array([[.12,.10]])
+        clearance=school_uphill_clearance(
+            np,goal,body,xyz,bottom,ground,lip,
+            active,paid,paid)
+        self.assertTrue(bool(clearance[0]))
+        self.assertFalse(bool(school_uphill_clearance(
+            np,goal,body,xyz,bottom,ground,lip,
+            active,np.array([True]),paid)[0]))
+        self.assertFalse(bool(school_uphill_clearance(
+            np,goal,body,xyz,bottom,ground,lip,
+            active,paid,np.array([True]))[0]))
+        self.assertFalse(bool(school_uphill_clearance(
+            np,goal,body,xyz,bottom,ground,-lip,
+            active,paid,paid)[0]))
+        # School finish is genuine 30cm downstream continued gait,
+        # rather than strict 60cm stop-and-park.
+        qualified=lambda x:short_climb_quality(
+            np,goal,np.array([[x,.5]]),np.array([0.]),
+            np.array([.95]),np.array([1.]),
+            np.array([0.]),np.array([True]),lip,
+            distance_after_lip_m=.30)
+        self.assertFalse(bool(qualified(1.29)[0]))
+        self.assertTrue(bool(qualified(1.32)[0]))
+        # The school must contain easy/near/stretch first-seam samples,
+        # while all non-school geometry stays numerically unchanged.
+        seeds=np.arange(1,257,dtype=np.int32)
+        amount=np.full(256,.030,dtype=np.float32)
+        plain,_=make_profiles(np,seeds,amount,amount)
+        unaffected,_=make_profiles(np,seeds,amount,amount,
+                                   school_mask=np.zeros(256,dtype=bool))
+        np.testing.assert_allclose(plain,unaffected)
+        mixed,_=make_profiles(np,seeds,amount,amount,
+                              school_mask=np.ones(256,dtype=bool))
+        ratio=np.abs(mixed[:,129]-mixed[:,128])/amount
+        self.assertGreater(int(np.sum(ratio<.68)),20)
+        self.assertGreater(int(np.sum((ratio>=.78)&(ratio<=1.05))),40)
+        self.assertGreater(int(np.sum(ratio>1.05)),1)
+
 
     def test_true_eight_prism_matrix_compiles_and_measures_exacts(self):
         # On CI: only 4 worlds x 3 frames (no PPO updates), preventing
@@ -246,6 +319,43 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(out["first_both_foot_frame"].shape,(4,))
         self.assertEqual(out["traversed_upright_5frame"].shape,(4,))
         self.assertEqual(out["traversed_in_lane_5frame"].shape,(4,))
+        # Compile/step the REAL opt-in Stair School physics, not only the
+        # NumPy predicates. The frozen examiner above remains an unchanged
+        # no-school control; this branch exercises the extra JAX event path.
+        school_env=EmuMJXEnv(
+            str(ROBOT_XML),num_envs=4,seed=1735,
+            observation_schema=OBS_SCHEMA_TERRAIN,
+            unified_capability_focus=True,
+            terrain_carpet=True,terrain_carpet_prisms=True,
+            terrain_step_max_m=.08,academy_stream=True,
+            science_stair_school_v1=True,
+            science_step_finish_on_transfer=True,
+            science_step_approach_m=.22,
+            science_step_goal_weight=.20,
+            solver_iterations=2,solver_ls_iterations=4)
+        school_teacher=dict(teacher,specialist_mix=1.,
+                            athletic_rehearsal_frac=0.,
+                            academy_episode_probability=1.,
+                            focus_weight_command=0.,
+                            focus_weight_resilience=0.,
+                            focus_weight_slope=0.,
+                            focus_weight_step=1.,
+                            focus_weight_transition=0.,
+                            focus_weight_control=0.)
+        school_state,_=school_env.reset(school_teacher)
+        self.assertTrue(np.asarray(jax.device_get(
+            school_state.academy_active)).all())
+        self.assertEqual(school_state.academy_clearance_seen.shape,(4,))
+        # Force a genuine one-frame transition in the compiled 8-prism
+        # step path, with no synthetic contact/fake transfer injection.
+        school_out=school_env.step(
+            school_state,jnp.zeros((4,6),dtype=jnp.float32),
+            school_teacher)
+        for name in ("academy_clearance_new","academy_foothold_new",
+                     "academy_transfer_new","academy_finish_new"):
+            self.assertEqual(school_out.metrics[name].shape,(4,))
+        self.assertTrue(np.isfinite(np.asarray(jax.device_get(
+            school_out.reward))).all())
 
 
 if __name__=="__main__":

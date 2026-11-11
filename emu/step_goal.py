@@ -37,8 +37,54 @@ CLIMB_HEADING_TOL_RAD = 0.55
 CLIMB_STABLE_FRAMES = 3
 
 
+def school_first_foothold(xp, goal_xy, body_xy, feet_xy,
+                          real_top_contacts, birth_lip_m, academy_active,
+                          already_paid, previous_lips):
+    """Single first-lip physical foothold, even before the torso crosses.
+
+    Caller must supply TRUE upward-facing goal-prism contacts, NOT foot-height
+    guesses, a collision with the vertical riser, or the robot's XY alone.
+    Goal tile is the fixed *birth* destination; later recycled tiles cannot
+    pay. Used only in the opt-in Stair School teacher, never actor inputs.
+    """
+    target=xp.floor(goal_xy/TILE_M).astype(xp.int32)
+    source=target-xp.asarray([1,0],dtype=xp.int32)
+    body=xp.floor(body_xy/TILE_M).astype(xp.int32)
+    foot=xp.floor(feet_xy/TILE_M).astype(xp.int32)
+    valid_foot=real_top_contacts & xp.all(foot==target[:,None,:],axis=2)
+    on_course=(xp.all(body==source,axis=1) |
+               xp.all(body==target,axis=1))
+    new=(academy_active & ~already_paid & (previous_lips==0) &
+         (xp.abs(birth_lip_m)>.0015) & on_course &
+         xp.any(valid_foot,axis=1))
+    return new,valid_foot
+
+
+def school_uphill_clearance(xp, goal_xy, body_xy, feet_xyz,
+                            foot_bottom, real_ground_top, birth_lip_m,
+                            academy_active, already_paid, first_foothold_paid):
+    """One-time REAL swing clearance close to the source side of an UP lip.
+
+    This is a *precursor* reward, not proof of step success. It needs the
+    foot's sphere bottom above the local real source prism by at least the
+    measured upcoming riser height, while its XY approaches the fixed lip.
+    Repeated tippy taps/hovering cannot collect more than one payment.
+    """
+    edge=goal_xy[:,0]-DESTINATION_AFTER_LIP_M
+    near=(feet_xyz[:,:,0]>=edge[:,None]-.07) & (feet_xyz[:,:,0]<edge[:,None])
+    valid_y=(xp.floor(feet_xyz[:,:,1]/TILE_M)==xp.floor(goal_xy[:,None,1]/TILE_M))
+    lift=(foot_bottom-real_ground_top >=
+          birth_lip_m[:,None]+.006)
+    source_side=(body_xy[:,0]<edge) & (
+        xp.floor(body_xy[:,1]/TILE_M)==xp.floor(goal_xy[:,1]/TILE_M))
+    return (academy_active & ~already_paid & ~first_foothold_paid &
+            (birth_lip_m>.0015) & source_side &
+            xp.any(near & valid_y & lift,axis=1))
+
+
 def short_climb_quality(xp, goal_xy, xy, heading_rad, gravity_z, support,
-                        bad_contact, transfer_verified, birth_lip_m):
+                        bad_contact, transfer_verified, birth_lip_m,
+                        distance_after_lip_m=CLIMB_AFTER_LIP_M):
     """First signed prism lip: BOTH feet verified, upright beyond the edge.
 
     `transfer_verified` is established by five independent real-top contact
@@ -49,7 +95,7 @@ def short_climb_quality(xp, goal_xy, xy, heading_rad, gravity_z, support,
     edge_x=goal_xy[:,0]-DESTINATION_AFTER_LIP_M
     heading=xp.abs(xp.arctan2(xp.sin(heading_rad),xp.cos(heading_rad)))
     return (transfer_verified & (xp.abs(birth_lip_m)>.0015) &
-            (xy[:,0]>=edge_x+CLIMB_AFTER_LIP_M) &
+            (xy[:,0]>=edge_x+distance_after_lip_m) &
             (xy[:,0]<edge_x+TILE_M) &
             (xp.abs(xy[:,1]-goal_xy[:,1])<=CLIMB_Y_TOL_M) &
             (heading<=CLIMB_HEADING_TOL_RAD) &

@@ -149,6 +149,57 @@ def test_actual_evaluator_uses_prisms_not_boxes(tmp_path, monkeypatch):
 def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     first, second = configs(tmp_path, unified=True, carpet=True,
                             prisms=True, envs=8, seed=735)
+    # A live Stair School report cannot silently turn last-rollout events
+    # into campaign totals, or compare cumulative counters across resumes.
+    from emu.results import stair_learning_history, write_report
+    import csv
+    import json
+    rows=[
+        dict(step="20000000", academy_expected_birth_fraction="0.0",
+             academy_active_fraction="0.0",
+             academy_footholds="0", academy_short_climb_successes="0",
+             ppo_stair_audit_rollouts_since_process_start="10",
+             ppo_stair_audit_academy_episodes="0",
+             ppo_stair_audit_academy_short_climb_successes="0"),
+        dict(step="40000000", academy_expected_birth_fraction=".2",
+             academy_active_fraction=".18",
+             academy_footholds="3", academy_short_climb_successes="1",
+             ppo_stair_audit_rollouts_since_process_start="30",
+             ppo_stair_audit_academy_episodes="24",
+             ppo_stair_audit_academy_short_climb_successes="7"),
+        dict(step="60000000", academy_expected_birth_fraction=".3",
+             academy_active_fraction=".25",
+             academy_footholds="2", academy_short_climb_successes="0",
+             ppo_stair_audit_rollouts_since_process_start="10",
+             ppo_stair_audit_academy_episodes="9",
+             ppo_stair_audit_academy_short_climb_successes="2"),
+    ]
+    snapshots=stair_learning_history(rows)
+    assert [x["process_segment"] for x in snapshots]==[1,1,2]
+    assert [x["sample_first_footholds"] for x in snapshots]==[0.,3.,2.]
+    assert [x["audit_finished_climbs"] for x in snapshots]==[0.,7.,2.]
+    assert snapshots[1]["sample_scope"]=="one logged PPO rollout"
+    assert snapshots[2]["audit_scope"]=="cumulative since process start"
+    output=tmp_path/"school-report"
+    output.mkdir()
+    with (output/"metrics.csv").open("w",newline="",encoding="utf-8") as stream:
+        writer=csv.DictWriter(stream,fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    (output/"training_config.json").write_text(
+        json.dumps({"science_stair_school_v1":True}),encoding="utf-8")
+    (output/"run_meta.json").write_text(
+        json.dumps({"source_provenance":{"git_commit":"test-fingerprint"}}),
+        encoding="utf-8")
+    produced=write_report(output,bundle=False)
+    assert len(produced)==2
+    document=(output/"results.md").read_text(encoding="utf-8")
+    assert "Stair School learning history" in document
+    assert "NOT all PPO rollouts" in document
+    assert "40.0M" in document and "60.0M" in document
+    machine=json.loads((output/"results_data.json").read_text(encoding="utf-8"))
+    assert machine["stair_learning_history"][2]["process_segment"]==2
+
     assert first.terrain_carpet_prisms and second.terrain_carpet_prisms
     assert first.terrain_carpet and first.academy_stream
     assert first.observation_schema == OBS_SCHEMA_TERRAIN

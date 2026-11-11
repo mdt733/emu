@@ -34,6 +34,125 @@ def _read_optional_json(path: Path) -> dict:
     except (OSError,UnicodeError,ValueError):
         return {}
 
+def stair_learning_history(rows: list[dict[str, str]],
+                           *, interval_steps: int = 20_000_000) -> list[dict]:
+    """Read-only Stair School learning snapshots from sparse trainer logs.
+
+    Columns labeled 'sample' count events in ONE sampled PPO rollout, not
+    everything between logs. The four ppo_stair_audit_* gates are cumulative
+    ONLY since the current trainer process began and reset on resume. Each
+    restart gets a new segment ID rather than inventing whole-run totals.
+    """
+    if interval_steps <= 0:
+        raise ValueError("stair learning history requires positive interval")
+    def nonnegative(row, key):
+        try:
+            value=float(row.get(key, "nan"))
+        except (TypeError, ValueError):
+            return None
+        return value if math.isfinite(value) and value >= 0. else None
+
+    ordered=[]
+    for row in rows:
+        step=nonnegative(row, "step")
+        if step is not None:
+            ordered.append((int(step),row))
+    ordered.sort(key=lambda item:item[0])
+    if not ordered:
+        return []
+    process=1
+    previous_rollouts=None
+    records=[]
+    for step,row in ordered:
+        rollouts=nonnegative(row,"ppo_stair_audit_rollouts_since_process_start")
+        if (previous_rollouts is not None and rollouts is not None and
+                rollouts<=previous_rollouts):
+            process+=1
+        if rollouts is not None:
+            previous_rollouts=rollouts
+        def get(key):
+            return nonnegative(row,key)
+        records.append({
+            "step":step, "process_segment":process,
+            "sample_scope":"one logged PPO rollout",
+            "audit_scope":"cumulative since process start",
+            "up_frontier_mm":(
+                None if get("academy_height_up_m") is None
+                else round(1000*get("academy_height_up_m"),2)),
+            "down_frontier_mm":(
+                None if get("academy_height_down_m") is None
+                else round(1000*get("academy_height_down_m"),2)),
+            "expected_birth_fraction":get("academy_expected_birth_fraction"),
+            "active_frame_fraction":get("academy_active_fraction"),
+            "sample_near_attempts_up":get("academy_near_attempts_up"),
+            "sample_near_attempts_down":get("academy_near_attempts_down"),
+            "sample_clearances":get("academy_clearances"),
+            "sample_first_footholds":get("academy_footholds"),
+            "sample_independent_transfers":get("academy_transfers"),
+            "sample_finished_climbs":get("academy_short_climb_successes"),
+            "audit_completed_episodes":get("ppo_stair_audit_academy_episodes"),
+            "audit_first_lip_armed":get("ppo_stair_audit_academy_episodes_first_lip_armed"),
+            "audit_two_foot_ready":get("ppo_stair_audit_academy_episodes_two_foot_ready"),
+            "audit_finished_climbs":get("ppo_stair_audit_academy_short_climb_successes"),
+            "audit_rollouts":rollouts,
+        })
+    by_bin={}
+    for entry in records:
+        # Boundary at exactly 20M belongs to the 0–20M bin.
+        bucket=max(0,(entry["step"]-1)//interval_steps)
+        by_bin[bucket]=entry
+    return list(by_bin.values())
+
+
+def _stair_history_lines(snapshots: list[dict]) -> list[str]:
+    if not snapshots:
+        return []
+    def count(value):
+        return "—" if value is None else str(int(value))
+    def percent(value):
+        return "—" if value is None else f"{100*value:.0f}%"
+    def frontier(entry):
+        a,b=entry["up_frontier_mm"],entry["down_frontier_mm"]
+        return "—" if a is None or b is None else f"{a:g}/{b:g}"
+    def sample(entry):
+        return "/".join(count(entry[k]) for k in (
+            "sample_clearances","sample_first_footholds",
+            "sample_independent_transfers","sample_finished_climbs"))
+    def audits(entry):
+        return "/".join(count(entry[k]) for k in (
+            "audit_completed_episodes","audit_first_lip_armed",
+            "audit_two_foot_ready","audit_finished_climbs"))
+    lines=[
+        "## Stair School learning history",
+        "",
+        "| World steps | UP/DOWN frontier mm | Target births | Frame occupancy | Near UP/DOWN attempts* | Clearance/first foot/transfer/finish* | Completed/armed/2-foot/finished† | Process |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
+    ]
+    for e in snapshots:
+        lines.append(
+            f"| {e['step']/1e6:.1f}M | {frontier(e)} | "
+            f"{percent(e['expected_birth_fraction'])} | "
+            f"{percent(e['active_frame_fraction'])} | "
+            f"{count(e['sample_near_attempts_up'])}/{count(e['sample_near_attempts_down'])} | "
+            f"{sample(e)} | {audits(e)} | {e['process_segment']} |")
+    lines.extend([
+        "",
+        "* Event and near-attempt counts are from **one sampled PPO rollout** at the",
+        "reported checkpoint, NOT all PPO rollouts between checkpoints. Never sum",
+        "these rows as if they were a full-campaign total. Occupancy is a fraction",
+        "of sampled control frames; target births are a different denominator.",
+        "",
+        "† PPO stair audit counts genuine ended episodes and physical stages across",
+        "**all** rollouts since that trainer process started. They reset after a",
+        "restart; the Process column separates scopes, and figures from distinct",
+        "processes cannot be subtracted to manufacture complete-run counts.",
+        "An early zero before Academy starts does not mean stair education failed.",
+        "The table is training telemetry, not an independent held-out MJX exam.",
+        "",
+    ])
+    return lines
+
+
 def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
     """Report ONE source-pinned run, not a superseded four-arm tournament.
 
@@ -45,6 +164,10 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
     if not row:
         raise ValueError(f'No metrics.csv with training data in {root}')
     cfg=_read_optional_json(root/'training_config.json')
+    # Read-only history: the source-pinned active run keeps writing metrics.csv.
+    # It is safe to generate this report from a different worktree.
+    snapshots=(stair_learning_history(read_csv_rows(root/'metrics.csv'))
+               if cfg.get('science_stair_school_v1') is True else [])
     meta=_read_optional_json(root/'run_meta.json')
     source=(meta.get('source_provenance') or {})
     keys=(
@@ -90,12 +213,14 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
         'A requested velocity is not an achieved velocity. Mechanical J/m is',
         'not verified battery consumption. Successful steps require actual',
         'foot-supported upper-platform contact; compare direction-matched exams.',
+        *_stair_history_lines(snapshots),
         '','## Independent evidence','',
         'Inspect fixed_eval.csv and separate frozen physical terrain examinations',
         'before increasing difficulty or promoting a policy.',''
     ]
     report={'run_dir':str(root),'step':step,'training_config':cfg,
             'source_provenance':source,'latest_metrics':row,
+            'stair_learning_history':snapshots,
             'independent_exam_required':True}
     txt=root/'results.md'
     data=root/'results_data.json'
@@ -343,6 +468,8 @@ class StairCreditAudit:
         'stair_credit_finish_td', 'stair_credit_finish_adv_raw',
         'stair_credit_finish_adv_normalised',
         'stair_credit_finish_negative_fraction',
+        'stair_credit_finish_next_value',
+        'stair_credit_finish_bootstrap',
     )
     GATE_FIELDS = (
         'academy_episodes', 'academy_episodes_first_lip_armed',

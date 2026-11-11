@@ -135,7 +135,38 @@ class CoreAcademyTests(unittest.TestCase):
         # An ostensibly positive short-climb payment may actually be an
         # undesirable action under the PPO advantage that gets optimised.
         # Keep this contract in the EXISTING core test, not another test.
-        from emu.ppo import stair_terminal_credit_stats
+        from emu.ppo import stair_terminal_credit_stats, stair_school_terminal_mask
+        # Real physical falls stay absorbing, while a verified successful
+        # Stair School lesson resets the teacher but is value-bootstrapped.
+        fell=np.array([0.,0.,1.,0.])
+        finished=np.array([1.,0.,0.,0.])
+        legacy=stair_school_terminal_mask(
+            np,fell,np.zeros(4),finished,school_enabled=False)
+        school=stair_school_terminal_mask(
+            np,fell,np.zeros(4),finished,school_enabled=True)
+        np.testing.assert_array_equal(legacy,[1.,0.,1.,0.])
+        np.testing.assert_array_equal(school,[0.,0.,1.,0.])
+        # Actual PPO gamma=.99. The same positive finish payment used
+        # to create a ~-315 advantage only because V_after was zeroed.
+        # Real next-V is measured by PPO, not invented during training.
+        from emu.ppo import PPO_GAMMA
+        values=np.array([331.9,0.,0.,0.])
+        rewards=np.array([16.3,0.,0.,0.])
+        next_values=np.array([330.,0.,0.,0.])
+        old_delta=rewards[0]-values[0]
+        new_delta=(rewards[0]+PPO_GAMMA*next_values[0]*(1-school[0])
+                   -values[0])
+        self.assertLess(old_delta,-300.)
+        self.assertGreater(new_delta,0.)
+        actual=stair_terminal_credit_stats(
+            np,np.array([new_delta,2.,3.,4.]),rewards,values,finished,
+            next_values,school)
+        self.assertAlmostEqual(float(actual['stair_credit_finish_td']),
+                               new_delta)
+        self.assertAlmostEqual(float(actual['stair_credit_finish_bootstrap']),
+                               PPO_GAMMA*330.)
+        self.assertAlmostEqual(float(actual['stair_credit_finish_next_value']),
+                               330.)
         credit=stair_terminal_credit_stats(
             np,np.array([-42.,2.,3.,4.]),
             np.array([8.,0.,0.,0.]),
@@ -171,6 +202,8 @@ class CoreAcademyTests(unittest.TestCase):
             'stair_credit_finish_adv_raw':-42.,
             'stair_credit_finish_adv_normalised':-1.5,
             'stair_credit_finish_negative_fraction':1.,
+            'stair_credit_finish_next_value':0.,
+            'stair_credit_finish_bootstrap':0.,
         })
         audit.observe({
             'academy_episodes':5.,'academy_episodes_first_lip_armed':3.,
@@ -194,6 +227,8 @@ class CoreAcademyTests(unittest.TestCase):
             'stair_credit_finish_adv_raw':4.,
             'stair_credit_finish_adv_normalised':.5,
             'stair_credit_finish_negative_fraction':0.,
+            'stair_credit_finish_next_value':10.,
+            'stair_credit_finish_bootstrap':9.9,
         })
         window=audit.summary()
         self.assertEqual(window['ppo_stair_audit_rollouts_since_process_start'],3.)

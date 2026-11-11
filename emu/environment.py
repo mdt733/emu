@@ -204,6 +204,7 @@ class EnvState(NamedTuple):
     academy_up_crossings: Any
     academy_down_crossings: Any
     academy_foothold_seen: Any
+    academy_clearance_seen: Any  # one honest UP swing-clearance payment per birth
     # v5051 five-frame simultaneous bilateral real-top support after a lip.
     academy_transfer_streak: Any
     academy_transfer_seen: Any
@@ -1010,6 +1011,7 @@ class EmuMJXEnv(TaskSampler):
                  science_step_goal_weight: float = 0.0,
                  science_step_velocity_relief: float = 0.0,
                  science_step_approach_m: float = 0.0,
+                 science_stair_school_v1: bool = False,
                  science_step_finish_on_transfer: bool = False,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
@@ -1098,6 +1100,12 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError("step finish switch must be boolean")
         if science_step_finish_on_transfer and not academy_stream:
             raise ValueError("step finish requires streamed real-prism Academy")
+        if type(science_stair_school_v1) is not bool:
+            raise ValueError("Stair School v1 option must be boolean")
+        if science_stair_school_v1 and (not science_step_finish_on_transfer or
+                                     not academy_stream or science_step_approach_m==0.):
+            raise ValueError("Stair School v1 needs Academy, near-lip spawn and short finish")
+        self.science_stair_school_v1=science_stair_school_v1
         self.science_step_finish_on_transfer=science_step_finish_on_transfer
         self.science_gate_mode=science_gate_mode
         self.observation_schema = observation_schema
@@ -1785,16 +1793,38 @@ class EmuMJXEnv(TaskSampler):
             # authentically supported first lip. Neither a coordinate
             # crossing nor an unrelated later tile can arm this.
             in_goal_tile=jnp.all(observed_cell==destination_cell,axis=1)
-            goal_lip_armed=(goal_lip_armed |
-                            (academy['cross_new'] & in_goal_tile))
-            foot_ok=(academy['goal_top_feet'] &
-                     goal_lip_armed[:,None] & in_goal_tile[:,None])
+            if self.science_stair_school_v1:
+                # The FIRST authentic upper/lower foothold arms the lesson,
+                # even if the torso is still behind the edge.
+                goal_lip_armed=(goal_lip_armed | academy['foothold_new'])
+                # Teacher-only proof of each foot in the FIXED first target
+                # tile. Do not require torso entry before earning foot proof.
+                foot_ok=academy['goal_top_feet'] & goal_lip_armed[:,None]
+            else:
+                goal_lip_armed=(goal_lip_armed |
+                                (academy['cross_new'] & in_goal_tile))
+                foot_ok=(academy['goal_top_feet'] &
+                         goal_lip_armed[:,None] & in_goal_tile[:,None])
             goal_foot_streak=jnp.where(
                 foot_ok,goal_foot_streak+1,0)
             goal_foot_seen=(goal_foot_seen |
                             (goal_foot_streak>=5))
             goal_transfer_ready=(goal_transfer_ready |
                                  jnp.all(goal_foot_seen,axis=1))
+            if self.science_stair_school_v1:
+                # The school uses independent foot evidence; a dynamic
+                # alternate-step gait need never have simultaneous double
+                # stance. Pay once upon genuine support by EACH foot.
+                independent_new=(goal_transfer_ready &
+                                 ~state.academy_goal_transfer_ready &
+                                 goal_lip_armed & state.academy_active &
+                                 step_focus & ~terminal_fail & ~timeout)
+                foot_bonus=(4.0+self.science_bilateral_support_bonus)*(
+                    independent_new.astype(jnp.float32))
+                reward=reward+foot_bonus
+                ep_return=ep_return+foot_bonus
+                academy={**academy,'transfer_new':independent_new,
+                         'reward':academy['reward']+foot_bonus}
             strict=arrival_quality(
                 jnp,state.academy_goal_xy,data.qpos[:,:2],heading,
                 metrics['gravity_z'],metrics['support'],
@@ -1813,7 +1843,9 @@ class EmuMJXEnv(TaskSampler):
             short=short_climb_quality(
                 jnp,state.academy_goal_xy,data.qpos[:,:2],heading,
                 metrics['gravity_z'],metrics['support'],metrics['bad_contact'],
-                goal_transfer_ready,state.academy_birth_lip_m)
+                goal_transfer_ready,state.academy_birth_lip_m,
+                distance_after_lip_m=(.30 if self.science_stair_school_v1
+                                      else .10))
             # At least one foot must STILL be physically supported
             # on the verified upper tile when we declare completion.
             short=(short & jnp.any(academy['goal_top_feet'],axis=1) &
@@ -1827,9 +1859,11 @@ class EmuMJXEnv(TaskSampler):
             # Success is a TRUE absorbing PPO terminal, not a timeout.
             # A separate sparse payment distinguishes partial foothold
             # shaping from the completed whole-foot transfer lesson.
+            finish_payment=(8.+self.science_followthrough_bonus
+                            if self.science_stair_school_v1 else 8.)
             bonus=(20.*self.science_step_goal_weight*
                    goal_new.astype(jnp.float32) +
-                   8.*finish_new.astype(jnp.float32))
+                   finish_payment*finish_new.astype(jnp.float32))
             reward=reward+bonus
             ep_return=ep_return+bonus
             done=done | goal_new | finish_new
@@ -1837,7 +1871,9 @@ class EmuMJXEnv(TaskSampler):
             goal_new=jnp.zeros_like(done)
             finish_new=jnp.zeros_like(done)
             finish_streak=state.academy_finish_streak
-        academy={**academy,'completed':goal_new,'finish_new':finish_new}
+        academy={**academy,'completed':goal_new,'finish_new':finish_new,
+                 'progress_new':(finish_new if self.science_stair_school_v1
+                                 else academy['progress_new'])}
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
@@ -1914,6 +1950,7 @@ class EmuMJXEnv(TaskSampler):
             academy_up_crossings=academy['up_count'],
             academy_down_crossings=academy['down_count'],
             academy_foothold_seen=academy['foothold_seen'],
+            academy_clearance_seen=academy['clearance_seen'],
             academy_transfer_streak=academy['transfer_streak'],
             academy_transfer_seen=academy['transfer_seen'],
             academy_transfer_armed=academy['transfer_armed'],
@@ -2720,7 +2757,9 @@ class EmuMJXEnv(TaskSampler):
             jnp,focus_id,specialist_active,task[:,T.athletic_rehearsal],
             params[P.slope_max_deg],up,down,academy,
             params[P.slope_exposure],params[P.terrain_exposure],seeds)
-        xprof,yprof=carpet_make_profiles(jnp,seeds,up,down)
+        xprof,yprof=carpet_make_profiles(
+            jnp,seeds,up,down,
+            school_mask=academy if self.science_stair_school_v1 else None)
         if self.exam_fixture_steps is not None:
             # No sampled ±X sign, jitter or extra lip. Exact 1m seam,
             # optional continuous signed grade, unchanged real colliders.
@@ -3009,6 +3048,7 @@ class EmuMJXEnv(TaskSampler):
             academy_up_crossings=izeros,
             academy_down_crossings=izeros,
             academy_foothold_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_clearance_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_transfer_streak=izeros,
             academy_transfer_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_transfer_armed=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
@@ -3358,7 +3398,36 @@ class EmuMJXEnv(TaskSampler):
             state.terrain_attempt_frontier_m)
         attempted_target=jnp.where(
             ordinary_first[:,None],root,state.terrain_attempt_tile_xy)
-        new_foothold=(approached&eligible&~state.academy_foothold_seen)
+        if self.science_stair_school_v1:
+            # FIRST physical foothold on the birth-assigned upper/lower tile.
+            # The COM need NOT cross yet: that is precisely the manoeuvre
+            # the old 'approached & eligible' gate made impossible to teach.
+            from .step_goal import school_first_foothold, school_uphill_clearance
+            first_tile=jnp.floor(
+                state.academy_goal_xy/CARPET_TILE_M).astype(jnp.int32)
+            first_slot=jnp.mod(first_tile[:,0],2)+2*jnp.mod(first_tile[:,1],2)
+            first_pairs=jnp.take_along_axis(
+                top_contacts_by_tile,
+                jnp.broadcast_to(first_slot[:,None,None],
+                                 (self.num_envs,1,2)),axis=1)[:,0,:]
+            new_foothold,first_top=school_first_foothold(
+                jnp,state.academy_goal_xy,data.qpos[:,:2],
+                foot_xyz[:,:,:2],first_pairs & healthy[:,None],
+                state.academy_birth_lip_m,academy_focus,
+                state.academy_foothold_seen,state.academy_lip_index)
+            clearance_new=school_uphill_clearance(
+                jnp,state.academy_goal_xy,data.qpos[:,:2],foot_xyz,
+                foot_bottom,physical_foot_top,state.academy_birth_lip_m,
+                academy_focus & healthy & (state.academy_lip_index==0),
+                state.academy_clearance_seen,
+                state.academy_foothold_seen | new_foothold)
+            goal_top_feet=first_top & healthy[:,None]
+        else:
+            # Baseline implementation unchanged for independent A/B.
+            new_foothold=(approached&eligible&~state.academy_foothold_seen)
+            clearance_new=false
+            goal_top_feet=(jnp.all(foot_cell==root[:,None,:],axis=2)
+                           & target_pairs & healthy[:,None])
         # For TRUE two-foot support, each foot must occupy the confirmed
         # new tile, have an authentic upward-facing prism contact, and
         # stay there together for five uninterrupted frames. A single
@@ -3375,6 +3444,11 @@ class EmuMJXEnv(TaskSampler):
                                    state.academy_transfer_streak+1,0)
         new_transfer=(transfer_ok & (transfer_streak>=5) &
                       ~state.academy_transfer_seen)
+        if self.science_stair_school_v1:
+            # School pays independent EACH-foot support in _step_impl, where
+            # the goal-foot streaks have just been updated. Do not double-pay
+            # this obsolete simultaneous-stance transfer gate.
+            new_transfer=false
         transfer_seen=jnp.where(confirmed,False,
                                 state.academy_transfer_seen|new_transfer)
         transfer_streak=jnp.where(confirmed,0,transfer_streak)
@@ -3410,6 +3484,8 @@ class EmuMJXEnv(TaskSampler):
         # No repeated foothold farm after 5-frame verification.
         reward=(3.*new_foothold.astype(jnp.float32)+
                 10.*(paid&academy_focus&lip).astype(jnp.float32))
+        if self.science_stair_school_v1:
+            reward=reward+1.5*clearance_new.astype(jnp.float32)
         up_new=paid&academy_focus&raised
         down_new=paid&academy_focus&lowered
         # A later DIFFERENT lip must never certify the first attempted
@@ -3448,15 +3524,17 @@ class EmuMJXEnv(TaskSampler):
             verdict_frontier_m=jnp.where(
                 paid & academy_focus & lip,reference,
                 jnp.where(done & academy_focus & seen,approach_frontier,0.)),
-            foothold_seen=jnp.where(confirmed,False,
-                state.academy_foothold_seen|new_foothold),
-            clearance_new=false,foothold_new=new_foothold,
+            foothold_seen=(state.academy_foothold_seen|new_foothold
+                if self.science_stair_school_v1 else
+                jnp.where(confirmed,False,
+                          state.academy_foothold_seen|new_foothold)),
+            clearance_seen=state.academy_clearance_seen|clearance_new,
+            clearance_new=clearance_new,foothold_new=new_foothold,
             transfer_new=new_transfer,
             # Separate v5052 stage: each foot's independently real top
             # contact on this root tile (never a sidewall or virtual hfield).
             # Teacher goal code additionally checks the ASSIGNED first tile.
-            goal_top_feet=(jnp.all(foot_cell==root[:,None,:],axis=2)
-                           & target_pairs & healthy[:,None]),
+            goal_top_feet=goal_top_feet,
             transfer_streak=transfer_streak,
             transfer_seen=transfer_seen,
             transfer_armed=transfer_armed,
