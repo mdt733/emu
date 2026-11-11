@@ -172,6 +172,16 @@ def one_run_config(args) -> TrainingConfig:
         if not math.isfinite(value) or not lo<=value<=hi:
             raise ValueError(f'{key} must be finite and in [{lo},{hi}]')
         science_args[key]=value
+    outcome=bool(getattr(args,'outcome_graduation',False))
+    walk_start=int(getattr(args,'outcome_walk_start_steps',60_000_000))
+    approved=bool(getattr(args,'outcome_stair_approved',False))
+    approved_start=int(getattr(args,'outcome_approval_start_steps',0))
+    down_share=float(getattr(args,'outcome_down_share',.20))
+    if (walk_start<0 or approved_start<0 or not math.isfinite(down_share)
+            or not 0.<=down_share<=.40 or (approved and not outcome)
+            or (approved and approved_start<=0)
+            or (outcome and terrain_max<.06)):
+        raise ValueError('outcome requires >=60mm true-prism capacity; stair approval needs positive start step')
     finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
     if finish_on_transfer and not academy_stream:
         raise ValueError('--science-step-finish-on-transfer requires Academy stream')
@@ -201,7 +211,12 @@ def one_run_config(args) -> TrainingConfig:
                    terrain_lesson=terrain_lesson, force_program=force_program,
                    temporal_vx_reward_share=temporal_share,
                    science_gate_mode=science_gate,
-                   science_step_finish_on_transfer=finish_on_transfer,
+                   science_step_finish_on_transfer=(finish_on_transfer or outcome),
+                   outcome_graduation=outcome,
+                   outcome_walk_start_steps=walk_start,
+                   outcome_stair_approved=approved,
+                   outcome_approval_start_steps=approved_start,
+                   outcome_down_share=down_share,
                    **science_args,
                    stillness_birth_frac=stillness_birth_frac,
                    science_step_promotion_mm=science_promotion,

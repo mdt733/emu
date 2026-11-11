@@ -195,6 +195,12 @@ class TrainingConfig:
     science_step_velocity_relief: float = 0.0  # Academy-only speed-tracking relief [0,1]
     science_step_approach_m: float = 0.0  # Academy birth metres before next physical 1m lip; 0=legacy
     science_step_finish_on_transfer: bool = False  # v5054: absorbing success + reset after real two-foot climb
+    # Opt-in physical nursery. Approval requires an independent 50mm exam.
+    outcome_graduation: bool = False
+    outcome_walk_start_steps: int = 60_000_000
+    outcome_stair_approved: bool = False
+    outcome_approval_start_steps: int = 0
+    outcome_down_share: float = 0.20
     force_program: str = 'aggressive'  # matched gentle vs high-push experiments
     # Post-Pinnacle science switches: default values reproduce the released 260M source.
     science_step_promotion_mm: float = 0.0  # zero = max(1mm, 18%) rule

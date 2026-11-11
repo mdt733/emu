@@ -225,6 +225,10 @@ UNIFIED_TERRAIN_FIELDS = (
     # Independent supported-up and supported-down frontiers, teacher only.
     ('academy_height_up_m',0.003),
     ('academy_height_down_m',0.003),
+    # Teacher-only graduation, never included in actor observation.
+    ('outcome_walk_alpha',0.0),
+    ('outcome_stair_alpha',0.0),
+    ('outcome_down_share',0.0),
 )
 UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
 P = SimpleNamespace(
@@ -248,6 +252,9 @@ P = SimpleNamespace(
     academy_episode_probability=TERRAIN_TASK_PARAM_DIM+15,
     academy_height_up_m=TERRAIN_TASK_PARAM_DIM+16,
     academy_height_down_m=TERRAIN_TASK_PARAM_DIM+17,
+    outcome_walk_alpha=TERRAIN_TASK_PARAM_DIM+18,
+    outcome_stair_alpha=TERRAIN_TASK_PARAM_DIM+19,
+    outcome_down_share=TERRAIN_TASK_PARAM_DIM+20,
 )
 
 
