@@ -51,7 +51,8 @@ from .curriculum import RegimeGovernor
 from .training_health import TrainingHealth
 from .capability_focus import (teaching_profile, attention_weights, FOCUS_NAMES,
                                academy_birth_allocation, academy_focus_mix,
-                               academy_conditional_birth_share)
+                               academy_conditional_birth_share, school_lesson,
+                               school_without_steps)
 from .ppo import (make_trainer, update_running_stats, build_obs_norm_mask,
                   PerfBook, configure_jax, require_backend)
 from .results import (
@@ -326,7 +327,8 @@ def train(args: TrainingConfig) -> int:
                               science_step_promotion_mm=args.science_step_promotion_mm,
                               science_step_retreat_mm=args.science_step_retreat_mm,
                               science_step_min_attempts=args.science_step_min_attempts,
-                              outcome_mode=args.outcome_graduation)
+                              outcome_mode=args.outcome_graduation,
+                              progressive_school=args.progressive_school)
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:
@@ -432,6 +434,15 @@ def train(args: TrainingConfig) -> int:
             weights=list(attention_weights(
                 schedule=args.teaching_schedule,step=step,
                 foundation_steps=args.foundation_steps))
+            school=(school_lesson(
+                step=step,core_competence=governor.core_competence,
+                walking_graduated=governor.school_walking_graduated,
+                stair_mastered_step=governor.school_stair_mastered_step)
+                if args.progressive_school else None)
+            if school is not None and not school['stairs_enabled']:
+                # Before 80M AND walking proof, do not steal learning budget
+                # for STEP specialist births or physical step contacts.
+                weights=list(school_without_steps(weights))
             # Reserve a deterministic share of all focused births for
             # useful moving, low-disturbance retention (CONTROL role).
             # The ordinary control role remains unchanged in baseline arms.
@@ -452,8 +463,11 @@ def train(args: TrainingConfig) -> int:
                     ramp_steps=args.academy_ramp_steps,
                     intro_share=args.academy_intro_share,
                     max_share=args.academy_max_share)
-                if args.outcome_graduation:
-                    # The mature fork begins meaningful physical lessons immediately.
+                if args.progressive_school:
+                    academy_share=(academy_share if school['stairs_enabled'] else 0.)
+                elif args.outcome_graduation:
+                    # Retain the earlier experiment's immediate stair fork
+                    # only outside the progressive cold-start school.
                     if step>=args.outcome_walk_start_steps:
                         academy_share=max(academy_share,.60)
                 # Fast rehearsal was reserved BEFORE focus assignment.
@@ -464,7 +478,11 @@ def train(args: TrainingConfig) -> int:
                 weights,academy_probability=academy_focus_mix(
                     weights,conditional)
             d['academy_episode_probability']=academy_probability
-            if args.outcome_graduation:
+            if args.progressive_school:
+                d['outcome_walk_alpha']=school['walk_alpha']
+                d['outcome_stair_alpha']=school['stair_alpha']
+                d['outcome_down_share']=school['down_share']
+            elif args.outcome_graduation:
                 competence=max(0.,min(1.,(governor.core_competence-.40)/.25))
                 d['outcome_walk_alpha']=(min(1.,max(0.,(step-args.outcome_walk_start_steps)/10_000_000.))*competence)
                 d['outcome_stair_alpha']=(min(1.,max(0.,(step-args.outcome_approval_start_steps)/10_000_000.)) if args.outcome_stair_approved else 0.)
@@ -490,6 +508,9 @@ def train(args: TrainingConfig) -> int:
                 d['terrain_height_m'] = 0.0
                 d['slope_exposure'] = 0.0
                 d['slope_max_deg'] = 0.0
+            elif school is not None and not school['stairs_enabled']:
+                d['terrain_exposure'] = 0.0
+                d['terrain_height_m'] = 0.0
         elif step < args.foundation_steps:
             d['terrain_exposure'] = 0.0
             d['terrain_height_m'] = 0.0
