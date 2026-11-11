@@ -93,7 +93,8 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
      swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(
         m, jnp, phase_sync_strength=science_phase_sync_strength*(1.-alpha),
         crouch_allowance_m=science_crouch_allowance_m,
-        outcome_step_alpha=alpha*m['science_step_focus'])
+        outcome_step_alpha=alpha*m['science_step_focus'],
+        outcome_walk_alpha=alpha)
     locomotion_maturity, stepping_gate = _gait_maturity(
         m, jnp, allow_zero_command_balance=allow_zero_command_balance,
         gate_mode=science_gate_mode)
@@ -108,8 +109,10 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
         'swing_clearance': swing_clearance,
     }
     # Locomotion depends on real movement, body support and maturity.
-    foot_shape=(0.30+0.70*m['foot_mid_cone'])
-    foot_shape=foot_shape*(1.-alpha*m['science_step_focus'])+alpha*m['science_step_focus']
+    # A graduated walker may choose an organic stance/step pattern. Its
+    # survival, commanded movement, traction and energy still matter;
+    # a specific foot-midpoint cone no longer earns hidden gait payment.
+    foot_shape=(1.-alpha)*(0.30+0.70*m['foot_mid_cone'])+alpha
     locomotion_quality = locomotion_maturity * command_tracking * upright_height * (0.35 + 0.65 * feet_only_contact) * foot_shape
     remaining = jnp.maximum(0.0, -m['height_error'] - 0.012 -
                             0.018*jnp.clip(jnp.abs(m['cmd_pitch'])/0.7853982,0.0,1.0) -
@@ -261,7 +264,8 @@ def _command_tracking(m, is_transition, is_resilience, jnp, *, temporal_vx=None)
 
 
 def _physical_qualities(m, jnp, *, phase_sync_strength=1.0,
-                        crouch_allowance_m=0.0, outcome_step_alpha=0.0):
+                        crouch_allowance_m=0.0, outcome_step_alpha=0.0,
+                        outcome_walk_alpha=0.0):
     """Measure posture, supported feet, slip, movement shape and joint safety."""
     # Requested chassis pitch and healthy gait height, not a nominally
     # level-body gravity proxy; use the single active v5015 reward.
@@ -271,7 +275,13 @@ def _physical_qualities(m, jnp, *, phase_sync_strength=1.0,
         (crouch_allowance_m * m['science_step_focus']
          if crouch_allowance_m > 0. else 0.))
     height = jnp.exp(-1000.0 * height_shortfall * height_shortfall)
-    upright_height = 0.32 * m['attitude_quality'] + 0.48 * height + 0.20 * m['foot_mid_cone']
+    coached_posture=(0.32*m['attitude_quality']+0.48*height+
+                     0.20*m['foot_mid_cone'])
+    # After walking graduation a compliant stance is free to choose its
+    # foot geometry; real body posture/height remain continuously rewarded.
+    free_walking_posture=(.40*m['attitude_quality']+.60*height)
+    upright_height=((1.-outcome_walk_alpha)*coached_posture+
+                    outcome_walk_alpha*free_walking_posture)
     # Crouching/leaning near real ledges need not look like a normal gait.
     free_posture=(.85*m['attitude_quality']+.15*(1.-m['bad_contact']))
     upright_height=(1.-outcome_step_alpha)*upright_height+outcome_step_alpha*free_posture
