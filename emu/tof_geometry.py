@@ -40,3 +40,69 @@ def tof4x4_rays_body() -> tuple[tuple[float, float, float], ...]:
     return tuple(out)
 
 TOF_RAYS_BODY = tof4x4_rays_body()
+
+def returns_relative_to_feet(xp, ranges_m, valid, gravity_body, feet_body_m,
+                             *, foot_radius_m=0.018):
+    """Project measured 4x4 ToF ENDPOINTS relative to EACH possible stance foot.
+
+    Shapes: ranges/valid [world,16], gravity [world,3], foot centres
+    [world,2,3], output XYZ-like scalars [world,2,16].
+
+    Inputs are deployable: delayed raw ToF, IMU gravity, joint-derived foot
+    positions. No MJX mesh height, exact step, contact flag or target leaks in.
+
+    HEIGHT IS THE RAY-HIT POINT, NOT GUARANTEED WALKABLE GROUND. A ray can
+    hit a vertical riser. A separate footprint/support estimator must decide
+    when a foot really anchors a local ground-height reference. In particular,
+    shin spring deflection ALONE is not proof of stance. Return both possible
+    references rather than silently guessing a loaded foot.
+
+    Validity accompanies every output; invalid values are zero placeholders.
+    A normalised gravity vector removes body pitch/roll. Camera mounting
+    offset and the finite spherical-foot radius are included explicitly.
+    No height is integrated across time: all coordinates are instantaneous.
+    """
+    d = xp.asarray(ranges_m)
+    ok = xp.asarray(valid, dtype=xp.bool_)
+    g = xp.asarray(gravity_body)
+    feet = xp.asarray(feet_body_m)
+    if d.ndim != 2 or d.shape[1] != 16:
+        raise ValueError("ToF ranges must have shape [world,16]")
+    if ok.shape != d.shape or g.shape != (d.shape[0], 3):
+        raise ValueError("ToF validity/gravity shapes do not match worlds")
+    if feet.shape != (d.shape[0], 2, 3):
+        raise ValueError("Body-relative feet must have shape [world,2,3]")
+    if not 0. < foot_radius_m < .1:
+        raise ValueError("Expected physical ball-foot radius in metres")
+
+    from .contracts import TERRAIN_TOF_MIN_M, TERRAIN_TOF_MAX_M
+    up = -g / xp.maximum(xp.linalg.norm(g, axis=1, keepdims=True), 1e-7)
+    gravity_valid = (xp.linalg.norm(g, axis=1) > .1) & xp.all(
+        xp.isfinite(g), axis=1)
+    ray_valid = (ok & xp.isfinite(d) &
+                 (d >= TERRAIN_TOF_MIN_M) & (d <= TERRAIN_TOF_MAX_M))
+    rays = xp.asarray(TOF_RAYS_BODY, dtype=d.dtype)
+    mount = xp.asarray(TOF_MOUNT_BODY_M, dtype=d.dtype)
+    hits = mount[None, None, :] + d[:, :, None] * rays[None, :, :]
+    foot_bottom = feet - foot_radius_m * up[:, None, :]
+    delta = hits[:, None, :, :] - foot_bottom[:, :, None, :]
+
+    # Orthogonal robot-forward/side axes in the plane normal to gravity,
+    # not chassis X/Y when the torso pitches into a climb.
+    forward = xp.asarray((1., 0., 0.), dtype=d.dtype)[None, :]
+    forward = forward - xp.sum(forward * up, axis=1, keepdims=True) * up
+    forward = forward / xp.maximum(
+        xp.linalg.norm(forward, axis=1, keepdims=True), 1e-7)
+    sideways = xp.cross(up, forward)
+    height = xp.sum(delta * up[:, None, None, :], axis=-1)
+    ahead = xp.sum(delta * forward[:, None, None, :], axis=-1)
+    lateral = xp.sum(delta * sideways[:, None, None, :], axis=-1)
+
+    mask = (ray_valid[:, None, :] & gravity_valid[:, None, None] &
+            xp.all(xp.isfinite(feet), axis=2)[:, :, None])
+    return dict(
+        return_height_over_foot_m=xp.where(mask, height, 0.),
+        return_forward_from_foot_m=xp.where(mask, ahead, 0.),
+        return_sideways_from_foot_m=xp.where(mask, lateral, 0.),
+        return_valid=mask,
+    )
