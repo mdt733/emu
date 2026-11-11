@@ -314,7 +314,8 @@ EMU_UNIFIED_ACCEPTANCE=bounded-ppo-lifecycle python -m emu.cli train \
   --run-dir "$HOME/emu-data/runs/outcome-pr76-ppo-smoke" \
   --device cuda --envs 8 --steps 512 --seed 735 \
   --terrain-actor --unified-capabilities --terrain-carpet --carpet-prisms \
-  --academy-stream --terrain-step-max-m .08 --outcome-graduation
+  --academy-stream --terrain-step-max-m .08 \
+  --terrain-lesson coherent-careful --outcome-graduation
 
 # Point at an EXISTING, complete, compatible H40 final checkpoint.
 PARENT="$HOME/emu-data/runs/YOUR_VERIFIED_H40_RUN/checkpoints/final.pkl"
@@ -343,10 +344,29 @@ TRAIN=(python -m emu.cli train
   --research-parent-source "$PARENT_SOURCE"
   --research-parent-sha256 "$PARENT_SHA256")
 
-"${TRAIN[@]}" --plan
-"${TRAIN[@]}" --check-resume-only
-EMU_UNIFIED_CONTINUOUS=cold-growth-approved "${TRAIN[@]}"
+if "${TRAIN[@]}" --plan && "${TRAIN[@]}" --check-resume-only; then
+  EMU_UNIFIED_CONTINUOUS=cold-growth-approved "${TRAIN[@]}"
+fi
 ```
+
+If this draft branch is updated before the *first* 2M run, refresh the
+existing **detached**, clean worktree explicitly (not `git pull`):
+
+```bash
+cd ~/emu
+git fetch origin
+cd ~/emu-outcome-pr76
+test -z "$(git status --porcelain)" || { echo "Worktree has local edits; stop"; false; }
+git switch --detach origin/feature/h40-outcome-stair-graduation
+git rev-parse HEAD
+```
+
+The original 120M `training_config.json` may contain neutral retired keys
+`cloud_final_probes`, `cloud_probes_per_eval`, and
+`science_reset_step_evidence_on_fork`. Only a source- and SHA256-verified
+**external research fork** accepts these when they are exactly `0, 0, false`.
+Unknown or non-default retired fields fail closed; an ordinary same-run resume
+still rejects the older schema. Do not edit the parent config or checkpoint.
 
 The independent CPU physical tests are also available via `python -m pytest -q tests/test_core_stair_teaching.py`. After the 2M fork, inspect actual height/footholds/chassis transfer, episode failures, gait retention, PPO terminal credit and the source-pinned report **before** increasing the target. A completed same-source lineage can be extended by repeating the same config with `--steps $((PARENT_STEP + 10000000)) --resume auto` in the **same** run directory and removing the external parent-hash arguments. Do not change the branch source commit when resuming an existing run.
 
