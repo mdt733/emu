@@ -182,6 +182,12 @@ def one_run_config(args) -> TrainingConfig:
             or (approved and approved_start<=0)
             or (outcome and terrain_max<.06)):
         raise ValueError('outcome requires >=60mm true-prism capacity; stair approval needs positive start step')
+    if outcome:
+        if height_cap<.05:
+            raise ValueError('outcome 50mm nursery cannot have a lower Academy cap')
+        # Signed 50..80mm prism nursery: physical data must not saturate
+        # silently while the governor reports a taller fictitious frontier.
+        height_cap=min(height_cap,.08)
     finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
     if finish_on_transfer and not academy_stream:
         raise ValueError('--science-step-finish-on-transfer requires Academy stream')
