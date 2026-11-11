@@ -56,6 +56,7 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
                     motor_guidance_per_world=None, temporal_vx=None,
                     allow_zero_command_balance=False,
                     science_gate_mode="legacy", science_phase_sync_strength=1.0,
+                    outcome_gait_release=None,
                     science_crouch_allowance_m=0.0,
                     science_stride_efficiency_weight=0.0,
                     science_step_goal_weight=0.0,
@@ -87,9 +88,16 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
             science_step_velocity_relief*target)
         command_tracking=jnp.where(m['science_step_goal_active']>.5,
                                    relaxed,command_tracking)
+    # Only the opt-in mature-school source changes economics. A scalar in
+    # the existing JAX teacher packet smoothly releases old process rewards.
+    # In ordinary mode keep the exact old call path and floating arithmetic.
+    release=(jnp.clip(outcome_gait_release,0.,1.)
+             if outcome_gait_release is not None else None)
+    phase_strength=(science_phase_sync_strength*(1.-release)
+                    if release is not None else science_phase_sync_strength)
     (upright_height, feet_only_contact, stance_anti_slip,
      swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(
-        m, jnp, phase_sync_strength=science_phase_sync_strength,
+        m, jnp, phase_sync_strength=phase_strength,
         crouch_allowance_m=science_crouch_allowance_m)
     locomotion_maturity, stepping_gate = _gait_maturity(
         m, jnp, allow_zero_command_balance=allow_zero_command_balance,
@@ -124,6 +132,17 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
         weight = (motor_guidance_weight if motor_guidance_per_world is None
                   else motor_guidance_per_world + motor_guidance_weight)
         motor_kwargs = {'motor_cost': weight * motor_load_proxy}
+    if release is not None:
+        # Replace "did you keep lifting your feet?" with "did you carry
+        # out the requested motion?" Walking gets tracking credit, a
+        # physically negotiated stair can pause without losing its
+        # posture/contact reward. Motionless command evasion is NOT free.
+        outcome_gate=jnp.where(m['science_step_goal_active']>.5,1.,
+                               .30+.70*command_tracking)
+        stepping_gate=(1.-release)*stepping_gate+release*outcome_gate
+        # Ordinary ankle/foot lift shaping was a nursery technique;
+        # obstacle-specific millimetre rewards become the new teacher.
+        swing_clearance=swing_clearance*(1.-release)
     reward, payments = weighted_training_terms(
         alive=valid_alive, locomotion=locomotion_quality,
         posture=upright_height, contact=feet_only_contact,
@@ -271,7 +290,10 @@ def _physical_qualities(m, jnp, *, phase_sync_strength=1.0,
     # Reward emerging alternating foot lift, without prescribing foot timing.
     # Preserve the original expression and compilation when strength=1.
     organic = m['organic_step_shape']
-    if phase_sync_strength != 1.0:
+    if not (isinstance(phase_sync_strength,(float,int)) and
+            phase_sync_strength == 1.0):
+        # A host-scheduled JAX scalar is dynamic. Never branch on tracer
+        # truth values; the pure NumPy/JAX mathematics work for both.
         organic = jnp.clip(
             organic - (1.0-phase_sync_strength)*.30*m['phase_sync']*
             m['step_evidence'],0.,1.)
