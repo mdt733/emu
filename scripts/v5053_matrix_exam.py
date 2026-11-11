@@ -171,6 +171,10 @@ def reduce_results(trials:list[Trial],result:dict[str,np.ndarray]):
         arrived=sum(bool(x["both_feet_top_five"]) for x in records) if target else 0
         leading=sum(bool(x["lead_foot_top"]) for x in records) if target else 0
         survived=sum(bool(x["survived"]) for x in records)
+        near_lip=sum(bool(x["preedge_visited"]) for x in records)
+        toe_over=sum(bool(x["any_toe_over_upper_edge"]) for x in records)
+        preedge_mm=[float(x["max_preedge_toe_above_upper_mm"])
+                    for x in records if x["preedge_visited"]]
         low,high=wilson_95(finished,n)
         traverse_lo,traverse_hi=wilson_95(counts["traversed_5frame"],n)
         first_contact_x=[x["first_both_foot_body_x_m"] for x in records
@@ -186,6 +190,11 @@ def reduce_results(trials:list[Trial],result:dict[str,np.ndarray]):
             measured_grade_deg_mean=round(float(np.mean(
                 [x["actual_grade_deg"] for x in records])),4),
             leading_top=leading,each_foot_top_five=arrived,
+            preedge_foot_visited=near_lip,
+            toe_over_upper_edge=toe_over,
+            median_best_preedge_clearance_mm=(
+                round(float(np.median(preedge_mm)),2)
+                if preedge_mm else None),
             **counts,
             first_both_foot_x_mean_m=round(float(np.mean(first_contact_x)),4)
                 if first_contact_x else None,
@@ -395,6 +404,26 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
         ("completed_destinations","Strict stable destination arrival")):
         lines.append("| "+label+" | "+" | ".join(
             stage_cell(kind,gate) for kind in stage_counts)+" |")
+    lines += ["","## Dynamic toe-lift / ledge evidence (no static stance gate)","",
+              "A foot merely passing 20cm before the lip counts as an",
+              "approach. Clearance means FOOT BOTTOM relative to the real",
+              "upper prism surface, not distance sensor inference.",
+              "Over-edge means a foot center crossed the seam while its",
+              "bottom was >5mm above the upper surface; NO single-stance,",
+              "narrow-lane, fixed gait phase, extra 60cm or touchdown",
+              "is required. This measurement is independent of how the",
+              "robot gets there; over-edge is NOT verified loaded top",
+              "contact. Missing approaches have no clearance median.","",
+              "| Height | Worlds | Near lip | Median best toe clearance vs upper top | Toe over upper edge | Genuine upper foothold |",
+              "|---:|---:|---:|---:|---:|---:|"]
+    for x in stair_rows:
+        clearance=(f"{x['median_best_preedge_clearance_mm']:+.1f}mm"
+                   if x['median_best_preedge_clearance_mm'] is not None
+                   else "unobserved")
+        lines.append(
+            f"| {x['requested_step_mm']:+.1f}mm | {x['worlds']} | "
+            f"{x['preedge_foot_visited']} | {clearance} | "
+            f"{x['toe_over_upper_edge']} | {x['leading_top']} |")
     lines += ["","## Upright stair traversal versus strict arrival","",
               "| Height | Trials | Lead top | Both feet >=5 | Cross after feet | Traversed 5f | Strict stable |",
               "|---:|---:|---:|---:|---:|---:|---:|"]
