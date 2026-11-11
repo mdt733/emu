@@ -59,6 +59,10 @@ class MatrixExamTests(unittest.TestCase):
             survived=np.array([True,True,False,True]),
             lead_foot_top=np.array([True,True,False,False]),
             both_feet_top_five=np.array([True,False,False,False]),
+            preedge_visited=np.array([True,True,True,False]),
+            max_preedge_toe_above_upper_mm=np.array([12.,-4.,-18.,-999.]),
+            any_toe_over_upper_edge=np.array([True,False,False,False]),
+            max_foot_forward_when_above_upper_mm=np.array([9.,-999.,-999.,-999.]),
             goal_line_crossed=np.array([True,True,False,False]),
             goal_line_after_both=np.array([True,False,False,False]),
             goal_x_window_seen=np.array([True,True,False,False]),
@@ -80,6 +84,9 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(len(detail),3)
         self.assertEqual(len(curve),1)
         row=curve[0]
+        self.assertEqual(row["preedge_foot_visited"],3)
+        self.assertEqual(row["toe_over_upper_edge"],1)
+        self.assertAlmostEqual(row["median_best_preedge_clearance_mm"],-4.)
         self.assertEqual(row["leading_top"],2)
         self.assertEqual(row["each_foot_top_five"],1)
         self.assertEqual(row["completed_destinations"],1)
