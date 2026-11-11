@@ -47,6 +47,24 @@ def hip_roll_action_saturation(xp, raw_action, academy_active):
     return out
 
 
+def stair_school_terminal_mask(xp, fell, goal_completed, climb_finished,
+                              *, school_enabled: bool):
+    """PPO bootstrap mask, NOT the environment episode-reset signal.
+
+    A genuine fall ends physical value: V_next = 0. A successful school
+    lesson is an artificial teacher-controlled episode boundary, while
+    the same robot could keep walking on the real platform. Its post-step
+    physical state therefore retains bootstrap value, exactly like a
+    time-limit truncation. GAE still cuts the eligibility trace at done,
+    so a fresh spawn cannot donate reward to the previous lesson.
+
+    The legacy non-school interpretation is unchanged for A/B evaluation.
+    """
+    if school_enabled:
+        return fell
+    return xp.maximum(fell, xp.maximum(goal_completed, climb_finished))
+
+
 def stair_terminal_credit_stats(xp, advantage, reward, value, finished,
                                 next_value=None, terminal=None):
     """Pre-update PPO credit at genuine short-climb terminal transitions.
@@ -527,24 +545,6 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         # steps.
         aux_mean['approx_kl_final'] = aux['approx_kl'][-1]
         return (params, opt_state, flat, key, stopped, lr_scale), aux_mean
-
-def stair_school_terminal_mask(xp, fell, goal_completed, climb_finished,
-                              *, school_enabled: bool):
-    """PPO bootstrap mask, NOT the environment episode-reset signal.
-
-    A genuine fall ends physical value: V_next = 0. A successful school
-    lesson is an artificial teacher-controlled episode boundary, while
-    the same robot could keep walking on the real platform. Its post-step
-    physical state therefore retains bootstrap value, exactly like a
-    time-limit truncation. GAE still cuts the eligibility trace at done,
-    so a fresh spawn cannot donate reward to the previous lesson.
-
-    The legacy non-school interpretation is unchanged for A/B evaluation.
-    """
-    if school_enabled:
-        return fell
-    return xp.maximum(fell, xp.maximum(goal_completed, climb_finished))
-
 
     @jax.jit
     def train_update(state: PPOState, curriculum_params, obs_mean, obs_std, lr_scale):
