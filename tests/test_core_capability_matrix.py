@@ -271,7 +271,7 @@ class MatrixExamTests(unittest.TestCase):
             terrain_step_max_m=.08,academy_stream=True,
             science_step_finish_on_transfer=True,
             solver_iterations=2,solver_ls_iterations=4,
-            exam_fixture_steps_m=np.array([0.,.0025,.02,-.05]),
+            exam_fixture_steps_m=np.array([0.,.0025,.12,-.05]),
             exam_fixture_grades_deg=np.array([0.,0.,0.,0.]))
         teacher=dict(specialist_mix=0.,
             regime_frac_steady=1.,regime_frac_transition=0.,
@@ -289,11 +289,13 @@ class MatrixExamTests(unittest.TestCase):
         spawn_xy=np.asarray(jax.device_get(init.env_state.data.qpos[:,:2]))
         np.testing.assert_allclose(spawn_xy[:,0],.78,atol=1e-6)
         np.testing.assert_allclose(spawn_xy[:,1],.50,atol=1e-6)
+        # Exam +120mm exceeds the 80mm training cap, but remains within
+        # the actual 650mm deep prism geometry.
         # The new success/reset curriculum must retain the EXACT first
         # signed physical seam at birth, even after a later foot transfer.
         np.testing.assert_allclose(
             np.asarray(jax.device_get(init.env_state.academy_birth_lip_m)),
-            [0.,.0025,.02,-.05],atol=.0005)
+            [0.,.0025,.12,-.05],atol=.0005)
         # The difficulty reference is captured at the SAME birth;
         # an eventual promotion must never relabel this older trial.
         birth_ref=np.asarray(jax.device_get(
@@ -309,7 +311,7 @@ class MatrixExamTests(unittest.TestCase):
             jax.random.PRNGKey(1701),3)
         actual=np.asarray(jax.device_get(out["actual_lip_m"]))
         np.testing.assert_allclose(
-            actual,[0.,.0025,.02,-.05],atol=.0005)
+            actual,[0.,.0025,.12,-.05],atol=.0005)
         self.assertEqual(out["lead_foot_top"].shape,(4,))
         self.assertEqual(out["completed_destination"].shape,(4,))
         self.assertEqual(out["traversed_5frame"].shape,(4,))
