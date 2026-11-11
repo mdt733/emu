@@ -1013,6 +1013,7 @@ class EmuMJXEnv(TaskSampler):
                  science_step_approach_m: float = 0.0,
                  science_step_finish_on_transfer: bool = False,
                  outcome_graduation: bool = False,
+                 progressive_school: bool = False,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
                  carpet_transition_cap_deg: float = 3.0,
@@ -1104,6 +1105,7 @@ class EmuMJXEnv(TaskSampler):
         if type(outcome_graduation) is not bool:
             raise ValueError('outcome_graduation must be bool')
         self.outcome_graduation=outcome_graduation
+        self.progressive_school=bool(progressive_school)
         self.science_gate_mode=science_gate_mode
         self.observation_schema = observation_schema
         self.base_obs_fields = actor_observation_fields(observation_schema)
@@ -2790,12 +2792,26 @@ class EmuMJXEnv(TaskSampler):
             # Physical 50mm first lip; subsequent frontiers stay independent.
             from .terrain_carpet_mjx import exact_exam_lip_profiles
             draws=jax.vmap(lambda k:jax.random.uniform(
-                jax.random.fold_in(k,505902),(2,)))(keys)
+                jax.random.fold_in(k,505902),
+                (3 if self.progressive_school else 2,)))(keys)
             jitter=draws[:,0]
             down_draw=(draws[:,1] < params[P.outcome_down_share])
+            max_up=jnp.maximum(.050,params[P.academy_height_up_m])
+            if self.progressive_school:
+                # After REAL first-5cm mastery, keep practising the proven
+                # height as harder boundaries become available: half of
+                # births sample 50mm..current frontier, half probe near the
+                # current frontier. Before mastery max_up=50mm and no
+                # downhill is enabled by the teacher's zero down-share.
+                near=draws[:,2]>.5
+                up_height=jnp.where(
+                    near,max_up,
+                    .050+(max_up-.050)*(2.*draws[:,2]))
+            else:
+                up_height=max_up
             height=jnp.where(down_draw,
                 -jnp.maximum(.003,params[P.academy_height_down_m]),
-                jnp.maximum(.050,params[P.academy_height_up_m]))
+                up_height)
             signed=jnp.clip(height*(.96+.08*jitter),-.08,.08)
             nursery_x,nursery_y=exact_exam_lip_profiles(jnp,signed)
             xprof=jnp.where(academy[:,None],nursery_x,xprof)
