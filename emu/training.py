@@ -447,8 +447,9 @@ def train(args: TrainingConfig) -> int:
                     intro_share=args.academy_intro_share,
                     max_share=args.academy_max_share)
                 if args.outcome_graduation:
-                    ramp=max(0.,min(1.,(step-args.outcome_walk_start_steps)/5_000_000.))
-                    academy_share=max(academy_share,.60*ramp)
+                    # The mature fork begins meaningful physical lessons immediately.
+                    if step>=args.outcome_walk_start_steps:
+                        academy_share=max(academy_share,.60)
                 # Fast rehearsal was reserved BEFORE focus assignment.
                 # Honour 50% of ALL births rather than accidentally 50% of
                 # the remaining 75% when 25% of worlds rehearse fast gait.
