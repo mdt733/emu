@@ -370,6 +370,11 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             key, ak = jax.random.split(key)
             action, raw_action, lp, value = policy_sample(s.params, s.obs, ak, obs_mean, obs_std)
             out = env.step(s.env_state, action, curriculum_params)
+            completed=jnp.maximum(out.metrics['academy_goal_complete_new'],
+                                  out.metrics['academy_finish_new'])
+            terminal, value_obs=nursery_bootstrap_transition(
+                jnp,out.bootstrap_obs,out.obs,out.metrics['episode_fell'],
+                completed)
             trans = {
                 'obs': s.obs,
                 'action': action,
@@ -381,16 +386,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 # Only a physical fall is absorbing. A verified nursery
                 # success is a regenerative reset into the next valid birth;
                 # a timeout is a truncation at the old physical state.
-                'terminal': nursery_bootstrap_transition(
-                    jnp, out.bootstrap_obs, out.obs,
-                    out.metrics['episode_fell'],
-                    jnp.maximum(out.metrics['academy_goal_complete_new'],
-                                out.metrics['academy_finish_new']))[0],
-                'bootstrap_obs': nursery_bootstrap_transition(
-                    jnp, out.bootstrap_obs, out.obs,
-                    out.metrics['episode_fell'],
-                    jnp.maximum(out.metrics['academy_goal_complete_new'],
-                                out.metrics['academy_finish_new']))[1],
+                'terminal': terminal,
+                'bootstrap_obs': value_obs,
                 'metrics': out.metrics,
             }
             s2 = PPOState(s.params, s.opt_state, out.state, out.obs, key)
