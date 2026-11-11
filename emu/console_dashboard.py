@@ -31,16 +31,105 @@ def console_mode(requested: str | None = None, stream=None) -> str:
     return "dashboard" if capable else "compact"
 
 
-def last_metrics(path: Path) -> dict[str, str]:
-    """CSV is authoritative; never parse a printed teaching reward as proof."""
+def read_history(path: Path) -> list[dict[str, str]]:
+    """Read the append-only metrics table after each infrequent log event.
+
+    At 300M and one sample per 655k, this is only hundreds of rows.
+    The full history survives checkpoint resume; no transient in-memory
+    trend state is required and no trainer-side GPU transfer is added.
+    """
     try:
         with path.open(newline="", encoding="utf-8") as file:
-            row = {}
-            for candidate in csv.DictReader(file):
-                row = candidate
-            return row
+            # Same step may be logged on process boundary; latest wins.
+            by_step: dict[int, dict[str, str]] = {}
+            for row in csv.DictReader(file):
+                try:
+                    step = int(float(row["step"]))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                by_step[step] = row
+        return [by_step[k] for k in sorted(by_step)]
     except (OSError, UnicodeError, csv.Error):
-        return {}
+        return []
+
+
+def metric_delta(history: list[dict], key: str, *, millions: float = 5.,
+                 scale: float = 1., precision: int = 2,
+                 suffix: str = "") -> str:
+    """Signed change from a genuine roughly 5M-old sample, never a guess.
+
+    Do not compare against a wildly old first row when there is a data gap.
+    Delta direction alone does not establish quality (commands may change).
+    """
+    if not history:
+        return "--"
+    now = number(history[-1], "step")
+    current = number(history[-1], key)
+    if now is None or current is None:
+        return "--"
+    target = now - millions * 1e6
+    eligible = [(abs(number(x, "step") - target), x)
+                for x in history[:-1]
+                if number(x, "step") is not None and number(x, key) is not None]
+    if not eligible:
+        return "--"
+    diff, reference = min(eligible, key=lambda p: p[0])
+    if diff > max(1e6, millions * 1e6 * .25):
+        return "--"
+    delta = (current - number(reference, key)) * scale
+    return f"{delta:+.{precision}f}{suffix}"
+
+
+def stair_window_trend(history: list[dict], *, millions: float = 5.) -> str:
+    """Compare two disjoint sampled-rollout intervals, not an invented census.
+
+    The nursery's sparse physical episode outcomes are sampled by metrics.csv
+    every 10 updates. Explicitly label the statistic as sampled training
+    evidence. No ratio is shown from fewer than 20 completed attempts.
+    """
+    if not history:
+        return "awaiting data"
+    now = number(history[-1], "step")
+    if now is None:
+        return "awaiting data"
+    window = millions * 1e6
+    def window_rate(start: float, end: float):
+        rows = [r for r in history if start < (number(r, "step", -1)) <= end]
+        events = sum(max(0., number(r, "academy_episodes", 0.)) for r in rows)
+        successes = sum(max(0., number(r, "academy_short_climb_successes", 0.))
+                        for r in rows)
+        if events < 20 or successes > events or len(rows) < 2:
+            return None
+        return successes, events, 100. * successes / events
+    current = window_rate(now-window, now)
+    previous = window_rate(now-2*window, now-window)
+    if current is None:
+        return "5M sampled: insufficient completed episodes"
+    s, n, pct = current
+    if previous is None:
+        return f"5M sampled: {int(s)}/{int(n)} ({pct:.1f}%) | prior window: --"
+    old_rate = previous[2]
+    return (f"5M sampled: {int(s)}/{int(n)} ({pct:.1f}%)  "
+            f"Δ vs prior 5M {pct-old_rate:+.1f}pp")
+
+
+def latest_heldout(history: list[dict]) -> str:
+    """Latest actual frozen exam with delta versus the preceding exam."""
+    seen = {}
+    for row in history:
+        step = number(row, "eval_policy_step", -1.)
+        val = number(row, "eval_broad_score")
+        if step >= 0 and val is not None and val > -100:
+            seen[int(step)] = val
+    if not seen:
+        return "not yet evaluated"
+    ordered = sorted(seen.items())
+    at, val = ordered[-1]
+    if len(ordered) == 1:
+        return f"{val:.3f} at {at/1e6:.0f}M"
+    old_at, old_val = ordered[-2]
+    return (f"{val:.3f} at {at/1e6:.0f}M   "
+            f"Δ since {old_at/1e6:.0f}M {val-old_val:+.3f}")
 
 
 def number(row: dict, key: str, default: float | None = None) -> float | None:
@@ -76,90 +165,76 @@ def _duration(seconds: float) -> str:
 
 def render_screen(row: dict[str, str], *, phase: str,
                   target_steps: int, run_name: str,
+                  history: list[dict] | None = None,
                   events: tuple[str, ...] = (),
                   width: int = 88, height: int = 24) -> str:
-    """Pure, bounded text screen, suitable for regression tests and WSL terminals."""
-    width = max(40, int(width))
+    """Pure 24-row dashboard, with real 5M trends and no terminal wrapping."""
+    width = max(20, int(width))
+    history = history or ([row] if row else [])
     step = number(row, "step", 0.)
     target = max(1, target_steps)
     progress = max(0., min(1., step / target))
-    bar_n = max(8, min(36, width - 37))
-    filled = round(progress * bar_n)
-    bar = "█" * filled + "░" * (bar_n - filled)
+    bar_n = max(8, min(32, width - 37))
+    bar = "█" * round(progress * bar_n) + "░" * (bar_n - round(progress * bar_n))
     fps = number(row, "steps_per_sec", 0.)
     remaining = max(0., target - step)
     eta = _duration(remaining / fps) if fps > 1. else "calculating"
-    school = str(row.get("school_stage") or row.get("teaching_profile") or "starting")
     walk_alpha = number(row, "school_walk_alpha")
     stair_alpha = number(row, "school_stair_alpha")
     walking = (f"{100 * (1 - walk_alpha):.0f}% coaching left"
-               if walk_alpha is not None else "not reported")
+               if walk_alpha is not None else "--")
     stair = (f"{100 * (1 - stair_alpha):.0f}% coaching left"
-             if stair_alpha is not None else "not reported")
-    eval_score = number(row, "eval_broad_score")
-    eval_step = number(row, "eval_policy_step", -1.)
-    exam = (f"{eval_score:.3f} at {eval_step/1e6:.0f}M (held-out WALK)"
-            if eval_score is not None and eval_score > -100. and eval_step >= 0
-            else "not yet evaluated")
+             if stair_alpha is not None else "--")
     h_up = fmt(row, "academy_height_up_m", ".1f", scale=100)
     h_down = fmt(row, "academy_height_down_m", ".1f", scale=100)
+    stage = str(row.get("school_stage") or row.get("teaching_profile") or "starting")
     lines = [
-        " EMU  |  LIVE TRAINING  |  " + run_name,
-        "─" * min(width - 1, 88),
-        f" {bar}  {progress*100:5.1f}%    {step/1e6:,.1f}M / {target/1e6:,.1f}M",
-        f" {phase}    ETA ~{eta} (wall rate, approximate)",
+        " EMU  |  " + run_name,
+        f" {bar} {progress*100:5.1f}%   {step/1e6:,.1f}M / {target/1e6:,.1f}M",
+        f" {phase} | {stage} | ETA ~{eta} (approx.)",
         "",
-        " WALKING  [current training rollout; not a held-out score]",
-        (f"  Reward {fmt(row,'reward_mean','+.3f')}    Falls "
-         f"{fmt(row,'fall_rate','.1f',scale=100)}%    Length "
-         f"{fmt(row,'ep_len_mean','.0f')}fr    Core "
-         f"{fmt(row,'core_competence','.2f')}"),
-        (f"  vX actual / requested {fmt(row,'vx_mean','+.2f')} / "
+        " WALKING  [rollout data; Δ~5M in parentheses]",
+        (f"  Reward {fmt(row,'reward_mean','+.3f')} "
+         f"({metric_delta(history,'reward_mean',precision=3)})   "
+         f"Falls {fmt(row,'fall_rate','.1f',scale=100)}% "
+         f"({metric_delta(history,'fall_rate',scale=100,precision=1,suffix='pp')})"),
+        (f"  Length {fmt(row,'ep_len_mean','.0f')}fr "
+         f"({metric_delta(history,'ep_len_mean',precision=0)})   "
+         f"Core {fmt(row,'core_competence','.2f')} "
+         f"({metric_delta(history,'core_competence')})"),
+        (f"  vx actual/cmd {fmt(row,'vx_mean','+.2f')}/"
          f"{fmt(row,'cmd_vx_mean','+.2f')} m/s   "
-         f"Coach: {walking}"),
-        (f"  Command frontier {fmt(row,'frontier_vx_lo','+.2f')} .. "
-         f"{fmt(row,'frontier_vx_hi','+.2f')} m/s    "
-         f"Resilience {fmt(row,'resilience_difficulty','.2f')}"),
+         f"Walk teacher {walking}"),
         "",
-        " STAIRS  [last logged training rollout; success = supported climb]",
-        (f"  +5cm short climbs: {_rate(row,'academy_short_climb_successes','academy_episodes')}"),
-        (f"  Upper footholds {fmt(row,'academy_footholds','.0f')}    "
-         f"Supported transfers {fmt(row,'academy_transfers','.0f')}    "
+        " STAIRS  [sampled training outcomes, NOT frozen stair exams]",
+        "  " + stair_window_trend(history),
+        (f"  Latest rollout climbs: "
+         f"{_rate(row,'academy_short_climb_successes','academy_episodes')}"),
+        (f"  Footholds {fmt(row,'academy_footholds','.0f')}  "
+         f"Transfers {fmt(row,'academy_transfers','.0f')}  "
          f"Up crossings {fmt(row,'academy_up_crossings','.0f')}"),
-        (f"  Frontiers: +{h_up}cm / -{h_down}cm    "
-         f"Stair coach: {stair}"),
-        (f"  Proof windows {fmt(row,'school_up_good_windows','.0f')}/2    "
-         f"Academy birth share {fmt(row,'academy_expected_birth_fraction','.0f',scale=100)}%"),
+        (f"  Frontier +{h_up}/-{h_down}cm   Stair teacher {stair}   "
+         f"Proof {fmt(row,'school_up_good_windows','.0f')}/2"),
         "",
-        " TRAINER / INDEPENDENT EVALUATION",
-        (f"  GPU PPO {fmt(row,'train_steps_per_sec',',.0f')}/s    "
-         f"Wall {fmt(row,'steps_per_sec',',.0f')}/s    "
-         f"KL {fmt(row,'ppo_approx_kl_final','.4f')}    "
+        " TRAINING / FROZEN WALKING RETENTION",
+        (f"  PPO {fmt(row,'train_steps_per_sec',',.0f')}/s   "
+         f"Wall {fmt(row,'steps_per_sec',',.0f')}/s   "
+         f"KL {fmt(row,'ppo_approx_kl_final','.4f')}   "
          f"NaN skips {fmt(row,'nan_grad_skips_total','.0f')}"),
-        f"  Frozen broad score: {exam}",
+        f"  Frozen broad score: {latest_heldout(history)}",
         "",
         " RECENT EVENTS",
     ]
-    if events:
-        lines.extend("  " + item for item in tuple(events)[-2:])
-    else:
-        lines.append("  Waiting for noteworthy transitions...")
-    lines.append("  Raw logs and metrics: run directory (console.log, metrics.csv)")
-    # Never wrap at the terminal edge: doing so would cause scroll and destroy
-    # the fixed-screen experience. Leave one spare row for terminal cursors.
-    available = max(8, int(height) - 2)
-    if len(lines) > available:
-        # On 18- to 21-row terminals, prioritise progress, walking, stair
-        # proof and latest event over less immediately useful details.
-        for label in ("", "  Command frontier", "  Frontiers:"):
-            if len(lines) <= available:
-                break
-            for i, value in enumerate(lines):
-                if value.startswith(label) and (label or value == ""):
-                    lines.pop(i)
-                    break
-        if len(lines) > available:
-            lines = lines[:available - 1] + [lines[-1]]
+    lines.extend("  " + item for item in (tuple(events)[-2:] or
+                                            ("No unusual events",)))
+    lines.append("  Full log: console.log   Raw evidence: metrics.csv, fixed_eval.csv")
+    # Don't scroll: all lines fit inside available terminal rows; remove
+    # optional blank lines and least essential decorations first.
+    max_lines = max(4, height - 2)
+    while len(lines) > max_lines and "" in lines:
+        lines.remove("")
+    if len(lines) > max_lines:
+        lines = lines[:max_lines - 1] + [lines[-1]]
     return "\n".join(line[:width - 1] for line in lines)
 
 
@@ -188,6 +263,7 @@ class ConsoleRelay:
         self.events: deque[str] = deque(maxlen=4)
         self.phase = "Initialising H40 physics / first PPO compilation"
         self.row: dict[str, str] = {}
+        self.history: list[dict[str, str]] = []
         self.lock = threading.Lock()
         self.drawn = False
 
@@ -201,7 +277,8 @@ class ConsoleRelay:
         terminal = shutil.get_terminal_size(fallback=(88, 24))
         picture = render_screen(self.row, phase=self.phase,
                                 target_steps=self.target_steps,
-                                run_name=self.run_dir.name, events=tuple(self.events),
+                                run_name=self.run_dir.name, history=self.history,
+                                events=tuple(self.events),
                                 width=terminal.columns, height=terminal.lines)
         if not self.drawn:
             self._write("\x1b[?25l\x1b[2J\x1b[H" + picture + "\x1b[J")
@@ -217,7 +294,8 @@ class ConsoleRelay:
         event = any(flag in t for flag in self.IMPORTANT)
         with self.lock:
             if is_progress:
-                self.row = last_metrics(self.run_dir / "metrics.csv")
+                self.history = read_history(self.run_dir / "metrics.csv")
+                self.row = self.history[-1] if self.history else {}
                 self.phase = "PPO training  |  " + str(self.row.get("school_stage", "learning"))
             elif "compiling MJX/JAX update" in t:
                 self.phase = "Compiling first PPO update"
@@ -234,16 +312,26 @@ class ConsoleRelay:
                     self._redraw()
             elif self.mode == "compact":
                 if is_progress:
-                    print("    " + t[:180], file=self.stream, flush=True)
+                    brief = self.row
+                    print(
+                        f"    step={fmt(brief,'step',',.0f')} "
+                        f"stage={brief.get('school_stage','-')} "
+                        f"rew={fmt(brief,'reward_mean','+.3f')} "
+                        f"Δ5M={metric_delta(self.history,'reward_mean',precision=3)} "
+                        f"fall={fmt(brief,'fall_rate','.1f',scale=100)}% "
+                        f"Δ5M={metric_delta(self.history,'fall_rate',scale=100,precision=1,suffix='pp')} "
+                        f"stairs={stair_window_trend(self.history)}",
+                        file=self.stream,flush=True)
                 elif event or "compiling MJX/JAX update" in t or "compile+first_update=" in t:
                     print("    " + t[:400], file=self.stream, flush=True)
             else:
-                if (is_progress or "AUTO-RECOVERY" in t or
-                        "training complete" in t or "Traceback" in t or
-                        any(t.startswith(re.match(r"^\[emu_[^\]]+\]", t).group() + p)
-                            for p in self.VERBOSE_PREFIXES)
-                        if re.match(r"^\[emu_[^\]]+\]", t) else
-                        "Traceback" in t):
+                match = re.match(r"^\[emu_[^\]]+\]", t)
+                prefix = match.group() if match else ""
+                visible = (is_progress or event or
+                           any(t.startswith(prefix + p)
+                               for p in self.VERBOSE_PREFIXES)
+                           if prefix else event)
+                if visible:
                     print("    " + t[:400], file=self.stream, flush=True)
 
     def pulse(self, message: str) -> None:
