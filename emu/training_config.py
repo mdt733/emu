@@ -265,10 +265,17 @@ class TrainingConfig:
         missing, extra = expected - set(data), set(data) - expected
         # No source-pinned v5045 run can accept an incomplete historical
         # config: re-creating defaults would change teacher and sensor meaning.
-        if missing or extra:
+        # Only newly introduced graduation fields may be absent in a main
+        # checkpoint's historical config; all other keys stay source-pinned.
+        new_keys={'outcome_graduation','outcome_walk_start_steps',
+                  'outcome_stair_approved','outcome_approval_start_steps',
+                  'outcome_down_share'}
+        if (missing-new_keys) or extra:
             raise ValueError(
                 f"training config keys mismatch: missing={sorted(missing)} "
                 f"extra={sorted(extra)}")
+        for key in missing:
+            data[key]=getattr(cls(),key)
         return cls(**data)
 
 

@@ -1525,6 +1525,9 @@ class EmuMJXEnv(TaskSampler):
             np.any(slope[16:18]<.001) or
             np.any(slope[16:18]>self.academy_height_cap_m)):
             raise ValueError('Academy UP/DOWN lip frontiers exceed physical compiled cap')
+        if (not np.isfinite(slope[18:21]).all() or
+                np.any(slope[18:21]<0.) or np.any(slope[18:21]>1.)):
+            raise ValueError('graduation weights must be [0,1]')
         if not np.all(np.isfinite(slope[~np.isnan(slope)])):
             raise ValueError('invalid physical terrain override')
         packed=np.concatenate((packed,slope))
