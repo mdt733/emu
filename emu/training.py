@@ -648,6 +648,7 @@ def train(args: TrainingConfig) -> int:
     # This only aggregates already-transferred scalars; no GPU work or PPO
     # behavior changes. The count is since THIS process began.
     stair_audit = StairCreditAudit()
+    last_school_stage = None
     log_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(LOG_EVERY_UPDATES))
     save_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(CHECKPOINT_EVERY_UPDATES))
     snapshot_every_steps = max(0, int(SNAPSHOT_EVERY_STEPS))
@@ -734,6 +735,22 @@ def train(args: TrainingConfig) -> int:
             foundation_steps=args.foundation_steps,
             kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']),
             academy_max_height_m=(args.academy_height_cap_m if args.academy_stream else 0.))
+        if args.progressive_school:
+            stage=report['school_stage']
+            if stage != last_school_stage:
+                print(f'{LOG_PREFIX} SCHOOL {stage} at {total_steps:,}: '
+                      f"walking-fade={report['school_walk_alpha']:.2f} "
+                      f"stairs={report['school_stairs_enabled']:.0f} "
+                      f"up-frontier={report['academy_height_up_m']*100:.1f}cm",
+                      flush=True)
+                last_school_stage=stage
+            proof=report.get('school_stair_proof_event','')
+            if proof in ('50mm_window_pass','50mm_window_retry',
+                         '50mm_training_mastery'):
+                print(f'{LOG_PREFIX} SCHOOL physical 5cm proof: {proof} '
+                      f"good-windows={report['school_up_good_windows']:.0f}/2 "
+                      f"mastered-at={report['school_stair_mastered_step']}",
+                      flush=True)
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
         report.update(health_collapse)
