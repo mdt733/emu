@@ -124,7 +124,7 @@ def _floor_support(data,geoms):
                        ((a==left)&(b==floor))))
 
 
-def drive_one_candidate(model,address,aid,geoms,candidate,*,settle_s=.30,
+def drive_one_candidate(model,address,aid,geoms,candidate,*,height_mm,forward_mm,settle_s=.30,
                         ramp_s=.60,hold_s=.35):
     """Unmodified native floor + active capped servo dynamics.
 
@@ -152,6 +152,9 @@ def drive_one_candidate(model,address,aid,geoms,candidate,*,settle_s=.30,
     best_forward_mm=-float('inf')
     best_simul=None
     first_contact_frames=0
+    target_seen_frames=0
+    target_streak=0
+    longest_target_streak=0
     measured=0
     clipped=0
     root_min=float(data.qpos[2])
@@ -179,12 +182,20 @@ def drive_one_candidate(model,address,aid,geoms,candidate,*,settle_s=.30,
                 best_simul=(lift,advance)
             best_rel_z_mm=max(best_rel_z_mm,lift)
             best_forward_mm=max(best_forward_mm,advance)
+            within_target=(lift>=height_mm and advance>=forward_mm)
+            target_seen_frames+=int(within_target)
+            target_streak=target_streak+1 if within_target else 0
+        else:
+            target_streak=0
+        longest_target_streak=max(longest_target_streak,target_streak)
     return dict(
         hip_pitch_deg=candidate['hip_pitch_deg'],
         knee_deg=candidate['knee_deg'],
         nominal_toe_lift_mm=candidate['toe_lift_mm'],
         nominal_toe_forward_mm=candidate['toe_forward_mm'],
         left_foot_ground_contact_frames=first_contact_frames,
+        target_held_frames=target_seen_frames,
+        longest_consecutive_target_frames=longest_target_streak,
         measured_frames=measured,
         max_relative_toe_lift_during_left_contact_mm=(
             round(best_rel_z_mm,2) if first_contact_frames else None),
@@ -211,7 +222,8 @@ def run(*,output:Path,height_mm:float=50.,forward_mm:float=50.,
     reach,passers=reachability(
         model,address,geoms,height_mm=height_mm,
         forward_mm=forward_mm,grid_step_deg=grid_step_deg)
-    trials=[drive_one_candidate(model,address,aid,geoms,c)
+    trials=[drive_one_candidate(model,address,aid,geoms,c,
+                                height_mm=height_mm,forward_mm=forward_mm)
             for c in passers[:drive_candidates]]
     output.mkdir(parents=True,exist_ok=True)
     with (output/"lift_kinematic_grid.csv").open("w",newline="") as fd:
@@ -240,7 +252,7 @@ def run(*,output:Path,height_mm:float=50.,forward_mm:float=50.,
            "This is an **isolated geometry + unoptimized flat-floor motor**",
            "audit, NOT proof of genuine stair climbing.","",
            "| Knee | Hip pitch | Nominal lift | Nominal advance | "
-           "Max measured lift during left contact | Contact frames |",
+           "Max measured lift during left contact | Simultaneous target frames |",
            "|---:|---:|---:|---:|---:|---:|"]
     for row in trials:
         lift=row["max_relative_toe_lift_during_left_contact_mm"]
@@ -248,7 +260,7 @@ def run(*,output:Path,height_mm:float=50.,forward_mm:float=50.,
             f"| {row['knee_deg']:+g}° | {row['hip_pitch_deg']:+g}° | "
             f"{row['nominal_toe_lift_mm']:+.1f}mm | "
             f"{row['nominal_toe_forward_mm']:+.1f}mm | "
-            f"{lift:.1f}mm | {row['left_foot_ground_contact_frames']}/{row['measured_frames']} |"
+            f"{lift:.1f}mm | {row['target_held_frames']}/{row['measured_frames']} |"
             if lift is not None else
             f"| {row['knee_deg']:+g}° | {row['hip_pitch_deg']:+g}° | "
             f"{row['nominal_toe_lift_mm']:+.1f}mm | "
