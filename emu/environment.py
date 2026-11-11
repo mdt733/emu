@@ -1831,6 +1831,15 @@ class EmuMJXEnv(TaskSampler):
                 jnp,state.academy_goal_xy,data.qpos[:,:2],heading,
                 metrics['gravity_z'],metrics['support'],metrics['bad_contact'],
                 goal_transfer_ready,state.academy_birth_lip_m)
+            if self.outcome_graduation:
+                # Unprescribed dynamic gait, but a real safe body transfer.
+                edge=state.academy_goal_xy[:,0]-.60
+                xy=data.qpos[:,:2]
+                short=(goal_transfer_ready & (xy[:,0]>=edge+.10) &
+                       (xy[:,0]<edge+.75) &
+                       (jnp.abs(xy[:,1]-state.academy_goal_xy[:,1])<.40) &
+                       (metrics['gravity_z']>=.75) & (metrics['support']>=.5) &
+                       (metrics['bad_contact']<.5))
             # At least one foot must STILL be physically supported
             # on the verified upper tile when we declare completion.
             short=(short & jnp.any(academy['goal_top_feet'],axis=1) &
@@ -1840,13 +1849,13 @@ class EmuMJXEnv(TaskSampler):
                    self.science_step_finish_on_transfer)
             finish_streak=jnp.where(
                 short,state.academy_finish_streak+1,0)
-            finish_new=finish_streak>=CLIMB_STABLE_FRAMES
+            finish_new=finish_streak>=(15 if self.outcome_graduation else CLIMB_STABLE_FRAMES)
             # Success is a TRUE absorbing PPO terminal, not a timeout.
             # A separate sparse payment distinguishes partial foothold
             # shaping from the completed whole-foot transfer lesson.
             bonus=(20.*self.science_step_goal_weight*
                    goal_new.astype(jnp.float32) +
-                   8.*finish_new.astype(jnp.float32))
+                   (25. if self.outcome_graduation else 8.)*finish_new.astype(jnp.float32))
             reward=reward+bonus
             ep_return=ep_return+bonus
             done=done | goal_new | finish_new
@@ -1854,7 +1863,33 @@ class EmuMJXEnv(TaskSampler):
             goal_new=jnp.zeros_like(done)
             finish_new=jnp.zeros_like(done)
             finish_streak=state.academy_finish_streak
-        academy={**academy,'completed':goal_new,'finish_new':finish_new}
+        # Six bounded per-episode maxima; no repeated lift/approach farming.
+        if self.outcome_graduation:
+            from .stair_nursery import nursery_progress
+            from .step_goal import DESTINATION_AFTER_LIP_M
+            foot_geoms=tuple(int(v) for v in self.ids['foot_geoms'])
+            foot=data.geom_xpos[:,foot_geoms,:]
+            foot_bottom=foot[:,:,2]-jnp.asarray(
+                self.mj_model.geom_size[list(foot_geoms),0])[None,:]
+            edge=state.academy_goal_xy[:,0]-DESTINATION_AFTER_LIP_M
+            sample=jnp.stack((jnp.broadcast_to(edge[:,None]-.025,foot_bottom.shape),
+                              foot[:,:,1],foot[:,:,2]),axis=2)
+            source_top=self._carpet_real_top_height(
+                data,sample,state.carpet_hfields)
+            healthy=(metrics['terminal']<.5)&(metrics['bad_contact']<.5)
+            assigned=(state.academy_active & step_focus & healthy &
+                      (jnp.abs(state.academy_birth_lip_m)>.03) &
+                      (jnp.abs(data.qpos[:,1]-state.academy_goal_xy[:,1])<.40))
+            nursery_best,nursery_payment,nursery_gains=nursery_progress(
+                jnp,state.nursery_best,data.qpos[:,:2],foot,foot_bottom,edge,
+                source_top,state.academy_birth_lip_m,goal_foot_seen,assigned)
+            touchdown=(goal_foot_seen & ~state.academy_goal_foot_seen)
+            nursery_payment=(nursery_payment+4.*jnp.sum(
+                touchdown.astype(jnp.float32),axis=1))*(1.-params[P.outcome_stair_alpha])
+            reward=reward+nursery_payment
+            ep_return=ep_return+nursery_payment
+        academy={**academy,'completed':goal_new,'finish_new':finish_new,
+                 'nursery_payment':nursery_payment,'nursery_gains':nursery_gains}
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
