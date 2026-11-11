@@ -557,6 +557,15 @@ def test_tof_sees_real_15cm_vertical_uphill_wall():
         level['return_height_over_foot_m'],0.,atol=1e-6)
     np.testing.assert_allclose(
         higher['return_height_over_foot_m'],.04,atol=1e-6)
+    # An upper terrace at +40mm is NOT implied by a vertical-riser
+    # hit partway up the wall. Its geometric endpoint is only +20mm.
+    wall=raised.copy()
+    wall[0]=(-.38-mount[2])/rays[0,2]
+    mixed=project(wall)
+    np.testing.assert_allclose(
+        mixed['return_height_over_foot_m'][0,:,0],.02,atol=1e-6)
+    np.testing.assert_allclose(
+        mixed['return_height_over_foot_m'][0,:,1:],.04,atol=1e-6)
     # A 20-degree body pitch must not turn a horizontal 40mm step
     # into a false slope: rotate gravity AND physically coherent foot
     # relative positions, then intersect the same gravity-level top.
