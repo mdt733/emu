@@ -225,6 +225,9 @@ UNIFIED_TERRAIN_FIELDS = (
     # Independent supported-up and supported-down frontiers, teacher only.
     ('academy_height_up_m',0.003),
     ('academy_height_down_m',0.003),
+    # Host-scheduled reward doctrine; no actor-input/schema changes.
+    ('outcome_gait_release',0.0),  # 0=early gait teacher, 1=outcome graduate
+    ('outcome_stair_hint',0.0),    # 0=off, 1=millimetre climbing nursery
 )
 UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
 P = SimpleNamespace(
@@ -248,6 +251,8 @@ P = SimpleNamespace(
     academy_episode_probability=TERRAIN_TASK_PARAM_DIM+15,
     academy_height_up_m=TERRAIN_TASK_PARAM_DIM+16,
     academy_height_down_m=TERRAIN_TASK_PARAM_DIM+17,
+    outcome_gait_release=TERRAIN_TASK_PARAM_DIM+18,
+    outcome_stair_hint=TERRAIN_TASK_PARAM_DIM+19,
 )
 
 
