@@ -386,7 +386,10 @@ def train(args: TrainingConfig) -> int:
 
     # Source-pinned curriculum fork: no 3mm warm-up for the 50mm nursery.
     if args.outcome_graduation:
-        governor.params.academy_height_up_m=max(.050,governor.params.academy_height_up_m)
+        governor.params.academy_height_up_m=min(args.academy_height_cap_m,
+            max(.050,governor.params.academy_height_up_m))
+        governor.params.academy_height_down_m=min(args.academy_height_cap_m,
+            governor.params.academy_height_down_m)
     # The capability field is built from the SAME rollout
     # metrics already transferred for PPO/governor diagnostics; there is no
     # extra simulation and no per-death host callback.  Held-out cloud results
