@@ -47,15 +47,33 @@ def hip_roll_action_saturation(xp, raw_action, academy_active):
     return out
 
 
-def stair_terminal_credit_stats(xp, advantage, reward, value, finished):
-    """Pre-update PPO credit at genuine short-climb terminal transitions.
+def nursery_bootstrap_transition(xp, pre_reset_obs, reset_obs, fell, completed):
+    """Select the physical next observation for value learning, without leaks.
 
-    The actor is optimised with BATCH-NORMALISED advantages, not reward alone.
-    A positive +8 completion payment can still produce a negative advantage
-    when the critic values the continuing per-frame reward more highly.
-    This diagnostic uses the SAME pre-update GAE and normalisation as PPO;
-    it changes neither optimisation nor the environment. A -1 measurement
-    means no completed stair event in this rollout, not a negative score.
+    A fall is absorbing, a time-limit is a truncation at the *physical*
+    pre-reset state, and a supported nursery completion is a **regenerative**
+    transition into the next valid nursery birth. For the latter, bootstrap
+    V(reset_obs) rather than erasing all continuing value with terminal=1.
+
+    Episode done still cuts the GAE trace: no subsequent episode's advantages
+    may leak backward. The completed goal still resets the physics exactly
+    once; no new teacher action or extra network is introduced.
+    """
+    finished = completed > .5
+    bootstrap_obs = xp.where(finished[:, None], reset_obs, pre_reset_obs)
+    return fell, bootstrap_obs
+
+
+def stair_terminal_credit_stats(xp, advantage, reward, value, finished,
+                                next_value, terminal):
+    """Audit exact pre-update PPO credit at physically completed nursery goals.
+
+    An episodic absorbing terminal would use delta=reward-V(s). The repeated
+    physical nursery is instead a continuing task: successful resets bootstrap
+    the *new birth's* value, just as ordinary timeouts bootstrap the pre-reset
+    physical state. A positive completion reward is not guaranteed to produce
+    a positive advantage; this records whether PPO actually reinforced it.
+    A -1 conditional statistic means no completion in this rollout.
     """
     matched = finished > .5
     count = xp.sum(matched.astype(advantage.dtype))
@@ -67,12 +85,14 @@ def stair_terminal_credit_stats(xp, advantage, reward, value, finished):
         result = xp.sum(xp.where(matched, values, 0.)) / denom
         return xp.where(count > 0., result, -1.)
 
+    effective_bootstrap=PPO_GAMMA*next_value*(1.-terminal)
     return {
         'stair_credit_finish_events': count,
         'stair_credit_finish_reward': conditional_mean(reward),
         'stair_credit_finish_value': conditional_mean(value),
-        # On a genuine absorbing terminal, delta = reward - V(s).
-        'stair_credit_finish_td': conditional_mean(reward - value),
+        'stair_credit_finish_bootstrap_value': conditional_mean(next_value),
+        'stair_credit_finish_td': conditional_mean(
+            reward+effective_bootstrap-value),
         'stair_credit_finish_adv_raw': conditional_mean(advantage),
         'stair_credit_finish_adv_normalised': conditional_mean(normalised),
         'stair_credit_finish_negative_fraction': conditional_mean(
@@ -358,32 +378,37 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 'value': value,
                 'reward': out.reward,
                 'done': out.done,
-                # True physical falls AND task-goal completions are
-                # absorbing terminals (bootstrap V=0). Ordinary timeout
-                # remains a truncation, retaining exact value bootstrap.
-                'terminal': jnp.maximum(
+                # Only a physical fall is absorbing. A verified nursery
+                # success is a regenerative reset into the next valid birth;
+                # a timeout is a truncation at the old physical state.
+                'terminal': nursery_bootstrap_transition(
+                    jnp, out.bootstrap_obs, out.obs,
                     out.metrics['episode_fell'],
                     jnp.maximum(out.metrics['academy_goal_complete_new'],
-                                out.metrics['academy_finish_new'])),
-                'bootstrap_obs': out.bootstrap_obs,
+                                out.metrics['academy_finish_new']))[0],
+                'bootstrap_obs': nursery_bootstrap_transition(
+                    jnp, out.bootstrap_obs, out.obs,
+                    out.metrics['episode_fell'],
+                    jnp.maximum(out.metrics['academy_goal_complete_new'],
+                                out.metrics['academy_finish_new']))[1],
                 'metrics': out.metrics,
             }
             s2 = PPOState(s.params, s.opt_state, out.state, out.obs, key)
             return (s2, key), trans
         (s2, key2), traj = jax.lax.scan(one_step, (state, state.key), None, length=rollout)
-        # Value every transition's true physical next state BEFORE the vec-env
-        # auto-reset. This makes timeout bootstrapping exact instead of using
-        # V(reset_state), while true physical failures still zero bootstrap.
+        # Timeouts value the physical pre-reset state; successful nursery
+        # resets value the freshly sampled next birth. Falls zero bootstrap.
+        # One batched critic evaluation handles all three cases.
         _, next_values = apply(s2.params, normalize_obs(traj['bootstrap_obs'], obs_mean, obs_std, obs_norm_mask))
         s2 = PPOState(s2.params, s2.opt_state, s2.env_state, s2.obs, key2)
         return s2, traj, next_values
 
     def compute_gae(traj, next_values):
-        """GAE with exact time-limit bootstrapping. `next_values[t]` is
-        V(s_{t+1}) from the pre-reset physical state exposed by environment.py.
-        A true fall zeros bootstrap; a timeout does not. Any episode boundary
-        still resets the eligibility trace so advantages never bleed across
-        auto-reset episodes."""
+        """GAE for absorbing falls and regenerative completion resets.
+        Timeouts bootstrap the physical pre-reset state; nursery successes
+        bootstrap the new valid birth. All done events cut the reverse GAE
+        trace, so future separate episodes never leak into earlier advantages.
+        """
         rewards = traj['reward']
         dones = traj['done']
         terminals = traj['terminal']
@@ -597,7 +622,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         # and after it, using the exact batch PPO will optimise on.
         aux_mean.update(stair_terminal_credit_stats(
             jnp, raw_adv, traj['reward'].reshape((batch_size,)), raw_val,
-            traj['metrics']['academy_finish_new'].reshape((batch_size,))))
+            traj['metrics']['academy_finish_new'].reshape((batch_size,)),
+            next_values.reshape((batch_size,)),
+            traj['terminal'].reshape((batch_size,))))
         new_state = PPOState(params, opt_state, state.env_state, state.obs, key)
         rollout_metrics = traj['metrics']
         # Mean exploration std, so a run can show directly whether
