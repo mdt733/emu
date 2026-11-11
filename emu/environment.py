@@ -1775,6 +1775,9 @@ class EmuMJXEnv(TaskSampler):
         goal_lip_armed=state.academy_goal_lip_armed
         goal_foot_streak=state.academy_goal_foot_streak
         goal_foot_seen=state.academy_goal_foot_seen
+        nursery_best=state.nursery_best
+        nursery_gains=jnp.zeros_like(nursery_best)
+        nursery_payment=jnp.zeros_like(reward)
         goal_stable_streak=state.academy_goal_stable_streak
         goal_completed=state.academy_goal_completed
         if self.science_step_goal_weight > 0. or self.science_step_finish_on_transfer:
@@ -1796,12 +1799,17 @@ class EmuMJXEnv(TaskSampler):
             in_goal_tile=jnp.all(observed_cell==destination_cell,axis=1)
             goal_lip_armed=(goal_lip_armed |
                             (academy['cross_new'] & in_goal_tile))
-            foot_ok=(academy['goal_top_feet'] &
-                     goal_lip_armed[:,None] & in_goal_tile[:,None])
+            if self.outcome_graduation:
+                # Lead-foot upper contact usually precedes chassis transfer.
+                goal_lip_armed=goal_lip_armed | (state.academy_active &
+                    (jnp.abs(state.academy_birth_lip_m)>.03))
+            foot_ok=(academy['goal_top_feet'] & goal_lip_armed[:,None])
+            if not self.outcome_graduation:
+                foot_ok=foot_ok & in_goal_tile[:,None]
             goal_foot_streak=jnp.where(
                 foot_ok,goal_foot_streak+1,0)
             goal_foot_seen=(goal_foot_seen |
-                            (goal_foot_streak>=5))
+                            (goal_foot_streak>=(3 if self.outcome_graduation else 5)))
             goal_transfer_ready=(goal_transfer_ready |
                                  jnp.all(goal_foot_seen,axis=1))
             strict=arrival_quality(
@@ -2734,9 +2742,10 @@ class EmuMJXEnv(TaskSampler):
         if self.outcome_graduation:
             # Physical 50mm first lip; subsequent frontiers stay independent.
             from .terrain_carpet_mjx import exact_exam_lip_profiles
-            jitter=hash_float(jnp,0,0,seeds,505902)
-            down_draw=(hash_float(jnp,0,0,seeds,505903) <
-                       params[P.outcome_down_share])
+            draws=jax.vmap(lambda k:jax.random.uniform(
+                jax.random.fold_in(k,505902),(2,)))(keys)
+            jitter=draws[:,0]
+            down_draw=(draws[:,1] < params[P.outcome_down_share])
             height=jnp.where(down_draw,
                 -jnp.maximum(.003,params[P.academy_height_down_m]),
                 jnp.maximum(.050,params[P.academy_height_up_m]))
