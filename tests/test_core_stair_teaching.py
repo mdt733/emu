@@ -95,7 +95,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
             np.asarray(jax.device_get(out.state.academy_goal_xy))).all())
 
     def test_real_millimetre_credit_cannot_farm_or_cross_wall_low(self):
-        from emu.stair_nursery import nursery_progress
+        from emu.step_goal import nursery_progress
         foot=np.array([[[.96,.48,.14],[.90,.53,.12]]],np.float32)
         body=np.array([[.79,.5]],np.float32)
         bottom=np.array([[.13,.11]],np.float32)
