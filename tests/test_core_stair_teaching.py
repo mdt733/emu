@@ -23,6 +23,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
             terrain_carpet_prisms=True,academy_stream=True,
             terrain_lesson="coherent-careful",
             outcome_graduation=True,
+            progressive_school=True,
             science_step_finish_on_transfer=True,
             solver_iterations=2,solver_ls_iterations=4,
             science_gate_mode="zero-only",
@@ -129,6 +130,42 @@ class CoreStairPhysicsTests(unittest.TestCase):
 
     def test_sync_off_reduces_only_phase_payment(self):
         self._assert_real_millimetre_credit_cannot_farm_or_cross_wall_low()
+        # Checkpoint-persistent stair graduation: two independent successful
+        # 100-attempt windows at REAL near-50mm uphill lips. A failed
+        # window must reset proof streak; 0/partial footholds never pass.
+        from emu.curriculum import RegimeGovernor
+        g=RegimeGovernor(unified_capability_focus=True,outcome_mode=True,
+                         progressive_school=True)
+        g.params.academy_height_up_m=.05
+        assert g.observe_school_evidence(
+            {'academy_near_attempts_up':100.,
+             'academy_near_successes_up':100.},
+            step=80_000_000,stairs_enabled=False)=='no_new_50mm_proof'
+        self.assertEqual(g.school_up_window_attempts,0.)
+        g.school_walking_graduated=True
+        def evidence(attempts,successes,step):
+            return g.observe_school_evidence(
+                {'academy_near_attempts_up':attempts,
+                 'academy_near_successes_up':successes},
+                step=step,stairs_enabled=True)
+        self.assertEqual(evidence(100.,75.,90_000_000),'50mm_window_pass')
+        self.assertEqual(g.school_up_good_windows,1)
+        self.assertEqual(evidence(100.,40.,90_100_000),'50mm_window_retry')
+        self.assertEqual(g.school_up_good_windows,0)
+        self.assertEqual(evidence(100.,80.,90_200_000),'50mm_window_pass')
+        self.assertEqual(evidence(100.,71.,90_300_000),'50mm_training_mastery')
+        self.assertEqual(g.school_stair_mastered_step,90_300_000)
+        trained=g.state_dict()
+        restored=RegimeGovernor(unified_capability_focus=True,outcome_mode=True,
+                                progressive_school=True)
+        restored.load_state_dict(trained)
+        self.assertEqual(restored.state_dict(),trained)
+        damaged=dict(trained,school_up_window_successes=1.,
+                     school_up_window_attempts=0.)
+        with self.assertRaisesRegex(ValueError,'invalid progressive school'):
+            restored.load_state_dict(damaged)
+        # Mastery is a TRAINING gate. Independent frozen +50mm exams are
+        # still mandatory before making an external capability claim.
         m=dict(cmd_pitch=np.ones(1)*0.,height_error=np.zeros(1),
                attitude_quality=np.ones(1),foot_mid_cone=np.ones(1),
                bad_contact=np.zeros(1),support=np.ones(1),
