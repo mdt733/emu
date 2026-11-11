@@ -340,9 +340,18 @@ class StairCreditAudit:
 
     CREDIT_FIELDS = (
         'stair_credit_finish_reward', 'stair_credit_finish_value',
+        'stair_credit_finish_bootstrap_value',
         'stair_credit_finish_td', 'stair_credit_finish_adv_raw',
         'stair_credit_finish_adv_normalised',
         'stair_credit_finish_negative_fraction',
+    )
+    # Actual teacher-only stage progress, summed over every PPO rollout.
+    # Lift/over are per-birth high-water increments (not frame dwell time).
+    PROGRESS_FIELDS = (
+        'nursery_reward_sum', 'nursery_progress_approach_sum',
+        'nursery_progress_r_lift_sum', 'nursery_progress_l_lift_sum',
+        'nursery_progress_r_over_sum', 'nursery_progress_l_over_sum',
+        'nursery_progress_chassis_sum',
     )
     GATE_FIELDS = (
         'academy_episodes', 'academy_episodes_first_lip_armed',
@@ -354,6 +363,7 @@ class StairCreditAudit:
         self.events = 0.0
         self.credit_sums = {name: 0.0 for name in self.CREDIT_FIELDS}
         self.gate_sums = {name: 0.0 for name in self.GATE_FIELDS}
+        self.progress_sums = {name: 0.0 for name in self.PROGRESS_FIELDS}
         self.speed_weight = 0.0
         self.command_weighted_sum = 0.0
         self.velocity_weighted_sum = 0.0
@@ -378,6 +388,11 @@ class StairCreditAudit:
                 self.credit_sums[name] += n * value
         for name in self.GATE_FIELDS:
             self.gate_sums[name] += float(row.get(name, 0.))
+        for name in self.PROGRESS_FIELDS:
+            value=float(row.get(name, 0.))
+            if not math.isfinite(value) or value < 0.:
+                raise ValueError(f'invalid nursery progress {name}: {value}')
+            self.progress_sums[name] += value
         # Each rollout has the same number of control frames; frame
         # occupancy is the correct weight, not episode count.
         weight = float(row.get('academy_active_fraction', 0.))
@@ -414,6 +429,7 @@ class StairCreditAudit:
             prefix + 'finish_events': self.events,
         }
         out.update({prefix + k: v for k, v in self.gate_sums.items()})
+        out.update({prefix + k: v for k, v in self.progress_sums.items()})
         out.update({prefix + name.replace('stair_credit_', ''):
                     self.credit_sums[name] / self.events
                     if self.events else -1.
@@ -933,6 +949,7 @@ def augment_rollout_row(
         'ppo_stair_credit_finish_events': 'stair_credit_finish_events',
         'ppo_stair_credit_finish_reward': 'stair_credit_finish_reward',
         'ppo_stair_credit_finish_value': 'stair_credit_finish_value',
+        'ppo_stair_credit_finish_bootstrap_value': 'stair_credit_finish_bootstrap_value',
         'ppo_stair_credit_finish_td': 'stair_credit_finish_td',
         'ppo_stair_credit_finish_adv_raw': 'stair_credit_finish_adv_raw',
         'ppo_stair_credit_finish_adv_normalised': 'stair_credit_finish_adv_normalised',
@@ -1020,6 +1037,14 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'academy_four_lip_milestones': float(np.asarray(
             metrics.get('academy_course_new',0.)).sum()),
         'academy_reward_per_frame': mean_metric(metrics,'academy_reward'),
+        # Physical nursery shaping is separate from the old v5052
+        # reward_weighted_goal_progress, which may correctly remain zero.
+        # Report the actual payment and bounded six-stage high-water gains.
+        'nursery_reward_sum': float(np.asarray(
+            metrics.get('nursery_reward',0.)).sum()),
+        **{f'nursery_progress_{stage}_sum':float(np.asarray(
+            metrics.get(f'nursery_progress_{stage}',0.)).sum())
+           for stage in ('approach','r_lift','l_lift','r_over','l_over','chassis')},
         'terrain_ascent_guidance_per_frame': mean_metric(metrics, 'terrain_ascent_guidance'),
         'terrain_verified_transfer_reward_sum': float(
             np.asarray(metrics.get('terrain_verified_transfer_credit',0.)).sum()),
