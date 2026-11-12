@@ -1001,6 +1001,10 @@ class RegimeGovernor:
                     else 0)
                 if s['uncoached_failed_windows']>=2:
                     s['rescue_end_step']=step+SCHOOL_RESCUE_STEPS
+                    # After the 5M refresh + 5M re-fade, skip the first
+                    # boundary rollout: it may still contain assisted
+                    # rewards. Only the NEXT clean rollout earns proof.
+                    s['coaching_off_step']=-1
                     s['uncoached_failed_windows']=0
                     s['uncoached_good_windows']=0
                     return 'uncoached_50mm_rescue_started'
