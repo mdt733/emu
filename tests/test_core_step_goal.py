@@ -34,7 +34,8 @@ def metrics(*, vx=.12, active=True, support=1., slip=0.):
 
 class CoreAcademyTests(unittest.TestCase):
 
-    def test_two_lip_signed_physics_and_no_suicide_finish(self):
+    def test_reward_goal_and_velocity_relief_are_academy_only(self):
+        # C continuation regression proof shares this existing core test:
         first=np.asarray([.050,-.020],np.float32)
         second=np.asarray([.050,+.050],np.float32)
         x,y=two_lip_continuation_profiles(np,first,second)
@@ -65,7 +66,7 @@ class CoreAcademyTests(unittest.TestCase):
         self.assertFalse(qualify(yaw=.6),'turning away')
         self.assertFalse(qualify(fell=True),'a fall can never be success')
 
-    def test_step_relief_fades_away_between_two_lips(self):
+
         m=metrics(vx=.04)
         m['science_step_near_lip_frac']=np.asarray([1.,0.],np.float32)
         reg=np.zeros((2,),np.float32)
@@ -75,7 +76,6 @@ class CoreAcademyTests(unittest.TestCase):
         self.assertAlmostEqual(float(relaxed[1]),float(original[1]),places=6)
         self.assertIn('science_step_near_lip_frac',REWARD_ONLY_METRICS)
 
-    def test_reward_goal_and_velocity_relief_are_academy_only(self):
         m=metrics(vx=.08)
         regime=np.zeros((2,),dtype=np.float32)
         original,_=training_reward(m,regime,xp=np)
