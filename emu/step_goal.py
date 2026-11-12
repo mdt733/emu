@@ -147,7 +147,7 @@ def nursery_progress(xp, previous, body_xy, foot_xyz, foot_bottom, edge_x,
 
 
 def two_lip_continuation_success(xp, *, academy_active, supported_lips,
-                                 half_metre_after_second,
+                                 first_lip_two_feet, half_metre_after_second,
                                  samples, mean_vx, mean_cmd_vx,
                                  gravity_z, support, bad_contact,
                                  yaw_error, terminal):
@@ -161,6 +161,7 @@ def two_lip_continuation_success(xp, *, academy_active, supported_lips,
     This check must never enter the deployable 360-input observation.
     """
     return (academy_active & (supported_lips>=2) &
+            first_lip_two_feet &
             half_metre_after_second & (samples>=20) &
             (mean_cmd_vx>=.075) & (mean_vx>=.05) &
             (xp.abs(mean_vx-mean_cmd_vx)<=.10) &
