@@ -3,6 +3,8 @@
 // Changing model.hfield_data is supported by MuJoCo at runtime, whereas
 // editing compiled collision-mesh vertices would be unsafe. This is viewer
 // geometry (two top triangles, vertical sides), not an MJX-prism replay.
+import {specialistTileCorners} from './specialist-scenes.js';
+
 export const LAB_TILE_M=1;
 export const LAB_FIELD_SIDE=15; // 7m physical margin around the player
 export const LAB_FIELD_HALF=7;
@@ -112,6 +114,11 @@ function continuousRelief(x,y,config){
   return peak*scale*.49*(broad+rolling+detail+ridges);
 }
 export function carpetTileCorners(i,j,config=MEADOW_DEFAULTS){
+  // Physical specialist fixtures override natural Meadow noise ONLY here.
+  // Both the actual MuJoCo collision hfields and rendered grass read these
+  // four corners. No shader-only or diagnostic-only obstacle is permitted.
+  const fixture=specialistTileCorners(i,j,config.scenario);
+  if(fixture)return fixture;
   const c=normalizedMeadowSettings(config),l=carpetLocalLimits(j+.5,c);
   const h=hash(i,j,c.seed+91),event=hash(i,j,c.seed+73);
   const eligible=event<l.stepFrequency;
@@ -160,6 +167,9 @@ export function createSensorLabCarpet(config={}){
     limits:config,features:[],trees:[],flatRadius:0,
     revision:0,at,sampleHeight,window:()=>tiles,
     difficultyAt:y=>carpetLocalLimits(y,config),
+    configureScenario(scenario){
+      config.scenario=scenario;
+    },
     resetGrowth(){
       anchor=initial.slice();
       this.anchor=anchor.slice();
