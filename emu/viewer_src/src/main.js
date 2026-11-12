@@ -37,6 +37,7 @@ const viewerWorldMode=$('viewerWorldMode'),drillRole=$('drillRole');
 const drillNext=$('drillNext'),drillReplay=$('drillReplay'),drillAutoNext=$('drillAutoNext');
 const carpetEdits=new Map();
 let drillSequence=0,activeDrill=null,drillFinishedAt=null;
+let drillStats={finished:0,climbs:0,survived:0,falls:0,timeouts:0};
 const isDrill=()=>viewerWorldMode.value==='drill';
 const tuningInputs=Object.fromEntries(SLIDER_FIELDS.map(([key,id])=>[key,$(id)]));
 let carpetExerciseClock=0;
@@ -450,25 +451,39 @@ function runDrill(){
 function observeDrill(){
   if(!sim||!activeDrill||sim.paused)return;
   const result=sim.drillResult;
-  if(result&&!drillFinishedAt)drillFinishedAt=performance.now();
+  if(result&&!drillFinishedAt){
+    drillFinishedAt=performance.now();
+    drillStats.finished++;
+    if(result==='supported-climb')drillStats.climbs++;
+    else if(result==='survived')drillStats.survived++;
+    else if(result==='fall')drillStats.falls++;
+    else if(result==='timeout')drillStats.timeouts++;
+  }
   const e=activeDrill;
   const duration=Math.min(e.durationS,sim.drillElapsedS).toFixed(1);
   const proof=sim.drillProof;
   const outcome=result==='supported-climb'?'SUPPORTED CLIMB':
     result==='survived'?'SURVIVED (not proof of command tracking)':
     result==='fall'?'FELL':result==='timeout'?'TIMEOUT':'RUNNING';
+  const observed=drillStats.finished;
+  const pass=e.role==='step'?drillStats.climbs:drillStats.survived;
+  const scoreboard=observed?' · session '+pass+'/'+observed+
+    ' ('+(100*pass/observed).toFixed(1)+'%)':' · session 0 finished';
   $('drillStatus').textContent='Episode '+e.sequence+' · '+e.role+
     ' · '+outcome+' · '+duration+'/'+e.durationS+'s'+
     (e.role==='step'?' · lip '+(e.riseM*100).toFixed(2)+'cm'+
       ' · upper feet R/L '+(proof.rightSeen?'✓':proof.right+'/3')+
       '/'+(proof.leftSeen?'✓':proof.left+'/3')+
       ' · stable '+proof.stable+'/15':'')+
-    ' · spawning '+((1-e.spawnX)*100).toFixed(0)+'cm before lip';
+    ' · spawning '+((1-e.spawnX)*100).toFixed(0)+'cm before lip'+scoreboard;
   if(result&&drillAutoNext.checked&&
       performance.now()-drillFinishedAt>=1600)beginDrill();
 }
 viewerWorldMode.addEventListener('change',applyViewerWorldMode);
-drillRole.addEventListener('change',()=>{if(isDrill())beginDrill();});
+drillRole.addEventListener('change',()=>{
+  drillStats={finished:0,climbs:0,survived:0,falls:0,timeouts:0};
+  if(isDrill())beginDrill();
+});
 drillNext.addEventListener('click',()=>{if(isDrill())beginDrill();});
 drillReplay.addEventListener('click',()=>{if(isDrill())beginDrill(true);});
 
