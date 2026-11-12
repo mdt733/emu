@@ -65,6 +65,9 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
         ('academy_near_successes_up','Academy near-height supported up'),
         ('academy_near_attempts_down','Academy near-height downhill encounters'),
         ('academy_near_successes_down','Academy near-height supported down'),
+        ('academy_two_lip_continuations','Two real lips + 50cm commanded vx successes'),
+        ('academy_first_lip_supported_episodes','Intro-only episodes: first physical foot transfer'),
+        ('academy_two_lip_crossed_episodes','Episodes with 2 verified signed lip crossings'),
         ('academy_footholds','Academy upper footholds'),
         ('academy_transfers','Academy supported weight transfers'),
         ('academy_four_lip_milestones','Academy 4 supported lips (nonterminal)'),
@@ -1009,6 +1012,18 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             metrics.get('academy_cross_up',0.)).sum()),
         'academy_down_crossings': float(np.asarray(
             metrics.get('academy_cross_down',0.)).sum()),
+        'academy_two_lip_continuations': float(np.asarray(
+            metrics.get('academy_two_lip_continued_new',0.)).sum()),
+        'academy_first_lip_supported_episodes': float(np.asarray(
+            metrics.get('academy_first_lip_supported_at_end',0.)).sum()),
+        'academy_two_lip_crossed_episodes': float(np.asarray(
+            metrics.get('academy_two_lip_crossed_at_end',0.)).sum()),
+        # Introductory physical first-transfer successes feed ONLY the
+        # coached gate. Post-coaching graduation uses the existing near/
+        # anchor successes, now requiring a TWO-LIP course completion.
+        **{f'academy_near_first_lip_{direction}':float(np.asarray(
+            metrics.get(f'academy_near_first_lip_{direction}',0.)).sum())
+            for direction in ('up','down')},
         'academy_footholds': float(np.asarray(
             metrics.get('academy_foothold_new',0.)).sum()),
         'academy_transfers': float(np.asarray(
