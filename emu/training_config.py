@@ -199,6 +199,7 @@ class TrainingConfig:
     outcome_graduation: bool = False
     progressive_school: bool = False  # one cold 0/20/60/80M evidence-gated learner
     refined_school: bool = False  # optional staged post-5cm retention / sequential descent fork
+    bidirectional_school: bool = False  # matched 50/50 ascent/descent lessons from walking graduation
     outcome_walk_start_steps: int = 60_000_000
     outcome_stair_approved: bool = False
     outcome_approval_start_steps: int = 0
