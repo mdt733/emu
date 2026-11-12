@@ -5,6 +5,7 @@ import { joystickToCommands, DemoHandoff, commandStickPositions } from './contro
 import { EmuBrowserSim } from './sim.js';
 import { terrainHeightOffsetsCm } from './sensor.js';
 import { CARPET_DEFAULT, parseCarpetMetrics, trainingLimits } from './training-carpet.js';
+import { sampleTrainingDrill, drillCommand } from './training-drills.js';
 import { MEADOW_DEFAULTS, normalizedMeadowSettings } from './sensor-lab-carpet.js';
 import { carpetLearningStage, carpetRepresentativeRole, terrainRoleEnvelope } from './training-solid-carpet.js';
 import { specialistLesson, friendlyFrontiers, SLIDER_FIELDS, roleSliders, customRoleOverride, carpetGeometrySignature } from './training-inspector.js';
@@ -32,7 +33,11 @@ const carpetMatch=$('carpetMatch'),carpetDrive=$('carpetDrive');
 const carpetShoves=$('carpetShoves'),carpetTestShove=$('carpetTestShove');
 const carpetPushRate=$('carpetPushRate'),carpetResetLimits=$('carpetResetLimits');
 const carpetDifficultyMode=$('carpetDifficultyMode'),carpetStepTrack=$('carpetStepTrack');
+const viewerWorldMode=$('viewerWorldMode'),drillRole=$('drillRole');
+const drillNext=$('drillNext'),drillReplay=$('drillReplay'),drillAutoNext=$('drillAutoNext');
 const carpetEdits=new Map();
+let drillSequence=0,activeDrill=null,drillFinishedAt=null;
+const isDrill=()=>viewerWorldMode.value==='drill';
 const tuningInputs=Object.fromEntries(SLIDER_FIELDS.map(([key,id])=>[key,$(id)]));
 let carpetExerciseClock=0;
 let carpetLastExercise='';
@@ -167,6 +172,9 @@ function humanStickChange(side,x,y) {
      (Math.abs(x)>.06||Math.abs(y)>.06)){
     carpetDrive.value='manual';syncCarpetExercise();
   }
+  if(isDrill() && (Math.abs(x)>.06||Math.abs(y)>.06)){
+    viewerWorldMode.value='meadow';applyViewerWorldMode();
+  }
   if(demoActive && (Math.abs(x)>.06||Math.abs(y)>.06))stopDemo();
   if(!demoActive){
     handoff.takeControl(performance.now()/1000);
@@ -279,6 +287,7 @@ async function activatePolicy(index) {
     lastResetGeneration=-1;
     syncGoalMode();
     syncCarpetExercise();
+    applyViewerWorldMode();
     return true;
   } catch (err) {
     console.error(err);
@@ -322,7 +331,10 @@ pauseBtn.addEventListener('click', () => {
   sim.paused = !sim.paused;
   pauseBtn.textContent = sim.paused ? 'Resume' : 'Pause';
 });
-resetBtn.addEventListener('click', () => sim?.reset());
+resetBtn.addEventListener('click', () => {
+  if(isDrill())beginDrill(true);
+  else sim?.reset();
+});
 cameraBtn.addEventListener('click', () => {
   cameraMode = cameraModes[(cameraModes.indexOf(cameraMode) + 1) % cameraModes.length];
   sim?.setCameraMode(cameraMode);
@@ -334,8 +346,9 @@ function updateWorldTabs(){
   document.body.dataset.world='meadow';
   $('carpetHudRow').hidden=false;
   $('carpetGrowthRow').hidden=false;
-  $('viewerExercise').textContent=demoActive
-    ?'Meadow stroll':currentCarpetLesson().heading;
+  $('viewerExercise').textContent=isDrill()
+    ?'Specialist drill: '+drillRole.value
+    :demoActive?'Meadow stroll':currentCarpetLesson().heading;
 }
 function carpetSourceLimits(){
   const role=carpetRepresentativeRole(carpetDifficulty,carpetRole.value);
@@ -371,7 +384,98 @@ function currentCarpetLesson(){
 function carpetTerrainSignature(){
   return carpetGeometrySignature(currentCarpetLesson(),carpetStepTrack.value);
 }
+function drillInputLimits(){
+  // Respect BOTH the teacher frontier and the exported actor limits.
+  const c=limits(),b=carpetDifficulty;
+  const as=(value,fallback)=>value!==''&&value!=null&&Number.isFinite(Number(value))
+    ?Number(value):fallback;
+  return {...b,
+    vxHi:Math.min(as(b.vxHi,c.vx_max),c.vx_max),
+    vxLo:Math.max(as(b.vxLo,c.vx_min),c.vx_min),
+    vyMax:Math.min(as(b.vyMax,c.vy_abs),c.vy_abs),
+    yawMax:Math.min(as(b.yawMax,c.yaw_abs),c.yaw_abs)
+  };
+}
+function beginDrill(replay=false){
+  if(!isDrill()||!sim)return;
+  if(demoActive)stopDemo();
+  // Replay reuses the seed/spawn/difficulty; Next draws from the latest
+  // training frontier. No checkpoint/learner state is touched.
+  if(!replay||!activeDrill)
+    activeDrill=sampleTrainingDrill(drillInputLimits(),drillRole.value,++drillSequence);
+  drillFinishedAt=null;
+  carpetDrive.value='lesson';
+  sim.setSpecialistDrill(activeDrill);
+  sim.autoReset=false;
+  sim.setShovePreview({
+    enabled:activeDrill.role==='resilience'&&activeDrill.shoveN>0,
+    forceLimitN:activeDrill.role==='resilience'?activeDrill.shoveN:0,
+    intensity:activeDrill.shoveIntensity,mode:'training'
+  });
+  updateWorldTabs();
+  const e=activeDrill,age=e.sourceStep?Math.round(e.sourceStep/1e6)+'M':'not loaded';
+  const geom=e.role==='step'
+    ?(e.riseM>=0?'+':'')+(e.riseM*100).toFixed(2)+'cm lip'
+    :Math.abs(e.slopeDeg)>0?e.slopeDeg.toFixed(1)+'° signed grade':'level terrain';
+  $('drillStatus').textContent='Episode '+e.sequence+' · '+e.role+' · '+geom+
+    ' · spawn '+((1-e.spawnX)*100).toFixed(0)+'cm upstream'+
+    ' · source '+age+'. Running…';
+  $('drillEvidence').textContent=
+    (carpetDifficulty.source==='training'?'Live/imported teacher frontiers':
+     'Illustrative defaults — import or connect current training to match')+
+    '. Browser MuJoCo 1m collision tiles, not MJX eight-prism replay. '+
+    'Physical 15-frame supported-climb spectator check; NOT an independent GPU exam.';
+}
+function applyViewerWorldMode(){
+  $('drillControls').hidden=!isDrill();
+  $('meadowDifficultyPanel').hidden=isDrill();
+  if(!sim){updateWorldTabs();return;}
+  if(isDrill()){
+    beginDrill();
+  }else{
+    activeDrill=null;drillFinishedAt=null;
+    sim.setSpecialistDrill(null);
+    syncCarpetExercise();
+    updateWorldTabs();
+  }
+}
+function runDrill(){
+  if(!sim||!activeDrill||sim.paused||sim.drillResult)return;
+  const cmd=drillCommand(activeDrill,sim.drillElapsedS);
+  sim.setDemoCommands(cmd);
+  const v=sim.commandTarget;
+  $('lessonCommand').textContent='Drill command: vx '+fmtSigned(v.vx)+
+    ' · vy '+fmtSigned(v.vy)+' · yaw '+fmtSigned(v.yaw);
+}
+function observeDrill(){
+  if(!sim||!activeDrill||sim.paused)return;
+  const result=sim.drillResult;
+  if(result&&!drillFinishedAt)drillFinishedAt=performance.now();
+  const e=activeDrill;
+  const duration=Math.min(e.durationS,sim.drillElapsedS).toFixed(1);
+  const proof=sim.drillProof;
+  const outcome=result==='supported-climb'?'SUPPORTED CLIMB':
+    result==='survived'?'SURVIVED (not proof of command tracking)':
+    result==='fall'?'FELL':result==='timeout'?'TIMEOUT':'RUNNING';
+  $('drillStatus').textContent='Episode '+e.sequence+' · '+e.role+
+    ' · '+outcome+' · '+duration+'/'+e.durationS+'s'+
+    (e.role==='step'?' · lip '+(e.riseM*100).toFixed(2)+'cm'+
+      ' · foothold R/L '+proof.right+'/'+proof.left+
+      ' · stable '+proof.stable+'/15':'')+
+    ' · spawning '+((1-e.spawnX)*100).toFixed(0)+'cm before lip';
+  if(result&&drillAutoNext.checked&&
+      performance.now()-drillFinishedAt>=1600)beginDrill();
+}
+viewerWorldMode.addEventListener('change',applyViewerWorldMode);
+drillRole.addEventListener('change',()=>{if(isDrill())beginDrill();});
+drillNext.addEventListener('click',()=>{if(isDrill())beginDrill();});
+drillReplay.addEventListener('click',()=>{if(isDrill())beginDrill(true);});
+
 function syncCarpetExercise(){
+  if(isDrill()){
+    if(sim)sim.autoReset=false;
+    return;
+  }
   if(!sim||terrainMode.value!=='carpet'){
     sim?.setShovePreview({enabled:false,forceLimitN:0});
     return;
@@ -532,7 +636,7 @@ function updateTerrain(){
   }catch(err){setStatus('Meadow unavailable: '+String(err?.message||err),'error');}
 }
 function runCarpetLesson(dt){
-  if(!sim||sim.paused||demoActive||carpetDrive.value!=='lesson')return;
+  if(isDrill()||!sim||sim.paused||demoActive||carpetDrive.value!=='lesson')return;
   const lesson=currentCarpetLesson();
   carpetExerciseClock+=Math.max(0,Math.min(.10,dt));
   const command=lesson.commandAt(carpetExerciseClock);
@@ -904,7 +1008,10 @@ window.addEventListener('keydown', e => {
     held.add(e.code); updateKeyboard(); e.preventDefault();
   } else if (e.code === 'Space' && sim) {
     sim.paused = !sim.paused; pauseBtn.textContent = sim.paused ? 'Resume' : 'Pause'; e.preventDefault();
-  } else if (e.code === 'Backspace' && sim) { sim.reset(); e.preventDefault(); }
+  } else if (e.code === 'Backspace' && sim) {
+    if(isDrill())beginDrill(true);else sim.reset();
+    e.preventDefault();
+  }
 });
 window.addEventListener('keyup', e => { held.delete(e.code); updateKeyboard(); });
 
@@ -957,10 +1064,12 @@ function frame(ms){
       const manual=held.size>0||leftStick.pointerId!==null||
         rightStick.pointerId!==null||Math.hypot(left.x,left.y)>.06||
         Math.hypot(right.x,right.y)>.06;
-      if(!demoActive&&handoff.shouldResume(now,manual))startDemo();
-      if(demoActive)meadowStroll(dt);
-      runCarpetLesson(dt);
+      if(!isDrill()&&!demoActive&&handoff.shouldResume(now,manual))startDemo();
+      if(!isDrill()&&demoActive)meadowStroll(dt);
+      if(isDrill())runDrill();
+      else runCarpetLesson(dt);
       sim.advance(dt);
+      if(isDrill())observeDrill();
       sim.render(dt);
       updateTelemetry(now,dt);
     }
@@ -984,6 +1093,10 @@ function stopDemo(){
 }
 function startDemo(){
   if(!sim)return;
+  if(isDrill()){
+    viewerWorldMode.value='meadow';
+    applyViewerWorldMode();
+  }
   demoActive=true;
   handoff.resume();
   $('liveDemo').checked=true;
