@@ -91,13 +91,26 @@
             <p class="subtle">Each specialist has its own observable physical exercise. Steps repeatedly spawn before a real signed lip; these are viewer observations, not frozen MJX exam results.</p>
             <label id="sceneHeightRow" class="tuning-row">Step height <output id="sceneHeightOut">5.0 cm</output>
               <input id="sceneHeight" type="range" min="0.5" max="8" value="5" step=".1"></label>
+            <label id="sceneApproachRow" class="tuning-row">Angle to lip <output id="sceneApproachOut">0.0°</output>
+              <input id="sceneApproach" type="range" min="-15" max="15" value="0" step=".5"></label>
+            <label id="sceneCommandRow">Command axis
+              <select id="sceneCommandAxis">
+                <option value="cycle">Cycle all six commands</option>
+                <option value="vx-pos">Forward +vx</option>
+                <option value="vx-neg">Reverse −vx</option>
+                <option value="vy-pos">Strafe +vy</option>
+                <option value="vy-neg">Strafe −vy</option>
+                <option value="yaw-pos">Turn +yaw</option>
+                <option value="yaw-neg">Turn −yaw</option>
+              </select>
+            </label>
             <label id="sceneGradeRow" class="tuning-row">Slope angle <output id="sceneGradeOut">8.0°</output>
               <input id="sceneGrade" type="range" min="0" max="15" value="8" step=".5"></label>
             <label id="sceneDistanceRow" class="tuning-row">Spawn distance from lip <output id="sceneDistanceOut">22.5 cm</output>
               <input id="sceneDistance" type="range" min="15" max="38" value="22.5" step=".5"></label>
-            <label class="tuning-row">Forward command <output id="sceneSpeedOut">0.16 m/s</output>
+            <label class="tuning-row">Command magnitude <output id="sceneSpeedOut">0.16</output>
               <input id="sceneSpeed" type="range" min=".04" max=".35" value=".16" step=".01"></label>
-            <label class="viewer-checkbox"><input id="sceneRandomize" type="checkbox" checked> Randomise Academy births (15–30cm before lip, lateral ±5cm, lip ±0.25cm)</label>
+            <label class="viewer-checkbox"><input id="sceneRandomize" type="checkbox" checked> Randomise Academy births (15–30cm distance, ±5cm lateral, ±3° heading, ±0.25cm lip)</label>
             <div id="sceneStatus" class="lesson-card" role="status" aria-live="polite">Select a specialist exercise above.</div>
             <button id="sceneNext" type="button">Start another physical attempt</button>
           </section>
