@@ -96,6 +96,13 @@ export function trainingLimits(data){
     academyStartSteps:as(cfg.academy_start_steps,80_000_000,0,1e12),
     academyRampSteps:as(cfg.academy_ramp_steps,20_000_000,0,1e12),
     academyStream:cfg.academy_stream===true,
+    refinedSchool:cfg.refined_school===true,
+    schoolStage:String(row.school_stage||'unknown'),
+    schoolDescentUnlockedStep:as(row.school_descent_unlocked_step,-1,-1,1e12),
+    schoolDescentCertifiedStep:as(row.school_descent_certified_step,-1,-1,1e12),
+    schoolDownShare:as(row.school_descent_unlocked_step,-1,-1,1e12)<0?0:
+      as(row.school_descent_certified_step,-1,-1,1e12)>=0?.20:.10,
+    schoolStairAlpha:as(row.school_stair_alpha,0,0,1),
     trainingCarpet:cfg.terrain_carpet===true,
     trainingCarpetPrisms:cfg.terrain_carpet_prisms===true,
     transitionMeasured,transitionConfigured,
