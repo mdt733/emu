@@ -477,7 +477,7 @@ sceneMode.addEventListener('change',()=>{
 for(const [element,output,unit,digits] of [
   [sceneHeight,'sceneHeightOut',' cm',1],
   [sceneGrade,'sceneGradeOut','°',1],
-  [sceneDistance,'sceneDistanceOut',' cm',0],
+  [sceneDistance,'sceneDistanceOut',' cm',1],
   [sceneSpeed,'sceneSpeedOut',' m/s',2]]){
   element.addEventListener('input',()=>{
     $(output).textContent=Number(element.value).toFixed(digits)+unit;
