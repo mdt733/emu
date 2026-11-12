@@ -6,6 +6,7 @@ import { EmuBrowserSim } from './sim.js';
 import { terrainHeightOffsetsCm } from './sensor.js';
 import { CARPET_DEFAULT, parseCarpetMetrics, trainingLimits } from './training-carpet.js';
 import { MEADOW_DEFAULTS, normalizedMeadowSettings } from './sensor-lab-carpet.js';
+import {makeSpecialistScene,isStepScene,isSlopeScene,sceneRole,supportedFirstLip} from './specialist-scenes.js';
 import { carpetLearningStage, carpetRepresentativeRole, terrainRoleEnvelope } from './training-solid-carpet.js';
 import { specialistLesson, friendlyFrontiers, SLIDER_FIELDS, roleSliders, customRoleOverride, carpetGeometrySignature } from './training-inspector.js';
 import { showcasePolicyUrl, isJsonResponse, isViewerConfig, readShowcaseManifest, assertShowcasePolicyResponse } from './showcase.js';
@@ -24,6 +25,10 @@ const gridToggle = $('gridToggle');
 const trailToggle = $('trailToggle');
 const shadowToggle = $('shadowToggle');
 const terrainMode = $('terrainMode');
+const sceneMode=$('sceneMode'),sceneStatus=$('sceneStatus');
+const sceneHeight=$('sceneHeight'),sceneGrade=$('sceneGrade');
+const sceneDistance=$('sceneDistance'),sceneSpeed=$('sceneSpeed');
+const sceneRandomize=$('sceneRandomize');
 const carpetRole=$('carpetRole'),carpetPanel=$('carpetPanel'),carpetImport=$('carpetImport');
 const carpetValues=$('carpetValues'),carpetStatus=$('carpetStatus');
 const carpetLive=$('carpetLive'),carpetFetch=$('carpetFetch'),carpetApply=$('carpetApply');
@@ -129,6 +134,15 @@ let lastFrame = performance.now() / 1000;
 let fpsEma = 0;
 let lastTelemetry = 0;
 let loading = false;
+let lastResetGeneration = -1; // was an undeclared global: crashed initial actor load
+let sceneCurrent = null;
+let sceneTrial = 0;
+let sceneClock = 0;
+let sceneFootStreak = 0;
+let sceneControlFrame = -1;
+let sceneOutcomeWait = 0;
+let sceneLastOutcome = 'Ready';
+let sceneCounts = {attempts:0,successes:0,falls:0,timeouts:0};
 
 function setStatus(text, kind='idle') {
   statusEl.textContent = text;
@@ -279,6 +293,8 @@ async function activatePolicy(index) {
     lastResetGeneration=-1;
     syncGoalMode();
     syncCarpetExercise();
+    // The original policy remains unchanged when switching spectator worlds.
+    if(sceneMode.value!=='meadow')selectObservationWorld();
     return true;
   } catch (err) {
     console.error(err);
@@ -330,13 +346,151 @@ cameraBtn.addEventListener('click', () => {
   cameraBtn.setAttribute('aria-label', `Camera: ${cameraDescription(cameraMode)}`);
 });
 function updateWorldTabs(){
+  const meadow=sceneMode.value==='meadow';
   carpetPanel.hidden=false;
-  document.body.dataset.world='meadow';
+  document.body.dataset.world=meadow?'meadow':'specialist';
+  $('modeLabel').textContent=meadow?'Infinite Meadow':'Training Carpet';
+  $('meadowDifficultyPanel').hidden=!meadow;
+  $('specialistScenePanel').hidden=meadow;
+  $('sceneHeightRow').hidden=!isStepScene(sceneMode.value);
+  $('sceneDistanceRow').hidden=!isStepScene(sceneMode.value);
+  $('sceneGradeRow').hidden=!isSlopeScene(sceneMode.value);
   $('carpetHudRow').hidden=false;
-  $('carpetGrowthRow').hidden=false;
-  $('viewerExercise').textContent=demoActive
-    ?'Meadow stroll':currentCarpetLesson().heading;
+  $('carpetGrowthRow').hidden=!meadow;
+  $('viewerExercise').textContent=meadow
+    ?(demoActive?'Meadow stroll':'Generalised locomotion')
+    :sceneMode.selectedOptions[0]?.textContent||'Specialist';
 }
+
+function refreshSceneStatus(){
+  const mode=sceneMode.value;
+  if(mode==='meadow')return;
+  const count=sceneCounts;
+  const scene=sceneCurrent;
+  const physical=scene?.kind==='step'
+    ?`Signed lip ${scene.lipM>=0?'+':''}${(scene.lipM*100).toFixed(2)}cm · spawned ${(scene.distanceM*100).toFixed(1)}cm before x=1m`
+    :scene?.kind==='slope'
+      ?`Physical ${scene.gradeDeg.toFixed(1)}° ${mode.replace('slope-','')} grade`
+      :'Level physical terrain; actual learner commands and disturbances';
+  sceneStatus.textContent=`Attempt #${sceneTrial+1} · ${sceneLastOutcome}
+${physical}
+Completed ${count.attempts} · supported step arrivals ${count.successes} · falls ${count.falls} · timeouts ${count.timeouts}
+${Math.min(sceneClock,scene?.horizonS||15).toFixed(1)}s / ${scene?.horizonS||15}s · viewer observation, NOT frozen MJX certification`;
+}
+
+function beginSceneAttempt({fresh=false}={}){
+  if(sceneMode.value==='meadow'||!sim)return;
+  if(fresh){
+    sceneTrial=0;
+    sceneCounts={attempts:0,successes:0,falls:0,timeouts:0};
+    sceneLastOutcome='Ready';
+  }else sceneTrial++;
+  sceneClock=0;sceneFootStreak=0;sceneControlFrame=-1;sceneOutcomeWait=0;
+  sceneCurrent=makeSpecialistScene(sceneMode.value,{
+    stepCm:Number(sceneHeight.value),gradeDeg:Number(sceneGrade.value),
+    spawnCm:Number(sceneDistance.value),
+    seed:Number(carpetDifficulty.seed??735),
+    trial:sceneTrial,randomize:sceneRandomize.checked
+  });
+  const oldGeneration=sim.resetGeneration;
+  sim.setTrainingScenario(sceneCurrent);
+  if(sim.resetGeneration===oldGeneration)sim.reset();
+  lastResetGeneration=sim.resetGeneration;
+  // The lab owns reset timing: capture the final failed or supported pose
+  // before beginning the next birth, rather than MuJoCo auto-reset hiding it.
+  sim.autoReset=false;
+  carpetExerciseClock=0;
+  refreshSceneStatus();
+}
+
+function selectObservationWorld(){
+  updateWorldTabs();
+  if(!sim)return;
+  if(sceneMode.value==='meadow'){
+    sceneCurrent=null;
+    sim.setTrainingScenario(null);
+    sim.autoReset=demoActive||autoResetToggle.checked;
+  }else{
+    if(demoActive)stopDemo();
+    carpetRole.value=sceneRole(sceneMode.value);
+    carpetStepTrack.value=isStepScene(sceneMode.value)?'academy':'ordinary';
+    carpetDrive.value='lesson';
+    carpetShoves.checked=sceneMode.value==='resilience';
+    beginSceneAttempt({fresh:true});
+  }
+  renderCarpetValues();
+  syncCarpetExercise();
+  updateStickLabels();
+}
+
+function updatePhysicalObservation(dt){
+  if(!sim||sim.paused||sceneMode.value==='meadow'||!sceneCurrent)return;
+  if(sim.resetGeneration!==lastResetGeneration){
+    // Covers manual Reset as well as any model refresh.
+    lastResetGeneration=sim.resetGeneration;
+    sceneClock=0;sceneFootStreak=0;sceneControlFrame=-1;
+    sceneOutcomeWait=0;
+  }
+  if(sceneOutcomeWait>0){
+    sceneOutcomeWait-=dt;
+    if(sceneOutcomeWait<=0)beginSceneAttempt();
+    return;
+  }
+  sceneClock+=dt;
+  let verdict='';
+  if(sim.fallenFor>=.3)verdict='falls';
+  else if(isStepScene(sceneMode.value)){
+    const feet=sim.footGeomIds.map(id=>{
+      const offset=3*id;
+      const x=Number(sim.data.geom_xpos[offset]);
+      const y=Number(sim.data.geom_xpos[offset+1]);
+      return {x,soleZ:Number(sim.data.geom_xpos[offset+2])-
+        Number(sim.model.geom_size[offset]),
+        groundZ:sim.park.sampleHeight(x,y)};
+    });
+    const good=supportedFirstLip({
+      scenario:sceneCurrent,bodyX:Number(sim.data.qpos[0]),
+      feet,fallen:sim.isFallen()});
+    if(sceneControlFrame!==sim.controlFrames){
+      sceneFootStreak=good?sceneFootStreak+1:0;
+      sceneControlFrame=sim.controlFrames;
+    }
+    if(sceneFootStreak>=5)verdict='successes';
+  }
+  if(!verdict&&sceneClock>=sceneCurrent.horizonS)verdict='timeouts';
+  if(verdict){
+    sceneCounts.attempts++;
+    sceneCounts[verdict]++;
+    sceneLastOutcome=verdict==='successes'?'SUPPORTED two-foot arrival':
+      verdict==='falls'?'FALL':'TIMEOUT';
+    sceneOutcomeWait=.7;
+    refreshSceneStatus();
+  }else if(sim.controlFrames%5===0)refreshSceneStatus();
+}
+
+sceneMode.addEventListener('change',()=>{
+  if(sceneMode.value==='step-down')sceneHeight.value='2';
+  if(sceneMode.value==='step-up')sceneHeight.value='5';
+  $('sceneHeightOut').textContent=Number(sceneHeight.value).toFixed(1)+' cm';
+  selectObservationWorld();
+});
+for(const [element,output,unit,digits] of [
+  [sceneHeight,'sceneHeightOut',' cm',1],
+  [sceneGrade,'sceneGradeOut','°',1],
+  [sceneDistance,'sceneDistanceOut',' cm',0],
+  [sceneSpeed,'sceneSpeedOut',' m/s',2]]){
+  element.addEventListener('input',()=>{
+    $(output).textContent=Number(element.value).toFixed(digits)+unit;
+  });
+  element.addEventListener('change',()=>{
+    if(sceneMode.value!=='meadow')beginSceneAttempt({fresh:true});
+  });
+}
+sceneRandomize.addEventListener('change',()=>{
+  if(sceneMode.value!=='meadow')beginSceneAttempt({fresh:true});
+});
+$('sceneNext').addEventListener('click',()=>beginSceneAttempt());
+
 function carpetSourceLimits(){
   const role=carpetRepresentativeRole(carpetDifficulty,carpetRole.value);
   const academy=carpetStepTrack.value==='academy'&&role==='step';
@@ -377,7 +531,9 @@ function syncCarpetExercise(){
     return;
   }
   const lesson=currentCarpetLesson();
-  sim.autoReset=demoActive||carpetDrive.value==='lesson'||autoResetToggle.checked;
+  sim.autoReset=sceneMode.value==='meadow'
+    ?(demoActive||carpetDrive.value==='lesson'||autoResetToggle.checked)
+    :false;
   // Optional physical shoves obey the unified Meadow settings, NOT
   // training specialist settings or an invisible teacher assignment.
   const strength=Number($('meadowShove').value)/100;
@@ -536,6 +692,8 @@ function runCarpetLesson(dt){
   const lesson=currentCarpetLesson();
   carpetExerciseClock+=Math.max(0,Math.min(.10,dt));
   const command=lesson.commandAt(carpetExerciseClock);
+  if(isStepScene(sceneMode.value)||isSlopeScene(sceneMode.value))
+    command.vx=Number(sceneSpeed.value);
   sim.setDemoCommands(command);
   const delivered=sim.commandTarget;
   const descriptor=`vx ${fmtSigned(delivered.vx)} · vy ${fmtSigned(delivered.vy)} · yaw ${fmtSigned(delivered.yaw)}`;
@@ -925,13 +1083,20 @@ function updateTelemetry(now, dt) {
   $('slopeRead').textContent = !s.supported ? 'No terrain underfoot'
     : s.flat ? '0.0° · level' : `${s.degrees.toFixed(1)}°`;
   const worldY=Number(sim.data?.qpos?.[1]??0);
-  const local=sim.park?.physics==='streaming-heightfield'
+  const local=sim.park?.physics==='streaming-heightfield'&&sceneMode.value==='meadow'
     ?sim.park.difficultyAt(worldY):null;
   $('carpetGrowth').textContent=local
     ? Math.round(100*local.difficulty)+'% difficulty · '+
       local.slopeDeg.toFixed(1)+'° hill peaks · '+
       Math.abs(worldY).toFixed(1)+'m '+(worldY>=0?'N':'S')
     :'—';
+  if(sceneMode.value!=='meadow'&&sceneCurrent){
+    $('carpetHudTerrain').textContent=sceneCurrent.kind==='step'
+      ?`Academy signed lip ${(sceneCurrent.lipM*100).toFixed(2)}cm · x=1m`
+      :sceneCurrent.kind==='slope'
+        ?`Physical grade ${sceneCurrent.gradeDeg.toFixed(1)}° · ${sceneMode.value}`
+        :'Level physical specialist course';
+  }
   if(local)$('carpetHudTerrain').textContent=
     local.slopeDeg.toFixed(1)+'° natural hill peaks · +'+
     Math.round(local.stepUpM*1000)+'/−'+Math.round(local.stepDownM*1000)+
@@ -957,10 +1122,11 @@ function frame(ms){
       const manual=held.size>0||leftStick.pointerId!==null||
         rightStick.pointerId!==null||Math.hypot(left.x,left.y)>.06||
         Math.hypot(right.x,right.y)>.06;
-      if(!demoActive&&handoff.shouldResume(now,manual))startDemo();
-      if(demoActive)meadowStroll(dt);
+      if(sceneMode.value==='meadow'&&!demoActive&&handoff.shouldResume(now,manual))startDemo();
+      if(demoActive&&sceneMode.value==='meadow')meadowStroll(dt);
       runCarpetLesson(dt);
       sim.advance(dt);
+      updatePhysicalObservation(dt);
       sim.render(dt);
       updateTelemetry(now,dt);
     }
@@ -984,6 +1150,10 @@ function stopDemo(){
 }
 function startDemo(){
   if(!sim)return;
+  if(sceneMode.value!=='meadow'){
+    sceneMode.value='meadow';
+    selectObservationWorld();
+  }
   demoActive=true;
   handoff.resume();
   $('liveDemo').checked=true;
