@@ -82,8 +82,11 @@ export function sampleTrainingDrill(limits,role,sequence=1){
 export function drillTileCorners(i,j,episode){
   if(!episode)return null;
   const slope=Math.tan(episode.slopeDeg*Math.PI/180);
-  const at=(x)=>((x>=episode.wallX?episode.riseM:0)+
-    slope*(x-episode.spawnX));
+  // The lip is a DISCONTINUITY between independently colliding tiles.
+  // Both corners of the upstream tile remain at source elevation, including
+  // its east edge. Both west corners of the next tile are on the high top.
+  const offset=i>=episode.wallX?episode.riseM:0;
+  const at=(x)=>offset+slope*(x-episode.spawnX);
   // hfield samples [southwest,southeast,northwest,northeast], 1m tiles.
   return [at(i),at(i+1),at(i),at(i+1)];
 }
