@@ -45,11 +45,13 @@ class CoreAcademyTests(unittest.TestCase):
         np.testing.assert_allclose(x[:,PROFILE_HALF+2],first+second,atol=1e-8)
         np.testing.assert_allclose(x[:,PROFILE_HALF+3],first+second,atol=1e-8)
         self.assertTrue(np.all(y==0))
-        def qualify(lips=2,follow=True,samples=25,vx=.16,command=.16,
+        def qualify(lips=2,first_supported=True,follow=True,
+                    samples=25,vx=.16,command=.16,
                     posture=1.,contact=1.,yaw=0.,fell=False):
             return bool(two_lip_continuation_success(np,
                 academy_active=np.array([True]),
                 supported_lips=np.array([lips]),
+                first_lip_two_feet=np.array([first_supported]),
                 half_metre_after_second=np.array([follow]),
                 samples=np.array([samples]),mean_vx=np.array([vx]),
                 mean_cmd_vx=np.array([command]),gravity_z=np.array([posture]),
@@ -57,6 +59,8 @@ class CoreAcademyTests(unittest.TestCase):
                 yaw_error=np.array([yaw]),terminal=np.array([fell]))[0])
         self.assertTrue(qualify())
         self.assertFalse(qualify(lips=1),'first lip cannot finish course')
+        self.assertFalse(qualify(first_supported=False),
+                         'first step needs BOTH feet genuinely transferred')
         self.assertFalse(qualify(follow=False),'second lip alone cannot finish')
         self.assertFalse(qualify(samples=5),'one quick dive is not walking')
         self.assertFalse(qualify(vx=0.),'stationary after transfer')
