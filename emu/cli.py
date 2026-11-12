@@ -120,6 +120,8 @@ def main(argv=None) -> int:
     q.add_argument('--outcome-stair-approved',action='store_true',help='fade dense coaching after independently proven 50mm climbs')
     q.add_argument('--outcome-approval-start-steps',type=int,default=0,help='absolute steps when independent stair proof was approved')
     q.add_argument('--outcome-down-share',type=float,default=.20,help='descent share after stair graduation')
+    q.add_argument('--two-lip-continuation-school',action='store_true',
+                   help='Experiment C: physical two 1m-spaced signed lips, 50cm post-second recovery + commanded vx; one cold policy')
     q.add_argument('--science-step-finish-on-transfer',action='store_true',
                    help='v5054 Academy-only: end as success after both feet top + safe 10cm ascent, respawn for next lip')
     q.add_argument('--science-step-promotion-mm',type=float,default=0.,
