@@ -154,12 +154,20 @@ class RegimeGovernor:
                  outcome_mode: bool = False,
                  progressive_school: bool = False,
                  refined_school: bool = False,
-                 bidirectional_school: bool = False):
+                 bidirectional_school: bool = False,
+                 two_lip_continuation_school: bool = False):
         self.params = RegimeParams()
         self.outcome_mode=bool(outcome_mode)
         self.progressive_school=bool(progressive_school)
         self.refined_school=bool(refined_school)
         self.bidirectional_school=bool(bidirectional_school)
+        # Static source/config identity, NOT an unsaved curriculum shortcut.
+        # The ordinary assisted first-foot mechanics introduce the school;
+        # every uncoached certificate uses the full two-lip continuation.
+        self.two_lip_continuation_school=bool(two_lip_continuation_school)
+        if self.two_lip_continuation_school and not (
+                self.bidirectional_school and self.outcome_mode):
+            raise ValueError('two-lip continuation requires paired outcome school')
         if self.bidirectional_school and not (
                 self.refined_school and self.progressive_school):
             raise ValueError('bidirectional school requires progressive/refined')
@@ -1011,7 +1019,9 @@ class RegimeGovernor:
                 self.params.academy_height_up_m > .0505):
             return 'no_new_50mm_proof'
         n=float(row.get('academy_near_attempts_up',0.))
-        good=float(row.get('academy_near_successes_up',0.))
+        good=float(row.get(
+            ('academy_near_first_lip_up' if self.two_lip_continuation_school
+             else 'academy_near_successes_up'),0.))
         if (not math.isfinite(n) or not math.isfinite(good)
                 or n<0. or good<0. or good>n):
             raise ValueError('invalid actual 50mm physical proof')
@@ -1152,8 +1162,15 @@ class RegimeGovernor:
         if b['down_mastered_step']<0:
             if abs(self.params.academy_height_down_m-SCHOOL_DOWN_START_M)>.0005:
                 return 'await_fixed_20mm'
+            # Only assisted introduction credits a first supported lip.
+            # Every downhill no-help/50mm graduate must complete BOTH
+            # genuine lips and ordinary commanded walking afterwards.
+            assisted_row=row
+            if self.two_lip_continuation_school:
+                assisted_row={**row,'academy_near_successes_down':
+                    row.get('academy_near_first_lip_down',0.)}
             event=self._refined_window(
-                row,b,'down_assisted','academy_near_attempts_down',
+                assisted_row,b,'down_assisted','academy_near_attempts_down',
                 'academy_near_successes_down',SCHOOL_STAIR_PROOF_RATE)
             if event=='certified':
                 b['down_mastered_step']=step
