@@ -198,6 +198,7 @@ class TrainingConfig:
     # Opt-in physical nursery. Approval requires an independent 50mm exam.
     outcome_graduation: bool = False
     progressive_school: bool = False  # one cold 0/20/60/80M evidence-gated learner
+    refined_school: bool = False  # optional staged post-5cm retention / sequential descent fork
     outcome_walk_start_steps: int = 60_000_000
     outcome_stair_approved: bool = False
     outcome_approval_start_steps: int = 0
