@@ -16,7 +16,23 @@
       <div class="brand">
         <strong>EMU</strong><span id="modeLabel">Infinite Meadow</span>
       </div>
-      <span class="world-tab active" aria-label="World: Infinite Meadow">🌄 Infinite Meadow</span>
+      <label class="scene-switch" for="sceneMode"><span>WORLD</span>
+        <select id="sceneMode" aria-label="Physical observation world">
+          <option value="meadow" selected>🌄 Infinite Meadow · free roaming</option>
+          <optgroup label="Specialist training carpet">
+            <option value="command">Commands · vx / vy / yaw</option>
+            <option value="slope-up">Slopes · uphill</option>
+            <option value="slope-down">Slopes · downhill</option>
+            <option value="slope-left">Slopes · transverse left</option>
+            <option value="slope-right">Slopes · transverse right</option>
+            <option value="step-up">Academy · step UP</option>
+            <option value="step-down">Academy · step DOWN</option>
+            <option value="resilience">Resilience · shoves</option>
+            <option value="transition">Transitions · change velocity</option>
+            <option value="control">Control · efficiency</option>
+          </optgroup>
+        </select>
+      </label>
       <div id="status" class="status" data-kind="idle">Load an .emupolicy file</div>
       <div class="top-actions">
         <label class="file-button">
@@ -70,6 +86,21 @@
 
         <select id="terrainMode" hidden aria-hidden="true"><option value="carpet" selected>Infinite Meadow</option></select>
         <section id="carpetPanel" class="carpet-panel" aria-label="Infinite Meadow settings">
+          <section id="specialistScenePanel" class="tuning-group" aria-label="Training carpet scenario controls" hidden>
+            <div class="tuning-heading"><b>Physical training carpet</b><small>Actual CPU MuJoCo ground; one 40cm H40 actor</small></div>
+            <p class="subtle">Each specialist has its own observable physical exercise. Steps repeatedly spawn before a real signed lip; these are viewer observations, not frozen MJX exam results.</p>
+            <label id="sceneHeightRow" class="tuning-row">Step height <output id="sceneHeightOut">5.0 cm</output>
+              <input id="sceneHeight" type="range" min="0.5" max="8" value="5" step=".1"></label>
+            <label id="sceneGradeRow" class="tuning-row">Slope angle <output id="sceneGradeOut">8.0°</output>
+              <input id="sceneGrade" type="range" min="0" max="15" value="8" step=".5"></label>
+            <label id="sceneDistanceRow" class="tuning-row">Spawn distance from lip <output id="sceneDistanceOut">22 cm</output>
+              <input id="sceneDistance" type="range" min="16" max="38" value="22" step="1"></label>
+            <label class="tuning-row">Forward command <output id="sceneSpeedOut">0.16 m/s</output>
+              <input id="sceneSpeed" type="range" min=".04" max=".35" value=".16" step=".01"></label>
+            <label class="viewer-checkbox"><input id="sceneRandomize" type="checkbox" checked> Randomise each Academy spawn (distance ±4cm, lip ±0.5cm, lateral ±3cm)</label>
+            <div id="sceneStatus" class="lesson-card" role="status" aria-live="polite">Select a specialist exercise above.</div>
+            <button id="sceneNext" type="button">Start another physical attempt</button>
+          </section>
           <div id="meadowDifficultyPanel" class="tuning-group" aria-label="Meadow terrain difficulty">
             <div class="tuning-heading"><b>Meadow difficulty</b><small>One physical world · north harder, south easier</small></div>
             <label>Terrain preset
