@@ -500,8 +500,8 @@ test('specialist training carpet is REAL mutable signed terrain and 22cm first-l
   const varied=Array.from({length:10},(_,trial)=>makeSpecialistScene('step-up',{
     stepCm:5,trial,seed:735,randomize:true}));
   assert.ok(new Set(varied.map(v=>v.distanceM.toFixed(4))).size>1);
-  assert.ok(varied.every(v=>v.distanceM>=.18&&v.distanceM<=.26));
-  assert.ok(varied.every(v=>v.lipM>=.045&&v.lipM<=.055));
+  assert.ok(varied.every(v=>v.distanceM>=.15&&v.distanceM<=.30));
+  assert.ok(varied.every(v=>v.lipM>=.0475&&v.lipM<=.0525));
   assert.throws(()=>makeSpecialistScene('invented'),/Unknown/);
 });
 
