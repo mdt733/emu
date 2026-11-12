@@ -400,7 +400,7 @@ export class EmuBrowserSim {
     if(!this.model)return;
     if(!this.park || this.park.physics!=='streaming-heightfield')
       throw new Error('A physical specialist needs the H40 terrain world');
-    this.park.configureScenario(scenario);
+    this.park.configureScenario(scenario,this.meadowSettings);
     this.reset();
     if(this.policy!==actor || this.bundle.observation!==observation ||
        (this.sensorLab ? this.policy!==null : !this.policy))
@@ -419,6 +419,7 @@ export class EmuBrowserSim {
     const next=normalizedMeadowSettings(settings);
     if(JSON.stringify(next)===JSON.stringify(this.meadowSettings))return;
     this.meadowSettings=next;
+    if(this.trainingScenario)this.park?.configureScenario(this.trainingScenario,next);
     // Changing a hill beneath a foot mid-stride creates a false impulse.
     // Rebuild/reset the spectator only after an explicit slider change.
     if(this.terrainMode==='carpet'&&!this.trainingScenario)this.loadModel();
@@ -776,7 +777,7 @@ export class EmuBrowserSim {
     this.headingTarget=this.actualHeading();
     // Training samples cadence at birth, then holds it through command changes.
     this.episodePhaseHz = sampleEpisodeCadence(this.command, this.bundle.control);
-    this.phase = 0;
+    this.phase = this.trainingScenario?.phaseRad??0;
     this.prevAction.fill(0);
     this.prevRawTarget.fill(0);
     this.deliveredCtrl.fill(0);
