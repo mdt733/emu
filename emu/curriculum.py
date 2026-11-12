@@ -1113,7 +1113,8 @@ class RegimeGovernor:
                 refined_school=self.refined_school,
                 uncoached_certified_step=self.school_refined_state['uncoached_certified_step'],
                 descent_unlocked_step=self.school_refined_state['descent_unlocked_step'],
-                descent_certified_step=self.school_refined_state['descent_certified_step'])
+                descent_certified_step=self.school_refined_state['descent_certified_step'],
+                rescue_end_step=self.school_refined_state['rescue_end_step'])
             report.update(school_stage=school['stage'],
                           school_walk_alpha=school['walk_alpha'],
                           school_stairs_enabled=float(school['stairs_enabled']),
