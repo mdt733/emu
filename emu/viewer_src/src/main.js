@@ -151,6 +151,17 @@ function applyHeadingGain() {
 }
 
 function updateStickLabels() {
+  if(sceneMode.value!=='meadow'&&carpetDrive.value==='lesson'&&sim){
+    // Display trained specialist commands without allowing the centred
+    // visual joystick to WRITE vx=0 into the policy's active instruction.
+    const command=sim.commandTarget;
+    const sticks=commandStickPositions(command,limits());
+    leftStick.setDisplay(sticks.left.x,sticks.left.y);
+    rightStick.setDisplay(sticks.right.x,sticks.right.y);
+    leftValues.textContent=`vx ${fmtSigned(command.vx)} · vy ${fmtSigned(command.vy)}`;
+    rightValues.textContent=`yaw ${fmtSigned(command.yaw)} · pitch ${fmtSigned(deg(command.pitch||0),1)}°`;
+    return;
+  }
   if(demoActive){
     const sticks=commandStickPositions(navLastCommand,limits());
     leftStick.setDisplay(sticks.left.x,sticks.left.y);
