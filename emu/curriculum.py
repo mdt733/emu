@@ -15,7 +15,10 @@ from .training_health import TrainingHealth  # stable public import
 from .training_config import FRONTIER_GROWTH_FRAC, FRONTIER_RETREAT_FRAC, FRONTIER_SENSOR_SAFETY
 from .capability_focus import (school_lesson, SCHOOL_STAIRS_EARLIEST,
     SCHOOL_MIN_WALK_CORE, SCHOOL_STAIR_PROOF_ATTEMPTS,
-    SCHOOL_STAIR_PROOF_RATE, SCHOOL_STAIR_PROOF_WINDOWS)
+    SCHOOL_STAIR_PROOF_RATE, SCHOOL_STAIR_PROOF_WINDOWS,
+    SCHOOL_UNCOACHED_PROOF_RATE, SCHOOL_HIGH_PROOF_RATE,
+    SCHOOL_DOWN_PROOF_RATE, SCHOOL_ANCHOR_RETENTION_MIN,
+    SCHOOL_SLOW_GROWTH_INTERVAL, SCHOOL_ANCHOR_RETREAT_HOLD)
 
 # ---------------------------------------------------------------------------
 # Compact organic-birth curriculum/governor.
@@ -146,10 +149,15 @@ class RegimeGovernor:
                  science_step_retreat_mm: float = 0.0,
                  science_step_min_attempts: int = 4,
                  outcome_mode: bool = False,
-                 progressive_school: bool = False):
+                 progressive_school: bool = False,
+                 refined_school: bool = False):
         self.params = RegimeParams()
         self.outcome_mode=bool(outcome_mode)
         self.progressive_school=bool(progressive_school)
+        self.refined_school=bool(refined_school)
+        if self.refined_school and not self.progressive_school:
+            raise ValueError('refined school requires progressive school')
+        self.school_refined_state=self._empty_refined_state()
         # Serialized physical-competence gates; never keyed to wall-clock time
         # or an uncheckpointed Python closure. A curriculum resume restores
         # these alongside PPO and its optimizer.
@@ -250,6 +258,22 @@ class RegimeGovernor:
             for band in ('near','easy')
             for kind in ('attempts','successes')})
 
+    @staticmethod
+    def _empty_refined_state() -> dict[str, int | float]:
+        """Saved refinement gates; zero evidence never implies competence."""
+        return dict(
+            coaching_off_step=-1, uncoached_certified_step=-1,
+            uncoached_attempts=0., uncoached_successes=0.,
+            uncoached_good_windows=0,
+            last_up_growth_step=-1,
+            anchor_attempts=0., anchor_successes=0.,
+            retention_hold_until=0,
+            high_attempts=0., high_successes=0., high_good_windows=0,
+            descent_unlocked_step=-1,
+            down_attempts=0., down_successes=0., down_good_windows=0,
+            descent_certified_step=-1,
+        )
+
     def state_dict(self) -> dict[str, Any]:
         """Everything that can affect the governor's next decision.
         Recovery/resume is a temporal rewind only if this dynamic state is
@@ -268,6 +292,7 @@ class RegimeGovernor:
             'school_up_window_attempts': self.school_up_window_attempts,
             'school_up_window_successes': self.school_up_window_successes,
             'school_up_good_windows': self.school_up_good_windows,
+            'school_refined_state': dict(self.school_refined_state),
             'frontier_precision_ema': dict(self.frontier_precision_ema),
             'frontier_bad_streak': dict(self.frontier_bad_streak),
             **({'command_evidence': {k:dict(v) for k,v in
@@ -281,6 +306,12 @@ class RegimeGovernor:
         # governor state. Historical layouts belong to historical commits;
         # do not synthesize evidence after a silent schema migration.
         expected = set(self.state_dict())
+        if (isinstance(d,dict) and self.refined_school
+                and set(d)==expected-{'school_refined_state'}):
+            # The only allowed source-specific curriculum import: the
+            # validated 180M research parent predates the refined gates.
+            # New gates have zero evidence and must be earned from scratch.
+            d={**d,'school_refined_state':self._empty_refined_state()}
         if not isinstance(d, dict) or set(d) != expected:
             raise ValueError(
                 f"curriculum state keys mismatch: expected={sorted(expected)} "
@@ -376,6 +407,31 @@ class RegimeGovernor:
                   'school_up_window_attempts','school_up_window_successes',
                   'school_up_good_windows'):
             setattr(self,k,d[k])
+        refined=d['school_refined_state']
+        defaults=self._empty_refined_state()
+        if not isinstance(refined,dict) or set(refined)!=set(defaults):
+            raise ValueError('refined school checkpoint keys mismatch')
+        for k,zero in defaults.items():
+            v=refined[k]
+            if (type(zero) is int and type(v) is not int or
+                    type(zero) is float and
+                    (type(v) not in (int,float) or
+                     not math.isfinite(float(v)) or v < 0) or
+                    k.endswith('_step') and v < -1 or
+                    k.endswith('_windows') and not 0<=v<=2):
+                raise ValueError('invalid refined school checkpoint '+k)
+        for prefix in ('uncoached','anchor','high','down'):
+            if refined[prefix+'_successes']>refined[prefix+'_attempts']:
+                raise ValueError('refined school successes exceed attempts')
+        if (refined['uncoached_certified_step']>=0 and
+                (refined['coaching_off_step']<0 or
+                 self.school_stair_mastered_step<0) or
+            refined['descent_unlocked_step']>=0 and
+                refined['uncoached_certified_step']<0 or
+            refined['descent_certified_step']>=0 and
+                refined['descent_unlocked_step']<0):
+            raise ValueError('invalid refined school certification order')
+        self.school_refined_state=dict(refined)
         self.params = RegimeParams(**saved_params)
         for name in ('competence', 'fall_ema', '_falls_ema', '_episodes_ema',
                      'frontier_precision_ema', 'frontier_bad_streak'):
