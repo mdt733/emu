@@ -24,6 +24,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
             terrain_lesson="coherent-careful",
             outcome_graduation=True,
             progressive_school=True,
+            refined_school=True,
             science_step_finish_on_transfer=True,
             solver_iterations=2,solver_ls_iterations=4,
             science_gate_mode="zero-only",
@@ -60,6 +61,13 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertIn('nursery_reward',out.metrics)
         self.assertIn('nursery_progress_r_lift',out.metrics)
         self.assertIn('nursery_progress_l_over',out.metrics)
+        # The true birth lip, not a moving difficulty bucket, owns
+        # the separate 50mm retained-skill evidence.
+        self.assertIn('academy_anchor_attempt_up',out.metrics)
+        self.assertIn('academy_anchor_success_up',out.metrics)
+        self.assertTrue(np.all(np.asarray(jax.device_get(
+            out.metrics['academy_anchor_success_up']))<=np.asarray(
+            jax.device_get(out.metrics['academy_anchor_attempt_up']))))
         # Real 50mm (+/-4%) prism seam exists at birth, not a 3mm seed.
         lips=np.asarray(jax.device_get(state.academy_birth_lip_m))
         self.assertTrue(np.all((lips>.047)&(lips<.053)),lips)
@@ -128,7 +136,116 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertEqual(float(pay[0]),0.)
         np.testing.assert_array_equal(disabled,zero)
 
+    def _assert_refined_school_proof_and_checkpoint_contract(self):
+        """Second generation school, starting at the *actual* 180M parent.
+
+        Coached 5cm completion must not change height/downhill on graduation;
+        two fresh 100-encounter windows after full coaching fade must prove
+        independent 5cm support. Later 7.5cm and downhill are separate gates.
+        """
+        from emu.curriculum import RegimeGovernor
+        from emu.capability_focus import school_lesson
+        base=RegimeGovernor(unified_capability_focus=True,
+                            outcome_mode=True, progressive_school=True)
+        base.school_walking_graduated=True
+        base.params.academy_height_up_m=.05
+        parent=base.state_dict()
+        parent.pop('school_refined_state')  # source-pinned 180M format
+        school=RegimeGovernor(unified_capability_focus=True,
+                              outcome_mode=True,progressive_school=True,
+                              refined_school=True)
+        school.load_state_dict(parent)
+        self.assertEqual(school.school_refined_state['coaching_off_step'],-1)
+        self.assertEqual(school.school_stair_mastered_step,-1)
+        school.school_stair_mastered_step=264_000_000
+        school.params.academy_height_up_m=.05
+        assisted=school_lesson(
+            step=270_000_000,core_competence=.8,walking_graduated=True,
+            stair_mastered_step=264_000_000,refined_school=True)
+        self.assertEqual(assisted['down_share'],0.)
+        self.assertLess(assisted['stair_alpha'],1.)
+        self.assertEqual(school.observe_refined_school_evidence(
+            {},step=270_000_000,stair_alpha=assisted['stair_alpha']),
+            'fade_5cm_stair_coaching')
+        self.assertEqual(school.observe_refined_school_evidence(
+            {},step=284_000_000,stair_alpha=1.),
+            'coaching_off_begin_fresh_proof')
+        def near(success, step):
+            return school.observe_refined_school_evidence(
+                {'academy_near_attempts_up':100.,
+                 'academy_near_successes_up':float(success)},
+                step=step,stair_alpha=1.)
+        self.assertEqual(near(66,284_100_000),
+                         'uncoached_50mm_first_window_pass')
+        self.assertEqual(near(20,284_200_000),'uncoached_50mm_retry')
+        self.assertEqual(near(69,284_300_000),
+                         'uncoached_50mm_first_window_pass')
+        self.assertEqual(near(72,284_400_000),
+                         'uncoached_50mm_certified')
+        self.assertEqual(school.school_refined_state[
+            'uncoached_certified_step'],284_400_000)
+        pre=school_lesson(
+            step=284_400_000,core_competence=.8,
+            walking_graduated=True,stair_mastered_step=264_000_000,
+            refined_school=True,
+            uncoached_certified_step=284_400_000)
+        self.assertEqual(pre['stage'],'expand_uphill_retaining_5cm')
+        self.assertEqual(pre['down_share'],0.)
+        school.observe_refined_school_evidence(
+            {'academy_anchor_attempts_up':100.,
+             'academy_anchor_successes_up':20.},
+            step=290_000_000,stair_alpha=1.)
+        self.assertEqual(school.school_refined_state[
+            'retention_hold_until'],300_000_000)
+        school.params.academy_height_up_m=.075
+        def high(success,step):
+            return school.observe_refined_school_evidence(
+                {'academy_near_attempts_up':100.,
+                 'academy_near_successes_up':float(success)},
+                step=step,stair_alpha=1.)
+        self.assertEqual(high(70,301_000_000),
+                         'prove_75mm_first_window_pass')
+        self.assertEqual(high(69,302_000_000),
+                         'uphill_75mm_certified_descent_opened')
+        opened=school_lesson(
+            step=302_000_000,core_competence=.8,
+            walking_graduated=True,stair_mastered_step=264_000_000,
+            refined_school=True,uncoached_certified_step=284_400_000,
+            descent_unlocked_step=302_000_000)
+        self.assertEqual(opened['down_share'],.10)
+        self.assertEqual(opened['stage'],'introduce_descent')
+        school.params.academy_height_down_m=.05
+        def down(success,step):
+            return school.observe_refined_school_evidence(
+                {'academy_near_attempts_down':100.,
+                 'academy_near_successes_down':float(success)},
+                step=step,stair_alpha=1.)
+        self.assertEqual(down(60,303_000_000),'prove_downhill_50mm_retry')
+        self.assertEqual(down(70,304_000_000),
+                         'prove_downhill_50mm_first_window_pass')
+        self.assertEqual(down(72,305_000_000),
+                         'downhill_50mm_certified')
+        done=school_lesson(
+            step=305_000_000,core_competence=.8,
+            walking_graduated=True,stair_mastered_step=264_000_000,
+            refined_school=True,uncoached_certified_step=284_400_000,
+            descent_unlocked_step=302_000_000,
+            descent_certified_step=305_000_000)
+        self.assertEqual(done['down_share'],.20)
+        state=school.state_dict()
+        resumed=RegimeGovernor(unified_capability_focus=True,
+                              outcome_mode=True,progressive_school=True,
+                              refined_school=True)
+        resumed.load_state_dict(state)
+        self.assertEqual(state,resumed.state_dict())
+        broken=dict(state,school_refined_state={
+            **state['school_refined_state'],'down_successes':101.,
+            'down_attempts':100.})
+        with self.assertRaisesRegex(ValueError,'successes exceed'):
+            resumed.load_state_dict(broken)
+
     def test_sync_off_reduces_only_phase_payment(self):
+        self._assert_refined_school_proof_and_checkpoint_contract()
         self._assert_real_millimetre_credit_cannot_farm_or_cross_wall_low()
         # Checkpoint-persistent stair graduation: two independent successful
         # 100-attempt windows at REAL near-50mm uphill lips. A failed
