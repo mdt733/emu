@@ -462,7 +462,11 @@ export class EmuBrowserSim {
       // North's resilience gradient only affects OPTIONAL automatic pushes.
       // Never switch shoves on behind the operator's back, and preserve the
       // manual shove button as an explicit fixed-strength diagnostic.
-      const north=this.park?.physics==='streaming-heightfield'
+      // In a selected resilience lesson, do not multiply the training
+      // shove probability/strength by the Meadow's latitude difficulty:
+      // the role sampler already selected the intended physical challenge.
+      const north=this.specialistDrill ? 1 :
+        this.park?.physics==='streaming-heightfield'
         ?this.park.difficultyAt(Number(this.data.qpos[1])).resilience:1;
       const automatic=v.enabled&&!v.manualPending;
       const push=sampleShove({
