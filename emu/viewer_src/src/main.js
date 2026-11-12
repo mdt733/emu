@@ -460,7 +460,8 @@ function observeDrill(){
   $('drillStatus').textContent='Episode '+e.sequence+' · '+e.role+
     ' · '+outcome+' · '+duration+'/'+e.durationS+'s'+
     (e.role==='step'?' · lip '+(e.riseM*100).toFixed(2)+'cm'+
-      ' · foothold R/L '+proof.right+'/'+proof.left+
+      ' · upper feet R/L '+(proof.rightSeen?'✓':proof.right+'/3')+
+      '/'+(proof.leftSeen?'✓':proof.left+'/3')+
       ' · stable '+proof.stable+'/15':'')+
     ' · spawning '+((1-e.spawnX)*100).toFixed(0)+'cm before lip';
   if(result&&drillAutoNext.checked&&
