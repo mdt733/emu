@@ -280,12 +280,12 @@ def render_screen(row: dict[str, str], *, phase: str,
     add(f" COMMANDS   frontier vx +{_measured(row,'frontier_vx_hi','.2f')}/{vx_lo}m/s "
         f"vy ±{_measured(row,'frontier_vy','.2f')}m/s "
         f"yaw ±{_measured(row,'frontier_yaw','.2f')}rad/s")
-    add("            5M near pass vx+ " +
+    add("            5M near vx+ " +
         yes("command_probe_successes_vx_hi", "command_probe_attempts_vx_hi") +
         " vx- " + yes("command_probe_successes_vx_lo", "command_probe_attempts_vx_lo") +
         " vy+ " + yes("command_probe_successes_vy_pos", "command_probe_attempts_vy_pos") +
         " vy- " + yes("command_probe_successes_vy_neg", "command_probe_attempts_vy_neg"), 1)
-    add("            5M near pass yaw+ " +
+    add("            5M near yaw+ " +
         yes("command_probe_successes_yaw_pos", "command_probe_attempts_yaw_pos") +
         " yaw- " + yes("command_probe_successes_yaw_neg", "command_probe_attempts_yaw_neg") +
         " mixed " + yes("command_probe_successes_mixed", "command_probe_attempts_mixed"), 1)
@@ -296,7 +296,7 @@ def render_screen(row: dict[str, str], *, phase: str,
     add(f" SLOPES     frontier {_measured(row,'slope_max_deg','.1f')}°  "
         f"sampled max {_measured(row,'physical_slope_deg_max','.1f')}° "
         f"exposure {pct('slope_exposure')}%")
-    add("            5M near STABLE up " +
+    add("            5M near stable up " +
         yes("slope_near_stability_successes_uphill", "slope_near_attempts_uphill") +
         " down " + yes("slope_near_stability_successes_downhill", "slope_near_attempts_downhill") +
         " L " + yes("slope_near_stability_successes_cross_left", "slope_near_attempts_cross_left") +
@@ -307,7 +307,7 @@ def render_screen(row: dict[str, str], *, phase: str,
             " D " + yes("slope_easy_stability_successes_downhill", "slope_easy_attempts_downhill"), 2)
 
     add(f" STEPS      frontier +{up_height}/-{down_height}cm  "
-        "angle tolerance -- (no frozen oblique exam)")
+        "approach angle: unmeasured")
     add("            5M near UP " +
         cnt("academy_near_successes_up", "academy_near_attempts_up") +
         "  DOWN " + cnt("academy_near_successes_down", "academy_near_attempts_down"))
@@ -484,66 +484,3 @@ class ConsoleRelay:
                 # Leave the final dashboard visible, restore the normal cursor.
                 self._write("\x1b[?25h\n")
                 self.drawn = False
-
-
-def watch_run(run_dir: Path, *, target_steps: int, interval: float = 2.) -> None:
-    """External read-only dashboard for an already running PPO experiment.
-
-    Running trainers import their own version of the console at startup.
-    This allows the new display immediately, without restarting that trainer.
-    """
-    import time
-    previous = None
-    try:
-        sys.stdout.write("\x1b[?25l")
-        sys.stdout.flush()
-        while True:
-            history = read_history(run_dir / "metrics.csv")
-            row = history[-1] if history else {}
-            size = shutil.get_terminal_size(fallback=(88, 24))
-            picture = render_screen(
-                row, phase="READ-ONLY live metrics",
-                target_steps=target_steps, run_name=run_dir.name,
-                history=history, width=size.columns, height=size.lines)
-            if picture != previous:
-                sys.stdout.write("\x1b[2J\x1b[H" + picture + "\x1b[J")
-                sys.stdout.flush()
-                previous = picture
-            time.sleep(interval)
-    except KeyboardInterrupt:
-        pass
-    finally:
-        sys.stdout.write("\x1b[?25h\n")
-        sys.stdout.flush()
-
-
-def main() -> int:
-    import argparse
-    import json
-    parser = argparse.ArgumentParser(
-        description="Read-only live specialist dashboard; never touches PPO or checkpoint.")
-    parser.add_argument("--watch", type=Path, required=True,
-                        help="Existing training run directory containing metrics.csv")
-    parser.add_argument("--target-steps", type=int,
-                        help="Override training_config.json total steps")
-    parser.add_argument("--interval", type=float, default=2.)
-    args = parser.parse_args()
-    run_dir = args.watch.expanduser()
-    target = args.target_steps
-    if target is None:
-        try:
-            data = json.loads((run_dir / "training_config.json").read_text())
-            target = int(data["steps"])
-        except (OSError, ValueError, TypeError, KeyError) as exc:
-            parser.error(f"Cannot find target steps in training_config.json: {exc}; "
-                         "supply --target-steps")
-    if target <= 0 or not math.isfinite(args.interval) or args.interval < .25:
-        parser.error("Require positive --target-steps and --interval >= 0.25")
-    if not sys.stdout.isatty():
-        parser.error("--watch requires an interactive terminal")
-    watch_run(run_dir, target_steps=target, interval=args.interval)
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
