@@ -27,6 +27,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
             refined_school=True,
             bidirectional_school=True,
             science_step_finish_on_transfer=True,
+            two_lip_continuation_school=True,
             solver_iterations=2,solver_ls_iterations=4,
             science_gate_mode="zero-only",
             science_phase_lowcmd_scale=.25,
@@ -77,6 +78,12 @@ class CoreStairPhysicsTests(unittest.TestCase):
         born=np.asarray(jax.device_get(state.data.qpos))
         self.assertTrue(np.all((born[:,0]>=.70)&(born[:,0]<=.85)))
         self.assertIn("academy_followthrough_new",out.metrics)
+        self.assertIn("academy_two_lip_continued_new",out.metrics)
+        self.assertIn("academy_first_lip_supported_at_end",out.metrics)
+        self.assertIn("academy_two_lip_crossed_at_end",out.metrics)
+        # Never award the C terminal on birth / first control step.
+        self.assertTrue(np.all(np.asarray(jax.device_get(
+            out.metrics['academy_two_lip_continued_new']))==0.))
         self.assertIn("academy_goal_complete_new",out.metrics)
         self.assertIn("academy_episode_first_lip_armed",out.metrics)
         self.assertIn("academy_episode_two_foot_ready",out.metrics)
