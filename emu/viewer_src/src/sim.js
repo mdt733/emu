@@ -7,7 +7,6 @@ import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays,
 import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredAttitude, sampleShove, expectedShoveRate, clearanceAboveSupport } from './sim-math.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
 import { withTerrain, surfaceSlope, surfaceLabGradient, terrainSensorHeightFallback } from './terrain.js';
-import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
 import { createSensorLabCarpet, carpetSpawnSoleLift, carpetHeightfieldPatch, normalizedMeadowSettings, MEADOW_DEFAULTS, LAB_TILE_M, LAB_TILE_COUNT } from './sensor-lab-carpet.js';
 import { createGrowingMeadowScenery } from './growing-meadow.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
@@ -106,9 +105,8 @@ export class EmuBrowserSim {
       ),
     );
     this.terrainMode = 'carpet'; // the only public viewer world
-    this.carpetRole = 'step';
-    this.carpetDifficulty = {...CARPET_DEFAULT};
     this.meadowSettings = {...MEADOW_DEFAULTS};
+    this.trainingScenario = null; // null = unrestricted Infinite Meadow
     this.carpetTileOverlay = null;
     this.carpetTileCenter = null;
     this.carpetWindowCenter = null;
@@ -375,27 +373,39 @@ export class EmuBrowserSim {
     this.terrainMode=mode;
     this.loadModel();
   }
-  setTrainingCarpet({role=this.carpetRole,limits=this.carpetDifficulty}={}) {
-    const checked=carpetRoleLimits(limits,role); // refuse invalid or unknown roles
-    const next={...limits,seed:checked.seed,slopeDeg:Number(limits.slopeDeg),
-      transitionDeg:Number(limits.transitionDeg),stepUpM:Number(limits.stepUpM),
-      stepDownM:Number(limits.stepDownM)};
-    if(['seed','slopeDeg','transitionDeg','stepUpM','stepDownM']
-      .some(key=>!Number.isFinite(next[key])||next[key]<0))
-      throw Error('Invalid training difficulty');
-    if(role===this.carpetRole&&JSON.stringify(next)===JSON.stringify(this.carpetDifficulty))return;
-    this.carpetRole=role;
-    this.carpetDifficulty=next;
-    // Training specialist selection changes only the exercises.
-    // The physical Meadow has one independent difficulty source.
+  setTrainingScenario(scenario=null){
+    // One physics model, one compiled policy, one permanent 225-hfield
+    // allocation for ALL browser scenes. Switching a view must NOT delete
+    // and recompile 225 collision bodies or change the actor/normaliser.
+    if(JSON.stringify(scenario)===JSON.stringify(this.trainingScenario))return;
+    const actor=this.policy, observation=this.bundle.observation;
+    this.trainingScenario=scenario;
+    if(!this.model)return;
+    if(!this.park || this.park.physics!=='streaming-heightfield')
+      throw new Error('A physical specialist needs the H40 terrain world');
+    this.park.configureScenario(scenario,this.meadowSettings);
+    this.reset();
+    if(this.policy!==actor || this.bundle.observation!==observation ||
+       (this.sensorLab ? this.policy!==null : !this.policy))
+      throw new Error('Scene change violated the frozen actor contract');
+  }
+  prepareLessonBirth(command){
+    // Set the BIRTH command and velocity together, before positioning the
+    // robot at the lip. A stale 0m/s manual/demo command caused a stiff
+    // idle pose when selecting a specialist, not a genuine stair attempt.
+    this.setDemoCommands(command);
+    for(const key of ['vx','vy','yaw','pitch'])
+      this.command[key]=this.commandTarget[key];
+    this.requestedYaw=this.commandTarget.yaw;
   }
   setMeadowSettings(settings){
     const next=normalizedMeadowSettings(settings);
     if(JSON.stringify(next)===JSON.stringify(this.meadowSettings))return;
     this.meadowSettings=next;
+    if(this.trainingScenario)this.park?.configureScenario(this.trainingScenario,next);
     // Changing a hill beneath a foot mid-stride creates a false impulse.
     // Rebuild/reset the spectator only after an explicit slider change.
-    if(this.terrainMode==='carpet')this.loadModel();
+    if(this.terrainMode==='carpet'&&!this.trainingScenario)this.loadModel();
   }
   setShovePreview({enabled=false,forceLimitN=0,intensity=0,mode='drill'}={}){
     const on=Boolean(enabled);
@@ -548,7 +558,7 @@ export class EmuBrowserSim {
   loadModel() {
     this.disposeModel();
     this.park=this.terrainMode==='carpet'
-      ?createSensorLabCarpet(this.meadowSettings):null;
+      ?createSensorLabCarpet({...this.meadowSettings,scenario:this.trainingScenario}):null;
     this.scene.fog=this.park?.physics==='streaming-heightfield'
       ?new THREE.Fog(0xb1c8c1,7,22):new THREE.Fog(0xbad7e2,15,49);
     const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park,obstacle:this.sensorObstacle,
@@ -717,8 +727,24 @@ export class EmuBrowserSim {
     this.command.yaw = this.requestedYaw;
     this.data.qvel[5] = this.command.yaw;
     if(this.park?.physics==='streaming-heightfield'){
-      this.data.qpos[0]=LAB_TILE_M*.5;
-      this.data.qpos[1]=LAB_TILE_M*.5;
+      // The short Academy task starts 15–30cm before the x=1m lip.
+      // Each birth samples lateral offset and signed heading separately.
+      this.data.qpos[0]=this.trainingScenario?.kind==='step'
+        ?this.trainingScenario.edgeX-this.trainingScenario.distanceM
+        :LAB_TILE_M*.5;
+      this.data.qpos[1]=LAB_TILE_M*.5+
+        (this.trainingScenario?.kind==='step'?this.trainingScenario.sideOffsetM:0);
+      if(this.trainingScenario?.kind==='step'){
+        // Rotate the ORIGINAL free-joint quaternion about world Z, preserving
+        // any authored H40 neutral tilt; no viewer-only actor modification.
+        const yaw=this.trainingScenario.approachDeg*Math.PI/180;
+        const c=Math.cos(yaw*.5),v=Math.sin(yaw*.5);
+        const q=Array.from(this.data.qpos.slice(3,7));
+        this.data.qpos[3]=c*q[0]-v*q[3];
+        this.data.qpos[4]=c*q[1]-v*q[2];
+        this.data.qpos[5]=c*q[2]+v*q[1];
+        this.data.qpos[6]=c*q[3]+v*q[0];
+      }
       this.carpetWindowCenter=[0,0];
     }
     mj.mj_forward(this.model, this.data);
@@ -734,7 +760,7 @@ export class EmuBrowserSim {
     this.headingTarget=this.actualHeading();
     // Training samples cadence at birth, then holds it through command changes.
     this.episodePhaseHz = sampleEpisodeCadence(this.command, this.bundle.control);
-    this.phase = 0;
+    this.phase = this.trainingScenario?.phaseRad??0;
     this.prevAction.fill(0);
     this.prevRawTarget.fill(0);
     this.deliveredCtrl.fill(0);

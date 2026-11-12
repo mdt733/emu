@@ -267,6 +267,59 @@ emu viewer showcase/champion.emupolicy --no-open --port 8765
 # Open http://127.0.0.1:8765/ in Windows.
 ```
 
+### H40 physical observation worlds (viewer-only)
+
+In a **separate** viewer worktree, using the existing 420M policy export
+(no new training or checkpoint conversion):
+
+```bash
+cd ~/emu-specialist-viewer
+git fetch origin
+git checkout --detach origin/feature/h40-specialist-observation-worlds
+source ~/emu/.venv/bin/activate
+export PYTHONPATH="$PWD"
+python -m emu.cli viewer-build
+python -m emu.cli viewer \
+  ~/emu-data/actors/h40-paired-420m.emupolicy \
+  --no-open --port 8766
+```
+
+Open http://127.0.0.1:8766/ and select **WORLD** in the top bar.
+**Infinite Meadow** offers free-roaming generalisation; the specialist
+**Training Carpet** offers signed Commands, four Slopes, Academy UP and
+DOWN, Resilience, Transitions and Control. Settings now groups only
+REAL browser options: scene geometry and spawn; playback and physical
+shoves; display; heading assistance; optional 4×4 sensor inspector.
+The duplicate historical specialist/frontier sliders and live-metrics
+autoterrain controls have been removed.
+
+Academy birth position matches the underlying B trainer: 15–30 cm
+before the first +X seam, on the 45–55 cm Y band; starting gait phase
+varies by seeded episode. Trial controls include fixed or varying
+approach angle, lip height and forward command. Switching worlds keeps
+the same instantiated policy, normaliser, 360-input observer and MuJoCo
+model. Only the 225 real CPU heightfield heights and robot episode state
+change; the spectator never calls the policy loader or retrains.
+
+The UI displays a live NN inference-frame count, actor action magnitude
+and requested vx. If the robot looks stiff in a specialist world:
+1. Confirm **NN loaded** and that the inference count grows.
+2. Check velocity request (0.16 m/s by default); a 0.00 m/s request
+   means manual override, not a failed stair gait.
+3. In **Commands**, choose steady +vx at the same speed on level
+   terrain. Compare Academy 0.5 cm and 5 cm UP using the same speed.
+4. Disable optional shoves before diagnosing contact behaviour.
+5. If the nose-dive begins when the 4×4 sees a step, open the Sensor
+   inspector to examine raw range/validity without changing the actor
+   observation. Do not infer policy degradation solely from this
+   viewer's browser physics.
+
+The viewer's 225 recycled **CPU MuJoCo heightfields** are REAL collision
+surfaces but NOT the trainer's eight **MJX convex triangular prisms**.
+The counter's five observed supported frames are NOT independent
+training certification; use the frozen physical prism exam for a
+reliable capability comparison. No option edits a saved checkpoint.
+
 Use the checked-in H40 actor as the unchanged current baseline.
 A `.pkl` checkpoint includes learned weights, normalizer, optimizer
 and curriculum state; an `.emupolicy` is an inference export.
