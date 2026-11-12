@@ -1963,6 +1963,7 @@ class EmuMJXEnv(TaskSampler):
             course_new=two_lip_continuation_success(
                 jnp,academy_active=state.academy_active & step_focus,
                 supported_lips=academy['lip_index'],
+                first_lip_two_feet=goal_transfer_ready,
                 half_metre_after_second=academy['progress_new'],
                 samples=hist_n,mean_vx=window_vx,mean_cmd_vx=window_cmd,
                 gravity_z=metrics['gravity_z'],support=metrics['support'],
