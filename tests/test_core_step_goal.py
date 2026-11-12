@@ -4,10 +4,13 @@ from __future__ import annotations
 import unittest
 import numpy as np
 from emu.rewards import REWARD_ONLY_METRICS, training_reward
-from emu.terrain_carpet_mjx import TILE_M, academy_near_lip_spawn_x
+from emu.terrain_carpet_mjx import (
+    TILE_M, PROFILE_HALF, academy_near_lip_spawn_x,
+    two_lip_continuation_profiles)
 from emu.step_goal import (destination_from_birth, signed_distance_progress,
                            arrival_quality, stable_arrival, GOAL_STABLE_FRAMES,
-                           short_climb_quality, CLIMB_AFTER_LIP_M, CLIMB_STABLE_FRAMES)
+                           short_climb_quality, CLIMB_AFTER_LIP_M, CLIMB_STABLE_FRAMES,
+                           two_lip_continuation_success)
 from emu.step_autopsy import inspect_destinations
 
 
@@ -30,6 +33,47 @@ def metrics(*, vx=.12, active=True, support=1., slip=0.):
 
 
 class CoreAcademyTests(unittest.TestCase):
+
+    def test_two_lip_signed_physics_and_no_suicide_finish(self):
+        first=np.asarray([.050,-.020],np.float32)
+        second=np.asarray([.050,+.050],np.float32)
+        x,y=two_lip_continuation_profiles(np,first,second)
+        self.assertEqual(x.shape,(2,2*PROFILE_HALF))
+        np.testing.assert_allclose(x[:,PROFILE_HALF],0,atol=1e-8)
+        np.testing.assert_allclose(x[:,PROFILE_HALF+1],first,atol=1e-8)
+        np.testing.assert_allclose(x[:,PROFILE_HALF+2],first+second,atol=1e-8)
+        np.testing.assert_allclose(x[:,PROFILE_HALF+3],first+second,atol=1e-8)
+        self.assertTrue(np.all(y==0))
+        def qualify(lips=2,follow=True,samples=25,vx=.16,command=.16,
+                    posture=1.,contact=1.,yaw=0.,fell=False):
+            return bool(two_lip_continuation_success(np,
+                academy_active=np.array([True]),
+                supported_lips=np.array([lips]),
+                half_metre_after_second=np.array([follow]),
+                samples=np.array([samples]),mean_vx=np.array([vx]),
+                mean_cmd_vx=np.array([command]),gravity_z=np.array([posture]),
+                support=np.array([contact]),bad_contact=np.array([0.]),
+                yaw_error=np.array([yaw]),terminal=np.array([fell]))[0])
+        self.assertTrue(qualify())
+        self.assertFalse(qualify(lips=1),'first lip cannot finish course')
+        self.assertFalse(qualify(follow=False),'second lip alone cannot finish')
+        self.assertFalse(qualify(samples=5),'one quick dive is not walking')
+        self.assertFalse(qualify(vx=0.),'stationary after transfer')
+        self.assertFalse(qualify(vx=.40),'ballistic overspeed is not vx tracking')
+        self.assertFalse(qualify(contact=0.),'unsupported landing')
+        self.assertFalse(qualify(posture=.5),'nose dive')
+        self.assertFalse(qualify(yaw=.6),'turning away')
+        self.assertFalse(qualify(fell=True),'a fall can never be success')
+
+    def test_step_relief_fades_away_between_two_lips(self):
+        m=metrics(vx=.04)
+        m['science_step_near_lip_frac']=np.asarray([1.,0.],np.float32)
+        reg=np.zeros((2,),np.float32)
+        original,_=training_reward(m,reg,xp=np)
+        relaxed,_=training_reward(m,reg,xp=np,science_step_velocity_relief=.8)
+        self.assertGreater(relaxed[0],original[0])
+        self.assertAlmostEqual(float(relaxed[1]),float(original[1]),places=6)
+        self.assertIn('science_step_near_lip_frac',REWARD_ONLY_METRICS)
 
     def test_reward_goal_and_velocity_relief_are_academy_only(self):
         m=metrics(vx=.08)
