@@ -100,10 +100,13 @@ def downhill_nursery_progress(xp, previous, body_xy, foot_xyz,
     destination_top=source_top+lip_m[:,None]
     approach=xp.clip((body_xy[:,0]-(edge_x-.30))/.25,0.,1.)
     # The swing foot actually descends below the high source surface.
-    reach=xp.clip((source_top-foot_bottom-.003)/magnitude,0.,1.)*near
+    reach=(xp.clip((source_top-foot_bottom-.003)/magnitude,0.,1.)*
+           near*(forward>=edge_x[:,None]-.012))
     # Landing is a TRUE destination top contact, not a foot entering
     # the lower slab's XY area or unrealistically passing through a wall.
-    landed=xp.asarray(destination_contact_seen,dtype=foot_bottom.dtype)
+    # Keep the actual contact verdict Boolean until AFTER the logical
+    # support test. Casting to float first breaks both NumPy and JAX AND.
+    landed=xp.asarray(destination_contact_seen,dtype=xp.bool_)
     over=(landed & (forward>=edge_x[:,None]+.018) &
           (foot_bottom>=destination_top-.015) & near).astype(foot_bottom.dtype)
     transferred=xp.clip((body_xy[:,0]-(edge_x-.02))/.18,0.,1.)*(
