@@ -352,6 +352,7 @@ function updateWorldTabs(){
     ?'Natural terrain · free-roaming generalisation'
     :'Physical '+(sceneMode.selectedOptions[0]?.textContent||'specialist')+' drill';
   $('carpetDriveRow').hidden=meadow;
+  $('autoResetRow').hidden=!meadow;
   $('meadowDifficultyPanel').hidden=!meadow;
   $('specialistScenePanel').hidden=meadow;
   $('sceneHeightRow').hidden=!isStepScene(sceneMode.value);
