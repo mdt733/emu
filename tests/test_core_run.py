@@ -444,6 +444,14 @@ def _assert_readonly_console_dashboard_five_million_step_trends_and_tty(tmp_path
              core_competence=str(.3 + i / 20),
              academy_episodes="10",
              academy_short_climb_successes="2" if 1 <= i <= 6 else "5",
+             academy_near_attempts_up="40",
+             academy_near_successes_up="10",
+             academy_near_attempts_down="40",
+             academy_near_successes_down="20",
+             command_probe_attempts_vx_hi="8",
+             command_probe_successes_vx_hi="6",
+             slope_near_attempts_uphill="8",
+             slope_near_stability_successes_uphill="4",
              eval_policy_step=str((i // 5) * 5_000_000),
              eval_broad_score=str(.80 + (i // 5) * .02))
         for i in range(12)
@@ -465,9 +473,21 @@ def _assert_readonly_console_dashboard_five_million_step_trends_and_tty(tmp_path
                            target_steps=300_000_000,
                            run_name="test-run", history=history,
                            width=80, height=24)
-    assert "WALKING" in screen and "STAIRS" in screen
-    assert "Δ vs prior 5M" in screen
+    assert all(section in screen for section in (
+        "MAIN", "COMMANDS", "SLOPES", "STEPS", "RESILIENCE",
+        "TRANSITIONS", "CONTROL", "TRAINING", "FROZEN", "EVENTS"))
+    assert "5M near UP 50/200 (25.0%)" in screen
+    assert "DOWN 100/200 (50.0%)" in screen
+    assert "vx+ 75%(40)" in screen
+    assert "STABLE up 50%(40)" in screen
+    assert "angle tolerance --" in screen
     assert "-5.0pp" in screen
+    tall = render_screen(history[-1], phase="PPO",
+                         target_steps=300_000_000, run_name="test-run",
+                         history=history, width=100, height=36)
+    assert "settled command tracking" in tall
+    assert "5M anchor UP" in tall
+    assert "focus share" in tall
     assert all(len(line) < 80 for line in screen.splitlines())
     assert len(screen.splitlines()) <= 22
 
@@ -497,5 +517,5 @@ def _assert_readonly_console_dashboard_five_million_step_trends_and_tty(tmp_path
     relay.forward("[emu_v5015] SCHOOL assisted_stairs at 11M\n")
     relay.close()
     assert "\x1b[2J" in tty.getvalue()
-    assert "Δ vs prior 5M" in tty.getvalue()
+    assert "STEPS" in tty.getvalue()
     assert tty.getvalue().endswith("\x1b[?25h\n")
