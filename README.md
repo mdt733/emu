@@ -13,6 +13,8 @@ and yaw; a useful robot must follow them even when an obstacle appears.
 [Validation & promotion](docs/VALIDATION.md) ·
 [Roadmap](https://github.com/mdt733/emu/issues/62)
 
+![One robot, one shared learned brain and real physics](docs/images/emu-architecture.svg)
+
 ## What is actually current?
 
 | Area | Status |
