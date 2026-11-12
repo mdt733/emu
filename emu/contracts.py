@@ -257,6 +257,7 @@ P = SimpleNamespace(
     outcome_walk_alpha=TERRAIN_TASK_PARAM_DIM+18,
     outcome_stair_alpha=TERRAIN_TASK_PARAM_DIM+19,
     outcome_down_share=TERRAIN_TASK_PARAM_DIM+20,
+    outcome_down_stair_alpha=TERRAIN_TASK_PARAM_DIM+21,
 )
 
 
