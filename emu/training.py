@@ -491,7 +491,20 @@ def train(args: TrainingConfig) -> int:
             if args.progressive_school:
                 d['outcome_walk_alpha']=school['walk_alpha']
                 d['outcome_stair_alpha']=school['stair_alpha']
-                d['outcome_down_share']=school['down_share']
+                if args.bidirectional_school:
+                    from .capability_focus import bidirectional_down_lesson
+                    b=governor.school_bidirectional_state
+                    down=bidirectional_down_lesson(
+                        step=step,stairs_enabled=school['stairs_enabled'],
+                        mastered_step=b['down_mastered_step'],
+                        uncoached_step=b['down_uncoached_certified_step'],
+                        certified_5cm_step=b['down_5cm_certified_step'],
+                        rescue_end_step=b['down_rescue_end_step'])
+                    d['outcome_down_stair_alpha']=down['down_alpha']
+                    d['outcome_down_share']=down['down_share']
+                else:
+                    d['outcome_down_stair_alpha']=school['stair_alpha']
+                    d['outcome_down_share']=school['down_share']
             elif args.outcome_graduation:
                 competence=max(0.,min(1.,(governor.core_competence-.40)/.25))
                 d['outcome_walk_alpha']=(min(1.,max(0.,(step-args.outcome_walk_start_steps)/10_000_000.))*competence)
