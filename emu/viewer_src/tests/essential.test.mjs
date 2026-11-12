@@ -36,6 +36,18 @@ test('viewer exposes Meadow and separate physical specialists without retired wo
   assert.match(main,/function updatePhysicalObservation\(/);
   assert.match(main,/function selectObservationWorld\(/);
   assert.match(sim,/setTrainingScenario\(/);
+  const switchBody=sim.slice(sim.indexOf('  setTrainingScenario('),
+    sim.indexOf('  prepareLessonBirth('));
+  assert.match(switchBody,/this\.park\.configureScenario\(scenario,this\.meadowSettings\)/);
+  assert.match(switchBody,/this\.reset\(\)/);
+  assert.doesNotMatch(switchBody,/this\.loadModel\(|new PolicyRunner|this\.policy\s*=/,
+    'switching a viewer world must never rebuild or replace the actor');
+  assert.match(main,/if\(sceneMode\.value!=='meadow'&&carpetDrive\.value==='lesson'&&sim\)/);
+  assert.match(main,/const command=sim\.commandTarget;/);
+  assert.doesNotMatch(html,/id="carpetTrainingInspector"|id="carpetRole"|id="carpetResetLimits"|id="carpetDiagnostics"/,
+    'retired training inspector must not appear beside real specialist controls');
+  assert.doesNotMatch(main,/refreshCarpetLive\(|carpetAutoApply|applyCarpetTerrain\(/,
+    'obsolete background training preview must not modify selected spectator terrain');
 });
 
 const limits={vx_min:-.53,vx_max:1.04,vy_abs:.22,yaw_abs:1.5,pitch_abs_rad:.08};
@@ -510,6 +522,16 @@ test('specialist training carpet is REAL mutable signed terrain with source-matc
   assert.ok(varied.every(v=>v.approachDeg>=-3&&v.approachDeg<=3));
   assert.ok(varied.every(v=>v.sideOffsetM>=-.05&&v.sideOffsetM<=.05));
   assert.ok(new Set(varied.map(v=>v.approachDeg.toFixed(3))).size>1);
+  assert.ok(varied.every(v=>v.phaseRad>=0&&v.phaseRad<Math.PI*2));
+  assert.ok(new Set(varied.map(v=>v.phaseRad.toFixed(3))).size>1);
+  // The same 225 physical bodies persist as we switch all the way back
+  // from Academy to generalised Meadow; only hfield samples are reset.
+  const before=park.tiles;
+  park.configureScenario(null,{hillPeakDeg:0,stepUpM:0,stepDownM:0,
+    stepFrequency:0,northGainPerM:0});
+  park.resetGrowth();
+  assert.strictEqual(park.tiles,before);
+  assert.equal(park.sampleHeight(1.2,.5),0);
   assert.throws(()=>makeSpecialistScene('invented'),/Unknown/);
 });
 
