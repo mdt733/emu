@@ -182,12 +182,61 @@ def _duration(seconds: float) -> str:
     return f"{minutes}m"
 
 
+def _pooled_outcomes(history: list[dict], successes: str, attempts: str,
+                     *, millions: float, minimum: int) -> tuple[float, float] | None:
+    """Pooled sampled episodes; absence and -1 sentinels are never successes."""
+    if not history:
+        return None
+    now = number(history[-1], "step")
+    if now is None:
+        return None
+    rows = [r for r in history
+            if now - millions * 1e6 < number(r, "step", -1.) <= now
+            and successes in r and attempts in r]
+    if not rows:
+        return None
+    tried = sum(max(0., number(r, attempts, 0.)) for r in rows)
+    passed = sum(max(0., number(r, successes, 0.)) for r in rows)
+    if tried < minimum or passed > tried:
+        return None
+    return passed, tried
+
+
+def _window_pass(history: list[dict], successes: str, attempts: str,
+                 *, millions: float = 5., minimum: int = 20) -> str:
+    pair = _pooled_outcomes(history, successes, attempts,
+                            millions=millions, minimum=minimum)
+    return f"{100. * pair[0] / pair[1]:.0f}%({pair[1]:.0f})" if pair else "--"
+
+
+def _window_count(history: list[dict], successes: str, attempts: str,
+                  *, millions: float = 5., minimum: int = 20) -> str:
+    pair = _pooled_outcomes(history, successes, attempts,
+                            millions=millions, minimum=minimum)
+    return (f"{pair[0]:.0f}/{pair[1]:.0f} "
+            f"({100. * pair[0] / pair[1]:.1f}%)") if pair else "--"
+
+
+def _measured(row: dict, key: str, spec: str = ".1f",
+              *, scale: float = 1., signed: bool = False) -> str:
+    """Finite physical measurement; -1 is the trainer's missing sentinel."""
+    val = number(row, key)
+    if val is None or (val < 0. and not signed):
+        return "--"
+    return format(val * scale, spec)
+
+
 def render_screen(row: dict[str, str], *, phase: str,
                   target_steps: int, run_name: str,
                   history: list[dict] | None = None,
                   events: tuple[str, ...] = (),
                   width: int = 88, height: int = 24) -> str:
-    """Pure 24-row dashboard, with real 5M trends and no terminal wrapping."""
+    """Read-only specialist dashboard, designed to fit a 24-line WSL TTY.
+
+    All cohort rates are sampled PPO evidence in disjoint physical episodes,
+    NOT certification against an independent frozen exam. Missing/sparse
+    cohorts display '--' rather than invented success or failure.
+    """
     width = max(20, int(width))
     history = history or ([row] if row else [])
     step = number(row, "step", 0.)
@@ -196,79 +245,131 @@ def render_screen(row: dict[str, str], *, phase: str,
     bar_n = max(8, min(32, width - 37))
     bar = "█" * round(progress * bar_n) + "░" * (bar_n - round(progress * bar_n))
     fps = number(row, "steps_per_sec", 0.)
-    remaining = max(0., target - step)
-    eta = _duration(remaining / fps) if fps > 1. else "calculating"
-    walk_alpha = number(row, "school_walk_alpha")
-    stair_alpha = number(row, "school_stair_alpha")
-    walking = (f"{100 * (1 - walk_alpha):.0f}% coaching left"
-               if walk_alpha is not None else "--")
-    stair = (f"{100 * (1 - stair_alpha):.0f}% coaching left"
-             if stair_alpha is not None else "--")
-    h_up = fmt(row, "academy_height_up_m", ".1f", scale=100)
-    h_down = fmt(row, "academy_height_down_m", ".1f", scale=100)
+    eta = _duration(max(0., target - step) / fps) if fps > 1. else "calculating"
     stage = str(row.get("school_stage") or row.get("teaching_profile") or "starting")
-    lines = [
-        " EMU  |  " + run_name,
-        f" {bar} {progress*100:5.1f}%   {step/1e6:,.1f}M / {target/1e6:,.1f}M",
-        f" {phase} | {stage} | ETA ~{eta} (approx.)",
-        "",
-        " WALKING  [rollout data; Δ~5M in parentheses]",
-        (f"  Reward {fmt(row,'reward_mean','+.3f')} "
-         f"({metric_delta(history,'reward_mean',precision=3)})   "
-         f"Falls {fmt(row,'fall_rate','.1f',scale=100)}% "
-         f"({metric_delta(history,'fall_rate',scale=100,precision=1,suffix='pp')})"),
-        (f"  Length {fmt(row,'ep_len_mean','.0f')}fr "
-         f"({metric_delta(history,'ep_len_mean',precision=0)})   "
-         f"Core {fmt(row,'core_competence','.2f')} "
-         f"({metric_delta(history,'core_competence')})"),
-        (f"  vx actual/cmd {fmt(row,'vx_mean','+.2f')}/"
-         f"{fmt(row,'cmd_vx_mean','+.2f')} m/s   "
-         f"Walk teacher {walking}"),
-        (f"  vx frontier +{fmt(row,'frontier_vx_hi','.2f')} m/s "
-         f"(Δ5M {metric_delta(history,'frontier_vx_hi',precision=2)}) "
-         f"  shaft≈{fmt(row,'shaft_j_per_m_forward','.1f')} J/m "
-         f"(Δ5M {metric_delta(history,'shaft_j_per_m_forward',precision=1)})"),
-        "",
-        " STAIRS  [sampled training outcomes, NOT frozen stair exams]",
-        ("  5M UP near " + signed_stair_window(history,'up') +
-         " / DOWN near " + signed_stair_window(history,'down')
-         if 'school_down_stair_alpha' in row
-         else "  " + stair_window_trend(history)),
-        (f"  Latest rollout climbs: "
-         f"{_rate(row,'academy_short_climb_successes','academy_episodes')}"),
-        (f"  Footholds {fmt(row,'academy_footholds','.0f')}  "
-         f"Transfers {fmt(row,'academy_transfers','.0f')}  "
-         f"Up crossings {fmt(row,'academy_up_crossings','.0f')}"),
-        (f"  Stair frontier +{h_up}cm "
-         f"(Δ5M {metric_delta(history,'academy_height_up_m',scale=100,precision=1,suffix='cm')}) "
-         f" / -{h_down}cm"),
-        (f"  Stair teacher UP {stair} / DOWN "
-         f"{100*(1-number(row,'school_down_stair_alpha',1.)):.0f}% coaching left"
-         f" · downhill windows {fmt(row,'school_down_good_windows','.0f')}/2"
-         if 'school_down_stair_alpha' in row
-         else f"  Stair teacher {stair}   "
-              f"5cm proof windows {fmt(row,'school_up_good_windows','.0f')}/2"),
-        "",
-        " TRAINING / FROZEN WALKING RETENTION",
-        (f"  PPO {fmt(row,'train_steps_per_sec',',.0f')}/s   "
-         f"Wall {fmt(row,'steps_per_sec',',.0f')}/s   "
-         f"KL {fmt(row,'ppo_approx_kl_final','.4f')}   "
-         f"NaN skips {fmt(row,'nan_grad_skips_total','.0f')}"),
-        f"  Frozen broad score: {latest_heldout(history)}",
-        "",
-        " RECENT EVENTS",
-    ]
-    lines.extend("  " + item for item in (tuple(events)[-2:] or
-                                            ("No unusual events",)))
-    lines.append("  Full log: console.log   Raw evidence: metrics.csv, fixed_eval.csv")
-    # Don't scroll: all lines fit inside available terminal rows; remove
-    # optional blank lines and least essential decorations first.
-    max_lines = max(4, height - 2)
-    while len(lines) > max_lines and "" in lines:
-        lines.remove("")
-    if len(lines) > max_lines:
-        lines = lines[:max_lines - 1] + [lines[-1]]
-    return "\n".join(line[:width - 1] for line in lines)
+    walk_alpha = number(row, "school_walk_alpha")
+    up_alpha = number(row, "school_stair_alpha")
+    down_alpha = number(row, "school_down_stair_alpha")
+    coach = lambda alpha: (f"{100. * (1. - alpha):.0f}%" if alpha is not None
+                           and 0. <= alpha <= 1. else "--")
+    pct = lambda key: _measured(row, key, ".0f", scale=100.)
+    vx_lo = _measured(row, "frontier_vx_lo", ".2f", signed=True)
+    up_height = _measured(row, "academy_height_up_m", ".1f", scale=100.)
+    down_height = _measured(row, "academy_height_down_m", ".1f", scale=100.)
+    yes = lambda s, a: _window_pass(history, s, a)
+    cnt = lambda s, a: _window_count(history, s, a)
+    entries: list[tuple[str, int]] = []
+
+    def add(line: str, priority: int = 0) -> None:
+        entries.append((line, priority))
+
+    add(" EMU  |  " + run_name)
+    add(f" {bar} {progress*100:5.1f}%   {step/1e6:,.1f}M / {target/1e6:,.1f}M")
+    add(f" {phase} | {stage} | ETA ~{eta} (approx.)")
+    add("", 3)
+
+    add(f" MAIN       rew {fmt(row,'reward_mean','+.3f')} "
+        f"({metric_delta(history,'reward_mean',precision=3)}) "
+        f"falls {_measured(row,'fall_rate','.1f',scale=100.)}% "
+        f"({metric_delta(history,'fall_rate',scale=100,precision=1,suffix='pp')})")
+    add(f"            len {_measured(row,'ep_len_mean','.0f')}fr  "
+        f"core {fmt(row,'core_competence','.2f')}  "
+        f"vx actual/cmd {fmt(row,'vx_mean','+.2f')}/"
+        f"{fmt(row,'cmd_vx_mean','+.2f')}  walk coach {coach(walk_alpha)}")
+
+    add(f" COMMANDS   frontier vx +{_measured(row,'frontier_vx_hi','.2f')}/{vx_lo}m/s "
+        f"vy ±{_measured(row,'frontier_vy','.2f')}m/s "
+        f"yaw ±{_measured(row,'frontier_yaw','.2f')}rad/s")
+    add("            5M near vx+ " +
+        yes("command_probe_successes_vx_hi", "command_probe_attempts_vx_hi") +
+        " vx- " + yes("command_probe_successes_vx_lo", "command_probe_attempts_vx_lo") +
+        " vy+ " + yes("command_probe_successes_vy_pos", "command_probe_attempts_vy_pos") +
+        " vy- " + yes("command_probe_successes_vy_neg", "command_probe_attempts_vy_neg"), 1)
+    add("            5M near yaw+ " +
+        yes("command_probe_successes_yaw_pos", "command_probe_attempts_yaw_pos") +
+        " yaw- " + yes("command_probe_successes_yaw_neg", "command_probe_attempts_yaw_neg") +
+        " mixed " + yes("command_probe_successes_mixed", "command_probe_attempts_mixed"), 1)
+    if height >= 31:
+        add(f"            settled command tracking vx {pct('precision_vx')}% "
+            f"vy {pct('precision_vy')}% yaw {pct('precision_yaw')}%", 2)
+
+    add(f" SLOPES     frontier {_measured(row,'slope_max_deg','.1f')}°  "
+        f"sampled max {_measured(row,'physical_slope_deg_max','.1f')}° "
+        f"exposure {pct('slope_exposure')}%")
+    add("            5M near stable up " +
+        yes("slope_near_stability_successes_uphill", "slope_near_attempts_uphill") +
+        " down " + yes("slope_near_stability_successes_downhill", "slope_near_attempts_downhill") +
+        " L " + yes("slope_near_stability_successes_cross_left", "slope_near_attempts_cross_left") +
+        " R " + yes("slope_near_stability_successes_cross_right", "slope_near_attempts_cross_right"), 1)
+    if height >= 31:
+        add("            5M easier stable U " +
+            yes("slope_easy_stability_successes_uphill", "slope_easy_attempts_uphill") +
+            " D " + yes("slope_easy_stability_successes_downhill", "slope_easy_attempts_downhill"), 2)
+
+    add(f" STEPS      frontier +{up_height}/-{down_height}cm  "
+        "approach angle: unmeasured")
+    add("            5M near UP " +
+        cnt("academy_near_successes_up", "academy_near_attempts_up") +
+        "  DOWN " + cnt("academy_near_successes_down", "academy_near_attempts_down"))
+    add(f"            coaching U/D {coach(up_alpha)}/{coach(down_alpha)}  "
+        f"assisted windows U {_measured(row,'school_up_good_windows','.0f')}/2 "
+        f"D {_measured(row,'school_down_good_windows','.0f')}/2", 1)
+    add(f"            physical footholds {_measured(row,'academy_footholds','.0f')} "
+        f"transfers {_measured(row,'academy_transfers','.0f')} "
+        f"crossings U/D {_measured(row,'academy_up_crossings','.0f')}/"
+        f"{_measured(row,'academy_down_crossings','.0f')}", 1)
+    if height >= 31:
+        add(f"            stages UP {stage} DOWN {row.get('school_down_stage','--')} "
+            f"uncoached U {_measured(row,'school_up_nohelp_windows','.0f')}/2 "
+            f"D {_measured(row,'school_down_nohelp_windows','.0f')}/2", 2)
+        add("            5M anchor UP " +
+            yes("academy_anchor_successes_up", "academy_anchor_attempts_up") +
+            " DOWN " + yes("academy_anchor_successes_down", "academy_anchor_attempts_down"), 2)
+
+    add(f" RESILIENCE push {_measured(row,'frontier_push_n','.2f')}N  "
+        f"difficulty {_measured(row,'resilience_difficulty','.2f')}  "
+        "5M focus fall " +
+        _window_pass(history, "focus_falls_resilience", "focus_episodes_resilience",
+                     minimum=10))
+    add(f" TRANSITIONS precision {pct('transition_precision')}%  "
+        f"ramp {_measured(row,'frontier_ramp_steps','.0f')}fr  "
+        f"hold {_measured(row,'frontier_transition_hold_s','.2f')}s  "
+        f"5M focus fall " +
+        _window_pass(history, "focus_falls_transition", "focus_episodes_transition",
+                     minimum=10))
+    add(f" CONTROL    shaft {_measured(row,'control_shaft_j_per_m','.1f')}J/m "
+        f"episode quality {_measured(row,'control_episode_quality','.2f')} "
+        f"motor over-rated {pct('servo_over_rated_frac')}%")
+    if height >= 31:
+        add(f"            focus share {pct('focus_step_share_control')}% "
+            f"motor near stall L/R (non-stair) "
+            f"{pct('hip_roll_motor_near_stall_left_other')}%/"
+            f"{pct('hip_roll_motor_near_stall_right_other')}%", 2)
+
+    add(f" TRAINING   PPO {fmt(row,'train_steps_per_sec',',.0f')}/s  "
+        f"wall {fmt(row,'steps_per_sec',',.0f')}/s  "
+        f"KL {fmt(row,'ppo_approx_kl_final','.4f')}  "
+        f"NaN skips {fmt(row,'nan_grad_skips_total','.0f')}")
+    add(" FROZEN     walking retention score: " + latest_heldout(history))
+
+    # In a short terminal discard optional details, never silently erase
+    # specialist headings or silently fall back to printing raw trainer lines.
+    recent = tuple(dict.fromkeys(events))
+    add(" EVENTS     " + (recent[-1] if recent else "See console.log"))
+    if height >= 31 and len(recent) > 1:
+        add("            " + recent[-2], 2)
+    add(" Full log: console.log   Raw evidence: metrics.csv, fixed_eval.csv")
+    max_lines = max(4, int(height) - 2)
+    for priority in (3, 2, 1):
+        while len(entries) > max_lines:
+            index = next((i for i, (_, p) in enumerate(entries) if p == priority),
+                         None)
+            if index is None:
+                break
+            entries.pop(index)
+    if len(entries) > max_lines:
+        entries = entries[:max_lines - 1] + entries[-1:]
+    return "\n".join(line[:width - 1] for line, _ in entries)
 
 
 class ConsoleRelay:
