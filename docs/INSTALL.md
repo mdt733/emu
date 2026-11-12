@@ -267,6 +267,36 @@ emu viewer showcase/champion.emupolicy --no-open --port 8765
 # Open http://127.0.0.1:8765/ in Windows.
 ```
 
+### H40 physical observation worlds (viewer-only)
+
+From a separate viewer worktree, with the existing 420M policy export:
+
+```bash
+cd ~/emu-specialist-viewer
+source ~/emu/.venv/bin/activate
+python -m emu.cli viewer-build
+python -m emu.cli viewer ~/emu-data/actors/h40-paired-420m.emupolicy \
+  --no-open --port 8765
+```
+
+Open http://127.0.0.1:8765/ and choose a **WORLD** from the visible
+top-bar dropdown. **Infinite Meadow** remains the natural unconstrained walk;
+**Training Carpet** offers Commands, four signed Slopes, separate Academy
+Steps UP/DOWN, Resilience, Transitions and Control. Each specialist has
+its own *physical browser terrain*: flat (nonterrain specialists), planar
+incline/cross-grade, or a signed x=1m Academy lip. Use the Settings panel
+to change the step height (default +5cm UP / -2cm DOWN), slope angle,
+forward speed and original 22cm spawn distance. Randomised births vary
+the Academy lip and approach, and the browser automatically starts a
+fresh attempt after a supported two-foot crossing, fall or timeout.
+
+The CPU viewer uses **225 recycled MuJoCo heightfields**, not the GPU
+trainer's eight convex MJX prisms. Its observed success counter requires
+both feet touching the far surface for five observed control frames;
+it is *not* an independent held-out MJX stair qualification. For reliable
+training comparisons still use the frozen prism exam. No viewer option
+restarts or modifies training, policy weights or checkpoints.
+
 Use the checked-in H40 actor as the unchanged current baseline.
 A `.pkl` checkpoint includes learned weights, normalizer, optimizer
 and curriculum state; an `.emupolicy` is an inference export.
