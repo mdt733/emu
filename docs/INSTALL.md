@@ -540,3 +540,67 @@ and restores the cursor on exit. The full raw log retains warnings,
 tracebacks and training diagnostics. An unsuccessful child process still
 emits its diagnostic tail when it exits.
 
+## Refined stair school: a source-verified fork of 180M
+
+The `--refined-school` switch requires `--progressive-school`. It is a
+versioned, checkpointed upgrade to the SAME six-role PPO training process,
+not a new environment, agent, optimiser or fork-specific trainer.
+
+Intended research parent: source `853d19a63502413bb9c05049b9f9ac5ac1afad4c`,
+exact validated 180,027,392-step H40 final.pkl. The older 300M result stays
+untouched, and the newly trained successor must use a new run directory.
+Cross-source forks require the original 180M bytes in a parent
+`checkpoints/final.pkl`, a matching `training_config.json` adjacent to
+that checkpoints directory, explicit 40-character `--research-parent-source`,
+explicit checkpoint `--research-parent-sha256`, and an independent new
+source commit. The parent configuration may be recovered from the archived
+180M bundle, or derived from the unchanged 300M configuration by adjusting
+only its original `steps` to 180000000. Never reuse the active 300M directory.
+
+Stages are *physical-evidence-driven*, not specified at fixed 300M/320M
+milestones. The existing 180M policy has earned walking graduation but no
+5cm stair certification:
+
+1. **Coached 5cm**: two consecutive 100-episode windows with >=70% true
+   supported 15-frame uphill completions. Keep +50mm, no descent.
+2. **Remove stair shaping** over 20M steps while holding **exactly +50mm**.
+3. **Independent 5cm training proof**: after stair shaping is fully zero,
+   discard coached-era evidence and require two *fresh* 100-attempt
+   near-frontier windows with >=65% supported completion. No growing
+   stair height before this pass.
+4. **Slow uphill growth**: half of *actual physical uphill Academy births*
+   remain at 50mm (+/- 4% tolerance); 35% probe the current frontier;
+   15% bridge between. At most 0.5mm frontier advancement per 1M steps.
+   At least two fresh 100-attempt uphill >=75mm windows with >=65%
+   success are required before introducing descent.
+5. **Downhill nursery**: freeze uphill at <=75mm while new downhill
+   conditions enter at 10% of Academy births, with downhill frontier
+   limited to 50mm. Two 100-attempt >=65% near-50mm downhill windows
+   independently certify descent, then unlock signed heights up to 80mm
+   and 20% downhill Academy share.
+
+Regression handling: if two uncoached 5cm windows each succeed on fewer
+than 40% of real completed attempts, briefly restore 25% of the dense
+stair-only shaping for 5M steps, then fade it back over 5M steps; fresh
+unassisted proofs are still required. After graduation, a new window of
+100 *exact 50mm* births below 45% supported completion freezes harder
+uphill promotions for at least 10M steps; already learned PPO state
+and ordinary walking rewards are never reset or overwritten.
+
+All windows, steps, state transitions, hold periods and proof counts are
+serialized in `curriculum_state` with the policy/optimizer. The special
+import of the old 180M governor is allowed only when `--refined-school`
+uses a declared cross-source research parent; new proof counters begin
+empty. The existing physical test checks the counter on true MJX prisms.
+
+**Evidence scope:** these are source-grounded *on-policy physically
+supported attempts*, not independent stair exams. Broad fixed evaluations
+continue checking walking retention every 10M steps, but training promotion
+must also be followed by a separate frozen true-prism stair exam before a
+model is declared a reliable real-world stair walker. Do not interpret
+Academy completions as multi-step course completion.
+
+Use `EMU_CONSOLE_MODE=auto` for the updating terminal, or `compact` and
+`verbose` for append-only output. The source SHA, physical profile and
+parent checkpoint must always be verified before launching the fork.
+
