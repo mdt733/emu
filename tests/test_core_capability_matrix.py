@@ -1,11 +1,11 @@
-"""v5053 GPU-matrix contract: true per-world fixtures and honest score bins."""
+"""Current GPU-matrix contract: true per-world fixtures and honest score bins."""
 from __future__ import annotations
 
 import unittest
 from dataclasses import asdict
 import numpy as np
 
-from scripts.v5053_matrix_exam import (
+from scripts.capability_matrix_exam import (
     assignments,reduce_results,wilson_95,compare_paired_exams,PAIRED_GATES)
 from emu.terrain_carpet_mjx import (
     TILE_M,exact_exam_lip_profiles,tile_geometry)
