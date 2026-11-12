@@ -519,7 +519,7 @@ test('browser specialist drills preserve full command extremes and require repea
     },state);
   assert.equal(state.transfer,true);
   assert.equal(state.complete,false);
-  for(let i=0;i<12;i++)
+  for(let i=0;i<14;i++)
     state=drillCompletion(scene,{
       x:1.22,y:scene.spawnY,upright:true,footSupported:[true,true]
     },state);
