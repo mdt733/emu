@@ -483,6 +483,22 @@ test('training-matched stair spectator births sample the real 15–30cm approach
     assert.deepEqual(ep,sampleTrainingDrill(b,'step',n),
       'same source seed and trial must reproduce the same physical obstacle');
   }
+  const first=sampleTrainingDrill(b,'step',41);
+  const park=createSensorLabCarpet({seed:735,hillPeakDeg:0});
+  park.setDrillEpisode(first);
+  park.resetGrowth();
+  const before=park.sampleHeight(.98,.5);
+  const after=park.sampleHeight(1.02,.5);
+  assert.ok(Math.abs(before)<1e-8);
+  assert.ok(Math.abs(after-first.riseM)<1e-8);
+  assert.ok(Math.abs((after-before)-first.riseM)<1e-8,
+    'compiled hfield source has a vertical wall at the real 1m seam');
+  const tile=park.at(1,0);
+  assert.ok(carpetHeightfieldPatch(tile).every(v=>v>=0&&v<=1));
+  park.setDrillEpisode(null);
+  park.resetGrowth();
+  assert.notEqual(park.sampleHeight(1.02,.5),after,
+    'returning to endless Meadow must discard the specialist fixture');
   assert.ok(down>60&&down<140,'downhill ~10% after actual unlock');
   assert.ok(five>370&&five<500,'half of uphill births retain proven 5cm');
   assert.ok(hard>370&&hard<500,'the rest work on frontier and bridges');
