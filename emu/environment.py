@@ -2300,6 +2300,17 @@ class EmuMJXEnv(TaskSampler):
                 done & state.academy_active &
                 stepped.academy_goal_transfer_ready
             ).astype(jnp.float32),
+            # Introductory ONLY: a real first-tile bilateral contact, not
+            # full competence. The staged school uses this until assisted
+            # first-lip mechanics are learned, then switches to the much
+            # stricter completed two-lip course. Never badge it as a
+            # graduation or use it after the coaching fade.
+            **{f'academy_near_first_lip_{direction}':(
+                done & state.academy_active &
+                stepped.academy_goal_transfer_ready &
+                academy_near & (academy_verdict_height*sign>.0015)
+            ).astype(jnp.float32)
+            for direction,sign in (('up',1.),('down',-1.))},
             'academy_two_lip_crossed_at_end':(
                 done & state.academy_active &
                 (academy['lip_index']>=2)
