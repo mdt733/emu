@@ -139,6 +139,7 @@ def env_kwargs_from_args(args) -> dict:
         science_step_finish_on_transfer=args.science_step_finish_on_transfer,
         outcome_graduation=args.outcome_graduation,
         progressive_school=args.progressive_school,
+        refined_school=args.refined_school,
         academy_stream=args.academy_stream,
         terrain_carpet=args.terrain_carpet,
         terrain_carpet_prisms=args.terrain_carpet_prisms,
@@ -329,7 +330,8 @@ def train(args: TrainingConfig) -> int:
                               science_step_retreat_mm=args.science_step_retreat_mm,
                               science_step_min_attempts=args.science_step_min_attempts,
                               outcome_mode=args.outcome_graduation,
-                              progressive_school=args.progressive_school)
+                              progressive_school=args.progressive_school,
+                              refined_school=args.refined_school)
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:
@@ -438,7 +440,11 @@ def train(args: TrainingConfig) -> int:
             school=(school_lesson(
                 step=step,core_competence=governor.core_competence,
                 walking_graduated=governor.school_walking_graduated,
-                stair_mastered_step=governor.school_stair_mastered_step)
+                stair_mastered_step=governor.school_stair_mastered_step,
+                refined_school=args.refined_school,
+                uncoached_certified_step=governor.school_refined_state['uncoached_certified_step'],
+                descent_unlocked_step=governor.school_refined_state['descent_unlocked_step'],
+                descent_certified_step=governor.school_refined_state['descent_certified_step'])
                 if args.progressive_school else None)
             if school is not None and not school['stairs_enabled']:
                 # Before 80M AND walking proof, do not steal learning budget
@@ -750,6 +756,18 @@ def train(args: TrainingConfig) -> int:
                 print(f'{LOG_PREFIX} SCHOOL physical 5cm proof: {proof} '
                       f"good-windows={report['school_up_good_windows']:.0f}/2 "
                       f"mastered-at={report['school_stair_mastered_step']}",
+                      flush=True)
+            refined_event=report.get('school_refined_event','')
+            if args.refined_school and refined_event in (
+                    'coaching_off_begin_fresh_proof',
+                    'uncoached_50mm_certified',
+                    'anchor_50mm_regression_hold',
+                    'uphill_75mm_certified_descent_opened',
+                    'downhill_50mm_certified'):
+                print(f'{LOG_PREFIX} SCHOOL RETENTION {refined_event} '
+                      f'at {total_steps:,} uphill='
+                      f"{report['academy_height_up_m']*100:.1f}cm "
+                      f"downhill={report['academy_height_down_m']*100:.1f}cm",
                       flush=True)
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
