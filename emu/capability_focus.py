@@ -66,6 +66,10 @@ SCHOOL_DOWN_PROOF_RATE = .65
 SCHOOL_ANCHOR_RETENTION_MIN = .45
 SCHOOL_SLOW_GROWTH_INTERVAL = 1_000_000
 SCHOOL_ANCHOR_RETREAT_HOLD = 10_000_000
+SCHOOL_RESCUE_STEPS = 5_000_000
+SCHOOL_RESCUE_FADE_STEPS = 5_000_000
+SCHOOL_RESCUE_ALPHA = .75
+SCHOOL_RESCUE_TRIGGER_RATE = .40
 
 
 def school_lesson(*, step: int, core_competence: float,
@@ -73,7 +77,8 @@ def school_lesson(*, step: int, core_competence: float,
                   refined_school: bool = False,
                   uncoached_certified_step: int = -1,
                   descent_unlocked_step: int = -1,
-                  descent_certified_step: int = -1) -> dict:
+                  descent_certified_step: int = -1,
+                  rescue_end_step: int = -1) -> dict:
     """Pure staged teacher decision; never inferred from network age alone.
 
     0..20M foundation; 20..60M supported specialist growth;
@@ -101,11 +106,23 @@ def school_lesson(*, step: int, core_competence: float,
            'walking_graduation' if not active else
            'assisted_stairs' if stair_mastered_step<0 else
            'stair_graduation')
+    rescue_active=(refined_school and active and stair_mastered_step>=0 and
+                   uncoached_certified_step<0 and rescue_end_step>=0 and
+                   step<rescue_end_step+SCHOOL_RESCUE_FADE_STEPS)
+    if rescue_active:
+        # A small fixed portion of dense stair coaching returns temporarily
+        # after two genuinely bad no-help proof windows. Never re-enable
+        # gait/phase instructions or advance the physical stair height.
+        stair_alpha=(SCHOOL_RESCUE_ALPHA if step<rescue_end_step else
+                     SCHOOL_RESCUE_ALPHA+
+                     (1.-SCHOOL_RESCUE_ALPHA)*
+                     (step-rescue_end_step)/SCHOOL_RESCUE_FADE_STEPS)
     if refined_school and active and stair_mastered_step >= 0:
         # Three distinct proofs: assisted 5cm -> no-help 5cm ->
         # harder uphill -> signed descent. A 5cm success never authorises
         # simultaneous reward removal, height increase AND descent.
-        stage=('fade_5cm_guidance' if stair_alpha<1. else
+        stage=('recover_5cm_guidance' if rescue_active else
+               'fade_5cm_guidance' if stair_alpha<1. else
                'prove_uncoached_5cm' if uncoached_certified_step<0 else
                'expand_uphill_retaining_5cm' if descent_unlocked_step<0 else
                'introduce_descent' if descent_certified_step<0 else
