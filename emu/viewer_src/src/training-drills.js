@@ -120,7 +120,9 @@ export function drillCommand(episode,elapsedS){
   ][band];
 }
 
-export function drillCompletion(episode,pose,previous={right:0,left:0,stable:0}){
+export function drillCompletion(episode,pose,previous={
+  right:0,left:0,rightSeen:false,leftSeen:false,stable:0
+}){
   const next={...previous},x=finite(pose.x,-100),y=finite(pose.y,100);
   if(episode.role!=='step')return {...next,complete:false};
   const eligible= x>=episode.wallX+.10&&x<episode.wallX+.75&&
@@ -130,7 +132,12 @@ export function drillCompletion(episode,pose,previous={right:0,left:0,stable:0})
   const foot=pose.footSupported||[false,false];
   next.right=foot[0]?Math.min(20,next.right+1):0;
   next.left=foot[1]?Math.min(20,next.left+1):0;
-  const transfer=next.right>=3&&next.left>=3;
+  // Each supported foot may arrive in a different walking phase.
+  // The GPU nursery remembers successful *independent* top contacts,
+  // instead of requiring both feet to stand together simultaneously.
+  next.rightSeen=Boolean(next.rightSeen||next.right>=3);
+  next.leftSeen=Boolean(next.leftSeen||next.left>=3);
+  const transfer=next.rightSeen&&next.leftSeen;
   next.stable=eligible&&transfer&&foot.some(Boolean)?next.stable+1:0;
   return {...next,complete:next.stable>=15,transfer};
 }
