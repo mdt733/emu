@@ -483,7 +483,8 @@ test('training-matched stair spectator births sample the real 15–30cm approach
     assert.deepEqual(ep,sampleTrainingDrill(b,'step',n),
       'same source seed and trial must reproduce the same physical obstacle');
   }
-  const first=sampleTrainingDrill(b,'step',41);
+  const first=sampleTrainingDrill({...b,academyCourseEpisodeFrames:1200},'step',41);
+  assert.equal(first.durationS,24,'watch a whole Academy horizon without early artificial timeout');
   const park=createSensorLabCarpet({seed:735,hillPeakDeg:0});
   park.setDrillEpisode(first);
   park.resetGrowth();
