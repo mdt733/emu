@@ -105,6 +105,26 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertEqual(out.state.academy_goal_xy.shape,(4,2))
         self.assertTrue(np.isfinite(
             np.asarray(jax.device_get(out.state.academy_goal_xy))).all())
+        # Exercise the REAL signed -20mm MJX seam too. Historically the
+        # >30mm arm gate made this whole cohort physically unteachable.
+        down_params=dict(specialist_mix=1.,focus_weight_step=1.,
+                         academy_episode_probability=1.,
+                         terrain_height_m=.02,academy_height_up_m=.05,
+                         academy_height_down_m=.02,outcome_down_share=1.,
+                         outcome_down_stair_alpha=0.)
+        down_state,_=env.reset(down_params)
+        signed=np.asarray(jax.device_get(down_state.academy_birth_lip_m))
+        self.assertTrue(np.all((signed<-.0191)&(signed>-.0209)),signed)
+        down_step=env.step(
+            down_state,jnp.zeros((4,6),jnp.float32),
+            env.params_array(down_params))
+        self.assertEqual(down_step.obs.shape,(4,360))
+        self.assertTrue(np.isfinite(np.asarray(
+            jax.device_get(down_step.reward))).all())
+        self.assertIn('academy_anchor_attempt_down',down_step.metrics)
+        self.assertIn('outcome_down_stair_alpha',down_step.metrics)
+        self.assertTrue(np.all(np.asarray(jax.device_get(
+            down_step.metrics['outcome_down_stair_alpha']))==0.))
 
     def _assert_real_millimetre_credit_cannot_farm_or_cross_wall_low(self):
         from emu.step_goal import nursery_progress
