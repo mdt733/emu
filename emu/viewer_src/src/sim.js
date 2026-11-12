@@ -109,6 +109,7 @@ export class EmuBrowserSim {
     this.carpetRole = 'step';
     this.carpetDifficulty = {...CARPET_DEFAULT};
     this.meadowSettings = {...MEADOW_DEFAULTS};
+    this.trainingScenario = null; // null = unrestricted Infinite Meadow
     this.carpetTileOverlay = null;
     this.carpetTileCenter = null;
     this.carpetWindowCenter = null;
@@ -389,13 +390,27 @@ export class EmuBrowserSim {
     // Training specialist selection changes only the exercises.
     // The physical Meadow has one independent difficulty source.
   }
+  setTrainingScenario(scenario=null){
+    // A new attempt updates existing mutable MuJoCo heightfields. Only
+    // switching between Meadow and a specialist rebuilds the physical world.
+    if(JSON.stringify(scenario)===JSON.stringify(this.trainingScenario))return;
+    const wasSpecialist=Boolean(this.trainingScenario);
+    this.trainingScenario=scenario;
+    if(!this.model)return;
+    if(wasSpecialist!==Boolean(scenario)){
+      this.loadModel();
+    }else{
+      this.park?.configureScenario(scenario);
+      this.reset();
+    }
+  }
   setMeadowSettings(settings){
     const next=normalizedMeadowSettings(settings);
     if(JSON.stringify(next)===JSON.stringify(this.meadowSettings))return;
     this.meadowSettings=next;
     // Changing a hill beneath a foot mid-stride creates a false impulse.
     // Rebuild/reset the spectator only after an explicit slider change.
-    if(this.terrainMode==='carpet')this.loadModel();
+    if(this.terrainMode==='carpet'&&!this.trainingScenario)this.loadModel();
   }
   setShovePreview({enabled=false,forceLimitN=0,intensity=0,mode='drill'}={}){
     const on=Boolean(enabled);
@@ -548,7 +563,7 @@ export class EmuBrowserSim {
   loadModel() {
     this.disposeModel();
     this.park=this.terrainMode==='carpet'
-      ?createSensorLabCarpet(this.meadowSettings):null;
+      ?createSensorLabCarpet({...this.meadowSettings,scenario:this.trainingScenario}):null;
     this.scene.fog=this.park?.physics==='streaming-heightfield'
       ?new THREE.Fog(0xb1c8c1,7,22):new THREE.Fog(0xbad7e2,15,49);
     const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park,obstacle:this.sensorObstacle,
@@ -717,8 +732,13 @@ export class EmuBrowserSim {
     this.command.yaw = this.requestedYaw;
     this.data.qvel[5] = this.command.yaw;
     if(this.park?.physics==='streaming-heightfield'){
-      this.data.qpos[0]=LAB_TILE_M*.5;
-      this.data.qpos[1]=LAB_TILE_M*.5;
+      // The short Academy task begins ~22cm BEFORE its real x=1m lip.
+      // New trials randomise distance ±4cm and small lateral offset.
+      this.data.qpos[0]=this.trainingScenario?.kind==='step'
+        ?this.trainingScenario.edgeX-this.trainingScenario.distanceM
+        :LAB_TILE_M*.5;
+      this.data.qpos[1]=LAB_TILE_M*.5+
+        (this.trainingScenario?.kind==='step'?this.trainingScenario.sideOffsetM:0);
       this.carpetWindowCenter=[0,0];
     }
     mj.mj_forward(this.model, this.data);
