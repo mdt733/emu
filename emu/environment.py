@@ -1886,6 +1886,11 @@ class EmuMJXEnv(TaskSampler):
             finish_streak=jnp.where(
                 short,state.academy_finish_streak+1,0)
             finish_new=finish_streak>=(15 if self.outcome_graduation else CLIMB_STABLE_FRAMES)
+            # C's first lip is a milestone, NEVER an absorbing terminal or
+            # the old 60-point win. It must recover, climb the NEXT real
+            # lip and prove ordinary command-following after that.
+            if self.two_lip_continuation_school:
+                finish_new=jnp.zeros_like(finish_new)
             # Success is a TRUE absorbing PPO terminal, not a timeout.
             # A separate sparse payment distinguishes partial foothold
             # shaping from the completed whole-foot transfer lesson.
@@ -1942,7 +1947,37 @@ class EmuMJXEnv(TaskSampler):
                 touchdown.astype(jnp.float32),axis=1))*(1.-alpha)
             reward=reward+nursery_payment
             ep_return=ep_return+nursery_payment
+        if self.two_lip_continuation_school:
+            # Contact-grounded course completion on the SAME actor and
+            # exact same eight-prism model. 'progress_new' fires only
+            # after a verified NEW signed-lip top-contact transfer
+            # followed by >=0.50m forward travel in its latched heading.
+            # The lip index rules out the first-step suicide-finish.
+            # A rolling 0.5s window also proves ordinary +vx tracking:
+            # ballistic forward dives or immobile, leaning arrivals fail.
+            window_vx=hist_v.sum(axis=1)/jnp.maximum(hist_n,1)
+            window_cmd=hist_c.sum(axis=1)/jnp.maximum(hist_n,1)
+            cmd_followed=(hist_n>=20) & (window_cmd>=.075) & (
+                window_vx>=.05) & (jnp.abs(window_vx-window_cmd)<=.10)
+            course_new=(state.academy_active & step_focus &
+                (academy['lip_index']>=2) & academy['progress_new'] &
+                cmd_followed & (metrics['gravity_z']>=.80) &
+                (metrics['support']>=.5) & (metrics['bad_contact']<.5) &
+                (jnp.abs(metrics['yaw_rate']-metrics['cmd_yaw'])<.35) &
+                ~terminal_fail & ~timeout)
+            # Full completion is worth more than isolated first/second
+            # footholds, and only pays ONCE because it ends this episode.
+            course_payment=45.*course_new.astype(jnp.float32)
+            reward=reward+course_payment
+            ep_return=ep_return+course_payment
+            done=done|course_new
+            finish_new=course_new
+        else:
+            course_new=jnp.zeros_like(done)
+            cmd_followed=jnp.zeros_like(done)
         academy={**academy,'completed':goal_new,'finish_new':finish_new,
+                 'course_new':course_new,
+                 'course_vx_window_ok':cmd_followed,
                  'nursery_payment':nursery_payment,'nursery_gains':nursery_gains}
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
@@ -2257,6 +2292,18 @@ class EmuMJXEnv(TaskSampler):
             'academy_verdict_frontier_m':academy_ref,
             'terrain_encounter_frontier_m':stepped.terrain_attempt_frontier_m,
             'academy_finish_new':academy['finish_new'].astype(jnp.float32),
+            'academy_two_lip_continued_new':academy['course_new'].astype(jnp.float32),
+            'academy_two_lip_vx_window_ok':(
+                academy['course_vx_window_ok'] & state.academy_active
+            ).astype(jnp.float32),
+            'academy_first_lip_supported_at_end':(
+                done & state.academy_active &
+                stepped.academy_goal_transfer_ready
+            ).astype(jnp.float32),
+            'academy_two_lip_crossed_at_end':(
+                done & state.academy_active &
+                (academy['lip_index']>=2)
+            ).astype(jnp.float32),
             # Anchor cohort: a completed Academy attempt on the genuinely
             # sampled ±2.5mm 50mm UP lip, not a shifting easy-band proxy.
             'academy_anchor_attempt_up':(
