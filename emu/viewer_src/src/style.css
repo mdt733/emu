@@ -549,3 +549,9 @@ button:disabled { opacity: .4; cursor: default; }
   .scene-switch select {max-width:none;flex:1;}
   .topbar .top-actions {grid-column:2;grid-row:1;}
 }
+
+/* Hidden is authoritative even when the compact Settings form forces
+   labels to flex/grid. A different specialist must not show stale knobs. */
+#sceneHeightRow[hidden],#sceneApproachRow[hidden],#sceneGradeRow[hidden],
+#sceneDistanceRow[hidden],#sceneCommandRow[hidden],
+#carpetDriveRow[hidden],#autoResetRow[hidden] {display:none!important;}
