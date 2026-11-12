@@ -291,7 +291,10 @@ class ConsoleRelay:
             self._write("\x1b[?25l\x1b[2J\x1b[H" + picture + "\x1b[J")
             self.drawn = True
         else:
-            self._write("\x1b[H" + picture + "\x1b[J")
+            # Cursor-home + erase-to-end only clears AFTER the final drawn
+            # line: shorter refreshed lines retain old suffixes on Windows
+            # Terminal / WSL. Clear the entire fixed page on every update.
+            self._write("\x1b[2J\x1b[H" + picture + "\x1b[J")
 
     def forward(self, line: str) -> None:
         t = line.strip()
