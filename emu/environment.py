@@ -1957,14 +1957,18 @@ class EmuMJXEnv(TaskSampler):
             # ballistic forward dives or immobile, leaning arrivals fail.
             window_vx=hist_v.sum(axis=1)/jnp.maximum(hist_n,1)
             window_cmd=hist_c.sum(axis=1)/jnp.maximum(hist_n,1)
+            from .step_goal import two_lip_continuation_success
             cmd_followed=(hist_n>=20) & (window_cmd>=.075) & (
                 window_vx>=.05) & (jnp.abs(window_vx-window_cmd)<=.10)
-            course_new=(state.academy_active & step_focus &
-                (academy['lip_index']>=2) & academy['progress_new'] &
-                cmd_followed & (metrics['gravity_z']>=.80) &
-                (metrics['support']>=.5) & (metrics['bad_contact']<.5) &
-                (jnp.abs(metrics['yaw_rate']-metrics['cmd_yaw'])<.35) &
-                ~terminal_fail & ~timeout)
+            course_new=two_lip_continuation_success(
+                jnp,academy_active=state.academy_active & step_focus,
+                supported_lips=academy['lip_index'],
+                half_metre_after_second=academy['progress_new'],
+                samples=hist_n,mean_vx=window_vx,mean_cmd_vx=window_cmd,
+                gravity_z=metrics['gravity_z'],support=metrics['support'],
+                bad_contact=metrics['bad_contact'],
+                yaw_error=metrics['yaw_rate']-metrics['cmd_yaw'],
+                terminal=terminal_fail | timeout)
             # Full completion is worth more than isolated first/second
             # footholds, and only pays ONCE because it ends this episode.
             course_payment=45.*course_new.astype(jnp.float32)
