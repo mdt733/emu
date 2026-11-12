@@ -482,6 +482,7 @@ def _assert_readonly_console_dashboard_five_million_step_trends_and_tty(tmp_path
     relay.forward("[emu_v5015] step=11,000,000 rew=+2.100\n")
     relay.forward("[emu_v5015] SCHOOL assisted_stairs at 11M\n")
     relay.close()
-    assert "\x1b[2J" in tty.getvalue()
+    assert tty.getvalue().count("\x1b[2J") >= 2, (
+        "Every ANSI redraw must erase the whole screen, including stale tails")
     assert "Δ vs prior 5M" in tty.getvalue()
     assert tty.getvalue().endswith("\x1b[?25h\n")
