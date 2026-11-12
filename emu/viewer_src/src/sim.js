@@ -7,7 +7,6 @@ import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays,
 import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredAttitude, sampleShove, expectedShoveRate, clearanceAboveSupport } from './sim-math.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
 import { withTerrain, surfaceSlope, surfaceLabGradient, terrainSensorHeightFallback } from './terrain.js';
-import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
 import { createSensorLabCarpet, carpetSpawnSoleLift, carpetHeightfieldPatch, normalizedMeadowSettings, MEADOW_DEFAULTS, LAB_TILE_M, LAB_TILE_COUNT } from './sensor-lab-carpet.js';
 import { createGrowingMeadowScenery } from './growing-meadow.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
@@ -106,8 +105,6 @@ export class EmuBrowserSim {
       ),
     );
     this.terrainMode = 'carpet'; // the only public viewer world
-    this.carpetRole = 'step';
-    this.carpetDifficulty = {...CARPET_DEFAULT};
     this.meadowSettings = {...MEADOW_DEFAULTS};
     this.trainingScenario = null; // null = unrestricted Infinite Meadow
     this.carpetTileOverlay = null;
@@ -375,20 +372,6 @@ export class EmuBrowserSim {
     if(mode===this.terrainMode)return;
     this.terrainMode=mode;
     this.loadModel();
-  }
-  setTrainingCarpet({role=this.carpetRole,limits=this.carpetDifficulty}={}) {
-    const checked=carpetRoleLimits(limits,role); // refuse invalid or unknown roles
-    const next={...limits,seed:checked.seed,slopeDeg:Number(limits.slopeDeg),
-      transitionDeg:Number(limits.transitionDeg),stepUpM:Number(limits.stepUpM),
-      stepDownM:Number(limits.stepDownM)};
-    if(['seed','slopeDeg','transitionDeg','stepUpM','stepDownM']
-      .some(key=>!Number.isFinite(next[key])||next[key]<0))
-      throw Error('Invalid training difficulty');
-    if(role===this.carpetRole&&JSON.stringify(next)===JSON.stringify(this.carpetDifficulty))return;
-    this.carpetRole=role;
-    this.carpetDifficulty=next;
-    // Training specialist selection changes only the exercises.
-    // The physical Meadow has one independent difficulty source.
   }
   setTrainingScenario(scenario=null){
     // One physics model, one compiled policy, one permanent 225-hfield
