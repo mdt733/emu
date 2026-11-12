@@ -216,6 +216,16 @@ def one_run_config(args) -> TrainingConfig:
         intro_share=.10
         academy_share=.55
     finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
+    dual_lip=bool(getattr(args,'two_lip_continuation_school',False))
+    if dual_lip and not (school and refined and paired and outcome
+                          and finish_on_transfer):
+        raise ValueError('two-lip continuation requires --progressive-school '
+                         '--refined-school --bidirectional-school '
+                         '--outcome-graduation and --science-step-finish-on-transfer')
+    if dual_lip and science_args['science_step_goal_weight']>0.:
+        raise ValueError('two-lip continuation forbids first-destination terminal reward')
+    if dual_lip and course_frames<1200:
+        raise ValueError('two-lip continuation needs at least 1200 control frames')
     if finish_on_transfer and not academy_stream:
         raise ValueError('--science-step-finish-on-transfer requires Academy stream')
     approach=science_args['science_step_approach_m']
@@ -248,6 +258,7 @@ def one_run_config(args) -> TrainingConfig:
                    outcome_graduation=outcome,
                    progressive_school=school, refined_school=refined,
                    bidirectional_school=paired,
+                   two_lip_continuation_school=dual_lip,
                    outcome_walk_start_steps=walk_start,
                    outcome_stair_approved=approved,
                    outcome_approval_start_steps=approved_start,
