@@ -109,6 +109,21 @@ python -m emu.cli export-policy \
   ~/emu-data/actors/h40-cold-duallip-500m.emupolicy
 ```
 
+For a larger **ten-capability GPU matrix** (command, slope and signed
+stair bins), use the one current retained frozen examiner instead of the
+retired versioned script:
+
+```bash
+python -m scripts.capability_matrix_exam \
+  --policy ~/emu-data/actors/h40-paired-420m.emupolicy \
+  --output ~/emu-data/exams/b-capability-matrix-new \
+  --device cuda --worlds 2048 --horizon 350 --seed 1701
+```
+
+This examiner is read-only; moving it to a role-based module name
+changes its recorded **exam-source fingerprint** and is not equivalent
+to old version-pinned results without source verification.
+
 Neither `prism-exam` nor the browser changes policy weights. Do not
 reuse a completed exam output directory. The exact `final.pkl` exists
 only **after** the campaign reaches its final target; interim viewing
