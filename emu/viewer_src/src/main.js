@@ -28,6 +28,7 @@ const terrainMode = $('terrainMode');
 const sceneMode=$('sceneMode'),sceneStatus=$('sceneStatus');
 const sceneHeight=$('sceneHeight'),sceneGrade=$('sceneGrade');
 const sceneDistance=$('sceneDistance'),sceneSpeed=$('sceneSpeed');
+const sceneApproach=$('sceneApproach'),sceneCommandAxis=$('sceneCommandAxis');
 const sceneRandomize=$('sceneRandomize');
 const carpetRole=$('carpetRole'),carpetPanel=$('carpetPanel'),carpetImport=$('carpetImport');
 const carpetValues=$('carpetValues'),carpetStatus=$('carpetStatus');
@@ -355,6 +356,8 @@ function updateWorldTabs(){
   $('sceneHeightRow').hidden=!isStepScene(sceneMode.value);
   $('sceneDistanceRow').hidden=!isStepScene(sceneMode.value);
   $('sceneGradeRow').hidden=!isSlopeScene(sceneMode.value);
+  $('sceneApproachRow').hidden=!isStepScene(sceneMode.value);
+  $('sceneCommandRow').hidden=sceneMode.value!=='command';
   $('carpetHudRow').hidden=false;
   $('carpetGrowthRow').hidden=!meadow;
   $('viewerExercise').textContent=meadow
@@ -368,7 +371,7 @@ function refreshSceneStatus(){
   const count=sceneCounts;
   const scene=sceneCurrent;
   const physical=scene?.kind==='step'
-    ?`Signed lip ${scene.lipM>=0?'+':''}${(scene.lipM*100).toFixed(2)}cm · spawned ${(scene.distanceM*100).toFixed(1)}cm before x=1m`
+    ?`Signed lip ${scene.lipM>=0?'+':''}${(scene.lipM*100).toFixed(2)}cm · ${(scene.distanceM*100).toFixed(1)}cm before x=1m · heading ${scene.approachDeg.toFixed(1)}°`
     :scene?.kind==='slope'
       ?`Physical ${scene.gradeDeg.toFixed(1)}° ${mode.replace('slope-','')} grade`
       :'Level physical terrain; actual learner commands and disturbances';
@@ -389,6 +392,7 @@ function beginSceneAttempt({fresh=false}={}){
   sceneCurrent=makeSpecialistScene(sceneMode.value,{
     stepCm:Number(sceneHeight.value),gradeDeg:Number(sceneGrade.value),
     spawnCm:Number(sceneDistance.value),
+    approachDeg:Number(sceneApproach.value),
     seed:Number(carpetDifficulty.seed??735),
     trial:sceneTrial,randomize:sceneRandomize.checked
   });
@@ -477,6 +481,7 @@ sceneMode.addEventListener('change',()=>{
 for(const [element,output,unit,digits] of [
   [sceneHeight,'sceneHeightOut',' cm',1],
   [sceneGrade,'sceneGradeOut','°',1],
+  [sceneApproach,'sceneApproachOut','°',1],
   [sceneDistance,'sceneDistanceOut',' cm',1],
   [sceneSpeed,'sceneSpeedOut',' m/s',2]]){
   element.addEventListener('input',()=>{
@@ -488,6 +493,9 @@ for(const [element,output,unit,digits] of [
 }
 sceneRandomize.addEventListener('change',()=>{
   if(sceneMode.value!=='meadow')beginSceneAttempt({fresh:true});
+});
+$('sceneCommandAxis').addEventListener('change',()=>{
+  if(sceneMode.value==='command')beginSceneAttempt({fresh:true});
 });
 $('sceneNext').addEventListener('click',()=>beginSceneAttempt());
 
@@ -694,6 +702,16 @@ function runCarpetLesson(dt){
   const command=lesson.commandAt(carpetExerciseClock);
   if(isStepScene(sceneMode.value)||isSlopeScene(sceneMode.value))
     command.vx=Number(sceneSpeed.value);
+  if(sceneMode.value==='command'&&sceneCommandAxis.value!=='cycle'){
+    const magnitude=Number(sceneSpeed.value),l=limits();
+    const axis=sceneCommandAxis.value;
+    command.vx=axis==='vx-pos'?Math.min(magnitude,l.vx_max):
+      axis==='vx-neg'?-Math.min(magnitude,Math.abs(l.vx_min)):0;
+    command.vy=axis==='vy-pos'?Math.min(magnitude,l.vy_abs):
+      axis==='vy-neg'?-Math.min(magnitude,l.vy_abs):0;
+    command.yaw=axis==='yaw-pos'?Math.min(magnitude,l.yaw_abs):
+      axis==='yaw-neg'?-Math.min(magnitude,l.yaw_abs):0;
+  }
   sim.setDemoCommands(command);
   const delivered=sim.commandTarget;
   const descriptor=`vx ${fmtSigned(delivered.vx)} · vy ${fmtSigned(delivered.vy)} · yaw ${fmtSigned(delivered.yaw)}`;
