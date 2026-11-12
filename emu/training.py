@@ -444,7 +444,8 @@ def train(args: TrainingConfig) -> int:
                 refined_school=args.refined_school,
                 uncoached_certified_step=governor.school_refined_state['uncoached_certified_step'],
                 descent_unlocked_step=governor.school_refined_state['descent_unlocked_step'],
-                descent_certified_step=governor.school_refined_state['descent_certified_step'])
+                descent_certified_step=governor.school_refined_state['descent_certified_step'],
+                rescue_end_step=governor.school_refined_state['rescue_end_step'])
                 if args.progressive_school else None)
             if school is not None and not school['stairs_enabled']:
                 # Before 80M AND walking proof, do not steal learning budget
@@ -761,6 +762,7 @@ def train(args: TrainingConfig) -> int:
             if args.refined_school and refined_event in (
                     'coaching_off_begin_fresh_proof',
                     'uncoached_50mm_certified',
+                    'uncoached_50mm_rescue_started',
                     'anchor_50mm_regression_hold',
                     'uphill_75mm_certified_descent_opened',
                     'downhill_50mm_certified'):
