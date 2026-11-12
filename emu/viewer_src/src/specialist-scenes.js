@@ -42,14 +42,14 @@ export function makeSpecialistScene(mode,{stepCm=5,gradeDeg=8,spawnCm=22.5,
     ?clamp((spawnCm+15*(xDraw-.5))/100,.15,.30)
     :clamp(spawnCm/100,.15,.38);
   const signedLipM=(mode==='step-down'?-1:1)*
-    clamp((stepCm+(isStepScene(mode)&&randomize?.5*(hDraw-.5):0))/100,.005,.08);
+    clamp((stepCm+(isStepScene(mode)&&randomize ? .5*(hDraw-.5) : 0))/100,.005,.08);
   const angle=clamp(gradeDeg,0,15)*Math.PI/180;
   const axis=(mode==='slope-left'||mode==='slope-right')?'y':'x';
   const inclineSign=(mode==='slope-down'||mode==='slope-right')?-1:1;
   const kind=isStepScene(mode)?'step':isSlopeScene(mode)?'slope':'flat';
   return Object.freeze({
     mode,kind,trial,distanceM,
-    sideOffsetM:randomize?.10*(yDraw-.5):0,
+    sideOffsetM:randomize ? .10*(yDraw-.5) : 0,
     lipM:kind==='step'?signedLipM:0,
     gradeDeg:kind==='slope'?clamp(gradeDeg,0,15):0,
     axis,grade:kind==='slope'?inclineSign*Math.tan(angle):0,
