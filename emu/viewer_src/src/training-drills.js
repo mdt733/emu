@@ -67,7 +67,9 @@ export function sampleTrainingDrill(limits,role,sequence=1){
     role,sequence,seed,stepKind,riseM:rise,slopeDeg,
     spawnX,spawnY,wallX:1,
     initialCommand:{vx:forward,vy:0,yaw:0,pitch:0},
-    durationS:role==='step'?14:role==='standing'?10:18,
+    durationS:role==='step'
+      ?clamp(finite(limits.academyCourseEpisodeFrames,1200)*.02,6,48)
+      :role==='standing'?10:18,
     caps:{vxMax,vxMin,vy,yaw},
     commandSeed:Math.floor(draw()*4294967295),
     // Up to the viewer to choose genuinely physical force previews.
