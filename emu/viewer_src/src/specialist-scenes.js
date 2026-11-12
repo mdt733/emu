@@ -27,10 +27,10 @@ export const sceneRole=mode=>isStepScene(mode)?'step':
   ['command','resilience','transition','control'].includes(mode)?mode:'auto';
 
 export function makeSpecialistScene(mode,{stepCm=5,gradeDeg=8,spawnCm=22.5,
-  seed=735,trial=0,randomize=true}={}){
+  approachDeg=0,seed=735,trial=0,randomize=true}={}){
   if(mode==='meadow')return null;
   if(!SPECIALIST_SCENES.some(([key])=>key===mode))throw Error('Unknown specialist scene');
-  if(![stepCm,gradeDeg,spawnCm,seed,trial].every(Number.isFinite))
+  if(![stepCm,gradeDeg,spawnCm,approachDeg,seed,trial].every(Number.isFinite))
     throw Error('Invalid specialist scene inputs');
   // B's actual Academy reset uses x=.70+.15*U and y=.45+.10*U.
   // At the x=1 seam this means uniform 15..30cm before the lip, and
@@ -38,6 +38,7 @@ export function makeSpecialistScene(mode,{stepCm=5,gradeDeg=8,spawnCm=22.5,
   const xDraw=hash(seed+Math.imul(trial+1,137));
   const yDraw=hash(seed+Math.imul(trial+1,157)+13);
   const hDraw=hash(seed+Math.imul(trial+1,191)+71);
+  const aDraw=hash(seed+Math.imul(trial+1,211)+37);
   const distanceM=randomize
     ?clamp((spawnCm+15*(xDraw-.5))/100,.15,.30)
     :clamp(spawnCm/100,.15,.38);
@@ -51,6 +52,8 @@ export function makeSpecialistScene(mode,{stepCm=5,gradeDeg=8,spawnCm=22.5,
     mode,kind,trial,distanceM,
     sideOffsetM:randomize ? .10*(yDraw-.5) : 0,
     lipM:kind==='step'?signedLipM:0,
+    approachDeg:kind==='step'?clamp(approachDeg+
+      (randomize?6*(aDraw-.5):0),-15,15):0,
     gradeDeg:kind==='slope'?clamp(gradeDeg,0,15):0,
     axis,grade:kind==='slope'?inclineSign*Math.tan(angle):0,
     edgeX:1,
