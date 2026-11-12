@@ -286,9 +286,10 @@ Steps UP/DOWN, Resilience, Transitions and Control. Each specialist has
 its own *physical browser terrain*: flat (nonterrain specialists), planar
 incline/cross-grade, or a signed x=1m Academy lip. Use the Settings panel
 to change the step height (default +5cm UP / -2cm DOWN), slope angle,
-forward speed and original 22cm spawn distance. Randomised births vary
-the Academy lip and approach, and the browser automatically starts a
-fresh attempt after a supported two-foot crossing, fall or timeout.
+forward speed and the nominal 22.5cm spawn distance. Randomised births
+match the trainer's uniform 15–30cm approach and 45–55cm side-position
+range, with a small additional lip-height variation. The browser automatically
+starts a fresh attempt after a supported two-foot crossing, fall or timeout.
 
 The CPU viewer uses **225 recycled MuJoCo heightfields**, not the GPU
 trainer's eight convex MJX prisms. Its observed success counter requires
