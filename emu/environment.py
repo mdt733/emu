@@ -1676,6 +1676,15 @@ class EmuMJXEnv(TaskSampler):
         # Do NOT relax speed while approaching the flat third seam.
         near_lip=jnp.where(data.qpos[:,0] < 2.*CARPET_TILE_M,
                            jnp.clip((.40-before_lip)/.25,0.,1.),0.)
+        # The remaining HELP is removed independently for UP and DOWN
+        # as the checkpointed school alpha advances to 1. At graduation
+        # the original operator vx is scored at FULL strength everywhere,
+        # even immediately in front of a step. No hidden deployment task.
+        stair_alpha=jnp.where(
+            state.academy_birth_lip_m<0.,
+            params[P.outcome_down_stair_alpha],
+            params[P.outcome_stair_alpha])
+        near_lip=near_lip*(1.-jnp.clip(stair_alpha,0.,1.))
         metrics={**metrics,
                  'science_step_near_lip_frac':(
                      near_lip if self.two_lip_continuation_school else
