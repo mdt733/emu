@@ -1666,7 +1666,17 @@ class EmuMJXEnv(TaskSampler):
         goal_delta=signed_distance_progress(
             jnp,state.academy_goal_xy,
             state.data.qpos[:,:2],data.qpos[:,:2])
+        # C: loosen forward-speed tracking ONLY as the next real 1m lip
+        # approaches. Between lips, and after the second, normal vx
+        # command tracking is restored automatically on every frame.
+        # This is reward-only: no new deployable actor input.
+        before_lip=((jnp.floor(data.qpos[:,0]/CARPET_TILE_M)+1.)*
+                    CARPET_TILE_M-data.qpos[:,0])
+        near_lip=jnp.clip((.40-before_lip)/.25,0.,1.)
         metrics={**metrics,
+                 'science_step_near_lip_frac':(
+                     near_lip if self.two_lip_continuation_school else
+                     jnp.ones_like(near_lip)),
                  'science_step_focus':step_focus.astype(jnp.float32),
                  # These TWO teacher-only fields never reach the actor.
                  'science_step_goal_active':(
