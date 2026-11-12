@@ -173,6 +173,9 @@ def one_run_config(args) -> TrainingConfig:
             raise ValueError(f'{key} must be finite and in [{lo},{hi}]')
         science_args[key]=value
     school=bool(getattr(args,'progressive_school',False))
+    refined=bool(getattr(args,'refined_school',False))
+    if refined and not school:
+        raise ValueError('--refined-school requires --progressive-school')
     outcome=bool(getattr(args,'outcome_graduation',False)) or school
     walk_start=int(getattr(args,'outcome_walk_start_steps',60_000_000))
     approved=bool(getattr(args,'outcome_stair_approved',False))
