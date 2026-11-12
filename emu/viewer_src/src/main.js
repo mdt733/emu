@@ -4,10 +4,8 @@ import { VirtualStick } from './joystick.js';
 import { joystickToCommands, DemoHandoff, commandStickPositions } from './controls.js';
 import { EmuBrowserSim } from './sim.js';
 import { terrainHeightOffsetsCm } from './sensor.js';
-import { CARPET_DEFAULT } from './training-carpet.js';
 import { MEADOW_DEFAULTS, normalizedMeadowSettings } from './sensor-lab-carpet.js';
-import {makeSpecialistScene,isStepScene,isSlopeScene,sceneRole,supportedFirstLip} from './specialist-scenes.js';
-import { specialistLesson } from './training-inspector.js';
+import {makeSpecialistScene,isStepScene,isSlopeScene,supportedFirstLip,specialistExerciseCommand} from './specialist-scenes.js';
 import { showcasePolicyUrl, isJsonResponse, isViewerConfig, readShowcaseManifest, assertShowcasePolicyResponse } from './showcase.js';
 
 const $ = id => document.getElementById(id);
@@ -386,7 +384,7 @@ Viewer observation, NOT frozen MJX certification`;
 }
 
 function specialistCommandAt(seconds=0){
-  const command=currentCarpetLesson().commandAt(seconds);
+  const command=specialistExerciseCommand(sceneMode.value,seconds,limits());
   const speed=Number(sceneSpeed.value),mode=sceneMode.value;
   if(isStepScene(mode)||isSlopeScene(mode)||mode==='resilience'||mode==='control')
     command.vx=speed;
@@ -532,21 +530,11 @@ $('sceneCommandAxis').addEventListener('change',()=>{
 });
 $('sceneNext').addEventListener('click',()=>beginSceneAttempt());
 
-function currentCarpetLesson(){
-  // Representative command schedules are bounded by the frozen actor's
-  // exported command limits. They NEVER change any geometry or PPO teacher.
-  const l=limits();
-  const settings={...CARPET_DEFAULT,seed:meadowSettings.seed,
-    vxHi:l.vx_max,vxLo:l.vx_min,vyMax:l.vy_abs,yawMax:l.yaw_abs,
-    pushN:4,pushMaxForceN:4,resilienceDifficulty:.5};
-  return specialistLesson(settings,sceneRole(sceneMode.value));
-}
 function syncCarpetExercise(){
   if(!sim||terrainMode.value!=='carpet'){
     sim?.setShovePreview({enabled:false,forceLimitN:0});
     return;
   }
-  const lesson=currentCarpetLesson();
   sim.autoReset=sceneMode.value==='meadow'
     ?(demoActive||carpetDrive.value==='lesson'||autoResetToggle.checked)
     :false;
