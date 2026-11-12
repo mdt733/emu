@@ -247,6 +247,7 @@ def one_run_config(args) -> TrainingConfig:
                    science_step_finish_on_transfer=(finish_on_transfer or outcome),
                    outcome_graduation=outcome,
                    progressive_school=school, refined_school=refined,
+                   bidirectional_school=paired,
                    outcome_walk_start_steps=walk_start,
                    outcome_stair_approved=approved,
                    outcome_approval_start_steps=approved_start,
