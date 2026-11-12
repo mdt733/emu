@@ -232,6 +232,38 @@ class CoreStairPhysicsTests(unittest.TestCase):
             descent_unlocked_step=302_000_000,
             descent_certified_step=305_000_000)
         self.assertEqual(done['down_share'],.20)
+        # A school that repeatedly fails no-help climbing must be able to
+        # re-teach without restoring gait-phase rewards or growing the lip.
+        remedial=RegimeGovernor(unified_capability_focus=True,
+                                outcome_mode=True,progressive_school=True,
+                                refined_school=True)
+        remedial.load_state_dict(parent)
+        remedial.school_stair_mastered_step=264_000_000
+        remedial.observe_refined_school_evidence(
+            {},step=284_000_000,stair_alpha=1.)
+        bad={'academy_near_attempts_up':100.,
+             'academy_near_successes_up':25.}
+        self.assertEqual(remedial.observe_refined_school_evidence(
+            bad,step=284_100_000,stair_alpha=1.),
+            'uncoached_50mm_retry')
+        self.assertEqual(remedial.observe_refined_school_evidence(
+            bad,step=284_200_000,stair_alpha=1.),
+            'uncoached_50mm_rescue_started')
+        end=remedial.school_refined_state['rescue_end_step']
+        recovered=school_lesson(
+            step=284_300_000,core_competence=.8,walking_graduated=True,
+            stair_mastered_step=264_000_000,refined_school=True,
+            rescue_end_step=end)
+        self.assertEqual(recovered['stage'],'recover_5cm_guidance')
+        self.assertEqual(recovered['stair_alpha'],.75)
+        self.assertEqual(school_lesson(
+            step=end+2_500_000,core_competence=.8,
+            walking_graduated=True,stair_mastered_step=264_000_000,
+            refined_school=True,rescue_end_step=end)['stair_alpha'],.875)
+        self.assertEqual(school_lesson(
+            step=end+5_000_000,core_competence=.8,
+            walking_graduated=True,stair_mastered_step=264_000_000,
+            refined_school=True,rescue_end_step=end)['stair_alpha'],1.)
         state=school.state_dict()
         resumed=RegimeGovernor(unified_capability_focus=True,
                               outcome_mode=True,progressive_school=True,
