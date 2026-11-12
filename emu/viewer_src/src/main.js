@@ -378,7 +378,25 @@ function refreshSceneStatus(){
   sceneStatus.textContent=`Attempt #${sceneTrial+1} · ${sceneLastOutcome}
 ${physical}
 Completed ${count.attempts} · supported step arrivals ${count.successes} · falls ${count.falls} · timeouts ${count.timeouts}
-${Math.min(sceneClock,scene?.horizonS||15).toFixed(1)}s / ${scene?.horizonS||15}s · viewer observation, NOT frozen MJX certification`;
+${Math.min(sceneClock,scene?.horizonS||15).toFixed(1)}s / ${scene?.horizonS||15}s · NN ${sim?.policy?'loaded':'ABSENT'} · inference frames ${sim?.controlFrames??0}
+Viewer observation, NOT frozen MJX certification`;
+}
+
+function specialistCommandAt(seconds=0){
+  const command=currentCarpetLesson().commandAt(seconds);
+  const speed=Number(sceneSpeed.value),mode=sceneMode.value;
+  if(isStepScene(mode)||isSlopeScene(mode)||mode==='resilience'||mode==='control')
+    command.vx=speed;
+  if(mode==='command'&&sceneCommandAxis.value!=='cycle'){
+    const l=limits(),axis=sceneCommandAxis.value;
+    command.vx=axis==='vx-pos'?Math.min(speed,l.vx_max):
+      axis==='vx-neg'?-Math.min(speed,Math.abs(l.vx_min)):0;
+    command.vy=axis==='vy-pos'?Math.min(speed,l.vy_abs):
+      axis==='vy-neg'?-Math.min(speed,l.vy_abs):0;
+    command.yaw=axis==='yaw-pos'?Math.min(speed,l.yaw_abs):
+      axis==='yaw-neg'?-Math.min(speed,l.yaw_abs):0;
+  }
+  return command;
 }
 
 function beginSceneAttempt({fresh=false}={}){
@@ -396,8 +414,14 @@ function beginSceneAttempt({fresh=false}={}){
     seed:Number(carpetDifficulty.seed??735),
     trial:sceneTrial,randomize:sceneRandomize.checked
   });
+  // Preserve actor identity and start the frozen-policy episode with the
+  // correct velocity instruction. Resetting while the previous Meadow
+  // demo's command was zero looked like EMU had lost its neural policy.
+  const actor=sim.policy;
+  sim.prepareLessonBirth(specialistCommandAt(0));
   const oldGeneration=sim.resetGeneration;
   sim.setTrainingScenario(sceneCurrent);
+  if(sim.policy!==actor)throw Error('Viewer switched or lost its policy');
   if(sim.resetGeneration===oldGeneration)sim.reset();
   lastResetGeneration=sim.resetGeneration;
   // The lab owns reset timing: capture the final failed or supported pose
@@ -476,7 +500,13 @@ sceneMode.addEventListener('change',()=>{
   if(sceneMode.value==='step-down')sceneHeight.value='2';
   if(sceneMode.value==='step-up')sceneHeight.value='5';
   $('sceneHeightOut').textContent=Number(sceneHeight.value).toFixed(1)+' cm';
-  selectObservationWorld();
+  try{selectObservationWorld();}
+  catch(err){
+    console.error('Specialist switch failed:',err);
+    sceneStatus.textContent='WORLD SWITCH FAILED: '+String(err?.message||err)+
+      '\nThe policy is preserved; review console errors.';
+    setStatus('World switch: '+String(err?.message||err),'error');
+  }
 });
 for(const [element,output,unit,digits] of [
   [sceneHeight,'sceneHeightOut',' cm',1],
@@ -697,22 +727,8 @@ function updateTerrain(){
 }
 function runCarpetLesson(dt){
   if(!sim||sim.paused||demoActive||carpetDrive.value!=='lesson')return;
-  const lesson=currentCarpetLesson();
   carpetExerciseClock+=Math.max(0,Math.min(.10,dt));
-  const command=lesson.commandAt(carpetExerciseClock);
-  if(isStepScene(sceneMode.value)||isSlopeScene(sceneMode.value))
-    command.vx=Number(sceneSpeed.value);
-  if(sceneMode.value==='command'&&sceneCommandAxis.value!=='cycle'){
-    const magnitude=Number(sceneSpeed.value),l=limits();
-    const axis=sceneCommandAxis.value;
-    command.vx=axis==='vx-pos'?Math.min(magnitude,l.vx_max):
-      axis==='vx-neg'?-Math.min(magnitude,Math.abs(l.vx_min)):0;
-    command.vy=axis==='vy-pos'?Math.min(magnitude,l.vy_abs):
-      axis==='vy-neg'?-Math.min(magnitude,l.vy_abs):0;
-    command.yaw=axis==='yaw-pos'?Math.min(magnitude,l.yaw_abs):
-      axis==='yaw-neg'?-Math.min(magnitude,l.yaw_abs):0;
-  }
-  sim.setDemoCommands(command);
+  sim.setDemoCommands(specialistCommandAt(carpetExerciseClock));
   const delivered=sim.commandTarget;
   const descriptor=`vx ${fmtSigned(delivered.vx)} · vy ${fmtSigned(delivered.vy)} · yaw ${fmtSigned(delivered.yaw)}`;
   if(descriptor!==carpetLastExercise){
