@@ -515,13 +515,13 @@ test('browser specialist drills preserve full command extremes and require repea
   assert.equal(state.complete,false,'one foot is not a verified two-foot climb');
   for(let i=0;i<3;i++)
     state=drillCompletion(scene,{
-      x:1.22,y:scene.spawnY,upright:true,footSupported:[true,true]
+      x:1.22,y:scene.spawnY,upright:true,footSupported:[false,true]
     },state);
   assert.equal(state.transfer,true);
   assert.equal(state.complete,false);
   for(let i=0;i<14;i++)
     state=drillCompletion(scene,{
-      x:1.22,y:scene.spawnY,upright:true,footSupported:[true,true]
+      x:1.22,y:scene.spawnY,upright:true,footSupported:[false,true]
     },state);
   assert.equal(state.complete,true);
   state=drillCompletion(scene,{
