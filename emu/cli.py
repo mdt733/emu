@@ -18,7 +18,6 @@ def main(argv=None) -> int:
     p.add_argument('--version',action='version',version=VERSION)
     sub=p.add_subparsers(dest='cmd',required=True)
 
-    q=sub.add_parser('view',help='open the read-only capability-field viewer'); q.add_argument('--seed',type=int,default=None,help='legacy explicit seed subfolder'); q.add_argument('--run-root',default=''); q.add_argument('--run-dir',default=''); q.add_argument('--port',type=int,default=8765)
     q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts')
     q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True)
     q.add_argument('--no-mjx-smoke',action='store_true')
@@ -173,15 +172,6 @@ def main(argv=None) -> int:
     if args.cmd=='doctor':
         from .doctor import doctor
         return doctor(args)
-    if args.cmd=='view':
-        from .contracts import seed_root, run_base
-        from .capability_viewer import field_main as view
-        av=['--port',str(args.port)]
-        if args.run_dir: av += ['--run-dir',args.run_dir]
-        elif args.run_root: av += ['--run-root',str(Path(args.run_root).expanduser())]
-        elif args.seed is not None: av += ['--run-root',str(seed_root(args.seed))]
-        else: av += ['--run-root',str(run_base())]
-        return int(view(av) or 0)
     if args.cmd=='posture-report':
         from .contracts import run_base
         from .results import posture_report
