@@ -563,3 +563,29 @@ button:disabled { opacity: .4; cursor: default; }
 .telemetry .terrain-assigned b {font-size:12px;color:#bcffe0;letter-spacing:.01em;}
 
 
+
+
+/* One visible physical world selector: Meadow or a real specialist fixture. */
+.scene-switch {
+  display:flex;align-items:center;gap:8px;min-width:0;padding:5px 9px;
+  background:rgba(83,184,152,.16);border:1px solid rgba(121,222,185,.29);
+  border-radius:11px;color:#d9fff1;font-size:11px;font-weight:700;
+}
+.scene-switch span {font-size:10px;letter-spacing:.09em;opacity:.82;}
+.scene-switch select {
+  background:#142e34;color:#e3fff4;border:0;border-radius:7px;
+  min-height:34px;min-width:140px;max-width:270px;width:100%;
+  padding:5px 7px;font:inherit;cursor:pointer;
+}
+#specialistScenePanel[hidden],#meadowDifficultyPanel[hidden] {display:none!important;}
+#sceneStatus {font-size:12px;line-height:1.65;color:#d8fff1;white-space:pre-line;}
+#sceneNext {width:100%;}
+@media(max-width:1100px) {
+  .scene-switch {grid-column:2;grid-row:1;}
+  .scene-switch select {max-width:210px;}
+}
+@media(max-width:720px) {
+  .scene-switch {grid-column:1 / -1;grid-row:2;width:100%;}
+  .scene-switch select {max-width:none;flex:1;}
+  .topbar .top-actions {grid-column:2;grid-row:1;}
+}
