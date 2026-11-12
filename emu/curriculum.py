@@ -1096,6 +1096,10 @@ class RegimeGovernor:
                 s['descent_unlocked_step']=step
                 return 'uphill_75mm_certified_descent_opened'
             return 'prove_75mm_'+event
+        if self.bidirectional_school:
+            # The uphill evidence gate does not certify or teach descent.
+            # DOWN has its own 20mm / no-help / 50mm proof path.
+            return 'uphill_75mm_certified_downhill_independent'
         if s['descent_certified_step']<0:
             if self.params.academy_height_down_m < .05-1e-6:
                 return 'learning_downhill_50mm'
@@ -1134,6 +1138,83 @@ class RegimeGovernor:
         state[prefix+'_good_windows']+=1
         return ('certified' if state[prefix+'_good_windows']>=SCHOOL_STAIR_PROOF_WINDOWS
                 else 'first_window_pass')
+
+    def observe_bidirectional_school_evidence(
+            self, row: dict[str,float], *, step:int) -> str:
+        """Independent DOWN proof. No uphill 7.5cm prerequisite.
+
+        All measurements are real first-signed-lip absorbing terminal
+        outcomes. Windows are fresh after teaching reaches zero.
+        """
+        if not self.bidirectional_school or not self.school_walking_graduated:
+            return 'not_in_paired_school'
+        b=self.school_bidirectional_state
+        if b['down_mastered_step']<0:
+            if abs(self.params.academy_height_down_m-SCHOOL_DOWN_START_M)>.0005:
+                return 'await_fixed_20mm'
+            event=self._refined_window(
+                row,b,'down_assisted','academy_near_attempts_down',
+                'academy_near_successes_down',SCHOOL_STAIR_PROOF_RATE)
+            if event=='certified':
+                b['down_mastered_step']=step
+                return 'downhill_20mm_coached_certified'
+            return 'downhill_20mm_assisted_'+event
+        lesson=bidirectional_down_lesson(
+            step=step,stairs_enabled=True,
+            mastered_step=b['down_mastered_step'],
+            uncoached_step=b['down_uncoached_certified_step'],
+            certified_5cm_step=b['down_5cm_certified_step'],
+            rescue_end_step=b['down_rescue_end_step'])
+        if lesson['down_alpha']<1.:
+            return lesson['stage']
+        if b['down_coaching_off_step']<0:
+            b['down_coaching_off_step']=step
+            return 'downhill_coaching_off_start_clean_proof'
+        if b['down_uncoached_certified_step']<0:
+            event=self._refined_window(
+                row,b,'down_uncoached','academy_near_attempts_down',
+                'academy_near_successes_down',SCHOOL_UNCOACHED_PROOF_RATE)
+            if event=='certified':
+                b['down_uncoached_certified_step']=step
+                b['down_last_growth_step']=step
+                b['down_failed_windows']=0
+                return 'downhill_20mm_uncoached_certified'
+            if event=='retry':
+                n=float(row.get('academy_near_attempts_down',0.))
+                hits=float(row.get('academy_near_successes_down',0.))
+                if n>0 and hits/n<SCHOOL_RESCUE_TRIGGER_RATE:
+                    b['down_failed_windows']+=1
+                else:
+                    b['down_failed_windows']=0
+                if b['down_failed_windows']>=2:
+                    b['down_rescue_end_step']=step+SCHOOL_RESCUE_STEPS
+                    b['down_coaching_off_step']=-1
+                    b['down_failed_windows']=0
+                    b['down_uncoached_good_windows']=0
+                    return 'downhill_20mm_rescue_started'
+            return 'downhill_20mm_uncoached_'+event
+
+        # Keep a genuine fixed 20mm cohort while trying larger descents.
+        self._refined_window(
+            row,b,'down_anchor','academy_anchor_attempts_down',
+            'academy_anchor_successes_down',
+            SCHOOL_ANCHOR_RETENTION_MIN,consecutive=False)
+        if b.pop('_anchor_failed',False):
+            b['down_retention_hold_until']=max(
+                b['down_retention_hold_until'],
+                step+SCHOOL_ANCHOR_RETREAT_HOLD)
+            return 'downhill_anchor_regression_hold'
+        if b['down_5cm_certified_step']<0:
+            if self.params.academy_height_down_m<SCHOOL_DOWN_TARGET_M-1e-6:
+                return 'downhill_grow_to_50mm'
+            event=self._refined_window(
+                row,b,'down_high','academy_near_attempts_down',
+                'academy_near_successes_down',SCHOOL_DOWN_PROOF_RATE)
+            if event=='certified':
+                b['down_5cm_certified_step']=step
+                return 'downhill_50mm_uncoached_certified'
+            return 'downhill_50mm_'+event
+        return 'downhill_50mm_retained'
 
     def advance_curriculum(self, row: dict[str, float], *, step: int,
                            max_height_m: float, foundation_steps: int,
