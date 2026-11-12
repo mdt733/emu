@@ -4,6 +4,68 @@
 
 The **H40 120M** actor is now checked into GitHub `main` as `showcase/champion.emupolicy`. Its source is a 40 cm, six-servo physical model with a 360-input learned policy and 45°×45° VL53L8CX approximation. **Do not assume the public Pages URL is updated:** Pages is manual. The checkpoint-backed `showcase/release_approval.json` has now been supplied, but a successful CI verification and explicit workflow dispatch are required before declaring the site updated.
 
+## Training-matched specialist observation (local viewer)
+
+Select **World → Specialist episodes** to switch from the existing endless
+Meadow to a bounded, repeating physical training exercise. The same frozen
+H40 360-input policy runs in MuJoCo/WASM in both cases. **Specialist** selects
+Steps/Academy, Commands, Resilience, Slopes, Transitions, Control or Standing.
+Choose **Next random episode** to change seed, stair height and the distance
+to the obstacle; **Replay same episode** repeats the exact scenario. Automatic
+repeat holds each result briefly before a new start. The default Meadow is
+unchanged; returning to it restores the original streaming geology.
+
+On **Steps/Academy**, a genuine 1 m signed tile edge is built from physical
+browser hfield contacts. The robot is placed randomly **15–30 cm before that
+first edge**, facing +X, with a little lateral birth jitter. With imported or
+local live training metrics, new episodes use the refined school distribution:
+half of uphill exercises retain nominal 5 cm, 35% challenge the present
+frontier and 15% bridge, with ±4% lip jitter. Downhill appears only if the
+training curriculum has unlocked it, at the reported 10%/20% share, and
+draws its actual downhill frontier. The viewer watches the first destination
+tile, requires each foot to be supported on top for several control frames,
+then upright body travel 10 cm past the lip with a 15-control-frame stable
+streak before recording a **supported climb**. A fall or elapsed episode
+budget is reported separately; the next episode starts at a fresh birth
+rather than walking across unrelated hills indefinitely.
+
+Other specialists use appropriate physical context: Commands cover the
+forward/reverse/strafe/yaw envelope reported by the trainer and supported by
+the loaded actor, Slopes use a signed near-frontier 1 m grade, Resilience
+applies visible physical shoves, and Control/Standing practise quieter
+command regimes. Those non-stair episode outcomes are explicitly labelled
+**survived**, not proof of precise command tracking. The viewer does not
+alter PPO, rewards, curriculum, policy weights or checkpoint files.
+
+For an in-progress training run, use the local live watcher with the viewer
+branch built, e.g.:
+
+```bash
+cd ~/emu-viewer-specialists
+source ~/emu/.venv/bin/activate
+emu viewer-build
+emu viewer --live --root ~/emu-data/runs/h40-refined-school-420m-s735 --port 8765
+```
+
+Then enable **Specialist episodes**. The selected policy is the newest
+validated exported checkpoint supplied by the local watcher; the physical
+frontiers are the latest available trainer metrics. Importing a CSV/JSON
+training snapshot is also supported by the existing inspector. If neither
+is present, the drill says **illustrative defaults** rather than claiming
+to match an actual teaching regime.
+
+**Important limitation:** the GPU trainer has four moving 1 m tiles and
+eight deformable convex-prism collision meshes, whereas browser/WASM
+reconstructs the same local signed tile-seam shape with two-triangle
+MuJoCo heightfields in its existing 225-tile physical window. The
+simulated wall location, heights, spawn interval, commands and short-climb
+criterion are deliberately aligned, but contact normals, solver dynamics,
+domain randomisation and exact episode RNG are *not* identical. This is
+the qualitative **training-episode spectator**, not an independent frozen
+MJX stair exam, hardware validation, or actual replay of one of 2048 GPU
+worlds. To claim certified stair competence still requires source-matched
+frozen MJX evaluation.
+
 ## What the local browser can show
 
 The local MuJoCo/WASM viewer runs frozen inference, not GPU PPO. **Infinite Meadow is its sole public world**: the retired Field/Park terrain, fixed park obstacle course, route planner and world-switching UI have been removed. The same deployed 360-input actor receives commands from the manual sticks or the showcase's simple scripted eastbound stroll through one command path. The stroll is **not autonomous pathfinding or an exam**; touching the joysticks or using WASD/Q-E takes control.
