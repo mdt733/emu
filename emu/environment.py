@@ -1672,7 +1672,10 @@ class EmuMJXEnv(TaskSampler):
         # This is reward-only: no new deployable actor input.
         before_lip=((jnp.floor(data.qpos[:,0]/CARPET_TILE_M)+1.)*
                     CARPET_TILE_M-data.qpos[:,0])
-        near_lip=jnp.clip((.40-before_lip)/.25,0.,1.)
+        # The C nursery has exactly two risers, x=1m and x=2m.
+        # Do NOT relax speed while approaching the flat third seam.
+        near_lip=jnp.where(data.qpos[:,0] < 2.*CARPET_TILE_M,
+                           jnp.clip((.40-before_lip)/.25,0.,1.),0.)
         metrics={**metrics,
                  'science_step_near_lip_frac':(
                      near_lip if self.two_lip_continuation_school else
