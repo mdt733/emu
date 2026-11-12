@@ -167,8 +167,10 @@ export function createSensorLabCarpet(config={}){
     limits:config,features:[],trees:[],flatRadius:0,
     revision:0,at,sampleHeight,window:()=>tiles,
     difficultyAt:y=>carpetLocalLimits(y,config),
-    configureScenario(scenario){
+    configureScenario(scenario,settings=null){
+      if(settings)Object.assign(config,normalizedMeadowSettings(settings));
       config.scenario=scenario;
+      this.limits=config;
     },
     resetGrowth(){
       anchor=initial.slice();
