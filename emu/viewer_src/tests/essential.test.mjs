@@ -473,7 +473,7 @@ test('physical h40 foot occlusion depends on mounting geometry, never a hardcode
 });
 
 
-test('specialist training carpet is REAL mutable signed terrain and 22cm first-lip spawn',()=>{
+test('specialist training carpet is REAL mutable signed terrain with source-matched first-lip spawn',()=>{
   const up=makeSpecialistScene('step-up',{stepCm:5,spawnCm:22,randomize:false});
   assert.equal(up.kind,'step');
   assert.equal(up.distanceM,.22);
@@ -501,7 +501,7 @@ test('specialist training carpet is REAL mutable signed terrain and 22cm first-l
   assert.equal(park.sampleHeight(1.2,.5),-.02);
   assert.equal(park.at(1,0).base,-.02);
   const fixed=makeSpecialistScene('step-up',{stepCm:5,trial:3,randomize:false});
-  assert.equal(fixed.distanceM,.22);
+  assert.equal(fixed.distanceM,.225);
   const varied=Array.from({length:10},(_,trial)=>makeSpecialistScene('step-up',{
     stepCm:5,trial,seed:735,randomize:true}));
   assert.ok(new Set(varied.map(v=>v.distanceM.toFixed(4))).size>1);
