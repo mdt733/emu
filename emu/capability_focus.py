@@ -58,10 +58,27 @@ SCHOOL_MIN_WALK_CORE = .55
 SCHOOL_STAIR_PROOF_ATTEMPTS = 100
 SCHOOL_STAIR_PROOF_RATE = .70
 SCHOOL_STAIR_PROOF_WINDOWS = 2
+# Evidence gates, not wall-clock promotions. A direction gets no harder until
+# the preceding skill survives without its shaping rewards.
+SCHOOL_UNCOACHED_PROOF_RATE = .65
+SCHOOL_HIGH_PROOF_RATE = .65
+SCHOOL_DOWN_PROOF_RATE = .65
+SCHOOL_ANCHOR_RETENTION_MIN = .45
+SCHOOL_SLOW_GROWTH_INTERVAL = 1_000_000
+SCHOOL_ANCHOR_RETREAT_HOLD = 10_000_000
+SCHOOL_RESCUE_STEPS = 5_000_000
+SCHOOL_RESCUE_FADE_STEPS = 5_000_000
+SCHOOL_RESCUE_ALPHA = .75
+SCHOOL_RESCUE_TRIGGER_RATE = .40
 
 
 def school_lesson(*, step: int, core_competence: float,
-                  walking_graduated: bool, stair_mastered_step: int) -> dict:
+                  walking_graduated: bool, stair_mastered_step: int,
+                  refined_school: bool = False,
+                  uncoached_certified_step: int = -1,
+                  descent_unlocked_step: int = -1,
+                  descent_certified_step: int = -1,
+                  rescue_end_step: int = -1) -> dict:
     """Pure staged teacher decision; never inferred from network age alone.
 
     0..20M foundation; 20..60M supported specialist growth;
@@ -89,10 +106,32 @@ def school_lesson(*, step: int, core_competence: float,
            'walking_graduation' if not active else
            'assisted_stairs' if stair_mastered_step<0 else
            'stair_graduation')
+    rescue_active=(refined_school and active and stair_mastered_step>=0 and
+                   uncoached_certified_step<0 and rescue_end_step>=0 and
+                   step<rescue_end_step+SCHOOL_RESCUE_FADE_STEPS)
+    if rescue_active:
+        # A small fixed portion of dense stair coaching returns temporarily
+        # after two genuinely bad no-help proof windows. Never re-enable
+        # gait/phase instructions or advance the physical stair height.
+        stair_alpha=(SCHOOL_RESCUE_ALPHA if step<rescue_end_step else
+                     SCHOOL_RESCUE_ALPHA+
+                     (1.-SCHOOL_RESCUE_ALPHA)*
+                     (step-rescue_end_step)/SCHOOL_RESCUE_FADE_STEPS)
+    if refined_school and active and stair_mastered_step >= 0:
+        # Three distinct proofs: assisted 5cm -> no-help 5cm ->
+        # harder uphill -> signed descent. A 5cm success never authorises
+        # simultaneous reward removal, height increase AND descent.
+        stage=('recover_5cm_guidance' if rescue_active else
+               'fade_5cm_guidance' if stair_alpha<1. else
+               'prove_uncoached_5cm' if uncoached_certified_step<0 else
+               'expand_uphill_retaining_5cm' if descent_unlocked_step<0 else
+               'introduce_descent' if descent_certified_step<0 else
+               'signed_stair_growth')
     return dict(stage=stage, walk_alpha=walk_alpha,
                 stairs_enabled=active, stair_alpha=stair_alpha,
-                # Descent remains absent until real +50mm mastery.
-                down_share=.20*stair_alpha)
+                down_share=(.20 if descent_certified_step>=0 else
+                            .10 if descent_unlocked_step>=0 else 0.)
+                if refined_school else .20*stair_alpha)
 
 
 def school_without_steps(weights):

@@ -1014,6 +1014,7 @@ class EmuMJXEnv(TaskSampler):
                  science_step_finish_on_transfer: bool = False,
                  outcome_graduation: bool = False,
                  progressive_school: bool = False,
+                 refined_school: bool = False,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
                  carpet_transition_cap_deg: float = 3.0,
@@ -1106,6 +1107,9 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('outcome_graduation must be bool')
         self.outcome_graduation=outcome_graduation
         self.progressive_school=bool(progressive_school)
+        self.refined_school=bool(refined_school)
+        if self.refined_school and not self.progressive_school:
+            raise ValueError('refined_school requires progressive_school')
         self.science_gate_mode=science_gate_mode
         self.observation_schema = observation_schema
         self.base_obs_fields = actor_observation_fields(observation_schema)
@@ -2208,6 +2212,16 @@ class EmuMJXEnv(TaskSampler):
             'academy_verdict_frontier_m':academy_ref,
             'terrain_encounter_frontier_m':stepped.terrain_attempt_frontier_m,
             'academy_finish_new':academy['finish_new'].astype(jnp.float32),
+            # Anchor cohort: a completed Academy attempt on the genuinely
+            # sampled ±2.5mm 50mm UP lip, not a shifting easy-band proxy.
+            'academy_anchor_attempt_up':(
+                done & state.academy_active &
+                (jnp.abs(state.academy_birth_lip_m-.050)<=.0025)
+            ).astype(jnp.float32),
+            'academy_anchor_success_up':(
+                academy['finish_new'] & state.academy_active &
+                (jnp.abs(state.academy_birth_lip_m-.050)<=.0025)
+            ).astype(jnp.float32),
             'academy_cross_new':academy['cross_new'].astype(jnp.float32),
             # A four-crossing milestone, not a terminal course completion.
             'academy_course_new':(
@@ -2803,10 +2817,21 @@ class EmuMJXEnv(TaskSampler):
                 # births sample 50mm..current frontier, half probe near the
                 # current frontier. Before mastery max_up=50mm and no
                 # downhill is enabled by the teacher's zero down-share.
-                near=draws[:,2]>.5
-                up_height=jnp.where(
-                    near,max_up,
-                    .050+(max_up-.050)*(2.*draws[:,2]))
+                if self.refined_school:
+                    # Fifty percent EXACT 5cm retention, 35% current
+                    # frontier, 15% intermediate transfer practice.
+                    # Same physical prisms and identical actor inputs.
+                    anchor=draws[:,2]<.50
+                    near=draws[:,2]>=.65
+                    middle=(draws[:,2]-.50)/.15
+                    up_height=jnp.where(
+                        anchor,.050,jnp.where(
+                            near,max_up,.050+(max_up-.050)*middle))
+                else:
+                    near=draws[:,2]>.5
+                    up_height=jnp.where(
+                        near,max_up,
+                        .050+(max_up-.050)*(2.*draws[:,2]))
             else:
                 up_height=max_up
             height=jnp.where(down_draw,

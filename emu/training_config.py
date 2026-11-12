@@ -198,6 +198,7 @@ class TrainingConfig:
     # Opt-in physical nursery. Approval requires an independent 50mm exam.
     outcome_graduation: bool = False
     progressive_school: bool = False  # one cold 0/20/60/80M evidence-gated learner
+    refined_school: bool = False  # optional staged post-5cm retention / sequential descent fork
     outcome_walk_start_steps: int = 60_000_000
     outcome_stair_approved: bool = False
     outcome_approval_start_steps: int = 0
@@ -273,7 +274,7 @@ class TrainingConfig:
         missing, extra = expected - set(data), set(data) - expected
         new_keys={'outcome_graduation','outcome_walk_start_steps',
                   'outcome_stair_approved','outcome_approval_start_steps',
-                  'outcome_down_share','progressive_school'}
+                  'outcome_down_share','progressive_school','refined_school'}
         if research_parent:
             # These were eliminated by source cleanup, not replaced with a
             # different actor, geometry, optimizer or curriculum contract.

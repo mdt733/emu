@@ -1020,6 +1020,10 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             metrics.get('academy_goal_complete_new',0.)).sum()),
         'academy_short_climb_successes': float(np.asarray(
             metrics.get('academy_finish_new',0.)).sum()),
+        'academy_anchor_attempts_up': float(np.asarray(
+            metrics.get('academy_anchor_attempt_up',0.)).sum()),
+        'academy_anchor_successes_up': float(np.asarray(
+            metrics.get('academy_anchor_success_up',0.)).sum()),
         'academy_goal_remaining_m_mean': mean_metric(
             metrics,'academy_goal_remaining_m'),
         'academy_goal_sequential_feet_ready_frac': mean_metric(

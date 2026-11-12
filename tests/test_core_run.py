@@ -126,6 +126,21 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path, monkey
     assert school_cfg.academy_ramp_steps==20_000_000
     assert school_cfg.academy_height_cap_m==pytest.approx(.08)
     assert school_cfg.science_step_finish_on_transfer
+    assert not school_cfg.refined_school
+    with patch("emu.run.train_one",side_effect=capture):
+        assert emu_cli_main(school_flags+["--refined-school"])==0
+    refined=seen[-1]
+    assert refined.progressive_school and refined.refined_school
+    assert refined.outcome_graduation
+    assert refined.academy_height_cap_m==pytest.approx(.08)
+    # The refined recipe is a source-verified new run, not an in-place
+    # change to a 300M checkpoint's immutable teaching contract.
+    from emu.run import verify_experiment_fork
+    verify_experiment_fork(school_cfg,refined)
+    with pytest.raises(ValueError,match="requires --progressive-school"):
+        with patch("emu.run.train_one",side_effect=lambda ns:one_run_config(ns)):
+            emu_cli_main(training_flags(tmp_path/"bad_refined")+
+                         ["--refined-school"])
     from emu.capability_focus import school_lesson,school_without_steps
     assert school_lesson(step=0,core_competence=0.,
                          walking_graduated=False,stair_mastered_step=-1)['stage']=='foundation'
