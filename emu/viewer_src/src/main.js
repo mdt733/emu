@@ -379,7 +379,8 @@ function refreshSceneStatus(){
   sceneStatus.textContent=`Attempt #${sceneTrial+1} · ${sceneLastOutcome}
 ${physical}
 Completed ${count.attempts} · supported step arrivals ${count.successes} · falls ${count.falls} · timeouts ${count.timeouts}
-${Math.min(sceneClock,scene?.horizonS||15).toFixed(1)}s / ${scene?.horizonS||15}s · NN ${sim?.policy?'loaded':'ABSENT'} · inference frames ${sim?.controlFrames??0}
+${Math.min(sceneClock,scene?.horizonS||15).toFixed(1)}s / ${scene?.horizonS||15}s · NN ${sim?.policy?'loaded':'ABSENT'} · inference ${sim?.controlFrames??0} · action |·| ${Math.hypot(...(sim?.prevAction||[])).toFixed(2)}
+Velocity request ${sim?.commandTarget?.vx?.toFixed(2)??'--'}m/s
 Viewer observation, NOT frozen MJX certification`;
 }
 
@@ -436,6 +437,9 @@ function selectObservationWorld(){
   updateWorldTabs();
   if(!sim)return;
   if(sceneMode.value==='meadow'){
+    // Back to true free-roam: don't silently keep the last Academy lesson
+    // running behind the hidden specialist movement selector.
+    carpetDrive.value='manual';
     sceneCurrent=null;
     sim.setTrainingScenario(null);
     sim.autoReset=demoActive||autoResetToggle.checked;
