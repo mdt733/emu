@@ -79,6 +79,42 @@ def stable_arrival(xp, qualified, previous_streak, already_completed):
     return streak, newly_completed
 
 
+
+def downhill_nursery_progress(xp, previous, body_xy, foot_xyz,
+                              foot_bottom, edge_x, source_top, lip_m,
+                              destination_contact_seen, eligible):
+    """Teach controlled descending, not the uphill foot-lift recipe.
+
+    Positive credit is one-time per episode and requires real signed
+    lower-tile geometry. Destination contact is certified separately by
+    the existing physical prism foot-pair detector. All six signals are
+    teacher-only; no hidden state enters the 360-input deployed actor.
+    """
+    forward=foot_xyz[:,:,0]
+    lateral=foot_xyz[:,:,1]
+    row=xp.floor(body_xy[:,1])
+    corridor=(lateral>row[:,None]+.06)&(lateral<row[:,None]+.94)
+    near=(forward>=edge_x[:,None]-.28)&(
+          forward<=edge_x[:,None]+.35)&corridor
+    magnitude=xp.maximum(.012,xp.abs(lip_m[:,None]))
+    destination_top=source_top+lip_m[:,None]
+    approach=xp.clip((body_xy[:,0]-(edge_x-.30))/.25,0.,1.)
+    # The swing foot actually descends below the high source surface.
+    reach=xp.clip((source_top-foot_bottom-.003)/magnitude,0.,1.)*near
+    # Landing is a TRUE destination top contact, not a foot entering
+    # the lower slab's XY area or unrealistically passing through a wall.
+    landed=xp.asarray(destination_contact_seen,dtype=foot_bottom.dtype)
+    over=(landed & (forward>=edge_x[:,None]+.018) &
+          (foot_bottom>=destination_top-.015) & near).astype(foot_bottom.dtype)
+    transferred=xp.clip((body_xy[:,0]-(edge_x-.02))/.18,0.,1.)*(
+        xp.any(destination_contact_seen,axis=1))
+    progress=xp.stack((approach,reach[:,0],reach[:,1],
+                       over[:,0],over[:,1],transferred),axis=1)
+    best=xp.maximum(previous,xp.where(eligible[:,None],progress,previous))
+    gains=xp.maximum(0.,best-previous)
+    weights=xp.asarray((2.,4.,4.,6.,6.,7.),dtype=best.dtype)
+    return best,xp.sum(gains*weights[None,:],axis=1),gains
+
 def nursery_progress(xp, previous, body_xy, foot_xyz, foot_bottom, edge_x,
                      source_top, lip_m, upper_foothold_seen, eligible):
     """Return (best [N,6], payment [N], gains [N,6]).
