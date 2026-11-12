@@ -479,8 +479,8 @@ def _assert_readonly_console_dashboard_five_million_step_trends_and_tty(tmp_path
     assert "5M near UP 50/200 (25.0%)" in screen
     assert "DOWN 100/200 (50.0%)" in screen
     assert "vx+ 75%(40)" in screen
-    assert "STABLE up 50%(40)" in screen
-    assert "angle tolerance --" in screen
+    assert "stable up 50%(40)" in screen
+    assert "approach angle: unmeasured" in screen
     assert "-5.0pp" in screen
     tall = render_screen(history[-1], phase="PPO",
                          target_steps=300_000_000, run_name="test-run",
