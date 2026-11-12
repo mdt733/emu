@@ -95,6 +95,7 @@ export function trainingLimits(data){
     academyIntroSteps:as(cfg.academy_intro_steps,60_000_000,0,1e12),
     academyStartSteps:as(cfg.academy_start_steps,80_000_000,0,1e12),
     academyRampSteps:as(cfg.academy_ramp_steps,20_000_000,0,1e12),
+    academyCourseEpisodeFrames:as(cfg.academy_course_episode_frames,1200,100,2400),
     academyStream:cfg.academy_stream===true,
     refinedSchool:cfg.refined_school===true,
     schoolStage:String(row.school_stage||'unknown'),
