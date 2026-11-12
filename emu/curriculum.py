@@ -1136,7 +1136,9 @@ class RegimeGovernor:
                     academy_max_height_m=min(academy_max_height_m,.05)
                     max_height_m=min(max_height_m,.05)
                 else:
-                    limit=(.08 if refined['descent_unlocked_step']>=0 else .075)
+                    # Even after uphill proof, freeze ascent at 7.5cm
+                    # while the *separate* downhill nursery is being learned.
+                    limit=(.08 if refined['descent_certified_step']>=0 else .075)
                     current=self.params.academy_height_up_m
                     growth_allowed=(step>=refined['last_up_growth_step']+
                                     SCHOOL_SLOW_GROWTH_INTERVAL and
