@@ -215,6 +215,7 @@ def read_terrain_training_snapshot(root: Path) -> dict:
             'academy_intro_steps':cfg.get('academy_intro_steps',60_000_000),
             'academy_start_steps':cfg.get('academy_start_steps',80_000_000),
             'academy_ramp_steps':cfg.get('academy_ramp_steps',20_000_000),
+            'academy_course_episode_frames':cfg.get('academy_course_episode_frames',1200),
             'carpet_transition_cap_deg':cfg.get('carpet_transition_cap_deg',3.),
             # Actual configured physical push ceiling, distinct from the
             # teacher's independently growing frontier_push_n target.
