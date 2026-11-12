@@ -44,6 +44,7 @@ from .terrain_carpet_mjx import (
     PROFILE_HALF as CARPET_PROFILE_HALF,
     role_envelope as carpet_role_envelope, make_profiles as carpet_make_profiles,
     exact_exam_lip_profiles as carpet_exam_lip_profiles,
+    two_lip_continuation_profiles as carpet_two_lip_profiles,
     generate_window as carpet_generate_window, sample_surface as carpet_sample_surface,
     ray_surface as carpet_ray_surface, VISIT_HISTORY as CARPET_VISIT_HISTORY,
     unseen_tile as carpet_unseen_tile, note_confirmed_tile as carpet_note_confirmed_tile,
@@ -1012,6 +1013,7 @@ class EmuMJXEnv(TaskSampler):
                  science_step_velocity_relief: float = 0.0,
                  science_step_approach_m: float = 0.0,
                  science_step_finish_on_transfer: bool = False,
+                 two_lip_continuation_school: bool = False,
                  outcome_graduation: bool = False,
                  progressive_school: bool = False,
                  refined_school: bool = False,
@@ -1104,6 +1106,14 @@ class EmuMJXEnv(TaskSampler):
         if science_step_finish_on_transfer and not academy_stream:
             raise ValueError("step finish requires streamed real-prism Academy")
         self.science_step_finish_on_transfer=science_step_finish_on_transfer
+        if type(two_lip_continuation_school) is not bool:
+            raise ValueError('two-lip school switch must be boolean')
+        if two_lip_continuation_school and not (science_step_finish_on_transfer
+                and outcome_graduation and progressive_school
+                and refined_school and bidirectional_school):
+            raise ValueError('C two-lip school requires real transfer terminals, '
+                             'outcome graduation and paired staged schools')
+        self.two_lip_continuation_school=two_lip_continuation_school
         if type(outcome_graduation) is not bool:
             raise ValueError('outcome_graduation must be bool')
         self.outcome_graduation=outcome_graduation
@@ -2843,7 +2853,8 @@ class EmuMJXEnv(TaskSampler):
             from .terrain_carpet_mjx import exact_exam_lip_profiles
             draws=jax.vmap(lambda k:jax.random.uniform(
                 jax.random.fold_in(k,505902),
-                (3 if self.progressive_school else 2,)))(keys)
+                (4 if self.two_lip_continuation_school else
+                 3 if self.progressive_school else 2,)))(keys)
             jitter=draws[:,0]
             down_draw=(draws[:,1] < params[P.outcome_down_share])
             max_up=jnp.maximum(.050,params[P.academy_height_up_m])
@@ -2885,7 +2896,18 @@ class EmuMJXEnv(TaskSampler):
                 down_height=jnp.maximum(.003,params[P.academy_height_down_m])
             height=jnp.where(down_draw,-down_height,up_height)
             signed=jnp.clip(height*(.96+.08*jitter),-.08,.08)
-            nursery_x,nursery_y=exact_exam_lip_profiles(jnp,signed)
+            if self.two_lip_continuation_school:
+                # C: same 2x2 eight-prism recycler, TWO independent physical
+                # risers at 1m and 2m. Half same-sign repeats; once DOWN is
+                # enabled, half reverse direction. No unseen third hurdle.
+                opposite=jnp.where(down_draw,up_height,-down_height)
+                reverse=(draws[:,3]>=.50) & (params[P.outcome_down_share]>.01)
+                signed_second=jnp.where(reverse,
+                    jnp.clip(opposite*(.96+.08*jitter),-.08,.08),signed)
+                nursery_x,nursery_y=carpet_two_lip_profiles(
+                    jnp,signed,signed_second)
+            else:
+                nursery_x,nursery_y=carpet_exam_lip_profiles(jnp,signed)
             xprof=jnp.where(academy[:,None],nursery_x,xprof)
             yprof=jnp.where(academy[:,None],nursery_y,yprof)
             up=jnp.where(academy,0.,up)
