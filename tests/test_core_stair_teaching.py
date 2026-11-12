@@ -25,6 +25,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
             outcome_graduation=True,
             progressive_school=True,
             refined_school=True,
+            bidirectional_school=True,
             science_step_finish_on_transfer=True,
             solver_iterations=2,solver_ls_iterations=4,
             science_gate_mode="zero-only",
@@ -65,6 +66,8 @@ class CoreStairPhysicsTests(unittest.TestCase):
         # the separate 50mm retained-skill evidence.
         self.assertIn('academy_anchor_attempt_up',out.metrics)
         self.assertIn('academy_anchor_success_up',out.metrics)
+        self.assertIn('academy_anchor_attempt_down',out.metrics)
+        self.assertIn('academy_anchor_success_down',out.metrics)
         self.assertTrue(np.all(np.asarray(jax.device_get(
             out.metrics['academy_anchor_success_up']))<=np.asarray(
             jax.device_get(out.metrics['academy_anchor_attempt_up']))))
@@ -102,6 +105,26 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertEqual(out.state.academy_goal_xy.shape,(4,2))
         self.assertTrue(np.isfinite(
             np.asarray(jax.device_get(out.state.academy_goal_xy))).all())
+        # Exercise the REAL signed -20mm MJX seam too. Historically the
+        # >30mm arm gate made this whole cohort physically unteachable.
+        down_params=dict(specialist_mix=1.,focus_weight_step=1.,
+                         academy_episode_probability=1.,
+                         terrain_height_m=.02,academy_height_up_m=.05,
+                         academy_height_down_m=.02,outcome_down_share=1.,
+                         outcome_down_stair_alpha=0.)
+        down_state,_=env.reset(down_params)
+        signed=np.asarray(jax.device_get(down_state.academy_birth_lip_m))
+        self.assertTrue(np.all((signed<-.0191)&(signed>-.0209)),signed)
+        down_step=env.step(
+            down_state,jnp.zeros((4,6),jnp.float32),
+            env.params_array(down_params))
+        self.assertEqual(down_step.obs.shape,(4,360))
+        self.assertTrue(np.isfinite(np.asarray(
+            jax.device_get(down_step.reward))).all())
+        self.assertIn('academy_anchor_attempt_down',down_step.metrics)
+        self.assertIn('outcome_down_stair_alpha',down_step.metrics)
+        self.assertTrue(np.all(np.asarray(jax.device_get(
+            down_step.metrics['outcome_down_stair_alpha']))==0.))
 
     def _assert_real_millimetre_credit_cannot_farm_or_cross_wall_low(self):
         from emu.step_goal import nursery_progress
@@ -276,7 +299,101 @@ class CoreStairPhysicsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,'successes exceed'):
             resumed.load_state_dict(broken)
 
+    def _assert_bidirectional_school_proof_and_checkpoint(self):
+        """20mm downhill must be learned at the SAME time as 50mm uphill."""
+        from emu.curriculum import RegimeGovernor
+        from emu.capability_focus import bidirectional_down_lesson
+        # The old 180M source contains neither graduate's new evidence.
+        old=RegimeGovernor(unified_capability_focus=True,
+                           outcome_mode=True,progressive_school=True)
+        old.school_walking_graduated=True
+        parent=old.state_dict()
+        parent.pop('school_refined_state')
+        g=RegimeGovernor(unified_capability_focus=True,outcome_mode=True,
+                         progressive_school=True,refined_school=True,
+                         bidirectional_school=True)
+        g.load_state_dict(parent)
+        self.assertEqual(g.school_stair_mastered_step,-1)
+        self.assertEqual(g.school_bidirectional_state['down_mastered_step'],-1)
+        g.params.academy_height_down_m=.020
+        before=bidirectional_down_lesson(
+            step=180_000_000,stairs_enabled=True,mastered_step=-1,
+            uncoached_step=-1,certified_5cm_step=-1)
+        self.assertEqual(before['down_share'],.50)
+        self.assertEqual(before['down_alpha'],0.)
+        self.assertEqual(g.observe_bidirectional_school_evidence(
+            {'academy_near_attempts_down':100.,
+             'academy_near_successes_down':75.},step=181_000_000),
+            'downhill_20mm_assisted_first_window_pass')
+        self.assertEqual(g.observe_bidirectional_school_evidence(
+            {'academy_near_attempts_down':100.,
+             'academy_near_successes_down':71.},step=182_000_000),
+            'downhill_20mm_coached_certified')
+        self.assertEqual(g.school_stair_mastered_step,-1,
+                         'downhill certification must NOT graduate uphill')
+        during=bidirectional_down_lesson(
+            step=192_000_000,stairs_enabled=True,
+            mastered_step=182_000_000,uncoached_step=-1,
+            certified_5cm_step=-1)
+        self.assertAlmostEqual(during['down_alpha'],.5)
+        self.assertEqual(g.observe_bidirectional_school_evidence(
+            {},step=202_000_000),
+            'downhill_coaching_off_start_clean_proof')
+        self.assertEqual(g.observe_bidirectional_school_evidence(
+            {'academy_near_attempts_down':100.,
+             'academy_near_successes_down':70.},step=202_100_000),
+            'downhill_20mm_uncoached_first_window_pass')
+        self.assertEqual(g.observe_bidirectional_school_evidence(
+            {'academy_near_attempts_down':100.,
+             'academy_near_successes_down':69.},step=202_200_000),
+            'downhill_20mm_uncoached_certified')
+        b=g.school_bidirectional_state
+        self.assertEqual(b['down_uncoached_certified_step'],202_200_000)
+        self.assertEqual(g.observe_bidirectional_school_evidence(
+            {},step=203_000_000),'downhill_grow_to_50mm')
+        g.params.academy_height_down_m=.05
+        self.assertEqual(g.observe_bidirectional_school_evidence(
+            {'academy_anchor_attempts_down':100.,
+             'academy_anchor_successes_down':80.,
+             'academy_near_attempts_down':100.,
+             'academy_near_successes_down':71.},step=244_000_000),
+            'downhill_50mm_first_window_pass')
+        self.assertEqual(g.observe_bidirectional_school_evidence(
+            {'academy_anchor_attempts_down':100.,
+             'academy_anchor_successes_down':80.,
+             'academy_near_attempts_down':100.,
+             'academy_near_successes_down':69.},step=245_000_000),
+            'downhill_50mm_uncoached_certified')
+        self.assertEqual(g.school_refined_state['descent_unlocked_step'],-1,
+                         'downhill 5cm certification does not fake uphill 7.5cm')
+        g2=RegimeGovernor(unified_capability_focus=True,outcome_mode=True,
+                          progressive_school=True,refined_school=True,
+                          bidirectional_school=True)
+        g2.load_state_dict(g.state_dict())
+        self.assertEqual(g2.state_dict(),g.state_dict())
+        bad=g.state_dict()
+        bad['school_bidirectional_state']={
+            **bad['school_bidirectional_state'],
+            'down_high_successes':5.,'down_high_attempts':4.}
+        with self.assertRaisesRegex(ValueError,'successes exceed'):
+            g2.load_state_dict(bad)
+        # The actual down-directed teacher is a landing lesson, NOT a
+        # copied uphill foot-lifting incentive or XY-only fake crossing.
+        from emu.step_goal import downhill_nursery_progress
+        foot=np.array([[[.88,.50,.20],[.89,.50,.20]]])
+        low=np.array([[.18,.18]])
+        prev=np.zeros((1,6),dtype=np.float32)
+        args=(np,np.array([[.87,.50]]),foot,low,np.array([1.]),
+              np.array([[.20,.20]]),np.array([-.02]))
+        a,pay,gains=downhill_nursery_progress(
+            args[0],prev,*args[1:],np.array([[False,False]]),
+            np.array([True]))
+        self.assertGreater(float(pay[0]),0.)  # approach milestone
+        self.assertEqual(float(gains[0,3]),0.)
+        self.assertEqual(float(gains[0,4]),0.)
+
     def test_sync_off_reduces_only_phase_payment(self):
+        self._assert_bidirectional_school_proof_and_checkpoint()
         self._assert_refined_school_proof_and_checkpoint_contract()
         self._assert_real_millimetre_credit_cannot_farm_or_cross_wall_low()
         # Checkpoint-persistent stair graduation: two independent successful

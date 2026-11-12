@@ -1015,6 +1015,7 @@ class EmuMJXEnv(TaskSampler):
                  outcome_graduation: bool = False,
                  progressive_school: bool = False,
                  refined_school: bool = False,
+                 bidirectional_school: bool = False,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
                  carpet_transition_cap_deg: float = 3.0,
@@ -1108,6 +1109,10 @@ class EmuMJXEnv(TaskSampler):
         self.outcome_graduation=outcome_graduation
         self.progressive_school=bool(progressive_school)
         self.refined_school=bool(refined_school)
+        self.bidirectional_school=bool(bidirectional_school)
+        if self.bidirectional_school and not (
+                self.refined_school and self.progressive_school):
+            raise ValueError('bidirectional_school requires progressive/refined')
         if self.refined_school and not self.progressive_school:
             raise ValueError('refined_school requires progressive_school')
         self.science_gate_mode=science_gate_mode
@@ -1807,8 +1812,13 @@ class EmuMJXEnv(TaskSampler):
                             (academy['cross_new'] & in_goal_tile))
             if self.outcome_graduation:
                 # Lead-foot upper contact usually precedes chassis transfer.
+                # DOWN begins at 20mm, so it must be allowed to arm the
+                # exact same two-foot supported transfer as a 50mm ascent.
+                # This was formerly hard-coded to >30mm, silently blocking
+                # every 20mm downhill birth from receiving success credit.
+                lip_min=.012 if self.bidirectional_school else .03
                 goal_lip_armed=goal_lip_armed | (state.academy_active &
-                    (jnp.abs(state.academy_birth_lip_m)>.03))
+                    (jnp.abs(state.academy_birth_lip_m)>lip_min))
             foot_ok=(academy['goal_top_feet'] & goal_lip_armed[:,None])
             if not self.outcome_graduation:
                 foot_ok=foot_ok & in_goal_tile[:,None]
@@ -1871,7 +1881,7 @@ class EmuMJXEnv(TaskSampler):
             finish_streak=state.academy_finish_streak
         # Six bounded per-episode maxima; no repeated lift/approach farming.
         if self.outcome_graduation:
-            from .step_goal import nursery_progress
+            from .step_goal import nursery_progress, downhill_nursery_progress
             from .step_goal import DESTINATION_AFTER_LIP_M
             foot_geoms=tuple(int(v) for v in self.ids['foot_geoms'])
             foot=data.geom_xpos[:,foot_geoms,:]
@@ -1886,15 +1896,30 @@ class EmuMJXEnv(TaskSampler):
                                  foot_bottom)
 
             healthy=(metrics['terminal']<.5)&(metrics['bad_contact']<.5)
+            lip_min=.012 if self.bidirectional_school else .03
             assigned=(state.academy_active & step_focus & healthy &
-                      (jnp.abs(state.academy_birth_lip_m)>.03) &
+                      (jnp.abs(state.academy_birth_lip_m)>lip_min) &
                       (jnp.abs(data.qpos[:,1]-state.academy_goal_xy[:,1])<.40))
-            nursery_best,nursery_payment,nursery_gains=nursery_progress(
+            up_best,up_payment,up_gains=nursery_progress(
                 jnp,state.nursery_best,data.qpos[:,:2],foot,foot_bottom,edge,
                 source_top,state.academy_birth_lip_m,goal_foot_seen,assigned)
+            down_birth=(state.academy_birth_lip_m<-.0015)
+            if self.bidirectional_school:
+                down_best,down_payment,down_gains=downhill_nursery_progress(
+                    jnp,state.nursery_best,data.qpos[:,:2],foot,foot_bottom,
+                    edge,source_top,state.academy_birth_lip_m,
+                    goal_foot_seen,assigned & down_birth)
+                nursery_best=jnp.where(down_birth[:,None],down_best,up_best)
+                nursery_payment=jnp.where(down_birth,down_payment,up_payment)
+                nursery_gains=jnp.where(down_birth[:,None],down_gains,up_gains)
+                alpha=jnp.where(down_birth,params[P.outcome_down_stair_alpha],
+                                params[P.outcome_stair_alpha])
+            else:
+                nursery_best,nursery_payment,nursery_gains=up_best,up_payment,up_gains
+                alpha=params[P.outcome_stair_alpha]
             touchdown=(goal_foot_seen & ~state.academy_goal_foot_seen)
             nursery_payment=(nursery_payment+4.*jnp.sum(
-                touchdown.astype(jnp.float32),axis=1))*(1.-params[P.outcome_stair_alpha])
+                touchdown.astype(jnp.float32),axis=1))*(1.-alpha)
             reward=reward+nursery_payment
             ep_return=ep_return+nursery_payment
         academy={**academy,'completed':goal_new,'finish_new':finish_new,
@@ -2222,6 +2247,16 @@ class EmuMJXEnv(TaskSampler):
                 academy['finish_new'] & state.academy_active &
                 (jnp.abs(state.academy_birth_lip_m-.050)<=.0025)
             ).astype(jnp.float32),
+            # Genuine held 20mm DOWN cohort, not a moving near/easy
+            # frontier; denominator is closed original physical births.
+            'academy_anchor_attempt_down':(
+                done & state.academy_active &
+                (jnp.abs(state.academy_birth_lip_m+.020)<=.0015)
+            ).astype(jnp.float32),
+            'academy_anchor_success_down':(
+                academy['finish_new'] & state.academy_active &
+                (jnp.abs(state.academy_birth_lip_m+.020)<=.0015)
+            ).astype(jnp.float32),
             'academy_cross_new':academy['cross_new'].astype(jnp.float32),
             # A four-crossing milestone, not a terminal course completion.
             'academy_course_new':(
@@ -2266,6 +2301,7 @@ class EmuMJXEnv(TaskSampler):
             'nursery_progress_chassis':academy['nursery_gains'][:,5],
             'outcome_walk_alpha':params[P.outcome_walk_alpha]+jnp.zeros_like(ep_len),
             'outcome_stair_alpha':params[P.outcome_stair_alpha]+jnp.zeros_like(ep_len),
+            'outcome_down_stair_alpha':params[P.outcome_down_stair_alpha]+jnp.zeros_like(ep_len),
             # v5052 actual destination completion is separate from legacy
             # Academy "any supported lip before timeout" summaries.
             'academy_goal_complete_new':(
@@ -2834,9 +2870,20 @@ class EmuMJXEnv(TaskSampler):
                         .050+(max_up-.050)*(2.*draws[:,2]))
             else:
                 up_height=max_up
-            height=jnp.where(down_draw,
-                -jnp.maximum(.003,params[P.academy_height_down_m]),
-                up_height)
+            if self.bidirectional_school:
+                # DOWN is independent: 20mm retained anchor, 35% current
+                # frontier and 15% bridge. One shared 50/50 assigned birth
+                # and no second contact engine or actor observation.
+                max_down=jnp.maximum(.020,params[P.academy_height_down_m])
+                anchor=draws[:,2]<.50
+                near=draws[:,2]>=.65
+                fraction=jnp.clip((draws[:,2]-.50)/.15,0.,1.)
+                down_height=jnp.where(
+                    anchor,.020,jnp.where(
+                        near,max_down,.020+(max_down-.020)*fraction))
+            else:
+                down_height=jnp.maximum(.003,params[P.academy_height_down_m])
+            height=jnp.where(down_draw,-down_height,up_height)
             signed=jnp.clip(height*(.96+.08*jitter),-.08,.08)
             nursery_x,nursery_y=exact_exam_lip_profiles(jnp,signed)
             xprof=jnp.where(academy[:,None],nursery_x,xprof)

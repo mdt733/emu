@@ -134,6 +134,39 @@ def school_lesson(*, step: int, core_competence: float,
                 if refined_school else .20*stair_alpha)
 
 
+
+# Paired stair school never waits for 7.5cm uphill before trying downhill.
+# Each direction graduates under its own fully withdrawn reward.
+SCHOOL_DOWN_START_M = .020
+SCHOOL_DOWN_TARGET_M = .050
+SCHOOL_BIDIRECTIONAL_DOWN_SHARE = .50
+
+
+def bidirectional_down_lesson(*, step: int, stairs_enabled: bool,
+                              mastered_step: int, uncoached_step: int,
+                              certified_5cm_step: int,
+                              rescue_end_step: int = -1) -> dict:
+    """Physical downhill teacher. No dependency on uphill graduation."""
+    if not stairs_enabled:
+        return dict(down_share=0., down_alpha=0., stage='await_walking')
+    if mastered_step < 0:
+        return dict(down_share=SCHOOL_BIDIRECTIONAL_DOWN_SHARE,
+                    down_alpha=0., stage='downhill_assisted_20mm')
+    alpha=max(0.,min(1.,(step-mastered_step)/SCHOOL_STAIR_FADE_STEPS))
+    if uncoached_step < 0 and rescue_end_step >= 0 and (
+            step < rescue_end_step + SCHOOL_RESCUE_FADE_STEPS):
+        alpha=(SCHOOL_RESCUE_ALPHA if step < rescue_end_step else
+               SCHOOL_RESCUE_ALPHA+(1.-SCHOOL_RESCUE_ALPHA)*
+               (step-rescue_end_step)/SCHOOL_RESCUE_FADE_STEPS)
+        stage='downhill_rescue'
+    else:
+        stage=('downhill_fade_20mm' if alpha<1. else
+               'downhill_prove_uncoached_20mm' if uncoached_step<0 else
+               'downhill_grow_to_50mm' if certified_5cm_step<0 else
+               'downhill_50mm_certified')
+    return dict(down_share=SCHOOL_BIDIRECTIONAL_DOWN_SHARE,
+                down_alpha=alpha,stage=stage)
+
 def school_without_steps(weights):
     """Before stair school, preserve six walking specialists' other roles."""
     import math

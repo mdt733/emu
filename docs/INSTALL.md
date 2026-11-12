@@ -604,3 +604,81 @@ Use `EMU_CONSOLE_MODE=auto` for the updating terminal, or `compact` and
 `verbose` for append-only output. The source SHA, physical profile and
 parent checkpoint must always be verified before launching the fork.
 
+
+## Experiment B — simultaneous uphill/downhill skill school
+
+A new source-verified research fork of the *original* 180M walking
+foundation. **Do not use the completed 420M policy as the parent** for the
+controlled A/B result. A and B must share the same source checkpoint bytes.
+Do not alter the H40 shin/torso/feet collision topology: B intentionally
+retains the original **feet-only eight-prism MJX** solver. Shin collisions
+are a separate proposed C arm, contingent on memory and throughput.
+
+New switch: `--bidirectional-school` **requires** both
+`--progressive-school` and `--refined-school`. Normal refined-school
+behaviour is identical without this flag.
+
+- Walk graduates at the established core/phase gate; Academy births now
+  split **50% up / 50% down** from that point, inside the existing Academy
+  allocation. All six other specialists retain their ordinary mix.
+- Uphill starts at **5cm**, earns coached 2x100 @70%, phases out guidance
+  over 20M steps, earns fresh uncoached 2x100 @65%, then expands slowly
+  toward 7.5cm with 5cm retention. No change to the original uphill
+  reward.
+- Downhill starts alongside uphill at **2cm**, with an *independent*
+  landing/weight-transfer teacher. It needs coached 2x100 @70%, fades
+  coaching over its *own* 20M steps, then fresh uncoached 2x100 @65%.
+  Only then can the downhill frontier expand by at most 0.5mm/1M toward
+  5cm. Two uncoached 100-encounter windows @65% certify 5cm descent.
+  Its own real 2cm anchor cohort is retained throughout growth.
+- Both directions independently split their own birth distribution into
+  **50% stable proven-height anchor, 35% frontier, 15% intermediate**,
+  with the trainer's existing +/-4% physical-lip jitter.
+- Critical fixed physical bug: the earlier uphill nursery required
+  abs(lip)>3cm to arm teacher rewards/terminal successes. This experiment
+  explicitly allows >1.2cm **only for the paired recipe**, otherwise a
+  2cm DOWN lesson would have no graduation path.
+- Downhill shaping rewards the actual lower-foot reach, the independently
+  detected real contact on the *assigned* lower tile, and safe body
+  transfer. No reward for upward foot lift or falling over the edge.
+  The same 15-control-frame supported and upright absorbing terminal is
+  required; moving 10cm past a lip without safe contact is not success.
+- Downhill and uphill teaching are separate teacher-only task scalars;
+  the **single 360-input actor, actions, optimizer, walking reward and
+  8-prism solver remain unchanged**.
+- School gates, 20M fades, proof windows, retention holds and growth
+  timestamps are stored in curriculum checkpoints. The pinned original
+  180M research parent imports with zero fabricated DOWN evidence.
+
+### Launch on WSL2 (separate foreground console)
+
+First preserve the original 180M `final.pkl` and its original
+`training_config.json` using the **Refined stair school** archive
+instructions above. An archive from the 420M result is *not* the same
+initial condition. The checked script refuses an existing target run.
+
+```bash
+cd ~/emu
+git fetch origin feature/h40-bidirectional-stair-school
+git worktree add --detach ~/emu-school-bidirectional \
+  origin/feature/h40-bidirectional-stair-school
+
+cd ~/emu-school-bidirectional
+source ~/emu/.venv/bin/activate
+bash scripts/run_h40_bidirectional_school_wsl.sh
+```
+
+The script performs `--check-resume-only` before opening its new
+`~/emu-data/runs/h40-paired-school-420m-s735` path and checks the
+whole parent SHA256 and original source. For reproducibility pin the
+worktree to the PR's tested HEAD SHA once checks pass. Result and
+checkpoint names never conflict with the previous 420M training run.
+
+**Acceptance:** 20M from 180M should show real 20mm downhill outcomes,
+independent downhill guidance (not always zero), +50mm uphill exposure
+and stable walking evaluation. A full 420M comparison requires fixed
+signed-prism held-out exams, retention matrices, and a measured actual
+downhill encounter count. The existing metrics remain on-policy proof,
+not independent certification. The new per-step teacher scalar does
+not enter the exported actor sensor/observation contract.
+

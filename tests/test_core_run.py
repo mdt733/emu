@@ -133,6 +133,20 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path, monkey
     assert refined.progressive_school and refined.refined_school
     assert refined.outcome_graduation
     assert refined.academy_height_cap_m==pytest.approx(.08)
+    with patch("emu.run.train_one",side_effect=capture):
+        assert emu_cli_main(school_flags+["--refined-school",
+                                        "--bidirectional-school"])==0
+    paired=seen[-1]
+    assert paired.progressive_school and paired.refined_school
+    assert paired.bidirectional_school and paired.outcome_graduation
+    assert paired.terrain_carpet_prisms
+    assert paired.academy_height_cap_m==pytest.approx(.08)
+    from emu.run import verify_experiment_fork
+    verify_experiment_fork(school_cfg,paired)
+    with pytest.raises(ValueError,match="requires --progressive-school"):
+        with patch("emu.run.train_one",side_effect=lambda ns:one_run_config(ns)):
+            emu_cli_main(training_flags(tmp_path/"bad_paired")+
+                         ["--bidirectional-school"])
     # The refined recipe is a source-verified new run, not an in-place
     # change to a 300M checkpoint's immutable teaching contract.
     from emu.run import verify_experiment_fork

@@ -229,6 +229,8 @@ UNIFIED_TERRAIN_FIELDS = (
     ('outcome_walk_alpha',0.0),
     ('outcome_stair_alpha',0.0),
     ('outcome_down_share',0.0),
+    # Independent downhill coaching fade: teacher-only, no actor channels.
+    ('outcome_down_stair_alpha',0.0),
 )
 UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
 P = SimpleNamespace(
@@ -255,6 +257,7 @@ P = SimpleNamespace(
     outcome_walk_alpha=TERRAIN_TASK_PARAM_DIM+18,
     outcome_stair_alpha=TERRAIN_TASK_PARAM_DIM+19,
     outcome_down_share=TERRAIN_TASK_PARAM_DIM+20,
+    outcome_down_stair_alpha=TERRAIN_TASK_PARAM_DIM+21,
 )
 
 

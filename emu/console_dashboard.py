@@ -113,6 +113,25 @@ def stair_window_trend(history: list[dict], *, millions: float = 5.) -> str:
             f"Δ vs prior 5M {pct-old_rate:+.1f}pp")
 
 
+def signed_stair_window(history: list[dict], direction: str,
+                        *, millions:float=5.) -> str:
+    """Physically supported near-frontier first-lip episodes, NOT a frozen exam."""
+    if direction not in ('up','down') or not history:
+        return '--'
+    now=number(history[-1],'step')
+    if now is None:
+        return '--'
+    rows=[r for r in history if now-millions*1e6 <
+          number(r,'step',-1) <= now]
+    attempts=sum(max(0.,number(row,f'academy_near_attempts_{direction}',0.))
+                 for row in rows)
+    successes=sum(max(0.,number(row,f'academy_near_successes_{direction}',0.))
+                  for row in rows)
+    if attempts<20 or successes>attempts:
+        return 'insufficient encounters'
+    return f'{successes:.0f}/{attempts:.0f} ({100*successes/attempts:.1f}%)'
+
+
 def latest_heldout(history: list[dict]) -> str:
     """Latest actual frozen exam with delta versus the preceding exam."""
     seen = {}
@@ -211,7 +230,10 @@ def render_screen(row: dict[str, str], *, phase: str,
          f"(Δ5M {metric_delta(history,'shaft_j_per_m_forward',precision=1)})"),
         "",
         " STAIRS  [sampled training outcomes, NOT frozen stair exams]",
-        "  " + stair_window_trend(history),
+        ("  5M UP near " + signed_stair_window(history,'up') +
+         " / DOWN near " + signed_stair_window(history,'down')
+         if 'school_down_stair_alpha' in row
+         else "  " + stair_window_trend(history)),
         (f"  Latest rollout climbs: "
          f"{_rate(row,'academy_short_climb_successes','academy_episodes')}"),
         (f"  Footholds {fmt(row,'academy_footholds','.0f')}  "
@@ -220,8 +242,12 @@ def render_screen(row: dict[str, str], *, phase: str,
         (f"  Stair frontier +{h_up}cm "
          f"(Δ5M {metric_delta(history,'academy_height_up_m',scale=100,precision=1,suffix='cm')}) "
          f" / -{h_down}cm"),
-        (f"  Stair teacher {stair}   "
-         f"5cm proof windows {fmt(row,'school_up_good_windows','.0f')}/2"),
+        (f"  Stair teacher UP {stair} / DOWN "
+         f"{100*(1-number(row,'school_down_stair_alpha',1.)):.0f}% coaching left"
+         f" · downhill windows {fmt(row,'school_down_good_windows','.0f')}/2"
+         if 'school_down_stair_alpha' in row
+         else f"  Stair teacher {stair}   "
+              f"5cm proof windows {fmt(row,'school_up_good_windows','.0f')}/2"),
         "",
         " TRAINING / FROZEN WALKING RETENTION",
         (f"  PPO {fmt(row,'train_steps_per_sec',',.0f')}/s   "
@@ -291,7 +317,9 @@ class ConsoleRelay:
             self._write("\x1b[?25l\x1b[2J\x1b[H" + picture + "\x1b[J")
             self.drawn = True
         else:
-            self._write("\x1b[H" + picture + "\x1b[J")
+            # Clear previous entire page. Cursor-home+erase-tail left
+            # visible old-line fragments on WSL terminal resizes.
+            self._write("\x1b[2J\x1b[H" + picture + "\x1b[J")
 
     def forward(self, line: str) -> None:
         t = line.strip()
