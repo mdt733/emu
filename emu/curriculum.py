@@ -18,7 +18,8 @@ from .capability_focus import (school_lesson, SCHOOL_STAIRS_EARLIEST,
     SCHOOL_STAIR_PROOF_RATE, SCHOOL_STAIR_PROOF_WINDOWS,
     SCHOOL_UNCOACHED_PROOF_RATE, SCHOOL_HIGH_PROOF_RATE,
     SCHOOL_DOWN_PROOF_RATE, SCHOOL_ANCHOR_RETENTION_MIN,
-    SCHOOL_SLOW_GROWTH_INTERVAL, SCHOOL_ANCHOR_RETREAT_HOLD)
+    SCHOOL_SLOW_GROWTH_INTERVAL, SCHOOL_ANCHOR_RETREAT_HOLD,
+    SCHOOL_RESCUE_STEPS, SCHOOL_RESCUE_TRIGGER_RATE)
 
 # ---------------------------------------------------------------------------
 # Compact organic-birth curriculum/governor.
@@ -265,6 +266,8 @@ class RegimeGovernor:
             coaching_off_step=-1, uncoached_certified_step=-1,
             uncoached_attempts=0., uncoached_successes=0.,
             uncoached_good_windows=0,
+            uncoached_failed_windows=0, uncoached_last_rate=0.,
+            rescue_end_step=-1,
             last_up_growth_step=-1,
             anchor_attempts=0., anchor_successes=0.,
             retention_hold_until=0,
@@ -989,7 +992,18 @@ class RegimeGovernor:
             if event=='certified':
                 s['uncoached_certified_step']=step
                 s['last_up_growth_step']=step
+                s['uncoached_failed_windows']=0
                 return 'uncoached_50mm_certified'
+            if event=='retry':
+                s['uncoached_failed_windows']=(
+                    s['uncoached_failed_windows']+1
+                    if s['uncoached_last_rate']<SCHOOL_RESCUE_TRIGGER_RATE
+                    else 0)
+                if s['uncoached_failed_windows']>=2:
+                    s['rescue_end_step']=step+SCHOOL_RESCUE_STEPS
+                    s['uncoached_failed_windows']=0
+                    s['uncoached_good_windows']=0
+                    return 'uncoached_50mm_rescue_started'
             return 'uncoached_50mm_'+event
 
         # A constant exact 50mm birth cohort remains throughout growth.
@@ -1037,6 +1051,8 @@ class RegimeGovernor:
         if state[prefix+'_attempts']<SCHOOL_STAIR_PROOF_ATTEMPTS:
             return 'collect'
         rate=state[prefix+'_successes']/state[prefix+'_attempts']
+        if prefix=='uncoached':
+            state['uncoached_last_rate']=rate
         state[prefix+'_attempts']=state[prefix+'_successes']=0.
         if not consecutive:
             state['_anchor_failed']=rate<required_rate
@@ -1076,7 +1092,8 @@ class RegimeGovernor:
                 refined_school=self.refined_school,
                 uncoached_certified_step=self.school_refined_state['uncoached_certified_step'],
                 descent_unlocked_step=self.school_refined_state['descent_unlocked_step'],
-                descent_certified_step=self.school_refined_state['descent_certified_step'])
+                descent_certified_step=self.school_refined_state['descent_certified_step'],
+                rescue_end_step=self.school_refined_state['rescue_end_step'])
             if (step>=SCHOOL_STAIRS_EARLIEST and not self.school_walking_graduated
                     and self.core_competence>=SCHOOL_MIN_WALK_CORE
                     and prior['walk_alpha']>=.99):
@@ -1122,6 +1139,8 @@ class RegimeGovernor:
                         self.school_refined_state['high_good_windows'],
                     'school_down_good_windows':
                         self.school_refined_state['down_good_windows'],
+                    'school_rescue_end_step':
+                        self.school_refined_state['rescue_end_step'],
                 })
             if not school['stairs_enabled']:
                 max_height_m=0.
