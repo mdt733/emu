@@ -8,6 +8,7 @@ import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredA
 import { joystickToCommands, nextYawCommand } from './controls.js';
 import { withTerrain, surfaceSlope, surfaceLabGradient, terrainSensorHeightFallback } from './terrain.js';
 import { CARPET_DEFAULT, carpetRoleLimits } from './training-carpet.js';
+import { drillCompletion } from './training-drills.js';
 import { createSensorLabCarpet, carpetSpawnSoleLift, carpetHeightfieldPatch, normalizedMeadowSettings, MEADOW_DEFAULTS, LAB_TILE_M, LAB_TILE_COUNT } from './sensor-lab-carpet.js';
 import { createGrowingMeadowScenery } from './growing-meadow.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
@@ -109,6 +110,11 @@ export class EmuBrowserSim {
     this.carpetRole = 'step';
     this.carpetDifficulty = {...CARPET_DEFAULT};
     this.meadowSettings = {...MEADOW_DEFAULTS};
+    // Read-only specialist spectator. Never a new teacher or inference path.
+    this.specialistDrill = null;
+    this.drillElapsedS = 0;
+    this.drillProof = {right:0,left:0,stable:0};
+    this.drillResult = null;
     this.carpetTileOverlay = null;
     this.carpetTileCenter = null;
     this.carpetWindowCenter = null;
@@ -389,6 +395,22 @@ export class EmuBrowserSim {
     // Training specialist selection changes only the exercises.
     // The physical Meadow has one independent difficulty source.
   }
+  setSpecialistDrill(episode=null){
+    if(episode && (!Number.isFinite(episode.spawnX)||
+        !Number.isFinite(episode.spawnY)||!Number.isFinite(episode.riseM)||
+        !Number.isFinite(episode.slopeDeg)||episode.wallX!==1))
+      throw Error('Invalid physical specialist episode');
+    this.specialistDrill=episode;
+    if(episode){
+      // Commands at birth mirror the physical Academy reset; do not
+      // invent a manual neutral state and then turn on movement later.
+      Object.assign(this.commandTarget,episode.initialCommand);
+      Object.assign(this.command,episode.initialCommand);
+      this.autoReset=false;
+    }
+    this.park?.setDrillEpisode(episode);
+    this.reset();
+  }
   setMeadowSettings(settings){
     const next=normalizedMeadowSettings(settings);
     if(JSON.stringify(next)===JSON.stringify(this.meadowSettings))return;
@@ -440,7 +462,11 @@ export class EmuBrowserSim {
       // North's resilience gradient only affects OPTIONAL automatic pushes.
       // Never switch shoves on behind the operator's back, and preserve the
       // manual shove button as an explicit fixed-strength diagnostic.
-      const north=this.park?.physics==='streaming-heightfield'
+      // In a selected resilience lesson, do not multiply the training
+      // shove probability/strength by the Meadow's latitude difficulty:
+      // the role sampler already selected the intended physical challenge.
+      const north=this.specialistDrill ? 1 :
+        this.park?.physics==='streaming-heightfield'
         ?this.park.difficultyAt(Number(this.data.qpos[1])).resilience:1;
       const automatic=v.enabled&&!v.manualPending;
       const push=sampleShove({
@@ -549,6 +575,7 @@ export class EmuBrowserSim {
     this.disposeModel();
     this.park=this.terrainMode==='carpet'
       ?createSensorLabCarpet(this.meadowSettings):null;
+    this.park?.setDrillEpisode(this.specialistDrill);
     this.scene.fog=this.park?.physics==='streaming-heightfield'
       ?new THREE.Fog(0xb1c8c1,7,22):new THREE.Fog(0xbad7e2,15,49);
     const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park,obstacle:this.sensorObstacle,
@@ -717,8 +744,8 @@ export class EmuBrowserSim {
     this.command.yaw = this.requestedYaw;
     this.data.qvel[5] = this.command.yaw;
     if(this.park?.physics==='streaming-heightfield'){
-      this.data.qpos[0]=LAB_TILE_M*.5;
-      this.data.qpos[1]=LAB_TILE_M*.5;
+      this.data.qpos[0]=this.specialistDrill?.spawnX??LAB_TILE_M*.5;
+      this.data.qpos[1]=this.specialistDrill?.spawnY??LAB_TILE_M*.5;
       this.carpetWindowCenter=[0,0];
     }
     mj.mj_forward(this.model, this.data);
@@ -747,6 +774,9 @@ export class EmuBrowserSim {
     this.flattenHistory();
     this.controlAccumulator = 0;
     this.fallenFor = 0;
+    this.drillElapsedS=0;
+    this.drillProof={right:0,left:0,stable:0};
+    this.drillResult=null;
     this.shovePreview.stepsLeft=0;
     this.shovePreview.visualLeft=0;
     this.shovePreview.manualPending=false;
@@ -892,7 +922,35 @@ export class EmuBrowserSim {
     this.flattenHistory();
 
     if (this.isFallen()) this.fallenFor += cdt; else this.fallenFor = 0;
+    this.observeSpecialistDrill(cdt);
     if (this.autoReset && this.fallenFor > 0.8) this.reset();
+  }
+
+  observeSpecialistDrill(dt){
+    const episode=this.specialistDrill;
+    if(!episode||this.drillResult)return;
+    this.drillElapsedS+=dt;
+    if(episode.role==='step'){
+      const supported=this.footGeomIds.map(id=>{
+        const o=3*id;
+        const x=Number(this.data.geom_xpos[o]),y=Number(this.data.geom_xpos[o+1]);
+        const z=Number(this.data.geom_xpos[o+2]);
+        const bottom=z-Number(this.model.geom_size[o]);
+        const top=this.park?.sampleHeight(x,y);
+        // First destination tile only; a later unrelated lip cannot pass.
+        return x>=episode.wallX+.018&&x<episode.wallX+.9&&
+          Number.isFinite(top)&&Math.abs(bottom-top)<.025;
+      });
+      this.drillProof=drillCompletion(episode,{
+        x:Number(this.data.qpos[0]),y:Number(this.data.qpos[1]),
+        upright:this.bodyRotation()[8]>=.75&&!this.isFallen(),
+        footSupported:supported
+      },this.drillProof);
+      if(this.drillProof.complete)this.drillResult='supported-climb';
+    }
+    if(!this.drillResult && this.fallenFor>.4)this.drillResult='fall';
+    if(!this.drillResult && this.drillElapsedS>=episode.durationS)
+      this.drillResult=episode.role==='step'?'timeout':'survived';
   }
 
   flattenHistory() {

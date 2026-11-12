@@ -563,3 +563,17 @@ button:disabled { opacity: .4; cursor: default; }
 .telemetry .terrain-assigned b {font-size:12px;color:#bcffe0;letter-spacing:.01em;}
 
 
+
+/* One world, two spectator experiences: endless meadow and bounded
+   training-derived physical episodes. No separate MuJoCo engine. */
+.drill-panel { border-left: 3px solid rgba(112,190,171,.65); }
+#drillControls { display: grid; gap: .65rem; }
+#drillControls[hidden], #meadowDifficultyPanel[hidden] { display: none !important; }
+#drillControls .control-row { display: flex; flex-wrap: wrap; gap: .55rem; align-items: center; }
+#drillStatus {
+  font-variant-numeric: tabular-nums;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.45;
+}
+#drillEvidence { line-height: 1.45; }

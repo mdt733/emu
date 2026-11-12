@@ -210,21 +210,24 @@ def read_terrain_training_snapshot(root: Path) -> dict:
             'terrain_carpet':bool(cfg.get('terrain_carpet',False)),
             'terrain_carpet_prisms':bool(cfg.get('terrain_carpet_prisms',False)),
             'academy_stream':bool(cfg.get('academy_stream',False)),
+            'refined_school':bool(cfg.get('refined_school',False)),
             'foundation_steps':cfg.get('foundation_steps',20_000_000),
             'academy_intro_steps':cfg.get('academy_intro_steps',60_000_000),
             'academy_start_steps':cfg.get('academy_start_steps',80_000_000),
             'academy_ramp_steps':cfg.get('academy_ramp_steps',20_000_000),
+            'academy_course_episode_frames':cfg.get('academy_course_episode_frames',1200),
             'carpet_transition_cap_deg':cfg.get('carpet_transition_cap_deg',3.),
             # Actual configured physical push ceiling, distinct from the
             # teacher's independently growing frontier_push_n target.
             'push_max_force_n':cfg.get('push_max_force_n',0.35),
         },
         'source_sha':(meta.get('source_provenance') or {}).get('git_commit'),
-        'physics_mode':'8 convex triangular-prism MJX collisions '
-                       '(four 1m tiles); browser terrain is illustrative nine boxes',
+        'physics_mode':'GPU: eight deformable convex MJX prisms, four 1m tiles; '
+                       'browser spectator: 225 mutable CPU MuJoCo 1m hfields',
         'warnings':[
-            'Browser nine-box terrain is illustrative, not the 8 actual MJX '
-            'convex-prism colliders, normals, tiles or terrain recycler.',
+            'Browser specialists reconstruct signed training tile seams and '
+            'births with REAL hfield contacts; this is not a byte-for-byte '
+            'replay of GPU prism collisions, solver, RNG or domain randomisation.',
             'Curriculum frontiers are teaching targets, not measured capability.'
         ]
     }

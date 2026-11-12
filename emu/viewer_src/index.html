@@ -70,6 +70,35 @@
 
         <select id="terrainMode" hidden aria-hidden="true"><option value="carpet" selected>Infinite Meadow</option></select>
         <section id="carpetPanel" class="carpet-panel" aria-label="Infinite Meadow settings">
+          <div class="tuning-group drill-panel" id="drillPanel" aria-label="Training specialist observation">
+            <div class="tuning-heading"><b>Observe trained skills</b><small>Same actor, selectable physical exercises</small></div>
+            <label>World
+              <select id="viewerWorldMode">
+                <option value="meadow" selected>Endless meadow · general survival</option>
+                <option value="drill">Specialist episodes · new challenge each reset</option>
+              </select>
+            </label>
+            <div id="drillControls" hidden>
+              <label>Observe specialist
+                <select id="drillRole">
+                  <option value="step" selected>Steps · Academy uphill / downhill</option>
+                  <option value="command">Commands · full forward / reverse / strafe / yaw</option>
+                  <option value="resilience">Resilience · physical shoves</option>
+                  <option value="slope">Slopes · random uphill / downhill grades</option>
+                  <option value="transition">Transitions · changing velocity / yaw</option>
+                  <option value="control">Control · quiet efficient walking</option>
+                  <option value="standing">Standing · zero command</option>
+                </select>
+              </label>
+              <div class="control-row">
+                <button id="drillNext" type="button">Next random episode</button>
+                <button id="drillReplay" type="button">Replay same episode</button>
+                <label class="viewer-checkbox"><input id="drillAutoNext" type="checkbox" checked /> Repeat automatically</label>
+              </div>
+              <div id="drillStatus" class="carpet-evidence" role="status" aria-live="polite">Load a policy to begin an episode.</div>
+              <small id="drillEvidence" class="subtle">Trainer-matched lip geometry and 15–30 cm spawning, reconstructed with real browser MuJoCo heightfield contacts. Not the GPU's eight-prism solver or a certified held-out exam.</small>
+            </div>
+          </div>
           <div id="meadowDifficultyPanel" class="tuning-group" aria-label="Meadow terrain difficulty">
             <div class="tuning-heading"><b>Meadow difficulty</b><small>One physical world · north harder, south easier</small></div>
             <label>Terrain preset

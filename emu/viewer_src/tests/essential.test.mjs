@@ -10,6 +10,7 @@ import {createSensorLabCarpet,carpetTileCorners,carpetLocalLimits,carpetLatitude
 import {meadowTreeForTile} from '../src/growing-meadow.js';
 import {withTerrain,terrainSensorHeightFallback} from '../src/terrain.js';
 import {trainingLimits} from '../src/training-carpet.js';
+import {sampleTrainingDrill,drillTileCorners,drillCommand,drillCompletion} from '../src/training-drills.js';
 
 test('the main and static showcase expose one Infinite Meadow, not the retired Field',()=>{
   const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
@@ -457,4 +458,100 @@ test('physical h40 foot occlusion depends on mounting geometry, never a hardcode
   assert.deepEqual(actual.footOccluded.slice(12),[true,false,false,true],
     'the chosen under-torso mount naturally grazes OUTER foot zones');
   assert.deepEqual(actual.footHitCounts.slice(12),[1,0,0,1]);
+});
+
+
+test('training-matched stair spectator births sample the real 15–30cm approach and sharp signed 1m lip',()=>{
+  const b={seed:735,step:332_000_000,academyStepUpM:.075,
+    academyStepDownM:.008,schoolDescentUnlockedStep:330_000_000,
+    schoolDownShare:.10,vxHi:1.25,vxLo:-.55,vyMax:.3,yawMax:1.5};
+  let five=0,hard=0,down=0;
+  for(let n=1;n<=1000;n++){
+    const ep=sampleTrainingDrill(b,'step',n);
+    assert.ok(ep.spawnX>=.70&&ep.spawnX<.85);
+    assert.ok(ep.spawnY>=.45&&ep.spawnY<.55);
+    assert.equal(ep.wallX,1);
+    assert.ok(ep.riseM>=-.08&&ep.riseM<=.08);
+    const before=drillTileCorners(0,0,ep),after=drillTileCorners(1,0,ep);
+    assert.deepEqual(before,[0,0,0,0]);
+    assert.ok(Math.abs(after[0]-ep.riseM)<1e-9);
+    assert.ok(Math.abs(after[1]-ep.riseM)<1e-9);
+    assert.ok(Math.abs(after[2]-ep.riseM)<1e-9);
+    if(ep.riseM<0)down++;
+    else if(ep.stepKind==='5cm retention')five++;
+    else hard++;
+    assert.deepEqual(ep,sampleTrainingDrill(b,'step',n),
+      'same source seed and trial must reproduce the same physical obstacle');
+  }
+  const first=sampleTrainingDrill({...b,academyCourseEpisodeFrames:1200},'step',41);
+  assert.equal(first.durationS,24,'watch a whole Academy horizon without early artificial timeout');
+  const park=createSensorLabCarpet({seed:735,hillPeakDeg:0});
+  park.setDrillEpisode(first);
+  park.resetGrowth();
+  const before=park.sampleHeight(.98,.5);
+  const after=park.sampleHeight(1.02,.5);
+  assert.ok(Math.abs(before)<1e-8);
+  assert.ok(Math.abs(after-first.riseM)<1e-8);
+  assert.ok(Math.abs((after-before)-first.riseM)<1e-8,
+    'compiled hfield source has a vertical wall at the real 1m seam');
+  const tile=park.at(1,0);
+  assert.ok(carpetHeightfieldPatch(tile).every(v=>v>=0&&v<=1));
+  park.setDrillEpisode(null);
+  park.resetGrowth();
+  assert.notEqual(park.sampleHeight(1.02,.5),after,
+    'returning to endless Meadow must discard the specialist fixture');
+  assert.ok(down>60&&down<140,'downhill ~10% after actual unlock');
+  assert.ok(five>370&&five<500,'half of uphill births retain proven 5cm');
+  assert.ok(hard>370&&hard<500,'the rest work on frontier and bridges');
+  const locked={...b,schoolDescentUnlockedStep:-1,schoolDownShare:0};
+  for(let n=1;n<=100;n++)
+    assert.ok(sampleTrainingDrill(locked,'step',n).riseM>0,
+      'no downhill before independent up proof');
+  const grade=sampleTrainingDrill({...b,slopeDeg:12},'slope',23);
+  const left=drillTileCorners(0,0,grade),right=drillTileCorners(1,0,grade);
+  assert.ok(Math.abs(left[1]-right[0])<1e-8,
+    'a slope must join continuously, unlike a deliberate step');
+});
+
+test('browser specialist drills preserve full command extremes and require repeated real supported transfer',()=>{
+  const limits={seed:735,vxHi:1.25,vxLo:-.55,vyMax:.40,yawMax:2.5};
+  const command=sampleTrainingDrill(limits,'command',1);
+  const commands=Array.from({length:20},(_,i)=>drillCommand(command,i*3));
+  assert.ok(commands.some(x=>x.vx>.8));
+  assert.ok(commands.some(x=>x.vx<-.25));
+  assert.ok(commands.some(x=>x.vy>.2));
+  assert.ok(commands.some(x=>x.vy<-.2));
+  assert.ok(commands.some(x=>x.yaw>1));
+  assert.ok(commands.some(x=>x.yaw< -1));
+  const scene=sampleTrainingDrill({...limits,academyStepUpM:.075},'step',2);
+  let state={right:0,left:0,stable:0};
+  for(let i=0;i<24;i++)
+    state=drillCompletion(scene,{
+      x:1.22,y:scene.spawnY,upright:true,footSupported:[true,false]
+    },state);
+  assert.equal(state.complete,false,'one foot is not a verified two-foot climb');
+  for(let i=0;i<3;i++)
+    state=drillCompletion(scene,{
+      x:1.22,y:scene.spawnY,upright:true,footSupported:[false,true]
+    },state);
+  assert.equal(state.transfer,true);
+  assert.equal(state.complete,false);
+  for(let i=0;i<14;i++)
+    state=drillCompletion(scene,{
+      x:1.22,y:scene.spawnY,upright:true,footSupported:[false,true]
+    },state);
+  assert.equal(state.complete,true);
+  state=drillCompletion(scene,{
+    x:1.22,y:scene.spawnY,upright:false,footSupported:[true,true]
+  },state);
+  assert.equal(state.complete,false,'falling invalidates the completion streak');
+  const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
+  assert.match(html,/id="viewerWorldMode"/);
+  assert.match(html,/id="drillRole"/);
+  assert.match(html,/id="drillNext"/);
+  assert.match(html,/id="drillReplay"/);
+  assert.match(html,/Endless meadow/);
+  const sim=readFileSync(new URL('../src/sim.js',import.meta.url),'utf8');
+  assert.match(sim,/observeSpecialistDrill/);
+  assert.match(sim,/carpetSpawnSoleLift/);
 });
