@@ -1254,8 +1254,15 @@ class RegimeGovernor:
                 step=step,core_competence=self.core_competence,
                 walking_graduated=self.school_walking_graduated,
                 stair_mastered_step=self.school_stair_mastered_step)
+            if self.bidirectional_school and school['stairs_enabled'] and (
+                    self.school_bidirectional_state['down_uncoached_certified_step']<0):
+                # The first DOWN lesson starts at a real 20mm physical lip;
+                # it is not postponed until uphill has graduated at 75mm.
+                self.params.academy_height_down_m=SCHOOL_DOWN_START_M
             report['school_stair_proof_event']=self.observe_school_evidence(
                 row,step=step,stairs_enabled=school['stairs_enabled'])
+            report['school_down_proof_event']=self.observe_bidirectional_school_evidence(
+                row,step=step) if self.bidirectional_school else 'not_paired'
             report['school_refined_event']=self.observe_refined_school_evidence(
                 row,step=step,stair_alpha=school['stair_alpha'])
             school=school_lesson(
@@ -1267,6 +1274,30 @@ class RegimeGovernor:
                 descent_unlocked_step=self.school_refined_state['descent_unlocked_step'],
                 descent_certified_step=self.school_refined_state['descent_certified_step'],
                 rescue_end_step=self.school_refined_state['rescue_end_step'])
+            if self.bidirectional_school:
+                b=self.school_bidirectional_state
+                down=bidirectional_down_lesson(
+                    step=step,stairs_enabled=school['stairs_enabled'],
+                    mastered_step=b['down_mastered_step'],
+                    uncoached_step=b['down_uncoached_certified_step'],
+                    certified_5cm_step=b['down_5cm_certified_step'],
+                    rescue_end_step=b['down_rescue_end_step'])
+                report.update(
+                    school_down_stage=down['stage'],
+                    school_down_stair_alpha=down['down_alpha'],
+                    school_down_share=down['down_share'],
+                    school_down_mastered_step=b['down_mastered_step'],
+                    school_down_uncoached_certified_step=b['down_uncoached_certified_step'],
+                    school_down_5cm_certified_step=b['down_5cm_certified_step'],
+                    school_down_good_windows=b['down_assisted_good_windows'],
+                    school_down_nohelp_windows=b['down_uncoached_good_windows'],
+                    school_down_high_windows=b['down_high_good_windows'],
+                    school_down_retention_hold_until=b['down_retention_hold_until'])
+                # This time the up and down graduates are independent.
+                if (self.school_refined_state['descent_unlocked_step']>=0 and
+                    b['down_5cm_certified_step']>=0 and
+                    self.school_refined_state['descent_certified_step']<0):
+                    self.school_refined_state['descent_certified_step']=step
             report.update(school_stage=school['stage'],
                           school_walk_alpha=school['walk_alpha'],
                           school_stairs_enabled=float(school['stairs_enabled']),
@@ -1330,6 +1361,21 @@ class RegimeGovernor:
                         if refined['descent_unlocked_step']<0 else
                         .05 if refined['descent_certified_step']<0 else
                         .08)
+        if self.bidirectional_school and self.school_walking_graduated:
+            paired=self.school_bidirectional_state
+            old_down=self.params.academy_height_down_m
+            if paired['down_uncoached_certified_step']<0:
+                down_limit=SCHOOL_DOWN_START_M
+            else:
+                limit=(.08 if (paired['down_5cm_certified_step']>=0 and
+                              refined['descent_unlocked_step']>=0)
+                       else SCHOOL_DOWN_TARGET_M)
+                growth_allowed=(step>=paired['down_last_growth_step']+
+                                SCHOOL_SLOW_GROWTH_INTERVAL and
+                                step>=paired['down_retention_hold_until'])
+                down_limit=min(limit,old_down+(.0005 if growth_allowed else 0.))
+        else:
+            old_down=self.params.academy_height_down_m
         report['academy_event']=self.advance_academy(
             row,max_height_m=academy_max_height_m,
             enabled=(self.unified_capability_focus and
@@ -1338,6 +1384,16 @@ class RegimeGovernor:
         if (self.refined_school and
                 self.params.academy_height_up_m>old_up+1e-7):
             self.school_refined_state['last_up_growth_step']=step
+        if self.bidirectional_school and self.school_walking_graduated:
+            paired=self.school_bidirectional_state
+            if paired['down_uncoached_certified_step']<0:
+                self.params.academy_height_down_m=SCHOOL_DOWN_START_M
+            else:
+                self.params.academy_height_down_m=min(
+                    down_limit,max(SCHOOL_DOWN_START_M,
+                                   self.params.academy_height_down_m))
+                if self.params.academy_height_down_m>old_down+1e-7:
+                    paired['down_last_growth_step']=step
         report['academy_height_up_m']=self.params.academy_height_up_m
         report['academy_height_down_m']=self.params.academy_height_down_m
         report.update({f'academy_window_{key}':value
