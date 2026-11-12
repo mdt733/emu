@@ -40,6 +40,26 @@ def exact_exam_lip_profiles(xp, signed_height_m):
     y=xp.zeros_like(x)
     return x,y
 
+def two_lip_continuation_profiles(xp, first_height_m, second_height_m):
+    """Two *real* signed stair risers at x=1m and x=2m, 1m apart.
+
+    Each height changes the global tile-level profile, so the original
+    eight convex triangles, vertical sidewalls, 4x4 ToF, recyclers and
+    foot contact solver see precisely the same geometry. The profile is
+    episode-local and constant after x=2m: there is no third phantom lip.
+    A second negative value can intentionally reverse an initial ascent.
+    No episode reward or network input can alter these heights.
+    """
+    first=xp.asarray(first_height_m,dtype=xp.float32)
+    second=xp.asarray(second_height_m,dtype=xp.float32)
+    idx=xp.arange(-PROFILE_HALF,PROFILE_HALF,dtype=xp.int32)
+    x=xp.where(idx[None,:]>=1,first[:,None],
+               xp.zeros_like(first[:,None]))
+    x=x+xp.where(idx[None,:]>=2,second[:,None],
+                 xp.zeros_like(second[:,None]))
+    return x,xp.zeros_like(x)
+
+
 VISIT_HISTORY=64
 PROFILE_HALF=128
 PROFILE_SIZE=PROFILE_HALF*2

@@ -144,3 +144,27 @@ def nursery_progress(xp, previous, body_xy, foot_xyz, foot_bottom, edge_x,
     gains=xp.maximum(0.,best-previous)
     weights=xp.asarray((2.,6.,6.,5.,5.,7.),dtype=best.dtype)
     return best,xp.sum(gains*weights[None,:],axis=1),gains
+
+
+def two_lip_continuation_success(xp, *, academy_active, supported_lips,
+                                 first_lip_two_feet, half_metre_after_second,
+                                 samples, mean_vx, mean_cmd_vx,
+                                 gravity_z, support, bad_contact,
+                                 yaw_error, terminal):
+    """Teacher-side C graduation: no first-lip or ballistic finish credit.
+
+    'supported_lips' is counted by the original MJX true-prism top-contact
+    event detector. The follow-through is from the SECOND confirmed real
+    lip's bilateral support and measured against its latched original
+    heading, never a moving goal coordinate. 20 recent full-command
+    velocity samples span >=0.4s. A one-frame lunge cannot earn success.
+    This check must never enter the deployable 360-input observation.
+    """
+    return (academy_active & (supported_lips>=2) &
+            first_lip_two_feet &
+            half_metre_after_second & (samples>=20) &
+            (mean_cmd_vx>=.075) & (mean_vx>=.05) &
+            (xp.abs(mean_vx-mean_cmd_vx)<=.10) &
+            (gravity_z>=.80) & (support>=.50) &
+            (bad_contact<.50) & (xp.abs(yaw_error)<.35) &
+            ~terminal)

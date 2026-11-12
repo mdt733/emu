@@ -39,6 +39,7 @@ REWARD_ONLY_METRICS = frozenset({
     'target_height', 'stance_slip', 'target_step_height', 'action_delta_norm',
     'joint_limit_pressure', 'scissor_pressure', 'stepping_activity_so_far',
     'ramp_frac', 'science_step_focus', 'science_step_goal_active', 'science_step_goal_delta_m',
+    'science_step_near_lip_frac',
 })
 
 # Preserved eight-term reward baseline; modifications are explicit opt-in teaching terms.
@@ -85,8 +86,11 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
         runaway=jnp.maximum(0.,m['vx']-m['cmd_vx']-.25)
         target=jnp.exp(-(14.*vy_err*vy_err+4.5*yaw_err*yaw_err+
                          18.*pitch_err*pitch_err+45.*runaway*runaway))
-        relaxed=(1.-science_step_velocity_relief)*command_tracking+(
-            science_step_velocity_relief*target)
+        # The C course restores FULL ordinary vx tracking between lips
+        # and after the second riser. The scalar is 1 in legacy lessons;
+        # in C it ramps from 0 away from a lip toward 1 on approach.
+        relief=science_step_velocity_relief*m.get('science_step_near_lip_frac',1.)
+        relaxed=(1.-relief)*command_tracking+relief*target
         command_tracking=jnp.where(m['science_step_goal_active']>.5,
                                    relaxed,command_tracking)
     (upright_height, feet_only_contact, stance_anti_slip,

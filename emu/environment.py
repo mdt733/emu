@@ -44,6 +44,7 @@ from .terrain_carpet_mjx import (
     PROFILE_HALF as CARPET_PROFILE_HALF,
     role_envelope as carpet_role_envelope, make_profiles as carpet_make_profiles,
     exact_exam_lip_profiles as carpet_exam_lip_profiles,
+    two_lip_continuation_profiles as carpet_two_lip_profiles,
     generate_window as carpet_generate_window, sample_surface as carpet_sample_surface,
     ray_surface as carpet_ray_surface, VISIT_HISTORY as CARPET_VISIT_HISTORY,
     unseen_tile as carpet_unseen_tile, note_confirmed_tile as carpet_note_confirmed_tile,
@@ -1012,6 +1013,7 @@ class EmuMJXEnv(TaskSampler):
                  science_step_velocity_relief: float = 0.0,
                  science_step_approach_m: float = 0.0,
                  science_step_finish_on_transfer: bool = False,
+                 two_lip_continuation_school: bool = False,
                  outcome_graduation: bool = False,
                  progressive_school: bool = False,
                  refined_school: bool = False,
@@ -1104,6 +1106,14 @@ class EmuMJXEnv(TaskSampler):
         if science_step_finish_on_transfer and not academy_stream:
             raise ValueError("step finish requires streamed real-prism Academy")
         self.science_step_finish_on_transfer=science_step_finish_on_transfer
+        if type(two_lip_continuation_school) is not bool:
+            raise ValueError('two-lip school switch must be boolean')
+        if two_lip_continuation_school and not (science_step_finish_on_transfer
+                and outcome_graduation and progressive_school
+                and refined_school and bidirectional_school):
+            raise ValueError('C two-lip school requires real transfer terminals, '
+                             'outcome graduation and paired staged schools')
+        self.two_lip_continuation_school=two_lip_continuation_school
         if type(outcome_graduation) is not bool:
             raise ValueError('outcome_graduation must be bool')
         self.outcome_graduation=outcome_graduation
@@ -1656,7 +1666,29 @@ class EmuMJXEnv(TaskSampler):
         goal_delta=signed_distance_progress(
             jnp,state.academy_goal_xy,
             state.data.qpos[:,:2],data.qpos[:,:2])
+        # C: loosen forward-speed tracking ONLY as the next real 1m lip
+        # approaches. Between lips, and after the second, normal vx
+        # command tracking is restored automatically on every frame.
+        # This is reward-only: no new deployable actor input.
+        before_lip=((jnp.floor(data.qpos[:,0]/CARPET_TILE_M)+1.)*
+                    CARPET_TILE_M-data.qpos[:,0])
+        # The C nursery has exactly two risers, x=1m and x=2m.
+        # Do NOT relax speed while approaching the flat third seam.
+        near_lip=jnp.where(data.qpos[:,0] < 2.*CARPET_TILE_M,
+                           jnp.clip((.40-before_lip)/.25,0.,1.),0.)
+        # The remaining HELP is removed independently for UP and DOWN
+        # as the checkpointed school alpha advances to 1. At graduation
+        # the original operator vx is scored at FULL strength everywhere,
+        # even immediately in front of a step. No hidden deployment task.
+        stair_alpha=jnp.where(
+            state.academy_birth_lip_m<0.,
+            params[P.outcome_down_stair_alpha],
+            params[P.outcome_stair_alpha])
+        near_lip=near_lip*(1.-jnp.clip(stair_alpha,0.,1.))
         metrics={**metrics,
+                 'science_step_near_lip_frac':(
+                     near_lip if self.two_lip_continuation_school else
+                     jnp.ones_like(near_lip)),
                  'science_step_focus':step_focus.astype(jnp.float32),
                  # These TWO teacher-only fields never reach the actor.
                  'science_step_goal_active':(
@@ -1866,6 +1898,11 @@ class EmuMJXEnv(TaskSampler):
             finish_streak=jnp.where(
                 short,state.academy_finish_streak+1,0)
             finish_new=finish_streak>=(15 if self.outcome_graduation else CLIMB_STABLE_FRAMES)
+            # C's first lip is a milestone, NEVER an absorbing terminal or
+            # the old 60-point win. It must recover, climb the NEXT real
+            # lip and prove ordinary command-following after that.
+            if self.two_lip_continuation_school:
+                finish_new=jnp.zeros_like(finish_new)
             # Success is a TRUE absorbing PPO terminal, not a timeout.
             # A separate sparse payment distinguishes partial foothold
             # shaping from the completed whole-foot transfer lesson.
@@ -1922,7 +1959,42 @@ class EmuMJXEnv(TaskSampler):
                 touchdown.astype(jnp.float32),axis=1))*(1.-alpha)
             reward=reward+nursery_payment
             ep_return=ep_return+nursery_payment
+        if self.two_lip_continuation_school:
+            # Contact-grounded course completion on the SAME actor and
+            # exact same eight-prism model. 'progress_new' fires only
+            # after a verified NEW signed-lip top-contact transfer
+            # followed by >=0.50m forward travel in its latched heading.
+            # The lip index rules out the first-step suicide-finish.
+            # A rolling 0.5s window also proves ordinary +vx tracking:
+            # ballistic forward dives or immobile, leaning arrivals fail.
+            window_vx=hist_v.sum(axis=1)/jnp.maximum(hist_n,1)
+            window_cmd=hist_c.sum(axis=1)/jnp.maximum(hist_n,1)
+            from .step_goal import two_lip_continuation_success
+            cmd_followed=(hist_n>=20) & (window_cmd>=.075) & (
+                window_vx>=.05) & (jnp.abs(window_vx-window_cmd)<=.10)
+            course_new=two_lip_continuation_success(
+                jnp,academy_active=state.academy_active & step_focus,
+                supported_lips=academy['lip_index'],
+                first_lip_two_feet=goal_transfer_ready,
+                half_metre_after_second=academy['progress_new'],
+                samples=hist_n,mean_vx=window_vx,mean_cmd_vx=window_cmd,
+                gravity_z=metrics['gravity_z'],support=metrics['support'],
+                bad_contact=metrics['bad_contact'],
+                yaw_error=metrics['yaw_rate']-metrics['cmd_yaw'],
+                terminal=terminal_fail | timeout)
+            # Full completion is worth more than isolated first/second
+            # footholds, and only pays ONCE because it ends this episode.
+            course_payment=45.*course_new.astype(jnp.float32)
+            reward=reward+course_payment
+            ep_return=ep_return+course_payment
+            done=done|course_new
+            finish_new=course_new
+        else:
+            course_new=jnp.zeros_like(done)
+            cmd_followed=jnp.zeros_like(done)
         academy={**academy,'completed':goal_new,'finish_new':finish_new,
+                 'course_new':course_new,
+                 'course_vx_window_ok':cmd_followed,
                  'nursery_payment':nursery_payment,'nursery_gains':nursery_gains}
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
@@ -2237,6 +2309,29 @@ class EmuMJXEnv(TaskSampler):
             'academy_verdict_frontier_m':academy_ref,
             'terrain_encounter_frontier_m':stepped.terrain_attempt_frontier_m,
             'academy_finish_new':academy['finish_new'].astype(jnp.float32),
+            'academy_two_lip_continued_new':academy['course_new'].astype(jnp.float32),
+            'academy_two_lip_vx_window_ok':(
+                academy['course_vx_window_ok'] & state.academy_active
+            ).astype(jnp.float32),
+            'academy_first_lip_supported_at_end':(
+                done & state.academy_active &
+                stepped.academy_goal_transfer_ready
+            ).astype(jnp.float32),
+            # Introductory ONLY: a real first-tile bilateral contact, not
+            # full competence. The staged school uses this until assisted
+            # first-lip mechanics are learned, then switches to the much
+            # stricter completed two-lip course. Never badge it as a
+            # graduation or use it after the coaching fade.
+            **{f'academy_near_first_lip_{direction}':(
+                done & state.academy_active &
+                stepped.academy_goal_transfer_ready &
+                academy_near & (academy_verdict_height*sign>.0015)
+            ).astype(jnp.float32)
+            for direction,sign in (('up',1.),('down',-1.))},
+            'academy_two_lip_crossed_at_end':(
+                done & state.academy_active &
+                (academy['lip_index']>=2)
+            ).astype(jnp.float32),
             # Anchor cohort: a completed Academy attempt on the genuinely
             # sampled ±2.5mm 50mm UP lip, not a shifting easy-band proxy.
             'academy_anchor_attempt_up':(
@@ -2843,7 +2938,8 @@ class EmuMJXEnv(TaskSampler):
             from .terrain_carpet_mjx import exact_exam_lip_profiles
             draws=jax.vmap(lambda k:jax.random.uniform(
                 jax.random.fold_in(k,505902),
-                (3 if self.progressive_school else 2,)))(keys)
+                (4 if self.two_lip_continuation_school else
+                 3 if self.progressive_school else 2,)))(keys)
             jitter=draws[:,0]
             down_draw=(draws[:,1] < params[P.outcome_down_share])
             max_up=jnp.maximum(.050,params[P.academy_height_up_m])
@@ -2885,7 +2981,18 @@ class EmuMJXEnv(TaskSampler):
                 down_height=jnp.maximum(.003,params[P.academy_height_down_m])
             height=jnp.where(down_draw,-down_height,up_height)
             signed=jnp.clip(height*(.96+.08*jitter),-.08,.08)
-            nursery_x,nursery_y=exact_exam_lip_profiles(jnp,signed)
+            if self.two_lip_continuation_school:
+                # C: same 2x2 eight-prism recycler, TWO independent physical
+                # risers at 1m and 2m. Half same-sign repeats; once DOWN is
+                # enabled, half reverse direction. No unseen third hurdle.
+                opposite=jnp.where(down_draw,up_height,-down_height)
+                reverse=(draws[:,3]>=.50) & (params[P.outcome_down_share]>.01)
+                signed_second=jnp.where(reverse,
+                    jnp.clip(opposite*(.96+.08*jitter),-.08,.08),signed)
+                nursery_x,nursery_y=carpet_two_lip_profiles(
+                    jnp,signed,signed_second)
+            else:
+                nursery_x,nursery_y=carpet_exam_lip_profiles(jnp,signed)
             xprof=jnp.where(academy[:,None],nursery_x,xprof)
             yprof=jnp.where(academy[:,None],nursery_y,yprof)
             up=jnp.where(academy,0.,up)

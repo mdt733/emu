@@ -137,6 +137,7 @@ def env_kwargs_from_args(args) -> dict:
         science_step_velocity_relief=args.science_step_velocity_relief,
         science_step_approach_m=args.science_step_approach_m,
         science_step_finish_on_transfer=args.science_step_finish_on_transfer,
+        two_lip_continuation_school=args.two_lip_continuation_school,
         outcome_graduation=args.outcome_graduation,
         progressive_school=args.progressive_school,
         refined_school=args.refined_school,
@@ -333,7 +334,8 @@ def train(args: TrainingConfig) -> int:
                               outcome_mode=args.outcome_graduation,
                               progressive_school=args.progressive_school,
                               refined_school=args.refined_school,
-                              bidirectional_school=args.bidirectional_school)
+                              bidirectional_school=args.bidirectional_school,
+                              two_lip_continuation_school=args.two_lip_continuation_school)
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:

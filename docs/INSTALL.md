@@ -735,3 +735,51 @@ downhill encounter count. The existing metrics remain on-policy proof,
 not independent certification. The new per-step teacher scalar does
 not enter the exported actor sensor/observation contract.
 
+
+
+## Experiment C — entirely cold two-lip continuation school (draft PR #84)
+
+This campaign **starts with random weights at environment step zero**, NOT the
+180M or 420M trained robot. It is a single 500M-step source-pinned H40/12V
+policy, seed 735, 2048 MJX GPU environments. The stage schedule retains
+20M walking foundation, 60M walking-teacher fade, and competence-gated
+Academy introduction after 80M. It never forks, resumes or imports the
+previous Experiment B policy on the initial launch.
+
+The new real eight-prism nursery builds signed lips at x=1m and x=2m,
+separated by 1m of terrain. With DOWN enabled, it includes repeated and
+alternating signed heights. Introductory first-lip physical top contacts
+earn *teaching evidence only*; the **full 45-point success payment and
+absorbing terminal** require BOTH originally assigned feet to have
+supported the first target tile, TWO real sequential signed lip crossings,
+post-second independently supported transfer plus 50cm further travel,
+a 20-control-frame 0.4s window of reasonable commanded forward speed,
+and safe upright/heading/contact. One dive across the first edge is
+never completion. Academy's 80% velocity-tracking relief now ramps in
+only near the approach to each actual riser, and **full `vx` tracking**
+returns on ordinary terrain between/after the lips. Original actor
+observations contain `vx`, not the hidden reward destination.
+
+```bash
+cd ~/emu
+git fetch origin experiment/h40-cold-dual-lip-continuation
+git worktree add --detach ~/emu-cold-duallip \
+  origin/experiment/h40-cold-dual-lip-continuation
+cd ~/emu-cold-duallip
+source ~/emu/.venv/bin/activate
+bash scripts/run_h40_cold_duallip_500m_wsl.sh
+```
+
+The script refuses existing runs and refuses a research-parent input. It
+validates the exact no-parent source/checkpoint identity before CUDA and
+then begins the full run in the foreground. To **resume this same cold
+lineage after an interruption** use
+`bash scripts/run_h40_cold_duallip_500m_wsl.sh --resume`;
+do not make a new output directory or import a different policy. Results
+and checkpoints live in `~/emu-data/runs/h40-cold-duallip-500m-s735`.
+
+The existing 420M B actor remains the control. Its old single-lip
+training outcomes cannot be compared numerically to C's stronger
+**two-lip + continuation** success numerator; use matching held-out
+prism physics and original command profiles to evaluate both. This
+is an experimental training hypothesis, not a promised achieved skill.
