@@ -391,18 +391,29 @@ export class EmuBrowserSim {
     // The physical Meadow has one independent difficulty source.
   }
   setTrainingScenario(scenario=null){
-    // A new attempt updates existing mutable MuJoCo heightfields. Only
-    // switching between Meadow and a specialist rebuilds the physical world.
+    // One physics model, one compiled policy, one permanent 225-hfield
+    // allocation for ALL browser scenes. Switching a view must NOT delete
+    // and recompile 225 collision bodies or change the actor/normaliser.
     if(JSON.stringify(scenario)===JSON.stringify(this.trainingScenario))return;
-    const wasSpecialist=Boolean(this.trainingScenario);
+    const actor=this.policy, observation=this.bundle.observation;
     this.trainingScenario=scenario;
     if(!this.model)return;
-    if(wasSpecialist!==Boolean(scenario)){
-      this.loadModel();
-    }else{
-      this.park?.configureScenario(scenario);
-      this.reset();
-    }
+    if(!this.park || this.park.physics!=='streaming-heightfield')
+      throw new Error('A physical specialist needs the H40 terrain world');
+    this.park.configureScenario(scenario);
+    this.reset();
+    if(this.policy!==actor || this.bundle.observation!==observation ||
+       (this.sensorLab ? this.policy!==null : !this.policy))
+      throw new Error('Scene change violated the frozen actor contract');
+  }
+  prepareLessonBirth(command){
+    // Set the BIRTH command and velocity together, before positioning the
+    // robot at the lip. A stale 0m/s manual/demo command caused a stiff
+    // idle pose when selecting a specialist, not a genuine stair attempt.
+    this.setDemoCommands(command);
+    for(const key of ['vx','vy','yaw','pitch'])
+      this.command[key]=this.commandTarget[key];
+    this.requestedYaw=this.commandTarget.yaw;
   }
   setMeadowSettings(settings){
     const next=normalizedMeadowSettings(settings);
@@ -732,8 +743,8 @@ export class EmuBrowserSim {
     this.command.yaw = this.requestedYaw;
     this.data.qvel[5] = this.command.yaw;
     if(this.park?.physics==='streaming-heightfield'){
-      // The short Academy task begins ~22cm BEFORE its real x=1m lip.
-      // New trials randomise distance ±4cm and small lateral offset.
+      // The short Academy task starts 15–30cm before the x=1m lip.
+      // Each birth samples lateral offset and signed heading separately.
       this.data.qpos[0]=this.trainingScenario?.kind==='step'
         ?this.trainingScenario.edgeX-this.trainingScenario.distanceM
         :LAB_TILE_M*.5;
