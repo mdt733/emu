@@ -334,7 +334,8 @@ def train(args: TrainingConfig) -> int:
                               outcome_mode=args.outcome_graduation,
                               progressive_school=args.progressive_school,
                               refined_school=args.refined_school,
-                              bidirectional_school=args.bidirectional_school)
+                              bidirectional_school=args.bidirectional_school,
+                              two_lip_continuation_school=args.two_lip_continuation_school)
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:
