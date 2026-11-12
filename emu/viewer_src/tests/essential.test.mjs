@@ -23,6 +23,8 @@ test('viewer exposes Meadow and separate physical specialists without retired wo
   assert.match(html,/id="specialistScenePanel"/);
   assert.match(html,/id="sceneHeight"/);
   assert.match(html,/id="sceneDistance"/);
+  assert.match(html,/id="sceneApproach"/);
+  assert.match(html,/id="sceneCommandAxis"/);
   assert.match(html,/Automatic Meadow stroll/);
   assert.doesNotMatch(html,/id="worldField"|id="fieldPanel"|id="navNext"/);
   assert.match(sim,/this\.terrainMode\s*=\s*'carpet'/);
@@ -477,6 +479,9 @@ test('specialist training carpet is REAL mutable signed terrain and 22cm first-l
   assert.equal(up.distanceM,.22);
   assert.equal(up.edgeX,1);
   assert.equal(up.lipM,.05);
+  assert.equal(up.approachDeg,0);
+  assert.equal(makeSpecialistScene('step-up',{
+    stepCm:5,approachDeg:9,randomize:false}).approachDeg,9);
   assert.equal(sceneRole('step-up'),'step');
   assert.deepEqual(specialistTileCorners(0,0,up),[0,0,0,0]);
   assert.deepEqual(specialistTileCorners(1,0,up),[.05,.05,.05,.05]);
@@ -502,6 +507,9 @@ test('specialist training carpet is REAL mutable signed terrain and 22cm first-l
   assert.ok(new Set(varied.map(v=>v.distanceM.toFixed(4))).size>1);
   assert.ok(varied.every(v=>v.distanceM>=.15&&v.distanceM<=.30));
   assert.ok(varied.every(v=>v.lipM>=.0475&&v.lipM<=.0525));
+  assert.ok(varied.every(v=>v.approachDeg>=-3&&v.approachDeg<=3));
+  assert.ok(varied.every(v=>v.sideOffsetM>=-.05&&v.sideOffsetM<=.05));
+  assert.ok(new Set(varied.map(v=>v.approachDeg.toFixed(3))).size>1);
   assert.throws(()=>makeSpecialistScene('invented'),/Unknown/);
 });
 
