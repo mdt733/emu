@@ -140,6 +140,7 @@ def env_kwargs_from_args(args) -> dict:
         outcome_graduation=args.outcome_graduation,
         progressive_school=args.progressive_school,
         refined_school=args.refined_school,
+        bidirectional_school=args.bidirectional_school,
         academy_stream=args.academy_stream,
         terrain_carpet=args.terrain_carpet,
         terrain_carpet_prisms=args.terrain_carpet_prisms,
