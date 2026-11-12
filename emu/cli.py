@@ -114,6 +114,8 @@ def main(argv=None) -> int:
                    help='cold 0-20-60-80M walking school, then competence-gated 50mm stairs')
     q.add_argument('--refined-school',action='store_true',
                    help='5cm assisted mastery -> remove stair coaching -> verify uncoached -> slow uphill -> descents')
+    q.add_argument('--bidirectional-school',action='store_true',
+                   help='paired 50/50 uphill and downhill nursery from walking graduation, independent shaping/proof')
     q.add_argument('--outcome-walk-start-steps',type=int,default=60000000,help='absolute steps when 10M walking graduation starts')
     q.add_argument('--outcome-stair-approved',action='store_true',help='fade dense coaching after independently proven 50mm climbs')
     q.add_argument('--outcome-approval-start-steps',type=int,default=0,help='absolute steps when independent stair proof was approved')
