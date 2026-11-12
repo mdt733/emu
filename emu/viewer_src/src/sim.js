@@ -739,6 +739,17 @@ export class EmuBrowserSim {
         :LAB_TILE_M*.5;
       this.data.qpos[1]=LAB_TILE_M*.5+
         (this.trainingScenario?.kind==='step'?this.trainingScenario.sideOffsetM:0);
+      if(this.trainingScenario?.kind==='step'){
+        // Rotate the ORIGINAL free-joint quaternion about world Z, preserving
+        // any authored H40 neutral tilt; no viewer-only actor modification.
+        const yaw=this.trainingScenario.approachDeg*Math.PI/180;
+        const c=Math.cos(yaw*.5),v=Math.sin(yaw*.5);
+        const q=Array.from(this.data.qpos.slice(3,7));
+        this.data.qpos[3]=c*q[0]-v*q[3];
+        this.data.qpos[4]=c*q[1]-v*q[2];
+        this.data.qpos[5]=c*q[2]+v*q[1];
+        this.data.qpos[6]=c*q[3]+v*q[0];
+      }
       this.carpetWindowCenter=[0,0];
     }
     mj.mj_forward(this.model, this.data);
