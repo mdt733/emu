@@ -110,7 +110,7 @@
               <input id="sceneDistance" type="range" min="15" max="38" value="22.5" step=".5"></label>
             <label class="tuning-row">Command magnitude <output id="sceneSpeedOut">0.16</output>
               <input id="sceneSpeed" type="range" min=".04" max=".35" value=".16" step=".01"></label>
-            <label class="viewer-checkbox"><input id="sceneRandomize" type="checkbox" checked> Randomise Academy births (15–30cm distance, ±5cm lateral, ±3° heading, ±0.25cm lip)</label>
+            <label class="viewer-checkbox"><input id="sceneRandomize" type="checkbox" checked> Randomise episode birth (Academy: distance, lateral offset, heading, lip height and gait phase)</label>
             <div id="sceneStatus" class="lesson-card" role="status" aria-live="polite">Select a specialist exercise above.</div>
             <button id="sceneNext" type="button">Start another physical attempt</button>
           </section>
@@ -163,7 +163,7 @@
         </section>
         <details class="inspector-details" id="viewPreferences" open><summary>Display &amp; playback</summary>
           <label><input id="followToggle" type="checkbox" checked /> Follow robot</label>
-                  <label><input id="autoResetToggle" type="checkbox" /> Auto reset after fall</label>
+                  <label id="autoResetRow"><input id="autoResetToggle" type="checkbox" /> Auto reset after fall (Meadow only)</label>
                   <label><input id="noiseToggle" type="checkbox" checked /> Sensor noise</label>
                   <label><input id="gridToggle" type="checkbox" /> Ground grid</label>
                   <label><input id="trailToggle" type="checkbox" checked /> Movement trail</label>
