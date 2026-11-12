@@ -50,6 +50,7 @@ export function makeSpecialistScene(mode,{stepCm=5,gradeDeg=8,spawnCm=22.5,
   const kind=isStepScene(mode)?'step':isSlopeScene(mode)?'slope':'flat';
   return Object.freeze({
     mode,kind,trial,distanceM,
+    phaseRad:randomize?2*Math.PI*hash(seed+Math.imul(trial+1,317)+113):0,
     sideOffsetM:randomize ? .10*(yDraw-.5) : 0,
     lipM:kind==='step'?signedLipM:0,
     approachDeg:kind==='step'?clamp(approachDeg+
