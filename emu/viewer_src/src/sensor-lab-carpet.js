@@ -3,6 +3,8 @@
 // Changing model.hfield_data is supported by MuJoCo at runtime, whereas
 // editing compiled collision-mesh vertices would be unsafe. This is viewer
 // geometry (two top triangles, vertical sides), not an MJX-prism replay.
+import { drillTileCorners } from './training-drills.js';
+
 export const LAB_TILE_M=1;
 export const LAB_FIELD_SIDE=15; // 7m physical margin around the player
 export const LAB_FIELD_HALF=7;
@@ -133,6 +135,7 @@ function worldForSlot(anchor,slot){
     anchor[1]+mod(sy-mod(anchor[1],LAB_FIELD_SIDE),LAB_FIELD_SIDE)];
 }
 export function createSensorLabCarpet(config={}){
+  let drill=null;
   const tiles=Array.from({length:LAB_TILE_COUNT},(_,slot)=>({
     slot,i:0,j:0,x:0,y:0,active:false,corners:[0,0,0,0],base:0
   }));
@@ -140,7 +143,7 @@ export function createSensorLabCarpet(config={}){
   let anchor=initial.slice();
   function fill(tile,i,j){
     tile.i=i;tile.j=j;tile.x=i+.5;tile.y=j+.5;
-    tile.corners=carpetTileCorners(i,j,config);
+    tile.corners=drill?drillTileCorners(i,j,drill):carpetTileCorners(i,j,config);
     tile.base=Math.min(...tile.corners);
     tile.active=true;
   }
@@ -159,7 +162,19 @@ export function createSensorLabCarpet(config={}){
     tileSizeM:LAB_TILE_M,cell:LAB_TILE_M,radius:LAB_FIELD_HALF,
     limits:config,features:[],trees:[],flatRadius:0,
     revision:0,at,sampleHeight,window:()=>tiles,
-    difficultyAt:y=>carpetLocalLimits(y,config),
+    setDrillEpisode(episode){
+      // Changing the recipe does NOT change contacts mid-step. The viewer
+      // calls resetGrowth + applyCarpetTilePhysics before inference resumes.
+      drill=episode||null;
+      this.drillEpisode=drill;
+    },
+    difficultyAt:y=>drill ? {
+      difficulty:1,slopeDeg:Math.abs(drill.slopeDeg),
+      stepUpM:Math.max(0,drill.riseM),
+      stepDownM:Math.max(0,-drill.riseM),
+      stepFrequency:drill.role==='step'?1:0,
+      resilience:drill.shoveIntensity||0
+    } : carpetLocalLimits(y,config),
     resetGrowth(){
       anchor=initial.slice();
       this.anchor=anchor.slice();
@@ -192,7 +207,7 @@ export function createSensorLabCarpet(config={}){
     count(){return LAB_TILE_COUNT;},
     // Decorative sampling never provides physical contact or ToF range.
     previewHeight:(x,y)=>{const i=Math.floor(x),j=Math.floor(y);
-      const c=carpetTileCorners(i,j,config),u=x-i,v=y-j;
+      const c=drill?drillTileCorners(i,j,drill):carpetTileCorners(i,j,config),u=x-i,v=y-j;
       return u+v<=1?c[0]+(c[1]-c[0])*u+(c[2]-c[0])*v:
         c[3]+(c[2]-c[3])*(1-u)+(c[1]-c[3])*(1-v);}
   };
