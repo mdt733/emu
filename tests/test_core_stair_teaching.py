@@ -119,14 +119,14 @@ class CoreStairPhysicsTests(unittest.TestCase):
         # In world 0, east tile 1 is 5cm above tile 0.
         # In world 1, east tile 0 is 4cm below tile 1.
         mocap=np.asarray([[0.,.05,0.,0.],[-.04,0.,0.,0.]],np.float32)
-        goal=np.asarray([[1.60,.50],[2.60,.50]],np.float32)
         oracle=research_step_oracle_features(
-            np,root,feet,corners,mocap,goal)
+            np,root,feet,corners,mocap)
         self.assertEqual(oracle.shape,(2,10))
         np.testing.assert_allclose(oracle[:,0],[.22,.22],atol=1e-6)
         # Explicit feature scale is decimetres for signed lip height.
         np.testing.assert_allclose(oracle[:,1],[.5,-.4],atol=1e-6)
-        np.testing.assert_allclose(oracle[:,8],[.82,.82],atol=1e-6)
+        # Flat target tiles have zero 2D grade.
+        np.testing.assert_allclose(oracle[:,8:10],0.,atol=1e-6)
         self.assertTrue(np.isfinite(oracle).all())
 
 
