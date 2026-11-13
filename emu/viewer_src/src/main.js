@@ -618,7 +618,7 @@ function applyMeadowControls(){
   renderMeadowControls();
   try{
     sim?.setMeadowSettings(meadowSettings);
-    if(sim?.terrainMode==='carpet'&&sceneMode.value==='meadow')
+    if(sim&&sceneMode.value==='meadow')
       setStatus('Meadow updated · viewer-only reset, actor unchanged','ok');
     syncCarpetExercise();
   }catch(err){setStatus('Meadow terrain: '+String(err?.message||err),'error');}
