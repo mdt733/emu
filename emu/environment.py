@@ -1080,7 +1080,8 @@ class EmuMJXEnv(TaskSampler):
                  exam_fixture_steps_m=None,
                  exam_fixture_grades_deg=None,
                  exam_fixture_kicks_mps=None,
-                 research_step_oracle: bool = False):
+                 research_step_oracle: bool = False,
+                 research_step_oracle_masked: bool = False):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1162,7 +1163,11 @@ class EmuMJXEnv(TaskSampler):
         self.base_obs_dim = len(self.base_obs_fields)
         if type(research_step_oracle) is not bool:
             raise ValueError("research_step_oracle must be boolean")
+        if type(research_step_oracle_masked) is not bool or (
+                research_step_oracle_masked and not research_step_oracle):
+            raise ValueError("masked oracle needs an enabled oracle experiment")
         self.research_step_oracle = research_step_oracle
+        self.research_step_oracle_masked = research_step_oracle_masked
         self.obs_dim = (self.base_obs_dim + (
             len(RESEARCH_STEP_ORACLE_FIELDS) if research_step_oracle else 0
         )) * HISTORY_LEN
@@ -3805,8 +3810,12 @@ class EmuMJXEnv(TaskSampler):
             tuple(data.mocap_pos[:, i, 2] for i in self.carpet_mocap_ids),
             axis=1)
         feet = data.xpos[:, self.foot_bodies, :]
-        return research_step_oracle_features(
+        features = research_step_oracle_features(
             self.jnp, data.qpos[:, :3], feet, carpet_heights, z, goal_xy)
+        # Identical 390-input architecture and initial RNG, but none of
+        # the privileged information. This is the strict information ablation.
+        return (self.jnp.zeros_like(features)
+                if self.research_step_oracle_masked else features)
 
     # ---- Actor observation: sensor/command contract, no teacher geometry ----
     def _base_obs(self, data, task, prev_action, phase, delivered_ctrl, sensor_state=None):
