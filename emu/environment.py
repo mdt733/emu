@@ -2014,6 +2014,7 @@ class EmuMJXEnv(TaskSampler):
                     supported_lips=academy['lip_index'],
                     first_lip_two_feet=goal_transfer_ready,
                     second_lip_two_feet=jnp.ones_like(second_transfer_seen),
+                    required_lips=1,
                     half_metre_after_second=academy['progress_paid'],
                     samples=hist_n,mean_vx=window_vx,
                     mean_cmd_vx=window_cmd,
