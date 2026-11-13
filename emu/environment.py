@@ -1640,6 +1640,17 @@ class EmuMJXEnv(TaskSampler):
             factor=jnp.where(jnp.abs(state.task[:,T.yaw])<=.10,
                              factor,1.)
             phase_rate=phase_rate*factor
+        if self.stair_tournament_arm=='free-phase':
+            # Physically approaching x=1m or x=2m: the network may use
+            # longer balance/support intervals. Restore the trained
+            # cadence after each seam and on all non-Academy terrains.
+            x=state.data.qpos[:,0]
+            distance=((jnp.floor(x/CARPET_TILE_M)+1.)*
+                      CARPET_TILE_M-x)
+            near=jnp.where(x<2.*CARPET_TILE_M,
+                jnp.clip((.48-distance)/.30,0.,1.),0.)
+            phase_rate=phase_rate*(1.-.72*near*
+                                  state.academy_active.astype(jnp.float32))
         phase = (state.phase + CONTROL_DT * phase_rate * 2.0 * jnp.pi) % (2.0 * jnp.pi)
 
         # 2. The teacher advances the NEXT request; it cannot rewrite the
@@ -1697,6 +1708,10 @@ class EmuMJXEnv(TaskSampler):
                  'science_step_near_lip_frac':(
                      near_lip if self.two_lip_continuation_school else
                      jnp.ones_like(near_lip)),
+                 'science_step_phase_free_frac':(
+                     near_lip*state.academy_active.astype(jnp.float32)
+                     if self.stair_tournament_arm=='free-phase' else
+                     jnp.zeros_like(near_lip)),
                  'science_step_focus':step_focus.astype(jnp.float32),
                  # These TWO teacher-only fields never reach the actor.
                  'science_step_goal_active':(
