@@ -1648,17 +1648,10 @@ class EmuMJXEnv(TaskSampler):
             factor=jnp.where(jnp.abs(state.task[:,T.yaw])<=.10,
                              factor,1.)
             phase_rate=phase_rate*factor
-        if 'free-phase' in self.stair_treatments:
-            # Physically approaching x=1m or x=2m: the network may use
-            # longer balance/support intervals. Restore the trained
-            # cadence after each seam and on all non-Academy terrains.
-            x=state.data.qpos[:,0]
-            distance=((jnp.floor(x/CARPET_TILE_M)+1.)*
-                      CARPET_TILE_M-x)
-            near=jnp.where(x<2.*CARPET_TILE_M,
-                jnp.clip((.48-distance)/.30,0.,1.),0.)
-            phase_rate=phase_rate*(1.-.72*near*
-                                  state.academy_active.astype(jnp.float32))
+        # Never advance the deployable phase clock from privileged
+        # simulator lip coordinates. D's free-phase treatment relaxes
+        # PHASE SHAPING only; actor-visible phase and the actual clock
+        # evolve exactly as in hardware/Meadow.
         phase = (state.phase + CONTROL_DT * phase_rate * 2.0 * jnp.pi) % (2.0 * jnp.pi)
 
         # 2. The teacher advances the NEXT request; it cannot rewrite the
@@ -1842,6 +1835,11 @@ class EmuMJXEnv(TaskSampler):
                 visible=jnp.any(valid & (ranges>.045) & (ranges<.70),axis=1)
                 extra=extra+self.science_sensor_teacher_bonus*(
                     visible & academy['foothold_new']).astype(jnp.float32)
+            if 'foothold' in self.stair_treatments:
+                # Factor F must affect ONLY Academy worlds; otherwise
+                # we would also change unrelated flat/slope skill learning.
+                extra=jnp.where(state.academy_active & step_focus,
+                                extra,jnp.zeros_like(extra))
             reward=reward+extra
             ep_return=ep_return+extra
 
