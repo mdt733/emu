@@ -85,7 +85,9 @@ def lesson(global_step: int, args) -> dict[str, float]:
         specialist_mix=1. if training else 0.,
         focus_weight_step=1.,
         academy_episode_probability=.75 if training else 0.,
-        terrain_exposure=1. if training else 0.,
+        # Non-Academy births rehearse level commands; Academy forces
+        # physical lips independently of ordinary terrain exposure.
+        terrain_exposure=0.,
         terrain_height_m=height if training else 0.,
         academy_height_up_m=max(.003, height),
         academy_height_down_m=.003,
