@@ -3280,6 +3280,52 @@ class EmuMJXEnv(TaskSampler):
                 jnp,data.qpos[:,0],self.science_step_approach_m)
             data=data.replace(qpos=data.qpos.at[:,0].set(
                 jnp.where(academy_active,near_x,data.qpos[:,0])))
+        if self.stair_tournament_arm=='commands':
+            # D: vary REAL operator requests and oblique entry while the
+            # 2x2 eight-prism physics, 4x4 ToF and actor remain identical.
+            # 50% of births retain pure vx; the rest mix real vy + yaw.
+            # A mild ±14deg initial heading prevents memorising square-on
+            # approach, while leaving enough corridor for a two-lip run.
+            draws=jax.vmap(lambda k:jax.random.uniform(
+                jax.random.fold_in(k,505929),(5,)))(keys)
+            speed=.08+.22*draws[:,0]
+            mixed=draws[:,4]>=.50
+            lateral=jnp.where(mixed,(draws[:,1]*2.-1.)*.05,0.)
+            turn=jnp.where(mixed,(draws[:,2]*2.-1.)*.12,0.)
+            heading=(draws[:,3]*2.-1.)*jnp.deg2rad(14.)
+            original_speed=jnp.hypot(task[:,T.vx],task[:,T.vy])
+            base_phase=jnp.clip(
+                task[:,T.phase_rate]-self.phase_speed_gain*jnp.clip(
+                    original_speed/jnp.maximum(.05,self.vx_hi_max),0.,1.5),
+                .85,1.20)
+            new_phase=command_phase_rate(
+                speed,lateral,self.vx_hi_max,self.phase_speed_gain,base_phase)
+            task=task.at[:,T.vx].set(jnp.where(
+                academy_active,speed,task[:,T.vx]))
+            task=task.at[:,T.vy].set(jnp.where(
+                academy_active,lateral,task[:,T.vy]))
+            task=task.at[:,T.yaw].set(jnp.where(
+                academy_active,turn,task[:,T.yaw]))
+            task=task.at[:,T.phase_rate].set(jnp.where(
+                academy_active,new_phase,task[:,T.phase_rate]))
+            h=jnp.where(academy_active,heading,0.)
+            zero=jnp.zeros_like(h)
+            qyaw=jnp.stack((jnp.cos(h/2),zero,zero,jnp.sin(h/2)),axis=1)
+            qpos=data.qpos.at[:,3:7].set(
+                self._quat_mul(qyaw,data.qpos[:,3:7]))
+            vx_world=(speed*jnp.cos(h)-lateral*jnp.sin(h))
+            vy_world=(speed*jnp.sin(h)+lateral*jnp.cos(h))
+            qvel=data.qvel
+            qvel=qvel.at[:,0].set(jnp.where(
+                academy_active,RESET_FORWARD_VELOCITY_BLEND*vx_world,
+                qvel[:,0]))
+            qvel=qvel.at[:,1].set(jnp.where(
+                academy_active,RESET_FORWARD_VELOCITY_BLEND*vy_world,
+                qvel[:,1]))
+            qvel=qvel.at[:,5].set(jnp.where(
+                academy_active,RESET_FORWARD_VELOCITY_BLEND*turn,
+                qvel[:,5]))
+            data=data.replace(qpos=qpos,qvel=qvel)
         birth_root_z=data.qpos[:,2]
         data,carpet=self._carpet_birth(
             data,keys,params,focus_id,specialist_active,task,
