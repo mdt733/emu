@@ -7,7 +7,7 @@ import * as depthLabSensor from '../src/sensor.js';
 import {joystickToCommands,nextYawCommand} from '../src/controls.js';
 import {createSensorLabCarpet,carpetTileCorners,carpetLocalLimits,carpetLatitudeDifficulty,carpetHeightfieldPatch,carpetSpawnSoleLift,streamingCarpetXml,LAB_TILE_COUNT} from '../src/sensor-lab-carpet.js';
 import {meadowTreeForTile} from '../src/growing-meadow.js';
-import {withTerrain,terrainSensorHeightFallback} from '../src/terrain.js';
+import {withTerrain,terrainSensorHeight} from '../src/terrain.js';
 import {SPECIALIST_SCENES,makeSpecialistScene,sceneRole,
   specialistTileCorners,supportedFirstLip,specialistExerciseCommand} from '../src/specialist-scenes.js';
 
@@ -25,7 +25,7 @@ test('viewer exposes Meadow and separate physical specialists without retired wo
   assert.match(html,/id="sceneCommandAxis"/);
   assert.match(html,/Automatic Meadow stroll/);
   assert.doesNotMatch(html,/id="worldField"|id="fieldPanel"|id="navNext"/);
-  assert.match(sim,/this\.terrainMode\s*=\s*'carpet'/);
+  assert.doesNotMatch(sim,/this\.terrainMode/);
   assert.doesNotMatch(sim,/generateTerrainPark|createParkMarkers|setParkFeaturesEnabled/);
   assert.doesNotMatch(main,/GoalNavigator|GoalPlannerWorker|setWorld\('park'\)|navWorker/);
   assert.match(main,/function meadowStroll\(/);
@@ -33,7 +33,7 @@ test('viewer exposes Meadow and separate physical specialists without retired wo
   assert.doesNotMatch(html,/id="terrainMode"/);
   assert.doesNotMatch(sim,/setTerrainMode\(|sensorObstacle|surfaceSlopeDegrees|setSensorObstacle|setSurfaceLab/);
   assert.throws(()=>withTerrain('<mujoco><worldbody></worldbody></mujoco>',
-    'sensor',{}),/Only physical streaming/);
+    {park:{physics:'legacy-box'}}),/requires its real streaming/);
   assert.match(main,/let lastResetGeneration\s*=\s*-1/);
   assert.match(main,/function updatePhysicalObservation\(/);
   assert.match(main,/function selectObservationWorld\(/);
@@ -201,7 +201,7 @@ test('viewer Carpet uses 225 real heightfields instead of changing compiled coll
   assert.equal((xml.bodies.match(/type="hfield"/g)||[]).length,225);
   assert.equal((xml.bodies.match(/mocap="true"/g)||[]).length,225);
   const base='<mujoco><asset></asset><worldbody><geom name="floor" type="plane" size="5 5 .05"/></worldbody></mujoco>';
-  const scene=withTerrain(base,'carpet',{park});
+  const scene=withTerrain(base,{park});
   assert.equal((scene.match(/type="hfield"/g)||[]).length,225);
   assert.doesNotMatch(scene,/name="floor"/);
   assert.doesNotMatch(scene,/sensor_lab_prism_/);
@@ -331,7 +331,7 @@ test('streaming Carpet refuses to remove any tile supporting an H40 foot',()=>{
 
 test('streaming ground is still visible to the frozen H40 4x4 ToF and optical flow',()=>{
   const carpet=createSensorLabCarpet({hillPeakDeg:0,stepUpM:0,stepDownM:0});
-  const surface=terrainSensorHeightFallback('carpet',carpet);
+  const surface=terrainSensorHeight(carpet);
   const meshModel={ngeom:1,geom_type:new Int32Array([7]),
     geom_bodyid:new Int32Array([0]),geom_size:new Float64Array(3)};
   const meshData={geom_xpos:new Float64Array(3),
@@ -367,7 +367,7 @@ test('real MuJoCo browser WASM reuses an hfield collider without resetting H40',
     new URL('../../../showcase/champion.emupolicy',import.meta.url),'utf8'));
   const park=createSensorLabCarpet({hillPeakDeg:0,stepUpM:0,stepDownM:0});
   const model=mj.MjModel.from_xml_string(
-    withTerrain(actor.robot_xml,'carpet',{park}));
+    withTerrain(actor.robot_xml,{park}));
   const data=new mj.MjData(model);
   try{
     assert.equal(Number(model.nhfield),225);
