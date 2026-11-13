@@ -9,7 +9,12 @@ Example (separate clean directories):
         --worlds 2048 --steps 100000000 --run-dir ~/emu-data/runs/oracle-ab-sensor
     python -m scripts.stair_oracle_ab --mode oracle --device cuda \
         --worlds 2048 --steps 100000000 --run-dir ~/emu-data/runs/oracle-ab-oracle
+    python -m scripts.stair_oracle_ab --mode sham --device cuda \\
+        --worlds 2048 --steps 100000000 --run-dir ~/emu-data/runs/oracle-ab-sham
 
+The sham is the primary matched control: identical 390-input architecture,
+identical initial weights/seed, and the 10 added channels zeroed. The 360-input
+sensor mode is a secondary deployed-architecture reference.
 The oracle actor sees 10 research-only true-geometry inputs per history
 frame (390 inputs total); the sensor actor remains exactly 360. These are
 INCOMPATIBLE policies. This is an upper-bound information intervention, not
@@ -43,7 +48,7 @@ def source_identity() -> dict[str, str]:
 
 def checked_args():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--mode", required=True, choices=("sensor", "oracle"))
+    p.add_argument("--mode", required=True, choices=("sensor", "sham", "oracle"))
     p.add_argument("--device", default="cuda", choices=("cuda", "cpu"))
     p.add_argument("--worlds", type=int, default=128)
     p.add_argument("--steps", type=int, default=20_000_000,
@@ -65,8 +70,6 @@ def checked_args():
             or not 3. <= a.start_height_mm <= a.target_height_mm <= 80.
             or a.checkpoint_every_updates < 1 or a.log_every_updates < 1):
         p.error("Invalid world count, budget, curriculum heights or log cadence")
-    if a.steps % (a.worlds * 32):
-        p.error("--steps must be divisible by worlds*32 for an exact target")
     return a
 
 
@@ -153,7 +156,8 @@ def main():
         unified_capability_focus=True, terrain_lesson="coherent-careful",
         academy_stream=True, academy_height_cap_m=.08,
         terrain_carpet=True, terrain_carpet_prisms=True,
-        research_step_oracle=(args.mode == "oracle"),
+        research_step_oracle=(args.mode != "sensor"),
+        research_step_oracle_masked=(args.mode == "sham"),
         science_step_approach_m=.22,
         science_step_finish_on_transfer=True,
         science_step_goal_weight=.30,
@@ -163,7 +167,7 @@ def main():
         science_supported_cross_bonus=6.,
         science_followthrough_bonus=10.,
     )
-    want = 390 if args.mode == "oracle" else 360
+    want = 360 if args.mode == "sensor" else 390
     if env.obs_dim != want:
         raise RuntimeError(f"Policy input contract error: {env.obs_dim} != {want}")
     trainer = make_trainer(
@@ -183,7 +187,7 @@ def main():
         count = jnp.asarray(1e-4, jnp.float32)
         completed = 0
     batch_steps = args.worlds * ROLLOUT_STEPS
-    total_updates = args.steps // batch_steps
+    total_updates = (args.steps + batch_steps - 1) // batch_steps
     start_update = completed // batch_steps
     print(f"[ORACLE-LAB] {args.mode} source={identity['commit']} "
           f"actor_inputs={env.obs_dim} worlds={args.worlds} "
