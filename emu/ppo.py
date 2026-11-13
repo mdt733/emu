@@ -195,10 +195,23 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
     import jax.numpy as jnp
     import optax
 
-    obs_norm_mask = jnp.asarray(build_obs_norm_mask(getattr(env, 'observation_schema', OBS_SCHEMA_TERRAIN)), dtype=jnp.float32)
+    base_mask = build_obs_norm_mask(
+        getattr(env, 'observation_schema', OBS_SCHEMA_TERRAIN))
+    if getattr(env, 'research_step_oracle', False):
+        # Only the deliberately isolated oracle actor gets these extra
+        # channels. Keep the normal actor's 360 mask/weights bit-for-bit.
+        from .environment import RESEARCH_STEP_ORACLE_FIELDS
+        base_mask = np.concatenate((
+            base_mask.reshape((HISTORY_LEN, -1)),
+            np.ones((HISTORY_LEN, len(RESEARCH_STEP_ORACLE_FIELDS)),
+                    dtype=np.float32),
+        ), axis=1).reshape(-1)
+    obs_norm_mask = jnp.asarray(base_mask, dtype=jnp.float32)
 
     _tmp_state, _tmp_obs = env.reset({})
     obs_dim = int(_tmp_obs.shape[-1])
+    if obs_dim != int(obs_norm_mask.shape[0]):
+        raise ValueError('PPO observation/normalization mask size mismatch')
     action_dim = ACTION_DIM
     rollout = int(rollout)
     epochs = int(epochs)
