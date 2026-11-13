@@ -151,7 +151,7 @@ def two_lip_continuation_success(xp, *, academy_active, supported_lips,
                                  samples, mean_vx, mean_cmd_vx,
                                  gravity_z, support, bad_contact,
                                  yaw_error, terminal,
-                                 second_lip_two_feet=True):
+                                 second_lip_two_feet=True, required_lips=2):
     """Teacher-side C graduation: no first-lip or ballistic finish credit.
 
     'supported_lips' counts distinct novel MJX prism crossings.
@@ -162,7 +162,9 @@ def two_lip_continuation_success(xp, *, academy_active, supported_lips,
     20 recent command samples span >=0.4s. A lunge cannot earn success.
     This check must never enter the deployable 360-input observation.
     """
-    return (academy_active & (supported_lips>=2) &
+    if required_lips not in (1,2):
+        raise ValueError('Supported-lip lesson must require 1 or 2 crossings')
+    return (academy_active & (supported_lips>=required_lips) &
             first_lip_two_feet & second_lip_two_feet &
             half_metre_after_second & (samples>=20) &
             (mean_cmd_vx>=.075) & (mean_vx>=.05) &
