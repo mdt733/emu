@@ -218,7 +218,14 @@ def one_run_config(args) -> TrainingConfig:
     finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
     dual_lip=bool(getattr(args,'two_lip_continuation_school',False))
     stair_arm=str(getattr(args,'stair_tournament_arm','off'))
-    if stair_arm not in ('off','control','progressive','free-phase','foothold','commands'):
+    if stair_arm not in ('off','control','progressive','free-phase','foothold','commands',
+                            'progressive+free-phase','progressive+foothold','progressive+commands',
+                            'free-phase+foothold','free-phase+commands','foothold+commands',
+                            'progressive+free-phase+foothold',
+                            'progressive+free-phase+commands',
+                            'progressive+foothold+commands',
+                            'free-phase+foothold+commands',
+                            'progressive+free-phase+foothold+commands'):
         raise ValueError('invalid stair tournament arm')
     if stair_arm!='off' and not dual_lip:
         raise ValueError('stair tournament needs --two-lip-continuation-school')
