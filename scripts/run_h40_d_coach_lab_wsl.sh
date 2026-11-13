@@ -94,7 +94,25 @@ run_foundation(){
     echo "Foundation has not produced valid final.pkl; REFUSING arm forks." >&2
     exit 1
   }
-  echo "Common immutable 60M ancestor: $(sha256sum "$PARENT")"
+  lock_parent
+}
+lock_parent(){
+  [[ -f "$PARENT" ]] || {
+    echo "Missing 60M final.pkl: run foundation before any branch." >&2
+    exit 1
+  }
+  local observed expected
+  observed="$(sha256sum "$PARENT" | cut -d' ' -f1)"
+  if [[ -f "$ROOT/ancestor.sha256" ]]; then
+    expected="$(cat "$ROOT/ancestor.sha256")"
+    if [[ "$expected" != "$observed" ]]; then
+      echo "REFUSING: shared ancestor bytes changed! Expected $expected; got $observed." >&2
+      exit 1
+    fi
+  else
+    printf '%s\n' "$observed" > "$ROOT/ancestor.sha256"
+  fi
+  echo "Common immutable 60M ancestor SHA256: $observed"
 }
 run_arm(){
   local number="$1" arm="$2" path="$ROOT/arm-$number"
@@ -102,6 +120,7 @@ run_arm(){
     echo "Missing common final checkpoint: run 'foundation' first" >&2
     exit 1
   }
+  lock_parent
   local flags=("${COMMON[@]}" --run-dir "$path" --steps "$TARGET"
                --stair-tournament-arm "$arm")
   if [[ -f "$path/training_config.json" ]]; then
