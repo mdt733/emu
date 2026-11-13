@@ -5,11 +5,9 @@ import {streamingCarpetXml} from './sensor-lab-carpet.js';
 // colliders; the untrained sensor calibration lab does too. Historical
 // diagnostic logs, ramps, Field/Park boxes and alternate surface-model
 // modes remain available in Git, not this live viewer.
-export function withTerrain(robotXml,mode='carpet',options={}){
+export function withTerrain(robotXml,options={}){
   if(typeof robotXml!=='string'||!robotXml.includes('</worldbody>'))
     throw Error('Cannot locate worldbody in policy robot XML');
-  if(mode!=='carpet')
-    throw Error('Only physical streaming Meadow/specialist terrain is supported');
   if(/sensor_lab_hfield_|sensor_lab_ground_|viewer_park_hfield/.test(robotXml))
     throw Error('Viewer terrain already inserted');
   const park=options.park;
@@ -26,17 +24,17 @@ export function withTerrain(robotXml,mode='carpet',options={}){
 
 // Raycasters cannot intersect MuJoCo hfields. Sensors MUST sample the
 // exact same active physical tiles; unloaded regions remain void (NaN).
-export function terrainSensorHeightFallback(mode,park){
-  return mode==='carpet'&&park?.physics==='streaming-heightfield'
+export function terrainSensorHeight(park){
+  return park?.physics==='streaming-heightfield'
     ?(x,y)=>park.sampleHeight(x,y):null;
 }
 
 // Foot-level terrain grade is derived from the SAME two planar physical
 // triangles, not an alternate teaching slope or visual mesh.
-export function surfaceSlope(mode,park,x,y,robotHeading=0){
+export function surfaceSlope(park,x,y,robotHeading=0){
   if(![x,y,robotHeading].every(Number.isFinite))
     return {supported:false,degrees:0,arrowDegrees:0};
-  if(mode!=='carpet'||!park||!Number.isFinite(park.sampleHeight(x,y)))
+  if(!park||!Number.isFinite(park.sampleHeight(x,y)))
     return {supported:false,degrees:0,arrowDegrees:0};
   const size=park.tileSizeM||1,i=Math.floor(x/size),j=Math.floor(y/size);
   const tile=park.at(i,j);
