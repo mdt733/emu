@@ -2383,6 +2383,18 @@ class EmuMJXEnv(TaskSampler):
             'terrain_encounter_frontier_m':stepped.terrain_attempt_frontier_m,
             'academy_finish_new':academy['finish_new'].astype(jnp.float32),
             'academy_two_lip_continued_new':academy['course_new'].astype(jnp.float32),
+            # Each gate is reported separately so a low overall rate
+            # teaches us WHERE the coach failed, not merely WHO won.
+            'academy_intro_lesson_new':academy['intro_new'].astype(jnp.float32),
+            'academy_second_bilateral_at_end':(
+                done & state.academy_active &
+                stepped.academy_second_transfer_seen).astype(jnp.float32),
+            'academy_posttransfer_50cm_at_end':(
+                done & state.academy_active &
+                stepped.academy_progress_paid).astype(jnp.float32),
+            'academy_vx_window_at_end':(
+                done & state.academy_active &
+                academy['course_vx_window_ok']).astype(jnp.float32),
             'academy_two_lip_vx_window_ok':(
                 academy['course_vx_window_ok'] & state.academy_active
             ).astype(jnp.float32),
