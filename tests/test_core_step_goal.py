@@ -62,7 +62,7 @@ class CoreAcademyTests(unittest.TestCase):
         np.testing.assert_allclose(no_contact,no_contact_baseline,atol=1e-7)
         self.assertIn("science_step_goal_active",REWARD_ONLY_METRICS)
 
-    def test_academy_birth_is_exactly_upstream_of_real_prism_seam(self):
+    def test_academy_birth_and_fixed_goal_align_with_prism_seam(self):
         starts=np.array([-.02,.02,TILE_M*.5,TILE_M+.05],dtype=np.float32)
         near=academy_near_lip_spawn_x(np,starts,.22)
         np.testing.assert_allclose(near,[-.22,TILE_M-.22,TILE_M-.22,2*TILE_M-.22],atol=1e-6)
@@ -73,19 +73,20 @@ class CoreAcademyTests(unittest.TestCase):
             np.full_like(near,.22),atol=1e-6)
         np.testing.assert_array_equal(
             academy_near_lip_spawn_x(np,starts,0.),starts)
+        # Same geometric contract: births and fixed goals must share
+        # the physical seam, never chase the next recycled tile.
 
-    def test_fixed_destination_never_chases_next_tile(self):
-        start=np.array([[TILE_M-.22,.10],[-.22,-.06]],dtype=np.float32)
-        goal=destination_from_birth(np,start)
-        np.testing.assert_allclose(goal,[[TILE_M+.60,.10],[.60,-.06]],atol=1e-6)
-        # Crossing a tile boundary does not redefine the goal.
-        pre=np.array([[TILE_M-.05,.10],[-.10,-.06]],dtype=np.float32)
-        post=np.array([[TILE_M+.03,.10],[.02,-.06]],dtype=np.float32)
-        delta=signed_distance_progress(np,goal,pre,post)
-        np.testing.assert_allclose(delta,[.02,.02],atol=1e-6)
-        backwards=signed_distance_progress(np,goal,post,pre)
-        np.testing.assert_allclose(backwards,[-.02,-.02],atol=1e-6)
-        np.testing.assert_allclose(goal,destination_from_birth(np,start))
+            start=np.array([[TILE_M-.22,.10],[-.22,-.06]],dtype=np.float32)
+            goal=destination_from_birth(np,start)
+            np.testing.assert_allclose(goal,[[TILE_M+.60,.10],[.60,-.06]],atol=1e-6)
+            # Crossing a tile boundary does not redefine the goal.
+            pre=np.array([[TILE_M-.05,.10],[-.10,-.06]],dtype=np.float32)
+            post=np.array([[TILE_M+.03,.10],[.02,-.06]],dtype=np.float32)
+            delta=signed_distance_progress(np,goal,pre,post)
+            np.testing.assert_allclose(delta,[.02,.02],atol=1e-6)
+            backwards=signed_distance_progress(np,goal,post,pre)
+            np.testing.assert_allclose(backwards,[-.02,-.02],atol=1e-6)
+            np.testing.assert_allclose(goal,destination_from_birth(np,start))
 
     def test_goal_requires_actual_bilateral_transfer_and_stable_arrival(self):
         goal=np.array([[TILE_M+.60,0.]])
