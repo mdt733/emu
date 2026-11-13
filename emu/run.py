@@ -228,7 +228,23 @@ def one_run_config(args) -> TrainingConfig:
                             'progressive+free-phase+foothold+commands'):
         raise ValueError('invalid stair tournament arm')
     if stair_arm!='off' and not dual_lip:
-        raise ValueError('stair tournament needs --two-lip-continuation-school')
+        raise ValueError('stair teaching laboratory requires --two-lip-continuation-school')
+    if 'foothold' in stair_arm.split('+'):
+        # Factor F is a PREDECLARED authentic-contact payment schedule,
+        # not a silent hidden default or manually tweaked reward search.
+        for k,amount in (
+            ('science_supported_cross_bonus',3.),
+            ('science_foothold_bonus',4.),
+            ('science_bilateral_support_bonus',6.),
+            ('science_followthrough_bonus',6.)):
+            if science_args[k] != 0.:
+                raise ValueError('Foothold treatment owns '+k+'; do not double-pay')
+            science_args[k]=amount
+    elif stair_arm not in ('off',) and any(
+            science_args[k]!=0. for k in (
+                'science_supported_cross_bonus','science_foothold_bonus',
+                'science_bilateral_support_bonus','science_followthrough_bonus')):
+        raise ValueError('Laboratory control treatments must NOT inherit foothold-specific bonuses')
     if dual_lip and not (school and refined and paired and outcome
                           and finish_on_transfer):
         raise ValueError('two-lip continuation requires --progressive-school '
