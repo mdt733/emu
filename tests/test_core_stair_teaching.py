@@ -40,7 +40,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
             science_bilateral_support_bonus=4.,
             science_followthrough_bonus=10.,
             science_sensor_teacher_bonus=3.,
-            science_step_goal_weight=.30,
+            science_step_goal_weight=0.,  # D disallows first-lip goal jackpot
             science_step_velocity_relief=.80,
             science_step_approach_m=.22,
         )
