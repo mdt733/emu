@@ -5,13 +5,11 @@ import assert from 'node:assert/strict';
 import {parsePolicy} from '../src/policy.js';
 import * as depthLabSensor from '../src/sensor.js';
 import {joystickToCommands,nextYawCommand} from '../src/controls.js';
-import {terrainRoleEnvelope} from '../src/training-solid-carpet.js';
 import {createSensorLabCarpet,carpetTileCorners,carpetLocalLimits,carpetLatitudeDifficulty,carpetHeightfieldPatch,carpetSpawnSoleLift,streamingCarpetXml,LAB_TILE_COUNT} from '../src/sensor-lab-carpet.js';
 import {meadowTreeForTile} from '../src/growing-meadow.js';
-import {withTerrain,terrainSensorHeightFallback} from '../src/terrain.js';
-import {trainingLimits} from '../src/training-carpet.js';
+import {withTerrain,terrainSensorHeight} from '../src/terrain.js';
 import {SPECIALIST_SCENES,makeSpecialistScene,sceneRole,
-  specialistTileCorners,supportedFirstLip} from '../src/specialist-scenes.js';
+  specialistTileCorners,supportedFirstLip,specialistExerciseCommand} from '../src/specialist-scenes.js';
 
 test('viewer exposes Meadow and separate physical specialists without retired worlds',()=>{
   const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
@@ -27,11 +25,15 @@ test('viewer exposes Meadow and separate physical specialists without retired wo
   assert.match(html,/id="sceneCommandAxis"/);
   assert.match(html,/Automatic Meadow stroll/);
   assert.doesNotMatch(html,/id="worldField"|id="fieldPanel"|id="navNext"/);
-  assert.match(sim,/this\.terrainMode\s*=\s*'carpet'/);
+  assert.doesNotMatch(sim,/this\.terrainMode/);
   assert.doesNotMatch(sim,/generateTerrainPark|createParkMarkers|setParkFeaturesEnabled/);
   assert.doesNotMatch(main,/GoalNavigator|GoalPlannerWorker|setWorld\('park'\)|navWorker/);
   assert.match(main,/function meadowStroll\(/);
-  assert.match(main,/sim\.setTerrainMode\('carpet'\)/);
+  assert.doesNotMatch(main,/terrainMode\.value|setTerrainMode\(/);
+  assert.doesNotMatch(html,/id="terrainMode"/);
+  assert.doesNotMatch(sim,/setTerrainMode\(|sensorObstacle|surfaceSlopeDegrees|setSensorObstacle|setSurfaceLab/);
+  assert.throws(()=>withTerrain('<mujoco><worldbody></worldbody></mujoco>',
+    {park:{physics:'legacy-box'}}),/requires its real streaming/);
   assert.match(main,/let lastResetGeneration\s*=\s*-1/);
   assert.match(main,/function updatePhysicalObservation\(/);
   assert.match(main,/function selectObservationWorld\(/);
@@ -48,22 +50,16 @@ test('viewer exposes Meadow and separate physical specialists without retired wo
     'retired training inspector must not appear beside real specialist controls');
   assert.doesNotMatch(main,/refreshCarpetLive\(|carpetAutoApply|applyCarpetTerrain\(/,
     'obsolete background training preview must not modify selected spectator terrain');
+  const caps={vx_max:.4,vx_min:-.2,vy_abs:.1,yaw_abs:.8};
+  assert.deepEqual(specialistExerciseCommand('step-up',0,caps),
+    {vx:.22,vy:0,yaw:0,pitch:0});
+  assert.deepEqual(specialistExerciseCommand('command',14,caps),
+    {vx:-.12,vy:0,yaw:0,pitch:0});
+  assert.equal(specialistExerciseCommand('control',0,caps).vx,.168);
+
 });
 
 const limits={vx_min:-.53,vx_max:1.04,vy_abs:.22,yaw_abs:1.5,pitch_abs_rad:.08};
-const measured=(step,more={})=>({source:'training',seed:735,step,
-  foundationSteps:20_000_000,academyIntroSteps:60_000_000,
-  academyStream:true,hillPeakDeg:12,transitionDeg:3,stepUpM:.03,stepDownM:.04,...more});
-const data=step=>trainingLimits({training_step:step,
-  latest_metrics:{step,frontier_vx_hi:'.28',frontier_vx_lo:'-.07',
-    frontier_vy:'.12',frontier_yaw:'.7',frontier_push_n:'.65',
-    resilience_difficulty:'.36',slope_max_deg:'.7',terrain_height_m:'.004',
-    academy_height_up_m:'.003',academy_height_down_m:'.002',
-    slope_exposure:'.8',terrain_exposure:'.5'},
-  training_config:{terrain_carpet:true,academy_stream:true,seed:735,
-    foundation_steps:20000000,academy_intro_steps:60000000,
-    push_max_force_n:.7}});
-
 test('only the current physical 360-input policy contract is accepted',()=>{
   const fields=Array.from({length:55},(_,i)=>'base_'+i).concat(
     ['ground_forward_grade_rad','ground_sideways_grade_rad','ground_visibility_confidence']);
@@ -205,7 +201,7 @@ test('viewer Carpet uses 225 real heightfields instead of changing compiled coll
   assert.equal((xml.bodies.match(/type="hfield"/g)||[]).length,225);
   assert.equal((xml.bodies.match(/mocap="true"/g)||[]).length,225);
   const base='<mujoco><asset></asset><worldbody><geom name="floor" type="plane" size="5 5 .05"/></worldbody></mujoco>';
-  const scene=withTerrain(base,'carpet',{park});
+  const scene=withTerrain(base,{park});
   assert.equal((scene.match(/type="hfield"/g)||[]).length,225);
   assert.doesNotMatch(scene,/name="floor"/);
   assert.doesNotMatch(scene,/sensor_lab_prism_/);
@@ -335,7 +331,7 @@ test('streaming Carpet refuses to remove any tile supporting an H40 foot',()=>{
 
 test('streaming ground is still visible to the frozen H40 4x4 ToF and optical flow',()=>{
   const carpet=createSensorLabCarpet({hillPeakDeg:0,stepUpM:0,stepDownM:0});
-  const surface=terrainSensorHeightFallback('carpet',carpet);
+  const surface=terrainSensorHeight(carpet);
   const meshModel={ngeom:1,geom_type:new Int32Array([7]),
     geom_bodyid:new Int32Array([0]),geom_size:new Float64Array(3)};
   const meshData={geom_xpos:new Float64Array(3),
@@ -371,7 +367,7 @@ test('real MuJoCo browser WASM reuses an hfield collider without resetting H40',
     new URL('../../../showcase/champion.emupolicy',import.meta.url),'utf8'));
   const park=createSensorLabCarpet({hillPeakDeg:0,stepUpM:0,stepDownM:0});
   const model=mj.MjModel.from_xml_string(
-    withTerrain(actor.robot_xml,'carpet',{park}));
+    withTerrain(actor.robot_xml,{park}));
   const data=new mj.MjData(model);
   try{
     assert.equal(Number(model.nhfield),225);

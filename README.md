@@ -1,86 +1,107 @@
-# EMU — a little robot learning to walk
+# EMU — learning to walk, then learning to keep walking
 
-**One dynamically unstable 40 cm biped · six central servos · one learned policy**
+**One 40 cm dynamically unstable biped · six chassis-mounted 12V servos ·
+one 360-input/6-output learned policy · real MuJoCo/MJX physics.**
 
-EMU uses PPO reinforcement learning in MuJoCo/MJX to discover balancing, walking, steering and disturbance recovery. Its gait is **learned**, not scripted.
+EMU learns balance, locomotion, steering, rough terrain and recovery through
+PPO. The gait is learned, not scripted. The operator supplies `vx`, `vy`
+and yaw; a useful robot must follow them even when an obstacle appears.
 
-[Browser playground](https://mdt733.github.io/emu/) · [Current handover](handover.md) · [Core skeleton](docs/CORE_SKELETON.md) · [Installation](docs/INSTALL.md) · [Forward roadmap](https://github.com/mdt733/emu/issues/62)
+[Browser playground](https://mdt733.github.io/emu/) ·
+[Architecture](docs/ARCHITECTURE.md) ·
+[Install & run](docs/OPERATIONS.md) ·
+[Validation & promotion](docs/VALIDATION.md) ·
+[Open validation gates](docs/VALIDATION.md)
 
-## Current robot: H40 120M
+![One robot, one shared learned brain and real physics](docs/images/emu-architecture.svg)
 
-The current source model is the **40 cm central-servo H40**: six 12 V Feetech ST-3215-C018 servos in a roughly 460 g central chassis (about **506 g estimated** including lightweight carbon limbs, feet and carriers), remote knee actuation, passive knee/shin springs and **±0.980665 N·m capped** actuator output. Masses, transmission losses, thermal performance and carbon components are **not yet hardware-validated**.
+## What is actually current?
 
-One 360-input / six-output policy observes a four-frame history of noisy IMU, optical flow, proprioception, command and a forward **4×4 VL53L8CX** approximation. The 45°×45° sensor points 70° down from a mount 30 mm below the torso centre. Training uses **four 1 m tiles / eight true triangular prisms** with recycling.
-
-The owner-selected H40 actor was trained **from scratch to 120,061,952 world steps** (seed **735**), with these immutable identities:
-
-| Identity | Value |
+| Area | Status |
 |---|---|
-| Trained source commit | `301d18b7b1cd1b165e6578fc53f9f8cda94fb680` |
-| Run | `h40-1m-tof70-120m-s735` |
-| Actor | `showcase/champion.emupolicy` |
-| Actor SHA-256 | `d4e35f814baef5e46afa6e96e942c86ab100ef25a4ae1913c76bbdb22615e673` |
-| Exported policy SHA-256 | `178c201af661d3172d701a7d1d8a7711f9b2106e1f7058bc4902aa9c64a37c7a` |
-| Sensor contract SHA-256 | `d8f559641d240f6eb4bd54a3dc7e96f414994682ebc1b478209df202cc903995` |
+| **Mainline model** | H40; 40 cm neutral height, six chassis-mounted Feetech C018 servos, passive knee support and lightweight carbon limbs; all-up mass ~506 g **estimated** |
+| **Motors** | Rated output hard-capped at **±0.980665 N·m**; real motor/gear/battery/thermal behavior remains unvalidated |
+| **Sensors** | 4×4 downward-tilted ToF plus IMU, optical flow, servo telemetry and command history; 360 inputs across four frames |
+| **Training** | One actor + critic; 2,048 parallel GPU worlds; four rolling 1 m tiles and **eight real convex MJX prisms** |
+| **Committed champion** | Original **H40 120M** policy, `showcase/champion.emupolicy`, seed 735. It remains the baseline until an explicit verified promotion |
+| **Active research candidate** | **Experiment C:** fresh 0→500M training target, signed two-lip stairs and sustained post-lip `vx`. Not yet a proven result or the mainline model |
+| **Viewer** | Free-roaming Infinite Meadow plus physical browser specialist drills; CPU MuJoCo heightfields are not the GPU prism examiner |
 
-**Capability status:** The owner reports a stable, fast gait and successful slopes up to about 15° in viewer use. That is **not** an independent frozen MJX exam. **Reliable step ascent remains unsolved.** Infinite Meadow's streaming CPU heightfields are a qualitative playground, **not** the GPU trainer's eight convex-prism physics or a step-certification exam. Never use this policy to imply tested hardware feasibility.
+The 120M actor is packaged for inference; its complete checkpoint,
+optimizer and original run logs live outside Git. Earlier B and current
+C policies/runs do **not** replace the mainline champion by existing
+on a branch. The trained source SHA and complete physical contract
+matter more than a run label.
 
-The exact training `final.pkl`, its normalizer/optimizer state, logs and GPU run directory stay **outside Git**, frozen in `~/emu-data/runs/h40-1m-tof70-120m-s735/` on the training PC. The checked-in `.emupolicy` contains only the deployable actor and its model/sensor contract.
-
-## Try the trained robot
-
-From a checkout with its dependencies installed:
+## Quick start (WSL2 Ubuntu)
 
 ```bash
+git clone https://github.com/mdt733/emu.git ~/emu
+cd ~/emu
+bash scripts/setup_wsl.sh --install-node --cuda13 --check
+source .venv/bin/activate
+
+# Browser view of the checked-in champion (not a training run):
 python -m emu.cli viewer-build
 python -m emu.cli viewer showcase/champion.emupolicy --no-open --port 8765
 ```
 
-Open [http://127.0.0.1:8765/](http://127.0.0.1:8765/). **Infinite Meadow is the only viewer world and the public showcase's default.** A seeded 15×15 m physical CPU heightfield window streams indefinitely through natural hills; +Y north gradually increases hill and step difficulty, and returning to old coordinates reproduces the same ground and walk-through trees. It features the original locally bundled Meadow panorama. The public trained-policy showcase begins with an optional **scripted eastbound stroll** (not learned navigation), and joystick/WASD takes manual control. No GPU training environment is needed for playback.
+Open http://127.0.0.1:8765/ . The top-bar **WORLD** selector lets you
+choose the generalized Infinite Meadow or specialist Commands, four
+Slopes, Academy UP/DOWN stairs, Resilience, Transitions and Control.
+Inspect the 4×4 ToF and actor inference while watching a frozen policy.
+The browser uses real CPU collisions but **not the exact MJX prisms**.
 
-For the **untrained geometry/ToF calibration lab**:
+For a current GPU physics smoke, use `bash scripts/check.sh --full`,
+`emu doctor --require-gpu` and the existing
+`scripts/smoke_gpu_carpet.py` acceptance tool.
 
-```bash
-bash scripts/start_sensor_lab_wsl.sh
-```
+## Experiment C: two steps are not enough unless EMU carries on
 
-This uses the current generated H40 model but deliberately contains **no neural policy**. It can be useful for checking ray occlusion, mounting and contact before buying hardware.
+The cold Experiment C course places **two signed physical lips one
+metre apart** and grades success only after bilateral transfer over
+both, another **50 cm** of supported forward movement, and at least
+**0.4 seconds** of reasonable commanded-`vx` tracking.
+The first lip earns introductory coaching, not completion.
+Near-step velocity relief disappears as the up/down teachers
+graduate; final behavior should be ordinary `vx` tracking, not a
+position-goal trick. These are *training rules*, not proven capabilities.
 
-## Train, inspect, export
+The separately pinned **500M cold launch**, same-lineage resume, source
+identity and run output locations are in [Operations](docs/OPERATIONS.md).
+Draft [PR #84](https://github.com/mdt733/emu/pull/84) contains the
+training implementation. Do **not** update the running source checkout
+to this housekeeping branch.
+
+## Source structure (one owner per concept)
 
 ```text
-physical robot + 4×4 ToF + four-tile MJX world
-                    ↓
-              2048 GPU worlds
-                    ↓
-         shared 360→256→256→6 PPO
-                    ↓
-         checkpoints + independent exams
-                    ↓
-         export-policy → browser viewer
+emu/cli.py -> run.py + training_config.py
+     -> training.py
+         -> curriculum.py (teacher only)
+         -> environment.py (robot, prism contacts, sensor/evidence)
+         -> rewards.py (teaching score)
+         -> ppo.py (one actor + critic)
+     -> checkpoint_io.py -> results.py / independent prism_exam.py
+     -> policy_export.py -> viewer_server.py + viewer_src/
 ```
 
-Training starts from scratch; historical models and incompatible sensor contracts are not silently migrated. Use `emu train --help`, `emu prism-exam --help`, and [the core skeleton](docs/CORE_SKELETON.md) for the supported interfaces. Keep training and policy evaluation pinned to the exact source SHA, generated robot XML and observation contract.
+Only the **deployable noisy sensor history and commands** enter the
+actor. True physical contacts, task goals and curriculum proof stay
+on the training/evaluation side. The exact 360-channel contract,
+physics topology, resume state and output provenance are checked.
 
-**Release is separate from source promotion.** GitHub Pages deployment is manual and requires `showcase/release_approval.json` matching the exact actor and the original checkpoint SHA-256; `python scripts/verify_showcase_release.py` must pass before the public build can deploy. A merge alone does not update GitHub Pages.
+## What must happen before a new mainline?
 
-## Architecture
+An independent, matched genuine-prism exam must show improvement over
+the current champion without losing basic walking, lateral/turning,
+slopes, resilience, motor safety or useful efficiency. A viewer's
+nose-dive (or a teacher's claimed success) cannot decide this alone.
+See [Validation](docs/VALIDATION.md) for the current acceptance
+backlog; [historical issue #62](https://github.com/mdt733/emu/issues/62)
+retains the superseded roadmap and original measurements.
 
-| Purpose | Owner |
-|---|---|
-| Robot XML + physical variants | `emu/robot.xml`, `emu/physical_variants.py` |
-| Observations + sensor contract | `emu/contracts.py`, `emu/tof_geometry.py` |
-| Physics + four-tile terrain | `emu/environment.py`, `emu/carpet_prism_mjx.py` |
-| PPO, curriculum and rewards | `emu/ppo.py`, `emu/curriculum.py`, `emu/rewards.py` |
-| Source-pinned checkpoint + export | `emu/checkpoint_io.py`, `emu/policy_export.py` |
-| Exam + browser playback | `emu/prism_exam.py`, `emu/viewer_server.py`, `emu/viewer_src/` |
-
-The active code supports **one 360-input physical actor**, not old 220/232-input policies or retired sensor geometries. Git is the archive: do not keep duplicate experiments or compatibility scaffolding in the current source.
-
-## Historical research and measured limitations
-
-[Retained research findings](docs/RESEARCH_FINDINGS.md) distills the measured v5032–v5058 experiments, GPU performance, stair scoring pitfalls, gait-incentive hypotheses and rated-torque correction. The original complete reports and old run commands remain at the [pre-cleanup Git snapshot](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs), **not** in current `main`.
-
-Old checkpoints belong to their original source/model hashes; never warm-start the new physical configuration using an incompatible checkpoint.
-
-[Documentation index](docs/README.md) · [Maintenance principles](docs/MAINTENANCE.md) · [Current handover](handover.md).
+Git retains old experiments and discussions; this working tree
+intentionally keeps **only current code paths and three critical docs**.
+GitHub Pages publication is a **separate manually approved action**;
+merging source does not publish a new robot.

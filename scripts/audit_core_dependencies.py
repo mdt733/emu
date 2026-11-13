@@ -18,13 +18,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 # Two dozen core test cases maximum. Keep high-value physical acceptance
 # independent rather than growing a permanent test-per-experiment archive.
 CORE_TEST_LIMIT = 24
-# Eight navigational pages, not a new research report per experiment.
+# Three actively maintained docs, not historical notes per experiment.
 # To create another permanent page, make an explicit ownership decision
 # and update this list in review. Historical trials belong in Git.
 CANONICAL_DOCS = frozenset({
-    "CORE_SKELETON.md", "INSTALL.md", "MAINTENANCE.md",
-    "PHYSICAL_QUALITY.md", "PLAYGROUND.md", "README.md",
-    "RELEASE_READINESS.md", "RESEARCH_FINDINGS.md",
+    "ARCHITECTURE.md", "OPERATIONS.md", "VALIDATION.md",
 })
 MARKDOWN_LINK = re.compile(r'!?\[[^\]]*\]\(([^)]+)\)')
 
@@ -41,7 +39,7 @@ OWNED_BACKEND: dict[str, tuple[str, ...]] = {
                  "capability_focus", "capability_field", "training_health",
                  "step_goal"),
     "state_and_exams": ("checkpoint_io", "console_dashboard", "results", "evaluation", "prism_exam", "step_autopsy"),
-    "delivery": ("policy_export", "viewer_server", "capability_viewer"),
+    "delivery": ("policy_export", "viewer_server"),
     "diagnostics": ("doctor",),
 }
 RETIRED_BACKEND = frozenset((
@@ -265,7 +263,7 @@ def markdown(data: dict) -> str:
         f"cases in {data['core_test_budget']['files']} files; "
         f"untracked expanded cases: {len(data['core_test_budget']['untracked_expansions'])}.",
         "",
-        "## Documentation ownership (must match the eight canonical pages)", "",
+        "## Documentation ownership (must match the three canonical pages)", "",
         json.dumps(data["documentation_policy"], sort_keys=True),
         "", "## Stages", "",
     ]

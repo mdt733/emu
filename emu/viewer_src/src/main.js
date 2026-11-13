@@ -4,10 +4,8 @@ import { VirtualStick } from './joystick.js';
 import { joystickToCommands, DemoHandoff, commandStickPositions } from './controls.js';
 import { EmuBrowserSim } from './sim.js';
 import { terrainHeightOffsetsCm } from './sensor.js';
-import { CARPET_DEFAULT } from './training-carpet.js';
 import { MEADOW_DEFAULTS, normalizedMeadowSettings } from './sensor-lab-carpet.js';
-import {makeSpecialistScene,isStepScene,isSlopeScene,sceneRole,supportedFirstLip} from './specialist-scenes.js';
-import { specialistLesson } from './training-inspector.js';
+import {makeSpecialistScene,isStepScene,isSlopeScene,supportedFirstLip,specialistExerciseCommand} from './specialist-scenes.js';
 import { showcasePolicyUrl, isJsonResponse, isViewerConfig, readShowcaseManifest, assertShowcasePolicyResponse } from './showcase.js';
 
 const $ = id => document.getElementById(id);
@@ -23,7 +21,6 @@ const noiseToggle = $('noiseToggle');
 const gridToggle = $('gridToggle');
 const trailToggle = $('trailToggle');
 const shadowToggle = $('shadowToggle');
-const terrainMode = $('terrainMode');
 const sceneMode=$('sceneMode'),sceneStatus=$('sceneStatus');
 const sceneHeight=$('sceneHeight'),sceneGrade=$('sceneGrade');
 const sceneDistance=$('sceneDistance'),sceneSpeed=$('sceneSpeed');
@@ -176,7 +173,7 @@ function updateStickLabels() {
   sim?.setJoystickTargets(left.x,left.y,right.x,right.y);
 }
 function humanStickChange(side,x,y) {
-  if(terrainMode.value==='carpet'&&carpetDrive.value==='lesson'&&
+  if(carpetDrive.value==='lesson'&&
      (Math.abs(x)>.06||Math.abs(y)>.06)){
     carpetDrive.value='manual';syncCarpetExercise();
   }
@@ -244,7 +241,6 @@ async function activatePolicy(index) {
     sim.setHeadingHold(headingHoldToggle.checked);
     applyHeadingGain();
     sim.setMeadowSettings(meadowSettings);
-    sim.setTerrainMode('carpet');
     updateWorldTabs();
     updateDepthSettings();
     // Automatic stroll and lesson commands are mutually exclusive.
@@ -386,7 +382,7 @@ Viewer observation, NOT frozen MJX certification`;
 }
 
 function specialistCommandAt(seconds=0){
-  const command=currentCarpetLesson().commandAt(seconds);
+  const command=specialistExerciseCommand(sceneMode.value,seconds,limits());
   const speed=Number(sceneSpeed.value),mode=sceneMode.value;
   if(isStepScene(mode)||isSlopeScene(mode)||mode==='resilience'||mode==='control')
     command.vx=speed;
@@ -532,21 +528,11 @@ $('sceneCommandAxis').addEventListener('change',()=>{
 });
 $('sceneNext').addEventListener('click',()=>beginSceneAttempt());
 
-function currentCarpetLesson(){
-  // Representative command schedules are bounded by the frozen actor's
-  // exported command limits. They NEVER change any geometry or PPO teacher.
-  const l=limits();
-  const settings={...CARPET_DEFAULT,seed:meadowSettings.seed,
-    vxHi:l.vx_max,vxLo:l.vx_min,vyMax:l.vy_abs,yawMax:l.yaw_abs,
-    pushN:4,pushMaxForceN:4,resilienceDifficulty:.5};
-  return specialistLesson(settings,sceneRole(sceneMode.value));
-}
 function syncCarpetExercise(){
-  if(!sim||terrainMode.value!=='carpet'){
+  if(!sim){
     sim?.setShovePreview({enabled:false,forceLimitN:0});
     return;
   }
-  const lesson=currentCarpetLesson();
   sim.autoReset=sceneMode.value==='meadow'
     ?(demoActive||carpetDrive.value==='lesson'||autoResetToggle.checked)
     :false;
@@ -577,7 +563,7 @@ function runCarpetLesson(dt){
   }
 }
 function updateCarpetShoveStatus(){
-  if(!sim||terrainMode.value!=='carpet')return;
+  if(!sim)return;
   const shove=sim.shoveTelemetry();
   const hz=shove.expectedHz;
   const expected=hz>0?`~${hz.toFixed(hz<.1?3:2)} shove starts/s (1 per ${(1/hz).toFixed(1)}s on average)`:'disabled';
@@ -632,7 +618,7 @@ function applyMeadowControls(){
   renderMeadowControls();
   try{
     sim?.setMeadowSettings(meadowSettings);
-    if(sim?.terrainMode==='carpet'&&sceneMode.value==='meadow')
+    if(sim&&sceneMode.value==='meadow')
       setStatus('Meadow updated · viewer-only reset, actor unchanged','ok');
     syncCarpetExercise();
   }catch(err){setStatus('Meadow terrain: '+String(err?.message||err),'error');}
@@ -664,7 +650,7 @@ $('meadowShove').addEventListener('input',()=>{
 $('meadowShove').addEventListener('change',syncCarpetExercise);
 carpetPushRate.addEventListener('change',syncCarpetExercise);
 carpetTestShove.addEventListener('click',()=>{
-  if(sim&&terrainMode.value==='carpet'&&!sim.triggerShove())
+  if(sim&&!sim.triggerShove())
     $('carpetShoveState').textContent='Increase Maximum shove above 0 N to test.';
 });
 function updateDepthSettings(){
@@ -704,7 +690,7 @@ $('depthCopy').addEventListener('click',async()=>{
   const info={
     sensor:'VL53L8CX 4x4 geometric preview; not hardware capture',
     policy:bundle?.source?.run_name||'unknown',
-    terrain:terrainMode.value,
+    terrain:sceneMode.value,
     obstacle:'current viewer terrain',
     tilt_down_deg:Number(depthTilt.value),
     mount_forward_mm:Number(depthMount.value),
@@ -871,7 +857,7 @@ window.addEventListener('keydown', e => {
   if (!settingsDrawer.hidden || ['INPUT','BUTTON','SUMMARY','SELECT'].includes(document.activeElement?.tagName)) return;
   if (['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','KeyR','KeyF'].includes(e.code)) {
     if (demoActive) stopDemo();
-    if(terrainMode.value==='carpet'&&carpetDrive.value==='lesson'){
+    if(carpetDrive.value==='lesson'){
       carpetDrive.value='manual';syncCarpetExercise();
     }
     held.add(e.code); updateKeyboard(); e.preventDefault();
@@ -1080,7 +1066,6 @@ async function startViewerFeed() {
           if(config.sensor_lab){
             // Standalone CPU calibration. The model is h40 and the actor
             // inference is DISABLED; do not mislabel this a trained gait.
-            terrainMode.value='carpet';
             sceneMode.value='meadow';
             meadowSettings=normalizedMeadowSettings({...MEADOW_DEFAULTS,
               hillPeakDeg:0,stepUpM:0,stepDownM:0,stepFrequency:0,

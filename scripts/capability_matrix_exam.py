@@ -1,4 +1,4 @@
-"""v5053: one GPU matrix of independent physical capability trials.
+"""Current GPU matrix of independent physical capability trials.
 
 Read-only frozen .emupolicy evaluation. EXACT signed 1m-seam steps and
 continuous signed grades use the same 8 real convex prisms as live training.
@@ -20,7 +20,7 @@ import numpy as np
 # Fingerprint the actual frozen examiner implementation, not only its actor.
 # Two runs with matching policy hashes can still differ in evaluation physics.
 EXAM_SOURCE_PATHS=(
-    "scripts/v5053_matrix_exam.py","emu/environment.py","emu/ppo.py",
+    "scripts/capability_matrix_exam.py","emu/environment.py","emu/ppo.py",
     "emu/terrain_carpet_mjx.py","emu/carpet_prism_mjx.py",
     "emu/contracts.py","emu/tof_geometry.py","emu/training_config.py",
     "emu/rewards.py","emu/physical_variants.py","emu/policy_export.py",
@@ -297,7 +297,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     score_mask=np.asarray(
         [t.kind in ("step_up","step_down","flat_control") for t in trials],
         dtype=np.bool_)
-    print(f"v5053 MATRIX {worlds} real-prism MJX worlds, "
+    print(f"EMU MATRIX {worlds} real-prism MJX worlds, "
           f"{sum(x.kind!='padding' for x in trials)} assigned, "
           f"{horizon} frames, {mode} — compiling and measuring",flush=True)
     started=time.perf_counter()
@@ -452,7 +452,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
             "No neural weight or curriculum updates; confidence intervals",
             "reflect repeated trials, not PPO training-seed uncertainty."]
     (output/"matrix_summary.md").write_text("\n".join(lines)+"\n")
-    print(f"v5053 complete: {len(detail)} independent trials, "
+    print(f"EMU matrix complete: {len(detail)} independent trials, "
           f"{worlds*horizon/max(wall,.001):,.0f} world-steps/s including "
           f"compile; report {output/'matrix_summary.md'}",flush=True)
     return manifest,curves

@@ -90,3 +90,36 @@ export function supportedFirstLip({scenario,bodyX,feet,fallen}){
     foot.x>scenario.edgeX+.025&&
     foot.soleZ-foot.groundZ>=-.012&&foot.soleZ-foot.groundZ<=.020);
 }
+
+
+/** Viewer-only exercise instructions, bounded by the frozen actor's command limits.
+ *  No historic curriculum/frontier parser and no privileged Academy goal.
+ *  Physical scenery comes exclusively from makeSpecialistScene above.
+ */
+export function specialistExerciseCommand(mode,seconds,limits){
+  const role=sceneRole(mode);
+  const forward=clamp(Number(limits.vx_max||.06),.01,3);
+  const reverse=clamp(Math.abs(Number(limits.vx_min||-.02)),0,2);
+  const lateral=clamp(Math.abs(Number(limits.vy_abs||.035)),0,2);
+  const yaw=clamp(Math.abs(Number(limits.yaw_abs||.14)),0,5);
+  const phase=Math.floor(Math.max(0,seconds)/7)%6;
+  const low=Math.min(forward,.08);
+  const cruise=clamp(forward*(role==='step'?.55:.65),low,.5);
+  const easy=clamp(forward*.42,.015,.25);
+  const command=(vx,vy=0,yawRate=0)=>({vx,vy,yaw:yawRate,pitch:0});
+  if(role==='step')return command(clamp(forward*.55,.045,.22));
+  if(role==='slope')return command(clamp(forward*.58,.04,.28));
+  if(role==='resilience'||role==='control')return command(easy);
+  if(role==='transition')return [
+    command(cruise),command(easy),command(0),command(-Math.min(reverse,.12)),
+    command(cruise),command(0,0,Math.min(yaw,.35))
+  ][phase];
+  if(role==='command')return [
+    command(cruise),command(Math.min(forward,.04)),
+    command(-Math.min(reverse,.12)),
+    command(easy,Math.min(lateral,.10)),
+    command(easy,-Math.min(lateral,.10)),
+    command(easy,0,Math.min(yaw,.45))
+  ][phase];
+  return command(0);
+}
