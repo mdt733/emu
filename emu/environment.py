@@ -256,12 +256,12 @@ RESEARCH_STEP_ORACLE_FIELDS = (
     "oracle_target_top_minus_root_m", "oracle_right_foot_to_seam_m",
     "oracle_left_foot_to_seam_m", "oracle_right_foot_over_target_m",
     "oracle_left_foot_over_target_m", "oracle_source_top_minus_root_m",
-    "oracle_goal_dx_m", "oracle_goal_dy_m",
+    "oracle_target_grade_x", "oracle_target_grade_y",
 )
 
 
 def research_step_oracle_features(xp, root_xyz, foot_xyz, tile_corners,
-                                  tile_mocap_z, goal_xy):
+                                  tile_mocap_z):
     """Truth from the LIVE four-prism-tile vertex source, before auto-reset.
 
     Source/target are the current and +X adjacent tiles, indexed using the
@@ -298,8 +298,8 @@ def research_step_oracle_features(xp, root_xyz, foot_xyz, tile_corners,
         foot_xyz[:, 0, 2] - target_top,
         foot_xyz[:, 1, 2] - target_top,
         source_top - root_xyz[:, 2],
-        goal_xy[:, 0] - root_xyz[:, 0],
-        goal_xy[:, 1] - root_xyz[:, 1],
+        .5 * TILE_SIZE_Z_M / TILE_M * (dst[:, 1] + dst[:, 3] - dst[:, 0] - dst[:, 2]),
+        .5 * TILE_SIZE_Z_M / TILE_M * (dst[:, 2] + dst[:, 3] - dst[:, 0] - dst[:, 1]),
     ), axis=1)
     return xp.nan_to_num(values, nan=0., posinf=0., neginf=0.).astype(xp.float32)
 
@@ -1930,7 +1930,7 @@ class EmuMJXEnv(TaskSampler):
         if self.research_step_oracle:
             base = jnp.concatenate((
                 base, self._research_oracle_packet(
-                    data, state.carpet_hfields, state.academy_goal_xy)), axis=1)
+                    data, state.carpet_hfields)), axis=1)
         hist = jnp.concatenate([state.hist[:, 1:, :], base[:, None, :]], axis=1)
         bootstrap_obs = hist.reshape((self.num_envs, self.obs_dim))
         # Recycle the physical prism tiles only after both feet clear.
@@ -3033,11 +3033,9 @@ class EmuMJXEnv(TaskSampler):
             data, task, phase, noise_keys, carpet_heights=carpet['carpet_hfields'])
         base = self._base_obs(data, task, prev_action, phase, prev_action, sensors)
         if self.research_step_oracle:
-            from .step_goal import destination_from_birth
-            birth_goal = destination_from_birth(jnp, data.qpos[:, :2])
             base = jnp.concatenate((
                 base, self._research_oracle_packet(
-                    data, carpet['carpet_hfields'], birth_goal)), axis=1)
+                    data, carpet['carpet_hfields'])), axis=1)
         hist = jnp.repeat(base[:, None, :], HISTORY_LEN, axis=1)
         zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
         izeros = jnp.zeros((self.num_envs,), dtype=jnp.int32)
@@ -3804,14 +3802,14 @@ class EmuMJXEnv(TaskSampler):
             'actuator_joint_viscous_damping_w': model_damping_dissipation_w,
         }
 
-    def _research_oracle_packet(self, data, carpet_heights, goal_xy):
+    def _research_oracle_packet(self, data, carpet_heights):
         """Opt-in oracle actor only; caller is reset or pre-reset physics."""
         z = self.jnp.stack(
             tuple(data.mocap_pos[:, i, 2] for i in self.carpet_mocap_ids),
             axis=1)
         feet = data.xpos[:, self.foot_bodies, :]
         features = research_step_oracle_features(
-            self.jnp, data.qpos[:, :3], feet, carpet_heights, z, goal_xy)
+            self.jnp, data.qpos[:, :3], feet, carpet_heights, z)
         # Identical 390-input architecture and initial RNG, but none of
         # the privileged information. This is the strict information ablation.
         return (self.jnp.zeros_like(features)
