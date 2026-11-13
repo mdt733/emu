@@ -1116,12 +1116,20 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('C two-lip school requires real transfer terminals, '
                              'outcome graduation and paired staged schools')
         self.two_lip_continuation_school=two_lip_continuation_school
-        if stair_tournament_arm not in (
-                'off','control','progressive','free-phase','foothold','commands'):
+        if stair_tournament_arm not in ('off','control','progressive','free-phase','foothold','commands',
+                            'progressive+free-phase','progressive+foothold','progressive+commands',
+                            'free-phase+foothold','free-phase+commands','foothold+commands',
+                            'progressive+free-phase+foothold',
+                            'progressive+free-phase+commands',
+                            'progressive+foothold+commands',
+                            'free-phase+foothold+commands',
+                            'progressive+free-phase+foothold+commands'):
             raise ValueError('Unknown D stair treatment')
         if stair_tournament_arm!='off' and not two_lip_continuation_school:
             raise ValueError('D treatment requires the true two-lip MJX Academy')
         self.stair_tournament_arm=stair_tournament_arm
+        self.stair_treatments=frozenset(
+            stair_tournament_arm.split('+')) if stair_tournament_arm not in ('off','control') else frozenset()
         if type(outcome_graduation) is not bool:
             raise ValueError('outcome_graduation must be bool')
         self.outcome_graduation=outcome_graduation
@@ -1640,7 +1648,7 @@ class EmuMJXEnv(TaskSampler):
             factor=jnp.where(jnp.abs(state.task[:,T.yaw])<=.10,
                              factor,1.)
             phase_rate=phase_rate*factor
-        if self.stair_tournament_arm=='free-phase':
+        if 'free-phase' in self.stair_treatments:
             # Physically approaching x=1m or x=2m: the network may use
             # longer balance/support intervals. Restore the trained
             # cadence after each seam and on all non-Academy terrains.
@@ -1710,7 +1718,7 @@ class EmuMJXEnv(TaskSampler):
                      jnp.ones_like(near_lip)),
                  'science_step_phase_free_frac':(
                      near_lip*state.academy_active.astype(jnp.float32)
-                     if self.stair_tournament_arm=='free-phase' else
+                     if 'free-phase' in self.stair_treatments else
                      jnp.zeros_like(near_lip)),
                  'science_step_focus':step_focus.astype(jnp.float32),
                  # These TWO teacher-only fields never reach the actor.
@@ -2015,7 +2023,7 @@ class EmuMJXEnv(TaskSampler):
                 yaw_error=metrics['yaw_rate']-metrics['cmd_yaw'],
                 terminal=terminal_fail | timeout)
             intro_new=jnp.zeros_like(full_course_new)
-            if self.stair_tournament_arm=='progressive':
+            if 'progressive' in self.stair_treatments:
                 # One real lip + real post-step walking is an *introductory*
                 # lesson only, not evidence for two-lip graduation. Once
                 # the independently earned stair coaching alpha has faded,
@@ -3280,7 +3288,7 @@ class EmuMJXEnv(TaskSampler):
                 jnp,data.qpos[:,0],self.science_step_approach_m)
             data=data.replace(qpos=data.qpos.at[:,0].set(
                 jnp.where(academy_active,near_x,data.qpos[:,0])))
-        if self.stair_tournament_arm=='commands':
+        if 'commands' in self.stair_treatments:
             # D: vary REAL operator requests and oblique entry while the
             # 2x2 eight-prism physics, 4x4 ToF and actor remain identical.
             # 50% of births retain pure vx; the rest mix real vy + yaw.
