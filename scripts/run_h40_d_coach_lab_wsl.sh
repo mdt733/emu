@@ -123,6 +123,9 @@ case "$mode" in
   list)
     print_arms
     ;;
+  report)
+    python scripts/summarize_h40_d_coach_lab.py --root "$ROOT"
+    ;;
   foundation)
     [[ $# -eq 1 ]] || { echo "Usage: $0 foundation" >&2; exit 2; }
     run_foundation
@@ -146,10 +149,11 @@ case "$mode" in
     for entry in "${ARMS[@]}"; do
       run_arm "${entry%%:*}" "${entry#*:}"
     done
-    echo "ALL 16 ARMS COMPLETE. Nothing eliminated; compare ALL physical outcomes."
+    python scripts/summarize_h40_d_coach_lab.py --root "$ROOT"
+    echo "ALL 16 ARMS COMPLETE. Nothing eliminated; study the teaching effects."
     ;;
   *)
-    echo "Usage: $0 [all|foundation|list|arm <00-control...15-all-four>]" >&2
+    echo "Usage: $0 [all|foundation|list|report|arm <00-control...15-all-four>]" >&2
     exit 2
     ;;
 esac
