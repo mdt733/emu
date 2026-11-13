@@ -6,7 +6,7 @@ import { PolicyRunner } from './policy.js';
 import { ArrayFlowObserver, TerrainActorObserver, depthProbeRays, depthGridRays, readDepthProbe, footSphereHit, terrainActorRays } from './sensor.js';
 import { chasePose, smoothHeading, smoothFactor, sampleEpisodeCadence, measuredAttitude, sampleShove, expectedShoveRate, clearanceAboveSupport } from './sim-math.js';
 import { joystickToCommands, nextYawCommand } from './controls.js';
-import { withTerrain, surfaceSlope, terrainSensorHeightFallback } from './terrain.js';
+import { withTerrain, surfaceSlope, terrainSensorHeight } from './terrain.js';
 import { createSensorLabCarpet, carpetSpawnSoleLift, carpetHeightfieldPatch, normalizedMeadowSettings, MEADOW_DEFAULTS, LAB_TILE_M, LAB_TILE_COUNT } from './sensor-lab-carpet.js';
 import { createGrowingMeadowScenery } from './growing-meadow.js';
 import { createGridTexture, createSkyTexture, createGrassTexture, floorTileOrigin, FLOOR_SIZE_M, GroundTrail } from './appearance.js';
@@ -104,7 +104,6 @@ export class EmuBrowserSim {
         new THREE.Vector3(0, -1, 0), new THREE.Vector3(0, 0, 1), new THREE.Vector3(-1, 0, 0),
       ),
     );
-    this.terrainMode = 'carpet'; // the only public viewer world
     this.meadowSettings = {...MEADOW_DEFAULTS};
     this.trainingScenario = null; // null = unrestricted Infinite Meadow
     this.carpetTileOverlay = null;
@@ -393,7 +392,7 @@ export class EmuBrowserSim {
     if(this.trainingScenario)this.park?.configureScenario(this.trainingScenario,next);
     // Changing a hill beneath a foot mid-stride creates a false impulse.
     // Rebuild/reset the spectator only after an explicit slider change.
-    if(this.terrainMode==='carpet'&&!this.trainingScenario)this.loadModel();
+    if(!this.trainingScenario)this.loadModel();
   }
   setShovePreview({enabled=false,forceLimitN=0,intensity=0,mode='drill'}={}){
     const on=Boolean(enabled);
@@ -419,7 +418,7 @@ export class EmuBrowserSim {
     }
   }
   triggerShove(){
-    if(!this.data||this.terrainMode!=='carpet'||this.shovePreview.forceLimitN<=0)
+    if(!this.data||this.shovePreview.forceLimitN<=0)
       return false;
     this.shovePreview.manualPending=true;
     return true;
@@ -430,7 +429,7 @@ export class EmuBrowserSim {
     const offset=6*this.torsoId;
     xfrc[offset]=0;xfrc[offset+1]=0;xfrc[offset+2]=0;
     const v=this.shovePreview;
-    if(this.terrainMode!=='carpet'||v.forceLimitN<=0){
+    if(v.forceLimitN<=0){
       v.stepsLeft=0;v.visualLeft=0;v.manualPending=false;
       this.shoveArrow.visible=false;return;
     }
@@ -525,11 +524,9 @@ export class EmuBrowserSim {
 
   loadModel() {
     this.disposeModel();
-    this.park=this.terrainMode==='carpet'
-      ?createSensorLabCarpet({...this.meadowSettings,scenario:this.trainingScenario}):null;
-    this.scene.fog=this.park?.physics==='streaming-heightfield'
-      ?new THREE.Fog(0xb1c8c1,7,22):new THREE.Fog(0xbad7e2,15,49);
-    const xml = withTerrain(this.bundle.robot_xml,this.terrainMode,{park:this.park});
+    this.park=createSensorLabCarpet({...this.meadowSettings,scenario:this.trainingScenario});
+    this.scene.fog=new THREE.Fog(0xb1c8c1,7,22);
+    const xml = withTerrain(this.bundle.robot_xml,{park:this.park});
     this.model = this.mujoco.MjModel.from_xml_string(xml);
     if (!this.model) throw new Error('MuJoCo could not load robot XML');
     this.data = new this.mujoco.MjData(this.model);
@@ -914,10 +911,9 @@ export class EmuBrowserSim {
     // MuJoCo freejoint angular qvel is body-local, not world angular velocity.
     const gyro=Array.from(this.data.qvel.slice(3,6));
     const heightAt=(x,y)=>this.park?.sampleHeight(x,y)??0;
-    // Neither the Meadow heightfield nor the internal sensor geometry is
-    // a supported plane/box in our pure 360-observation raycaster. Supply
-    // the ACTUAL world surface to optical flow; never fake z=0 ground.
-    const terrainHeightAt=terrainSensorHeightFallback(this.terrainMode,this.park);
+    // The raycaster does not intersect hfields; optical flow observes the
+    // SAME real surface used for collision, never a flat-world fallback.
+    const terrainHeightAt=terrainSensorHeight(this.park);
     return {R,torso,vbody,gyro,heightAt,terrainHeightAt};
   }
 
@@ -929,7 +925,7 @@ export class EmuBrowserSim {
       // Streaming 2x2 heightfield geoms are not handled by the fast
       // plane/box raycaster; the exact CPU collision height sampler
       // must supply physical ToF returns.
-      terrainHeightAt:terrainSensorHeightFallback(this.terrainMode,this.park)};
+      terrainHeightAt:terrainSensorHeight(this.park)};
   }
 
   buildBaseObs() {
@@ -1037,7 +1033,7 @@ export class EmuBrowserSim {
       cmd: { ...this.command }, requestedYaw: this.requestedYaw,
       headingHold: this.headingHold, headingActual: this.actualHeading(),
       headingTarget: this.headingTarget,
-      slope: surfaceSlope(this.terrainMode, this.park,
+      slope: surfaceSlope(this.park,
         (feet[0][0]+feet[1][0])/2, (feet[0][1]+feet[1][1])/2, this.actualHeading()),
       fallen: this.isFallen(), phaseRate: this.phaseRate(),
     };
@@ -1266,7 +1262,7 @@ export class EmuBrowserSim {
       radius:Number(this.model.geom_size[3*id])}));
     // Auto protects the large hfield mesh from 64 costly triangle casts.
     // Selecting 4 or 5 overrides this and shows the actual cost.
-    const sampleCount=n==='auto'?(this.terrainMode==='carpet'?1:4):n;
+    const sampleCount=n==='auto'?1:n;
     const reading=readDepthProbe(pose,(start,dir,maxRange)=>{
       raycaster.set(origin,direction.set(...dir).normalize());
       raycaster.far=maxRange;
