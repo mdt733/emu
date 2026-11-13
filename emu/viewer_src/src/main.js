@@ -21,7 +21,6 @@ const noiseToggle = $('noiseToggle');
 const gridToggle = $('gridToggle');
 const trailToggle = $('trailToggle');
 const shadowToggle = $('shadowToggle');
-const terrainMode = $('terrainMode');
 const sceneMode=$('sceneMode'),sceneStatus=$('sceneStatus');
 const sceneHeight=$('sceneHeight'),sceneGrade=$('sceneGrade');
 const sceneDistance=$('sceneDistance'),sceneSpeed=$('sceneSpeed');
@@ -174,7 +173,7 @@ function updateStickLabels() {
   sim?.setJoystickTargets(left.x,left.y,right.x,right.y);
 }
 function humanStickChange(side,x,y) {
-  if(terrainMode.value==='carpet'&&carpetDrive.value==='lesson'&&
+  if(carpetDrive.value==='lesson'&&
      (Math.abs(x)>.06||Math.abs(y)>.06)){
     carpetDrive.value='manual';syncCarpetExercise();
   }
@@ -242,7 +241,6 @@ async function activatePolicy(index) {
     sim.setHeadingHold(headingHoldToggle.checked);
     applyHeadingGain();
     sim.setMeadowSettings(meadowSettings);
-    sim.setTerrainMode('carpet');
     updateWorldTabs();
     updateDepthSettings();
     // Automatic stroll and lesson commands are mutually exclusive.
@@ -531,7 +529,7 @@ $('sceneCommandAxis').addEventListener('change',()=>{
 $('sceneNext').addEventListener('click',()=>beginSceneAttempt());
 
 function syncCarpetExercise(){
-  if(!sim||terrainMode.value!=='carpet'){
+  if(!sim){
     sim?.setShovePreview({enabled:false,forceLimitN:0});
     return;
   }
@@ -565,7 +563,7 @@ function runCarpetLesson(dt){
   }
 }
 function updateCarpetShoveStatus(){
-  if(!sim||terrainMode.value!=='carpet')return;
+  if(!sim)return;
   const shove=sim.shoveTelemetry();
   const hz=shove.expectedHz;
   const expected=hz>0?`~${hz.toFixed(hz<.1?3:2)} shove starts/s (1 per ${(1/hz).toFixed(1)}s on average)`:'disabled';
@@ -652,7 +650,7 @@ $('meadowShove').addEventListener('input',()=>{
 $('meadowShove').addEventListener('change',syncCarpetExercise);
 carpetPushRate.addEventListener('change',syncCarpetExercise);
 carpetTestShove.addEventListener('click',()=>{
-  if(sim&&terrainMode.value==='carpet'&&!sim.triggerShove())
+  if(sim&&!sim.triggerShove())
     $('carpetShoveState').textContent='Increase Maximum shove above 0 N to test.';
 });
 function updateDepthSettings(){
@@ -692,7 +690,7 @@ $('depthCopy').addEventListener('click',async()=>{
   const info={
     sensor:'VL53L8CX 4x4 geometric preview; not hardware capture',
     policy:bundle?.source?.run_name||'unknown',
-    terrain:terrainMode.value,
+    terrain:sceneMode.value,
     obstacle:'current viewer terrain',
     tilt_down_deg:Number(depthTilt.value),
     mount_forward_mm:Number(depthMount.value),
@@ -859,7 +857,7 @@ window.addEventListener('keydown', e => {
   if (!settingsDrawer.hidden || ['INPUT','BUTTON','SUMMARY','SELECT'].includes(document.activeElement?.tagName)) return;
   if (['KeyW','KeyA','KeyS','KeyD','KeyQ','KeyE','KeyR','KeyF'].includes(e.code)) {
     if (demoActive) stopDemo();
-    if(terrainMode.value==='carpet'&&carpetDrive.value==='lesson'){
+    if(carpetDrive.value==='lesson'){
       carpetDrive.value='manual';syncCarpetExercise();
     }
     held.add(e.code); updateKeyboard(); e.preventDefault();
@@ -1068,7 +1066,6 @@ async function startViewerFeed() {
           if(config.sensor_lab){
             // Standalone CPU calibration. The model is h40 and the actor
             // inference is DISABLED; do not mislabel this a trained gait.
-            terrainMode.value='carpet';
             sceneMode.value='meadow';
             meadowSettings=normalizedMeadowSettings({...MEADOW_DEFAULTS,
               hillPeakDeg:0,stepUpM:0,stepDownM:0,stepFrequency:0,
