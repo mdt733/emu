@@ -248,6 +248,62 @@ class EnvState(NamedTuple):
     carpet_seen_write: Any
 
 
+
+# Research-only geometry oracle. Never part of the deployable 360-input
+# observation contract, and never enabled by the normal trainer or viewer.
+RESEARCH_STEP_ORACLE_FIELDS = (
+    "oracle_forward_seam_dx_m", "oracle_signed_mid_edge_rise_dm",
+    "oracle_target_top_minus_root_m", "oracle_right_foot_to_seam_m",
+    "oracle_left_foot_to_seam_m", "oracle_right_foot_over_target_m",
+    "oracle_left_foot_over_target_m", "oracle_source_top_minus_root_m",
+    "oracle_goal_dx_m", "oracle_goal_dy_m",
+)
+
+
+def research_step_oracle_features(xp, root_xyz, foot_xyz, tile_corners,
+                                  tile_mocap_z, goal_xy):
+    """Truth from the LIVE four-prism-tile vertex source, before auto-reset.
+
+    Source/target are the current and +X adjacent tiles, indexed using the
+    same signed global tile/parity convention as the physical carpet.
+    Mid-edge heights are exact for the shared edge midpoint; they are not a
+    fictional flat plane or a claim of perfect 2D terrain knowledge.
+    The foot heights/positions are real MJX body coordinates.
+    """
+    from .terrain_carpet_mjx import TILE_M, TILE_SIZE_Z_M
+    n = root_xyz.shape[0]
+    corners = xp.asarray(tile_corners).reshape((n, 4, 4))
+    z = xp.asarray(tile_mocap_z).reshape((n, 4))
+    cell_x = xp.floor(root_xyz[:, 0] / TILE_M).astype(xp.int32)
+    cell_y = xp.floor(root_xyz[:, 1] / TILE_M).astype(xp.int32)
+    src_slot = xp.mod(cell_x, 2) + 2 * xp.mod(cell_y, 2)
+    dst_slot = xp.mod(cell_x + 1, 2) + 2 * xp.mod(cell_y, 2)
+    def select(array, slot):
+        return xp.take_along_axis(
+            array, slot[:, None, None], axis=1)[:, 0, :]
+    src = select(corners, src_slot)
+    dst = select(corners, dst_slot)
+    src_z = xp.take_along_axis(z, src_slot[:, None], axis=1)[:, 0]
+    dst_z = xp.take_along_axis(z, dst_slot[:, None], axis=1)[:, 0]
+    source_top = src_z + .5 * TILE_SIZE_Z_M * (src[:, 1] + src[:, 3])
+    target_top = dst_z + .5 * TILE_SIZE_Z_M * (dst[:, 0] + dst[:, 2])
+    lip_x = (cell_x.astype(root_xyz.dtype) + 1.) * TILE_M
+    # Do not leak this diagnostic into standard policy observations.
+    values = xp.stack((
+        lip_x - root_xyz[:, 0],
+        10. * (target_top - source_top),
+        target_top - root_xyz[:, 2],
+        lip_x - foot_xyz[:, 0, 0],
+        lip_x - foot_xyz[:, 1, 0],
+        foot_xyz[:, 0, 2] - target_top,
+        foot_xyz[:, 1, 2] - target_top,
+        source_top - root_xyz[:, 2],
+        goal_xy[:, 0] - root_xyz[:, 0],
+        goal_xy[:, 1] - root_xyz[:, 1],
+    ), axis=1)
+    return xp.nan_to_num(values, nan=0., posinf=0., neginf=0.).astype(xp.float32)
+
+
 class SensorSample(NamedTuple):
     """One real 4x4 range/flow/gyro snapshot, not a tripod emulation."""
     terrain_ranges_m: Any
@@ -1023,7 +1079,8 @@ class EmuMJXEnv(TaskSampler):
                  solver_ls_iterations: int | None = None,
                  exam_fixture_steps_m=None,
                  exam_fixture_grades_deg=None,
-                 exam_fixture_kicks_mps=None):
+                 exam_fixture_kicks_mps=None,
+                 research_step_oracle: bool = False):
         import jax
         import jax.numpy as jnp
         import mujoco
@@ -1103,7 +1160,12 @@ class EmuMJXEnv(TaskSampler):
         self.observation_schema = observation_schema
         self.base_obs_fields = actor_observation_fields(observation_schema)
         self.base_obs_dim = len(self.base_obs_fields)
-        self.obs_dim = self.base_obs_dim * HISTORY_LEN
+        if type(research_step_oracle) is not bool:
+            raise ValueError("research_step_oracle must be boolean")
+        self.research_step_oracle = research_step_oracle
+        self.obs_dim = (self.base_obs_dim + (
+            len(RESEARCH_STEP_ORACLE_FIELDS) if research_step_oracle else 0
+        )) * HISTORY_LEN
         # These quantities are in *control* frames (20 ms), not physics
         # substeps. Check on construction rather than in an opaque JAX trace.
         for name, value in (('tof_period_frames', tof_period_frames),
@@ -1860,6 +1922,10 @@ class EmuMJXEnv(TaskSampler):
             task_for_state=(task_for_state.at[:,T.vx].set(commanded[:,0])
                                           .at[:,T.vy].set(commanded[:,1]))
         base = self._base_obs(data, task_for_state, action, phase, ctrl, sensors)
+        if self.research_step_oracle:
+            base = jnp.concatenate((
+                base, self._research_oracle_packet(
+                    data, state.carpet_hfields, state.academy_goal_xy)), axis=1)
         hist = jnp.concatenate([state.hist[:, 1:, :], base[:, None, :]], axis=1)
         bootstrap_obs = hist.reshape((self.num_envs, self.obs_dim))
         # Recycle the physical prism tiles only after both feet clear.
@@ -2961,6 +3027,12 @@ class EmuMJXEnv(TaskSampler):
         sensors = self._initial_sensor_state(
             data, task, phase, noise_keys, carpet_heights=carpet['carpet_hfields'])
         base = self._base_obs(data, task, prev_action, phase, prev_action, sensors)
+        if self.research_step_oracle:
+            from .step_goal import destination_from_birth
+            birth_goal = destination_from_birth(jnp, data.qpos[:, :2])
+            base = jnp.concatenate((
+                base, self._research_oracle_packet(
+                    data, carpet['carpet_hfields'], birth_goal)), axis=1)
         hist = jnp.repeat(base[:, None, :], HISTORY_LEN, axis=1)
         zeros = jnp.zeros((self.num_envs,), dtype=jnp.float32)
         izeros = jnp.zeros((self.num_envs,), dtype=jnp.int32)
@@ -3726,6 +3798,15 @@ class EmuMJXEnv(TaskSampler):
             **hip_roll_motor,
             'actuator_joint_viscous_damping_w': model_damping_dissipation_w,
         }
+
+    def _research_oracle_packet(self, data, carpet_heights, goal_xy):
+        """Opt-in oracle actor only; caller is reset or pre-reset physics."""
+        z = self.jnp.stack(
+            tuple(data.mocap_pos[:, i, 2] for i in self.carpet_mocap_ids),
+            axis=1)
+        feet = data.xpos[:, self.foot_bodies, :]
+        return research_step_oracle_features(
+            self.jnp, data.qpos[:, :3], feet, carpet_heights, z, goal_xy)
 
     # ---- Actor observation: sensor/command contract, no teacher geometry ----
     def _base_obs(self, data, task, prev_action, phase, delivered_ctrl, sensor_state=None):
