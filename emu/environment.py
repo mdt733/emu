@@ -1756,6 +1756,11 @@ class EmuMJXEnv(TaskSampler):
         terminal_fail=jnp.logical_or(metrics['terminal']>.5,physics_diverged)
         terminal_or_timeout=jnp.logical_or(terminal_fail,timeout)
         academy=self._carpet_events(state,data,metrics,terminal_or_timeout,params)
+        # Exactly five MJX true-top contact frames after the second novel
+        # signed lip. Unlike lip_index, this cannot fire on a brief one-foot
+        # touch or chassis crossing. Episode-local teacher state only.
+        second_transfer_seen=(state.academy_second_transfer_seen |
+            (academy['transfer_new'] & (academy['lip_index']>=2)))
         done=terminal_or_timeout
         episode_age_steps=state.ep_len+1.
         # Extending course TIME must not silently add +30 early-fall
@@ -1968,41 +1973,76 @@ class EmuMJXEnv(TaskSampler):
             reward=reward+nursery_payment
             ep_return=ep_return+nursery_payment
         if self.two_lip_continuation_school:
-            # Contact-grounded course completion on the SAME actor and
-            # exact same eight-prism model. 'progress_new' fires only
-            # after a verified NEW signed-lip top-contact transfer
-            # followed by >=0.50m forward travel in its latched heading.
-            # The lip index rules out the first-step suicide-finish.
-            # A rolling 0.5s window also proves ordinary +vx tracking:
-            # ballistic forward dives or immobile, leaning arrivals fail.
+            # D SCIENCE: a physical milestone is a LATCH, not a one-frame
+            # reward slot. Once a verified SECOND top-supported transfer
+            # has travelled >=50cm, the recent full-command speed window
+            # may become valid LATER. Existing C semantics remain available
+            # when D's tournament switch is off, for fair comparison.
+            from .step_goal import two_lip_continuation_success
             window_vx=hist_v.sum(axis=1)/jnp.maximum(hist_n,1)
             window_cmd=hist_c.sum(axis=1)/jnp.maximum(hist_n,1)
-            from .step_goal import two_lip_continuation_success
             cmd_followed=(hist_n>=20) & (window_cmd>=.075) & (
                 window_vx>=.05) & (jnp.abs(window_vx-window_cmd)<=.10)
-            course_new=two_lip_continuation_success(
+            sticky=self.stair_tournament_arm!='off'
+            full_course_new=two_lip_continuation_success(
                 jnp,academy_active=state.academy_active & step_focus,
                 supported_lips=academy['lip_index'],
                 first_lip_two_feet=goal_transfer_ready,
-                half_metre_after_second=academy['progress_new'],
+                second_lip_two_feet=(
+                    second_transfer_seen if sticky else
+                    jnp.ones_like(second_transfer_seen)),
+                half_metre_after_second=(
+                    academy['progress_paid'] if sticky else
+                    academy['progress_new']),
                 samples=hist_n,mean_vx=window_vx,mean_cmd_vx=window_cmd,
                 gravity_z=metrics['gravity_z'],support=metrics['support'],
                 bad_contact=metrics['bad_contact'],
                 yaw_error=metrics['yaw_rate']-metrics['cmd_yaw'],
                 terminal=terminal_fail | timeout)
-            # Full completion is worth more than isolated first/second
-            # footholds, and only pays ONCE because it ends this episode.
-            course_payment=45.*course_new.astype(jnp.float32)
+            intro_new=jnp.zeros_like(full_course_new)
+            if self.stair_tournament_arm=='progressive':
+                # One real lip + real post-step walking is an *introductory*
+                # lesson only, not evidence for two-lip graduation. Once
+                # the independently earned stair coaching alpha has faded,
+                # the same world requires the FULL two-lip continuation.
+                alpha=jnp.where(state.academy_birth_lip_m<0.,
+                    params[P.outcome_down_stair_alpha],
+                    params[P.outcome_stair_alpha])
+                intro_stage=alpha<.95
+                one_lip=two_lip_continuation_success(
+                    jnp,academy_active=state.academy_active & step_focus,
+                    supported_lips=academy['lip_index'],
+                    first_lip_two_feet=goal_transfer_ready,
+                    second_lip_two_feet=jnp.ones_like(second_transfer_seen),
+                    half_metre_after_second=academy['progress_paid'],
+                    samples=hist_n,mean_vx=window_vx,
+                    mean_cmd_vx=window_cmd,
+                    gravity_z=metrics['gravity_z'],
+                    support=metrics['support'],
+                    bad_contact=metrics['bad_contact'],
+                    yaw_error=metrics['yaw_rate']-metrics['cmd_yaw'],
+                    terminal=terminal_fail | timeout)
+                # Pure mentor-side one-lip success, not a 45pt jackpot.
+                intro_new=intro_stage & (academy['lip_index']>=1) & one_lip
+                full_course_new=full_course_new & ~intro_stage
+            course_new=full_course_new | intro_new
+            course_payment=(45.*full_course_new.astype(jnp.float32)+
+                            12.*intro_new.astype(jnp.float32))
             reward=reward+course_payment
             ep_return=ep_return+course_payment
             done=done|course_new
             finish_new=course_new
         else:
             course_new=jnp.zeros_like(done)
+            full_course_new=jnp.zeros_like(done)
+            intro_new=jnp.zeros_like(done)
             cmd_followed=jnp.zeros_like(done)
         academy={**academy,'completed':goal_new,'finish_new':finish_new,
-                 'course_new':course_new,
+                 'course_new':full_course_new,
+                 'intro_new':intro_new,
+                 'lesson_new':course_new,
                  'course_vx_window_ok':cmd_followed,
+                 'second_transfer_seen':second_transfer_seen,
                  'nursery_payment':nursery_payment,'nursery_gains':nursery_gains}
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
