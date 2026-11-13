@@ -102,3 +102,58 @@ introductory coaching only; full completion requires both lips and
 This page records acceptance conditions, **not approval**.
 The Git history and source-pinned PRs retain old experimental detail;
 the maintained tree needs no additional per-version study runbooks.
+
+## Open engineering gates — current backlog, not historical checkboxes
+
+The original [H40 issue #62](https://github.com/mdt733/emu/issues/62)
+is a **retired historical roadmap**, not the current plan. Its original
+unchecked items remain visible for provenance. The actionable work not
+yet established by independent evidence is consolidated below. None of
+these entries means an experimental PR is accepted or merged.
+
+- **Full frozen physical-capability baseline:** retain the 2,000-pair
+  signed-stair/flat evidence, but complete reproducible H40 tests across
+  held-out forward/reverse/sideways/yaw combinations, commanded stillness,
+  speed changes, all slope bearings, shoves, slip, effective torque
+  saturation and shaft-work per useful metre. Store raw trials, seeds,
+  confidence intervals and exact actor/XML/ToF/exam fingerprints. Browser
+  impressions and curriculum frontier labels are not substitutes.
+- **Reliable stairs and teaching science:** Experiment C completed its
+  cold 500M training campaign, but *training* two-lip continuation success
+  was rare, and UP/DOWN graduation was not demonstrated. Experiment D
+  ([draft PR #86](https://github.com/mdt733/emu/pull/86)) studies
+  **16 independent teaching treatments** from one cold 60M learner,
+  not a winner-elimination tournament. Diagnose both supported feet,
+  transfer, post-lip 50 cm, recent commanded-vx tracking, positive
+  PPO credit, denominators, and retention. Do not claim a finished
+  climber until an independently frozen physical exam supports it.
+- **Core source housekeeping:** documentation, former viewer tools and
+  obsolete browser courses are pruned on
+  [draft PR #85](https://github.com/mdt733/emu/pull/85);
+  large `environment.py`/`training.py`/`curriculum.py`/`ppo.py`/
+  `results.py` experiment branches still require proof of deadness
+  and matched physical/optimizer/resume parity before removal.
+- **Viewer lab acceptance:** verify the active specialist scenes against
+  actual current terrain/command limits; improve measured ToF validity
+  and occlusion, support/clearance/failure timelines, accessible/mobile
+  controls, reproducible preset/settings snapshots and long-session
+  WASM/WebGL performance. A CPU browser collision and GPU MJX examiner
+  are different systems: label any replay or simulated trace honestly.
+  Check the actually deployed Pages site separately from source CI.
+- **Hardware/sim-to-real:** weigh real components and determine centre
+  of mass, strut/spring geometry, foot/contact friction, remote
+  transmission backlash and efficiency, motor 12V torque-speed/current/
+  temperature, power sag, servo timing, and the physical VL53L8CX
+  orientation/zone mapping/self-occlusion. Rank discrepancies by measured
+  sensitivity before increasing simulator complexity or randomization.
+- **Efficiency and release:** profile JAX/MJX compilation, rollout,
+  contact solver and PPO on the actual 8GB GPU; keep one WSL installer,
+  source-locked checkpoint/resume/export contract and bounded 24-test
+  suite. After independent capability proof and explicit review, update
+  the champion as a separate action; separately validate/publicly approve
+  GitHub Pages. None of this is implied by CI passing.
+
+For each completed gate, put the evidence in the relevant run's
+`results.md`, a narrowly scoped PR and/or this guide. Retire obsolete
+scaffolding promptly. **Git issue #62 is an archive, not an active
+second checklist.**
