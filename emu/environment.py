@@ -214,6 +214,7 @@ class EnvState(NamedTuple):
     academy_progress_heading_rad: Any
     academy_progress_active: Any
     academy_progress_paid: Any
+    academy_second_transfer_seen: Any  # D: independently verified second-lip bilateral support
     # One physical attempt verdict per lip. No repeated near-edge farming.
     academy_approach_seen: Any
     academy_approach_lip_m: Any  # signed physical lip retained until failure verdict
@@ -1014,6 +1015,7 @@ class EmuMJXEnv(TaskSampler):
                  science_step_approach_m: float = 0.0,
                  science_step_finish_on_transfer: bool = False,
                  two_lip_continuation_school: bool = False,
+                 stair_tournament_arm: str = 'off',
                  outcome_graduation: bool = False,
                  progressive_school: bool = False,
                  refined_school: bool = False,
@@ -1114,6 +1116,12 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('C two-lip school requires real transfer terminals, '
                              'outcome graduation and paired staged schools')
         self.two_lip_continuation_school=two_lip_continuation_school
+        if stair_tournament_arm not in (
+                'off','control','progressive','free-phase','foothold','commands'):
+            raise ValueError('Unknown D stair treatment')
+        if stair_tournament_arm!='off' and not two_lip_continuation_school:
+            raise ValueError('D treatment requires the true two-lip MJX Academy')
+        self.stair_tournament_arm=stair_tournament_arm
         if type(outcome_graduation) is not bool:
             raise ValueError('outcome_graduation must be bool')
         self.outcome_graduation=outcome_graduation
@@ -2079,6 +2087,7 @@ class EmuMJXEnv(TaskSampler):
             academy_progress_heading_rad=academy['progress_heading_rad'],
             academy_progress_active=academy['progress_active'],
             academy_progress_paid=academy['progress_paid'],
+            academy_second_transfer_seen=second_transfer_seen,
             academy_approach_seen=academy['approach_seen'],
             academy_approach_lip_m=academy['approach_lip_m'],
             academy_approach_frontier_m=academy['approach_frontier_m'],
@@ -3302,6 +3311,7 @@ class EmuMJXEnv(TaskSampler):
             academy_progress_heading_rad=zeros,
             academy_progress_active=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_progress_paid=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            academy_second_transfer_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_approach_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_approach_lip_m=zeros,
             academy_approach_frontier_m=zeros,
