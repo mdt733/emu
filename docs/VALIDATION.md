@@ -133,7 +133,7 @@ The four experimental factors:
 | Factor | Treatment | Mechanism / hypothesis |
 |---|---|---|
 | P: progressive | One-lip+continuation introductory teaching before strict two-lip graduation | A staged goal is easier to discover |
-| T: free-phase | Locally slow gait phase and withdraw phase-synchrony shaping near *real* lips, never the ordinary walker | Prescribed clock prevents deliberate step planning |
+| T: free-phase | Withdraw phase-synchrony shaping near *real* lips; the deployable gait clock itself does **not** change | Prescribed gait reward discourages deliberate step planning |
 | F: foothold | Extra one-time real supported crossing, upper foothold, bilateral transfer and 50 cm progress payments | Dense physically grounded milestones improve exploration |
 | C: commands | 0.08–0.30 m/s stair approach, half mixed ±0.05 lateral and ±0.12 yaw, ±14° birth heading | Straight-only Academy lessons underfit actual operator use |
 
@@ -177,3 +177,10 @@ under `~/emu-data/runs/h40-d-coach-lab-s735` and resumes interrupted
 arms from their own checkpoints (never from the 60M parent after
 partial work). All 16 branches use the original training source SHA
 in their saved metadata.
+
+**Deployment parity requirement for Factor T:** The actor's phase clock
+is never advanced, slowed or reset using teacher-only true lip
+coordinates. Only the *reward pressure* to synchronise foot movement
+to that clock is relaxed near a physical stair. That is a teaching
+factor which can be tested without inventing a new runtime stair
+detector in the browser or hardware.
