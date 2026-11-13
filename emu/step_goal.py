@@ -150,18 +150,20 @@ def two_lip_continuation_success(xp, *, academy_active, supported_lips,
                                  first_lip_two_feet, half_metre_after_second,
                                  samples, mean_vx, mean_cmd_vx,
                                  gravity_z, support, bad_contact,
-                                 yaw_error, terminal):
+                                 yaw_error, terminal,
+                                 second_lip_two_feet=True):
     """Teacher-side C graduation: no first-lip or ballistic finish credit.
 
-    'supported_lips' is counted by the original MJX true-prism top-contact
-    event detector. The follow-through is from the SECOND confirmed real
-    lip's bilateral support and measured against its latched original
-    heading, never a moving goal coordinate. 20 recent full-command
-    velocity samples span >=0.4s. A one-frame lunge cannot earn success.
+    'supported_lips' counts distinct novel MJX prism crossings.
+    The second transfer is independently proven by five frames of both
+    actual feet on the target top surface, not merely a body crossing.
+    D retains the 50cm post-transfer milestone until the separate recent
+    command window becomes valid; C used only the event frame.
+    20 recent command samples span >=0.4s. A lunge cannot earn success.
     This check must never enter the deployable 360-input observation.
     """
     return (academy_active & (supported_lips>=2) &
-            first_lip_two_feet &
+            first_lip_two_feet & second_lip_two_feet &
             half_metre_after_second & (samples>=20) &
             (mean_cmd_vx>=.075) & (mean_vx>=.05) &
             (xp.abs(mean_vx-mean_cmd_vx)<=.10) &
