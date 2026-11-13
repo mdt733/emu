@@ -29,7 +29,11 @@ test('viewer exposes Meadow and separate physical specialists without retired wo
   assert.doesNotMatch(sim,/generateTerrainPark|createParkMarkers|setParkFeaturesEnabled/);
   assert.doesNotMatch(main,/GoalNavigator|GoalPlannerWorker|setWorld\('park'\)|navWorker/);
   assert.match(main,/function meadowStroll\(/);
-  assert.match(main,/sim\.setTerrainMode\('carpet'\)/);
+  assert.doesNotMatch(main,/terrainMode\.value|setTerrainMode\(/);
+  assert.doesNotMatch(html,/id="terrainMode"/);
+  assert.doesNotMatch(sim,/setTerrainMode\(|sensorObstacle|surfaceSlopeDegrees|setSensorObstacle|setSurfaceLab/);
+  assert.throws(()=>withTerrain('<mujoco><worldbody></worldbody></mujoco>',
+    'sensor',{}),/Only physical streaming/);
   assert.match(main,/let lastResetGeneration\s*=\s*-1/);
   assert.match(main,/function updatePhysicalObservation\(/);
   assert.match(main,/function selectObservationWorld\(/);
