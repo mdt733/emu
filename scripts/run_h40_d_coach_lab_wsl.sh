@@ -115,7 +115,8 @@ lock_parent(){
   echo "Common immutable 60M ancestor SHA256: $observed"
 }
 run_arm(){
-  local number="$1" arm="$2" path="$ROOT/arm-$number"
+  local number="$1" arm="$2"
+  local path="$ROOT/arm-$number"
   [[ -f "$PARENT" ]] || {
     echo "Missing common final checkpoint: run 'foundation' first" >&2
     exit 1
