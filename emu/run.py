@@ -217,6 +217,11 @@ def one_run_config(args) -> TrainingConfig:
         academy_share=.55
     finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
     dual_lip=bool(getattr(args,'two_lip_continuation_school',False))
+    stair_arm=str(getattr(args,'stair_tournament_arm','off'))
+    if stair_arm not in ('off','control','progressive','free-phase','foothold','commands'):
+        raise ValueError('invalid stair tournament arm')
+    if stair_arm!='off' and not dual_lip:
+        raise ValueError('stair tournament needs --two-lip-continuation-school')
     if dual_lip and not (school and refined and paired and outcome
                           and finish_on_transfer):
         raise ValueError('two-lip continuation requires --progressive-school '
@@ -259,6 +264,7 @@ def one_run_config(args) -> TrainingConfig:
                    progressive_school=school, refined_school=refined,
                    bidirectional_school=paired,
                    two_lip_continuation_school=dual_lip,
+                   stair_tournament_arm=stair_arm,
                    outcome_walk_start_steps=walk_start,
                    outcome_stair_approved=approved,
                    outcome_approval_start_steps=approved_start,
