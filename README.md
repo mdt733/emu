@@ -11,7 +11,7 @@ and yaw; a useful robot must follow them even when an obstacle appears.
 [Architecture](docs/ARCHITECTURE.md) ·
 [Install & run](docs/OPERATIONS.md) ·
 [Validation & promotion](docs/VALIDATION.md) ·
-[Roadmap](https://github.com/mdt733/emu/issues/62)
+[Open validation gates](docs/VALIDATION.md)
 
 ![One robot, one shared learned brain and real physics](docs/images/emu-architecture.svg)
 
@@ -97,8 +97,9 @@ An independent, matched genuine-prism exam must show improvement over
 the current champion without losing basic walking, lateral/turning,
 slopes, resilience, motor safety or useful efficiency. A viewer's
 nose-dive (or a teacher's claimed success) cannot decide this alone.
-See [Validation](docs/VALIDATION.md) and
-[issue #62](https://github.com/mdt733/emu/issues/62).
+See [Validation](docs/VALIDATION.md) for the current acceptance
+backlog; [historical issue #62](https://github.com/mdt733/emu/issues/62)
+retains the superseded roadmap and original measurements.
 
 Git retains old experiments and discussions; this working tree
 intentionally keeps **only current code paths and three critical docs**.
