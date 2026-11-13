@@ -70,8 +70,9 @@ emu/training.py          -> one 2048-world PPO lineage and periodic frozen exams
 - **Viewer:** the browser's 225 mutable CPU heightfields give real browser
   contacts. Meadow is generalized free roaming; Commands, signed Slopes,
   Academy UP/DOWN, Resilience, Transitions and Control are dedicated
-  observation fixtures. Their behavior is qualitative and is not a frozen
-  MJX step-certification result.
+  observation fixtures. The untrained sensor lab also uses these same
+  heightfields, never a retired log/ramp/box course. Their behavior is
+  qualitative and is not a frozen MJX step-certification result.
 
 ## Active stair school — Experiment C (unpromoted)
 
