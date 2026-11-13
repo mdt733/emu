@@ -76,17 +76,17 @@ class CoreAcademyTests(unittest.TestCase):
         # Same geometric contract: births and fixed goals must share
         # the physical seam, never chase the next recycled tile.
 
-            start=np.array([[TILE_M-.22,.10],[-.22,-.06]],dtype=np.float32)
-            goal=destination_from_birth(np,start)
-            np.testing.assert_allclose(goal,[[TILE_M+.60,.10],[.60,-.06]],atol=1e-6)
-            # Crossing a tile boundary does not redefine the goal.
-            pre=np.array([[TILE_M-.05,.10],[-.10,-.06]],dtype=np.float32)
-            post=np.array([[TILE_M+.03,.10],[.02,-.06]],dtype=np.float32)
-            delta=signed_distance_progress(np,goal,pre,post)
-            np.testing.assert_allclose(delta,[.02,.02],atol=1e-6)
-            backwards=signed_distance_progress(np,goal,post,pre)
-            np.testing.assert_allclose(backwards,[-.02,-.02],atol=1e-6)
-            np.testing.assert_allclose(goal,destination_from_birth(np,start))
+        start=np.array([[TILE_M-.22,.10],[-.22,-.06]],dtype=np.float32)
+        goal=destination_from_birth(np,start)
+        np.testing.assert_allclose(goal,[[TILE_M+.60,.10],[.60,-.06]],atol=1e-6)
+        # Crossing a tile boundary does not redefine the goal.
+        pre=np.array([[TILE_M-.05,.10],[-.10,-.06]],dtype=np.float32)
+        post=np.array([[TILE_M+.03,.10],[.02,-.06]],dtype=np.float32)
+        delta=signed_distance_progress(np,goal,pre,post)
+        np.testing.assert_allclose(delta,[.02,.02],atol=1e-6)
+        backwards=signed_distance_progress(np,goal,post,pre)
+        np.testing.assert_allclose(backwards,[-.02,-.02],atol=1e-6)
+        np.testing.assert_allclose(goal,destination_from_birth(np,start))
 
     def test_goal_requires_actual_bilateral_transfer_and_stable_arrival(self):
         goal=np.array([[TILE_M+.60,0.]])
