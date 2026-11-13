@@ -39,7 +39,7 @@ REWARD_ONLY_METRICS = frozenset({
     'target_height', 'stance_slip', 'target_step_height', 'action_delta_norm',
     'joint_limit_pressure', 'scissor_pressure', 'stepping_activity_so_far',
     'ramp_frac', 'science_step_focus', 'science_step_goal_active', 'science_step_goal_delta_m',
-    'science_step_near_lip_frac',
+    'science_step_near_lip_frac', 'science_step_phase_free_frac',
 })
 
 # Preserved eight-term reward baseline; modifications are explicit opt-in teaching terms.
@@ -95,7 +95,9 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
                                    relaxed,command_tracking)
     (upright_height, feet_only_contact, stance_anti_slip,
      swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(
-        m, jnp, phase_sync_strength=science_phase_sync_strength*(1.-alpha),
+        m, jnp, phase_sync_strength=(
+            science_phase_sync_strength*(1.-alpha)*
+            (1.-m.get('science_step_phase_free_frac',0.))),
         crouch_allowance_m=science_crouch_allowance_m,
         outcome_step_alpha=alpha*m['science_step_focus'],
         outcome_walk_alpha=alpha)

@@ -102,3 +102,85 @@ introductory coaching only; full completion requires both lips and
 This page records acceptance conditions, **not approval**.
 The Git history and source-pinned PRs retain old experimental detail;
 the maintained tree needs no additional per-version study runbooks.
+
+
+## Experiment D — learn a better coach, not a champion
+
+**Research-only, not promoted.** D is a 16-treatment, 2×2×2×2 full
+factorial study of the *teaching process*. Every arm independently
+inherits the SAME cold 60M H40 walking foundation checkpoint, trains
+another 100M world steps under the SAME source, seed, physical robot,
+8-prism MJX collision engine, observer, actor, PPO, base curriculum
+and normalizer. No arm is eliminated; there is no finalist or winner
+continuation. The sample budget is 60M + 16 × 100M = **1.66B total**
+environment steps distributed across 17 separate runs.
+
+All 16 arms share the D correction to C's broken success timing:
+1. first genuine bilateral first-lip top support,
+2. separate second real signed lip, then verified bilateral support,
+3. latched 50 cm downstream progress after that supported second step,
+4. recent ≥20-frame genuine operator-velocity tracking,
+5. upright, properly supported and not falling on completion.
+
+Once 50 cm is achieved, a slightly late gait recovery can earn the
+payment. Raw one-foot, unsupported, ballistic, backward and
+single-lip shortcuts remain ineligible. The pre-existing C single-
+frame course condition is still testable by switching the arm to
+`off`, which is used in the pre-step foundation.
+
+The four experimental factors:
+
+| Factor | Treatment | Mechanism / hypothesis |
+|---|---|---|
+| P: progressive | One-lip+continuation introductory teaching before strict two-lip graduation | A staged goal is easier to discover |
+| T: free-phase | Withdraw phase-synchrony shaping near *real* lips; the deployable gait clock itself does **not** change | Prescribed gait reward discourages deliberate step planning |
+| F: foothold | Extra one-time real supported crossing, upper foothold, bilateral transfer and 50 cm progress payments | Dense physically grounded milestones improve exploration |
+| C: commands | 0.08–0.30 m/s stair approach, half mixed ±0.05 lateral and ±0.12 yaw, ±14° birth heading | Straight-only Academy lessons underfit actual operator use |
+
+Every on/off subset, including four singles, six pairs, four triples,
+zero factors and all four together, is included. Interaction effects
+matter: T may help alone, do nothing with C, but help with F. A high
+overall actor score is **not** sufficient to declare a teaching
+mechanism useful. Each branch is a separate causal observation, not
+a production candidate.
+
+**What every branch must report** (use matched exposure denominators):
+- independently verified UP vs DOWN attempts, first-lip bilateral
+  contact, second-lip arrival and second supported transfer;
+- 50 cm continuation after the second, recent actual `vx` tracking,
+  complete physical course and failures by stage;
+- survival, commanded `vx`/`vy`/yaw error, slope/flat retention,
+  useful work, rated-torque saturation, time to milestones and actual
+  lessons offered (distribution shift);
+- early learning slope and evidence accumulation, not just final
+  achieved ability; frozen matched exams at fixed policy ages;
+- a description of **what was learned about the teacher**, including
+  negative findings, failure modes, likely measurement artifacts and
+  confounding from interventions.
+
+Exams are for **diagnosis**, not ranking. The next objective is to
+consolidate compatible demonstrated improvements into one simple
+teacher, clean out rejected experiment flags, then train a fresh
+end-to-end learner with the final curriculum. Neither D nor C changes
+the committed public champion or approves a Pages release.
+
+From the pinned D source worktree:
+
+```bash
+bash scripts/run_h40_d_coach_lab_wsl.sh all
+```
+
+The launcher can also run `foundation`, `list` or
+`arm 04-commands` independently. It validates complete checkpoint
+ancestry before each fork, keeps each output in a distinct directory
+under `~/emu-data/runs/h40-d-coach-lab-s735` and resumes interrupted
+arms from their own checkpoints (never from the 60M parent after
+partial work). All 16 branches use the original training source SHA
+in their saved metadata.
+
+**Deployment parity requirement for Factor T:** The actor's phase clock
+is never advanced, slowed or reset using teacher-only true lip
+coordinates. Only the *reward pressure* to synchronise foot movement
+to that clock is relaxed near a physical stair. That is a teaching
+factor which can be tested without inventing a new runtime stair
+detector in the browser or hardware.

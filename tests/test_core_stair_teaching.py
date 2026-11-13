@@ -28,6 +28,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
             bidirectional_school=True,
             science_step_finish_on_transfer=True,
             two_lip_continuation_school=True,
+            stair_tournament_arm='progressive+free-phase+foothold+commands',
             solver_iterations=2,solver_ls_iterations=4,
             science_gate_mode="zero-only",
             science_phase_lowcmd_scale=.25,
@@ -39,7 +40,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
             science_bilateral_support_bonus=4.,
             science_followthrough_bonus=10.,
             science_sensor_teacher_bonus=3.,
-            science_step_goal_weight=.30,
+            science_step_goal_weight=0.,  # D disallows first-lip goal jackpot
             science_step_velocity_relief=.80,
             science_step_approach_m=.22,
         )
@@ -81,6 +82,11 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertIn("academy_two_lip_continued_new",out.metrics)
         self.assertIn("academy_first_lip_supported_at_end",out.metrics)
         self.assertIn("academy_two_lip_crossed_at_end",out.metrics)
+        self.assertIn("academy_intro_lesson_new",out.metrics)
+        self.assertIn("academy_second_bilateral_at_end",out.metrics)
+        self.assertIn("academy_posttransfer_50cm_at_end",out.metrics)
+        self.assertIn("academy_vx_window_at_end",out.metrics)
+        self.assertEqual(out.state.academy_second_transfer_seen.shape,(4,))
         # Never award the C terminal on birth / first control step.
         self.assertTrue(np.all(np.asarray(jax.device_get(
             out.metrics['academy_two_lip_continued_new']))==0.))

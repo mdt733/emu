@@ -195,6 +195,7 @@ class TrainingConfig:
     science_step_velocity_relief: float = 0.0  # Academy-only speed-tracking relief [0,1]
     science_step_approach_m: float = 0.0  # Academy birth metres before next physical 1m lip; 0=legacy
     two_lip_continuation_school: bool = False  # C: genuine 2-lip course + 50cm commanded follow-through proof
+    stair_tournament_arm: str = 'off'  # D: off/control/progressive/free-phase/foothold/commands; teacher-only
     science_step_finish_on_transfer: bool = False  # v5054: absorbing success + reset after real two-foot climb
     # Opt-in physical nursery. Approval requires an independent 50mm exam.
     outcome_graduation: bool = False
@@ -277,7 +278,8 @@ class TrainingConfig:
         new_keys={'outcome_graduation','outcome_walk_start_steps',
                   'outcome_stair_approved','outcome_approval_start_steps',
                   'outcome_down_share','progressive_school','refined_school',
-                  'bidirectional_school','two_lip_continuation_school'}
+                  'bidirectional_school','two_lip_continuation_school',
+                  'stair_tournament_arm'}
         if research_parent:
             # These were eliminated by source cleanup, not replaced with a
             # different actor, geometry, optimizer or curriculum contract.

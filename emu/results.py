@@ -1014,6 +1014,16 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
             metrics.get('academy_cross_down',0.)).sum()),
         'academy_two_lip_continuations': float(np.asarray(
             metrics.get('academy_two_lip_continued_new',0.)).sum()),
+        # Educational diagnostics: count matched terminal episodes at
+        # each physically grounded completion checkpoint, NOT a rank.
+        'academy_intro_lesson_successes':float(np.asarray(
+            metrics.get('academy_intro_lesson_new',0.)).sum()),
+        'academy_second_bilateral_episodes':float(np.asarray(
+            metrics.get('academy_second_bilateral_at_end',0.)).sum()),
+        'academy_posttransfer_50cm_episodes':float(np.asarray(
+            metrics.get('academy_posttransfer_50cm_at_end',0.)).sum()),
+        'academy_vx_window_episodes':float(np.asarray(
+            metrics.get('academy_vx_window_at_end',0.)).sum()),
         'academy_first_lip_supported_episodes': float(np.asarray(
             metrics.get('academy_first_lip_supported_at_end',0.)).sum()),
         'academy_two_lip_crossed_episodes': float(np.asarray(

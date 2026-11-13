@@ -45,13 +45,16 @@ class CoreAcademyTests(unittest.TestCase):
         np.testing.assert_allclose(x[:,PROFILE_HALF+2],first+second,atol=1e-8)
         np.testing.assert_allclose(x[:,PROFILE_HALF+3],first+second,atol=1e-8)
         self.assertTrue(np.all(y==0))
-        def qualify(lips=2,first_supported=True,follow=True,
+        def qualify(lips=2,first_supported=True,second_supported=True,
+                    follow=True,required_lips=2,
                     samples=25,vx=.16,command=.16,
                     posture=1.,contact=1.,yaw=0.,fell=False):
             return bool(two_lip_continuation_success(np,
                 academy_active=np.array([True]),
                 supported_lips=np.array([lips]),
                 first_lip_two_feet=np.array([first_supported]),
+                second_lip_two_feet=np.array([second_supported]),
+                required_lips=required_lips,
                 half_metre_after_second=np.array([follow]),
                 samples=np.array([samples]),mean_vx=np.array([vx]),
                 mean_cmd_vx=np.array([command]),gravity_z=np.array([posture]),
@@ -61,6 +64,12 @@ class CoreAcademyTests(unittest.TestCase):
         self.assertFalse(qualify(lips=1),'first lip cannot finish course')
         self.assertFalse(qualify(first_supported=False),
                          'first step needs BOTH feet genuinely transferred')
+        self.assertFalse(qualify(second_supported=False),
+                         'second step also needs BOTH genuine top contacts')
+        self.assertTrue(qualify(lips=1,required_lips=1),
+                        'coached intro may end after a genuine first lip plus 50cm')
+        self.assertFalse(qualify(lips=0,required_lips=1),
+                         'intro cannot pass without any real lip')
         self.assertFalse(qualify(follow=False),'second lip alone cannot finish')
         self.assertFalse(qualify(samples=5),'one quick dive is not walking')
         self.assertFalse(qualify(vx=0.),'stationary after transfer')
@@ -79,6 +88,14 @@ class CoreAcademyTests(unittest.TestCase):
         self.assertGreater(relaxed[0],original[0])
         self.assertAlmostEqual(float(relaxed[1]),float(original[1]),places=6)
         self.assertIn('science_step_near_lip_frac',REWARD_ONLY_METRICS)
+        self.assertIn('science_step_phase_free_frac',REWARD_ONLY_METRICS)
+        phase_metrics=metrics(vx=.12)
+        phase_metrics['phase_sync']=np.ones(2,dtype=np.float32)
+        phase_metrics['organic_step_shape']=np.full(2,.65,dtype=np.float32)
+        phase_metrics['science_step_phase_free_frac']=np.array([1.,0.],np.float32)
+        free,_=training_reward(phase_metrics,reg,xp=np)
+        coached,_=training_reward(metrics(vx=.12,active=True),reg,xp=np)
+        self.assertTrue(np.isfinite(free).all())
 
         m=metrics(vx=.08)
         regime=np.zeros((2,),dtype=np.float32)
