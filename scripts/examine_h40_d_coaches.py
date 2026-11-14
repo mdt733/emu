@@ -189,6 +189,60 @@ def run_case(outdir, args, *,case, env,expected):
         raise RuntimeError(f'Exam returned without matching source/protocol evidence: {outdir}')
 
 
+def summarize_learning(exam_root:Path,names:list[str]):
+    """Trajectory of PPO coaching exposure/credit, separately from physics.
+
+    CSV only logs selected PPO rollouts. Counts are sampled counts,
+    not exhaustive episodes. The PPO stair audit is cumulative within
+    a process: NEVER sum it as though it were a per-rollout event count.
+    """
+    keys=('academy_episodes','academy_first_lip_supported_episodes',
+          'academy_second_bilateral_episodes','academy_intro_lesson_successes',
+          'academy_two_lip_continuations','academy_posttransfer_50cm_episodes')
+    context=('outcome_walk_alpha','outcome_stair_alpha',
+             'outcome_down_stair_alpha','academy_active_fraction',
+             'fall_rate','academy_actual_cmd_vx_mps',
+             'academy_actual_vx_mps',
+             'ppo_stair_audit_finish_adv_normalised',
+             'ppo_stair_audit_finish_td')
+    lines=[]
+    for name in names:
+        p=exam_root/'training'/name/'metrics.csv'
+        rows=read_csv(p) if p.is_file() else []
+        for start in range(60_000_000,160_000_000,20_000_000):
+            block=[]
+            for row in rows:
+                try:step=float(row.get('step','nan'))
+                except (ValueError,TypeError):continue
+                if start<=step<start+20_000_000:
+                    block.append(row)
+            if not block:continue
+            def numeric(row,key):
+                try:
+                    v=float(row.get(key,'nan'))
+                    return v if abs(v)!=float('inf') and v==v else None
+                except (ValueError,TypeError):return None
+            item=dict(arm=name,absolute_start=start,
+                      absolute_end=start+20_000_000,
+                      n_logged_rollouts=len(block))
+            for key in keys:
+                item[key]=sum(max(0.,numeric(x,key) or 0.) for x in block)
+            for key in context:
+                vals=[numeric(x,key) for x in block]
+                good=[x for x in vals if x is not None and x>=0.]
+                item[key+'_last']=good[-1] if good else None
+                item[key+'_mean']=sum(good)/len(good) if good else None
+            credit=[numeric(x,'ppo_stair_audit_finish_events') for x in block]
+            good=[x for x in credit if x is not None and x>=0.]
+            item['ppo_finish_events_cumulative_last']=good[-1] if good else None
+            lines.append(item)
+    json_write(exam_root/'TRAINING_SIGNAL_AUDIT.json',
+               dict(schema='h40_d_training_signal_by_20m_v1',
+                    source='selected logged PPO rollouts, not physical exams',
+                    windows=lines))
+    return lines
+
+
 def summarize(exam_root:Path, names:list[str]):
     """Summarise real physical exams, never trained episode success rates."""
     table=[]
@@ -287,6 +341,7 @@ def bundle(output:Path,*,smoke:bool,expected:list[str],metadata):
         p,kind='trace' if p.name.startswith('trace_') else 'matrix')]
     if absent:
         raise RuntimeError('Refusing misleading COMPLETE zip; missing:\n'+'\n'.join(absent))
+    learning=summarize_learning(output,expected)
     summary_rows=summarize(output,expected)
     documents=[]
     excluded={'science-bundle.zip','science-smoke.zip',
