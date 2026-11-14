@@ -236,6 +236,8 @@ class EnvState(NamedTuple):
     academy_goal_stable_streak: Any
     academy_goal_completed: Any
     nursery_best: Any  # [6] high-water physical progress, teacher-only
+    stair_tutor_recovery_streak: Any  # 20-frame post-plant motion+balance gate
+    stair_tutor_escrow_paid: Any  # first-lip chassis payment occurs at most once
     # v5041 physics-only rolling tile state. All four mutable tiles
     # belong to this same PPO world batch, not a second simulator.
     carpet_hfields: Any
@@ -1016,6 +1018,7 @@ class EmuMJXEnv(TaskSampler):
                  science_step_finish_on_transfer: bool = False,
                  two_lip_continuation_school: bool = False,
                  stair_tournament_arm: str = 'off',
+                 stair_tutor_mode: str = 'legacy',
                  outcome_graduation: bool = False,
                  progressive_school: bool = False,
                  refined_school: bool = False,
@@ -1128,6 +1131,12 @@ class EmuMJXEnv(TaskSampler):
         if stair_tournament_arm!='off' and not two_lip_continuation_school:
             raise ValueError('D treatment requires the true two-lip MJX Academy')
         self.stair_tournament_arm=stair_tournament_arm
+        if stair_tutor_mode not in ('legacy','escrow'):
+            raise ValueError('Unknown stair tutorial mode')
+        if stair_tutor_mode=='escrow' and not (outcome_graduation and
+                two_lip_continuation_school):
+            raise ValueError('Escrow tutor needs graduated real two-lip Academy')
+        self.stair_tutor_mode=stair_tutor_mode
         self.stair_treatments=frozenset(
             stair_tournament_arm.split('+')) if stair_tournament_arm not in ('off','control') else frozenset()
         if type(outcome_graduation) is not bool:
@@ -1808,8 +1817,10 @@ class EmuMJXEnv(TaskSampler):
         terrain_cross_new = academy['ordinary_step_new']
         reward=reward+10.0*terrain_cross_new.astype(jnp.float32)
         ep_return=ep_return+10.0*terrain_cross_new.astype(jnp.float32)
-        reward=reward+academy['reward']
-        ep_return=ep_return+academy['reward']
+        academy_payment=(10.*academy['cross_new'].astype(jnp.float32)
+                         if self.stair_tutor_mode=='escrow' else academy['reward'])
+        reward=reward+academy_payment
+        ep_return=ep_return+academy_payment
         # v5051: sparse event payments only; actual contact/top geometry
         # is evaluated before each event and duplicate tiles are guarded.
         # The bilateral event is *top support*, not measured CoM load.
@@ -1855,6 +1866,10 @@ class EmuMJXEnv(TaskSampler):
         nursery_best=state.nursery_best
         nursery_gains=jnp.zeros_like(nursery_best)
         nursery_payment=jnp.zeros_like(reward)
+        tutor_recovery_streak=state.stair_tutor_recovery_streak
+        tutor_escrow_paid=state.stair_tutor_escrow_paid
+        tutor_release=jnp.zeros_like(done,dtype=jnp.bool_)
+        tutor_before_root=jnp.zeros_like(done,dtype=jnp.float32)
         goal_stable_streak=state.academy_goal_stable_streak
         goal_completed=state.academy_goal_completed
         if self.science_step_goal_weight > 0. or self.science_step_finish_on_transfer:
@@ -1971,9 +1986,18 @@ class EmuMJXEnv(TaskSampler):
             assigned=(state.academy_active & step_focus & healthy &
                       (jnp.abs(state.academy_birth_lip_m)>lip_min) &
                       (jnp.abs(data.qpos[:,1]-state.academy_goal_xy[:,1])<.40))
-            up_best,up_payment,up_gains=nursery_progress(
-                jnp,state.nursery_best,data.qpos[:,:2],foot,foot_bottom,edge,
-                source_top,state.academy_birth_lip_m,goal_foot_seen,assigned)
+            if self.stair_tutor_mode=='escrow':
+                from .step_goal import stair_tutor_foot_progress
+                up_best,up_payment,up_gains=stair_tutor_foot_progress(
+                    jnp,state.nursery_best,data.qpos[:,:2],foot,foot_bottom,
+                    edge,source_top,state.academy_birth_lip_m,
+                    jnp.asarray(self.mj_model.geom_size[list(foot_geoms),0]),
+                    assigned & (state.academy_birth_lip_m>0.))
+            else:
+                up_best,up_payment,up_gains=nursery_progress(
+                    jnp,state.nursery_best,data.qpos[:,:2],foot,foot_bottom,
+                    edge,source_top,state.academy_birth_lip_m,
+                    goal_foot_seen,assigned)
             down_birth=(state.academy_birth_lip_m<-.0015)
             if self.bidirectional_school:
                 down_best,down_payment,down_gains=downhill_nursery_progress(
@@ -1989,8 +2013,40 @@ class EmuMJXEnv(TaskSampler):
                 nursery_best,nursery_payment,nursery_gains=up_best,up_payment,up_gains
                 alpha=params[P.outcome_stair_alpha]
             touchdown=(goal_foot_seen & ~state.academy_goal_foot_seen)
-            nursery_payment=(nursery_payment+4.*jnp.sum(
-                touchdown.astype(jnp.float32),axis=1))*(1.-alpha)
+            if self.stair_tutor_mode=='escrow':
+                # True prism-top contact earned for 3 frames per foot.
+                # Do not pay an early chassis lunge: hold its outcome
+                # reward until the motor-controlled walk is recovered.
+                from .step_goal import stair_tutor_recovery
+                up_birth=state.academy_birth_lip_m>0.
+                tutor_before_root=jnp.sum((touchdown &
+                    (data.qpos[:,0,None]<edge[:,None]) & up_birth[:,None]
+                    ).astype(jnp.float32),axis=1)
+                pitch_rate=self._body_packets(data)[2][:,1]
+                rv=hist_v.sum(axis=1)/jnp.maximum(hist_n,1)
+                rc=hist_c.sum(axis=1)/jnp.maximum(hist_n,1)
+                (tutor_recovery_streak,tutor_escrow_paid,
+                 escrow_payment,tutor_release)=stair_tutor_recovery(
+                    jnp,body_xy=data.qpos[:,:2],edge_x=edge,
+                    transfer_seen=goal_transfer_ready,
+                    upper_top_now=academy['goal_top_feet'],
+                    pitch_rad=metrics['body_pitch'],
+                    pitch_rate_rad_s=pitch_rate,
+                    gravity_z=metrics['gravity_z'],
+                    support=metrics['support'],
+                    bad_contact=metrics['bad_contact'],
+                    vx_samples=hist_n,mean_vx=rv,mean_cmd_vx=rc,
+                    previous_streak=state.stair_tutor_recovery_streak,
+                    previous_paid=state.stair_tutor_escrow_paid,
+                    eligible=assigned & up_birth & ~terminal_fail & ~timeout)
+                # Existing downhill lesson is retained for a matched
+                # 20mm descent control, not mixed into UP escrow economics.
+                nursery_payment=(nursery_payment+jnp.where(
+                    up_birth,8.,4.)*jnp.sum(touchdown.astype(
+                    jnp.float32),axis=1)+escrow_payment)*(1.-alpha)
+            else:
+                nursery_payment=(nursery_payment+4.*jnp.sum(
+                    touchdown.astype(jnp.float32),axis=1))*(1.-alpha)
             reward=reward+nursery_payment
             ep_return=ep_return+nursery_payment
         if self.two_lip_continuation_school:
@@ -2065,7 +2121,8 @@ class EmuMJXEnv(TaskSampler):
                  'lesson_new':course_new,
                  'course_vx_window_ok':cmd_followed,
                  'second_transfer_seen':second_transfer_seen,
-                 'nursery_payment':nursery_payment,'nursery_gains':nursery_gains}
+                 'nursery_payment':nursery_payment,'nursery_gains':nursery_gains,
+                 'tutor_release':tutor_release,'tutor_before_root':tutor_before_root}
 
         # 4. Publish the NEXT actor observation; preserve the pre-reset
         # observation separately for PPO bootstrap.
@@ -2168,6 +2225,8 @@ class EmuMJXEnv(TaskSampler):
             academy_goal_stable_streak=goal_stable_streak,
             academy_goal_completed=goal_completed,
             nursery_best=nursery_best,
+            stair_tutor_recovery_streak=tutor_recovery_streak,
+            stair_tutor_escrow_paid=tutor_escrow_paid,
             carpet_hfields=carpet_hfields,
             carpet_center=carpet_center,
             carpet_confirmed=academy['confirmed_tile'],
@@ -2471,6 +2530,8 @@ class EmuMJXEnv(TaskSampler):
             'academy_followthrough_new':academy['progress_new'].astype(jnp.float32),
             'academy_reward':academy['reward'],
             'nursery_reward':academy['nursery_payment'],
+            'tutor_escrow_release_new':academy['tutor_release'].astype(jnp.float32),
+            'tutor_pre_root_plant_new':academy['tutor_before_root'],
             'nursery_progress_approach':academy['nursery_gains'][:,0],
             'nursery_progress_r_lift':academy['nursery_gains'][:,1],
             'nursery_progress_l_lift':academy['nursery_gains'][:,2],
@@ -3452,6 +3513,8 @@ class EmuMJXEnv(TaskSampler):
             academy_goal_stable_streak=izeros,
             academy_goal_completed=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             nursery_best=jnp.zeros((self.num_envs,6),dtype=jnp.float32),
+            stair_tutor_recovery_streak=izeros,
+            stair_tutor_escrow_paid=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             carpet_hfields=carpet['carpet_hfields'],
             carpet_center=carpet['carpet_center'],
             carpet_seed=carpet['carpet_seed'],
