@@ -102,6 +102,23 @@ def score_two_lip_trace(frames, *, label, actor_sha, seed):
         term=np.flatnonzero(done[:,w])
         stop=int(term[0]+1) if len(term) else tmax
         root=xy[:stop,w]
+        # Physical birth difficulty is recorded even on a complete failure
+        # (a completed crossing is NEVER required to know the first riser).
+        first_top=_top(corner[0,w,1],(1,0),np.array([1.,.5]))
+        first_floor=_top(corner[0,w,0],(0,0),np.array([1.,.5]))
+        birth_first_cm=(100.*(first_top-first_floor)
+                        if first_top is not None and first_floor is not None
+                        else None)
+        # The second tile enters the real 2x2 prism window only when
+        # recycling has safely progressed; do not read wrapped slot 0 early.
+        near_second=np.flatnonzero((root[:,0]>=1.55)&(root[:,0]<2.))
+        second_cm=None
+        if len(near_second):
+            t=int(near_second[0])
+            second_top=_top(corner[t,w,0],(2,0),np.array([2.,.5]))
+            second_floor=_top(corner[t,w,1],(1,0),np.array([2.,.5]))
+            if second_top is not None and second_floor is not None:
+                second_cm=100.*(second_top-second_floor)
         contacted=[]
         for target in ((1,0),(2,0)):
             ok=_physical_top_contacts(frames,w,stop,target)
@@ -123,6 +140,7 @@ def score_two_lip_trace(frames, *, label, actor_sha, seed):
             slot=target[0]%2
             for t in range(stop):
                 if not edge-.25<=root[t,0]<=edge+.10:continue
+                if idx==1 and root[t,0]<1.55:continue
                 for foot in range(2):
                     if not (0.<=feet[t,w,foot,1]<1.):continue
                     top=_top(corner[t,w,slot],target,
@@ -186,6 +204,8 @@ def score_two_lip_trace(frames, *, label, actor_sha, seed):
             first_life_frames=stop,fell=bool(np.any(fell[:stop,w])),
             cmd_vx=float(cmd[0,w,0]),cmd_vy=float(cmd[0,w,1]),
             cmd_yaw=float(cmd[0,w,2]),birth_yaw=float(yaw[0,w]),
+            first_birth_measured_cm=birth_first_cm,
+            second_near_measured_cm=second_cm,
             first_signed_cm=first_kind,second_signed_cm=second_kind,
             first_root_cross=hit_first>=0,second_root_cross=hit_second>=0,
             first_root_frame=hit_first,second_root_frame=hit_second,
