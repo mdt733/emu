@@ -869,7 +869,18 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             # actors and full schema-7 checkpoints through ONE MJX trace path.
             mean=mlp(params['pi'], normalize_obs(policy_obs,obs_mean,obs_std,obs_norm_mask))
             out=env.step(staged,jnp.clip(mean,-1.,1.),curriculum_params)
+            # Examiner-only visibility of the actual *delivered* 16-zone
+            # range sensor, including its latency/dropouts. These are raw
+            # telemetry, never privileged inputs added to the frozen actor.
+            sensor_packet=env._sensor_readout(
+                es.sensor_state,env._body_packets(es.data)[0])
+            sensor_valid=sensor_packet['terrain_valid']
+            sensor_near=jnp.min(jnp.where(
+                sensor_valid,sensor_packet['terrain_ranges_m'],jnp.inf),axis=1)
             sample=dict(
+                tof_valid_zones=jnp.sum(sensor_valid.astype(jnp.int32),axis=1),
+                tof_nearest_return_m=jnp.where(jnp.isfinite(sensor_near),
+                                                sensor_near,-1.),
                 position_xy=xy,heading_rad=yaw,
                 policy_phase_rad=es.phase,
                 foot_xyz=foot_xyz,floor_contact=contacts,
