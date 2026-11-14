@@ -224,11 +224,12 @@ def score_two_lip_trace(frames, *, label, actor_sha, seed):
         # Bounded event-level examples, not giant [1000,128,contacts] dumps.
         # The full numeric funnel remains in the per-world CSV.
         if w<3 or (certified and w<20) or (both2 and w<16):
-            indices=sorted(set(
-                range(min(12,stop)) |
-                set(range(max(0,hit_first-6),min(stop,hit_first+12)))
-                if hit_first>=0 else range(min(12,stop))))
-            for t in indices[:72]:
+            indices=set(range(min(12,stop)))
+            for event_t in (hit_first,hit_second,lead1,lead2):
+                if event_t>=0:
+                    indices.update(range(max(0,event_t-8),
+                                         min(stop,event_t+13)))
+            for t in sorted(indices)[:100]:
                 snippets.append(dict(
                     protocol=label,seed=seed,world=w,frame=t,
                     x=float(root[t,0]),y=float(root[t,1]),yaw=float(yaw[t,w]),
