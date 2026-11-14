@@ -34,7 +34,8 @@ ARMS=(
     "13-progressive-foothold-commands",
     "14-free-phase-foothold-commands","15-all-four",
 )
-FULL_PROGRAMS=("up","mixed","down","mixed-command","tof-masked","phase-held")
+FULL_PROGRAMS=("up","mixed","down","mixed-command",
+               "mixed-command-reverse","tof-masked","phase-held")
 D_PARENT="11db21960d09b6cc3de924c04ab6e738a3ddf07313c0feacdbef9abc7f604600"
 
 
@@ -334,6 +335,7 @@ def bundle(output:Path,*,smoke:bool,expected:list[str],metadata):
                                   else ('matrix_stairs','matrix_flat','matrix_balanced',
                                         'trace_up_s1701','trace_mixed_s1701',
                                         'trace_down_s1701','trace_mixed-command_s1701',
+                                        'trace_mixed-command-reverse_s1701',
                                         'trace_tof-masked_s1701','trace_phase-held_s1701',
                                         'trace_up_s2701','trace_mixed_s2701',
                                         'trace_down_s2701')))
