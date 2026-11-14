@@ -172,3 +172,76 @@ def two_lip_continuation_success(xp, *, academy_active, supported_lips,
             (gravity_z>=.80) & (support>=.50) &
             (bad_contact<.50) & (xp.abs(yaw_error)<.35) &
             ~terminal)
+
+
+def stair_tutor_foot_progress(xp, previous, body_xy, foot_xyz,
+                             foot_bottom, edge_x, source_top, lip_m,
+                             foot_radius_m, eligible):
+    """A *temporary* 50mm UP lesson, scored on actual geometry, never actor inputs.
+
+    [approach, foot0 lift, foot1 lift, foot0 over, foot1 over, body escrow].
+    The first five high-water increments pay ONCE. Body escrow is recorded
+    here but only paid by stair_tutor_recovery after authentic foot support
+    and sustained recovery. No fixed landing X: any safe top foothold works.
+    This intentionally leaves the historical nursery_progress as the
+    same-physics control arm for a *short* A/B trial.
+    """
+    forward=foot_xyz[:,:,0]
+    fy=foot_xyz[:,:,1]
+    row=xp.floor(body_xy[:,1])
+    corridor=(fy>row[:,None]+.06)&(fy<row[:,None]+.94)
+    edge=edge_x[:,None]
+    near=(forward>=edge-.28)&(forward<=edge+.22)&corridor
+    # The bottom of the real foot (not its centre) must clear the actual
+    # upstairs prism surface. Full clearance saturation avoids high kicks.
+    upper=source_top+lip_m[:,None]
+    safe_x=edge+foot_radius_m[None,:]+.015
+    clearance=foot_bottom>=upper+.005
+    lift=(xp.clip((foot_bottom-source_top-.003)/
+                  xp.maximum(.060,lip_m[:,None]+.012),0.,1.)*
+          near*(forward<=safe_x+.02))
+    over=(xp.clip((forward-(edge-.04))/
+                  (foot_radius_m[None,:]+.055),0.,1.)*
+          clearance*near)
+    approach=xp.clip((body_xy[:,0]-(edge_x-.30))/.25,0.,1.)
+    # Progress is measured at the *current* body pose on recovery. This
+    # high-water escrow entry is for diagnostics only, never the payout.
+    escrow=xp.clip((body_xy[:,0]-(edge_x-.20))/.45,0.,1.)
+    progress=xp.stack((approach,lift[:,0],lift[:,1],
+                       over[:,0],over[:,1],escrow),axis=1)
+    best=xp.maximum(previous,xp.where(eligible[:,None],progress,previous))
+    gains=xp.maximum(0.,best-previous)
+    # Lift and reach make a useful manoeuvre discoverable; a flailing toe
+    # cannot earn the majority of the episode's lesson reward.
+    weights=xp.asarray((1.,5.,5.,4.,4.,0.),dtype=best.dtype)
+    payment=xp.sum(gains*weights[None,:],axis=1)
+    return best,payment,gains
+
+
+def stair_tutor_recovery(xp, *, body_xy, edge_x, transfer_seen,
+                         upper_top_now, pitch_rad, pitch_rate_rad_s,
+                         gravity_z, support, bad_contact,
+                         vx_samples, mean_vx, mean_cmd_vx,
+                         previous_streak, previous_paid, eligible):
+    """Escrow matures only after 0.4s of supported, moving, upright recovery.
+
+    Both feet must have *independently* planted for >=3 frames on the
+    assigned upper tile, but need not stand there simultaneously. At least
+    one foot must still have real upper-top contact. Forward motion, rather
+    than standing still, is required. A forward chassis lunge then fall
+    yields no escrow payment. The score uses CURRENT x, never maximum x.
+    """
+    pose=(body_xy[:,0]>=edge_x+.10)&(body_xy[:,0]<=edge_x+.80)
+    stable=(xp.abs(pitch_rad)<=.35)&(xp.abs(pitch_rate_rad_s)<=.60)&(
+        gravity_z>=.82)&(support>=.5)&(bad_contact<.5)
+    moving=(vx_samples>=20)&(mean_cmd_vx>=.075)&(mean_vx>=.05)&(
+        xp.abs(mean_vx-mean_cmd_vx)<=.10)
+    qualified=(eligible&transfer_seen&xp.any(upper_top_now,axis=1)&
+               pose&stable&moving)
+    streak=xp.where(qualified,previous_streak+1,0)
+    released=qualified&(streak>=20)&~previous_paid
+    # 20 frames AFTER both planted and genuine top support, not a single
+    # lucky post-lip snapshot. Capped escrow uses current recovered x.
+    progress=xp.clip((body_xy[:,0]-(edge_x-.20))/.45,0.,1.)
+    payment=xp.where(released,24.*progress,0.)
+    return streak,previous_paid|released,payment,released
