@@ -40,6 +40,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
             science_step_finish_on_transfer=True,
             two_lip_continuation_school=True,
             stair_tournament_arm='progressive+free-phase+foothold+commands',
+            stair_tutor_mode='escrow',  # compile actual 8-prism escrow branch
             solver_iterations=2,solver_ls_iterations=4,
             science_gate_mode="zero-only",
             science_phase_lowcmd_scale=.25,
@@ -73,6 +74,12 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertEqual(out.state.academy_progress_origin_xy.shape,(4,2))
         self.assertEqual(out.state.nursery_best.shape,(4,6))
         self.assertIn('nursery_reward',out.metrics)
+        self.assertIn('tutor_escrow_release_new',out.metrics)
+        self.assertIn('tutor_pre_root_plant_new',out.metrics)
+        self.assertEqual(out.state.stair_tutor_recovery_streak.shape,(4,))
+        self.assertEqual(out.state.stair_tutor_escrow_paid.shape,(4,))
+        self.assertTrue(np.isfinite(np.asarray(jax.device_get(
+            out.metrics['tutor_escrow_release_new']))).all())
         self.assertIn('nursery_progress_r_lift',out.metrics)
         self.assertIn('nursery_progress_l_over',out.metrics)
         # The true birth lip, not a moving difficulty bucket, owns
@@ -182,6 +189,96 @@ class CoreStairPhysicsTests(unittest.TestCase):
                             np.array([[.19,.19]],np.float32),edge,top,lip,seen,np.array([False]))
         self.assertEqual(float(pay[0]),0.)
         np.testing.assert_array_equal(disabled,zero)
+
+    def _assert_stair_tutor_staged_credit_and_escrow(self):
+        """No lunge reward, true top-first geometry, once-only recovery."""
+        from emu.step_goal import (stair_tutor_foot_progress,
+                                   stair_tutor_recovery)
+        zeros=np.zeros((1,6),np.float32)
+        body=np.array([[.80,.50]],np.float32)
+        edge=np.array([1.],np.float32)
+        lip=np.array([.05],np.float32)
+        top=np.array([[.10,.10]],np.float32)
+        foot=np.array([[[.92,.48,.14],[.87,.53,.13]]],np.float32)
+        radius=np.array([.012,.012],np.float32)
+        bottom=np.array([[.13,.12]],np.float32)
+        live=np.array([True])
+        # Below the actual upstairs surface: cannot be paid for crossing.
+        b0,p0,g0=stair_tutor_foot_progress(
+            np,zeros,body,foot,bottom,edge,top,lip,radius,live)
+        self.assertEqual(float(b0[0,3]),0.)
+        self.assertEqual(float(b0[0,4]),0.)
+        self.assertGreater(float(p0[0]),0.)  # small approach only
+        # Lifting near the edge earns bounded teaching credit once.
+        raised=foot.copy()
+        raised[0,0,2]=.18
+        bottom2=bottom.copy()
+        bottom2[0,0]=.17
+        b1,p1,_=stair_tutor_foot_progress(
+            np,b0,body,raised,bottom2,edge,top,lip,radius,live)
+        self.assertGreater(float(p1[0]),0.)
+        landed=raised.copy()
+        landed[0,0,0]=1.052
+        b2,p2,_=stair_tutor_foot_progress(
+            np,b1,body,landed,bottom2,edge,top,lip,radius,live)
+        self.assertGreater(float(b2[0,3]),.99)
+        self.assertGreater(float(p2[0]),0.)
+        _,again,_=stair_tutor_foot_progress(
+            np,b2,body,landed,bottom2,edge,top,lip,radius,live)
+        self.assertEqual(float(again[0]),0.)
+        _,disabled,_=stair_tutor_foot_progress(
+            np,zeros,body,landed,bottom2,edge,top,lip,radius,
+            np.array([False]))
+        self.assertEqual(float(disabled[0]),0.)
+        # Escrow is *not* the maximum reached by a pitching chassis:
+        # no 2-foot physical support, no payment even at x=1.6.
+        def recover(x=1.2, both=True, top_now=True, pitch=.05,
+                    pitch_rate=.08, vx=.18, bad=0., streak=0, paid=False):
+            return stair_tutor_recovery(
+                np,body_xy=np.array([[x,.50]]),edge_x=edge,
+                transfer_seen=np.array([both]),
+                upper_top_now=np.array([[top_now,False]]),
+                pitch_rad=np.array([pitch]),
+                pitch_rate_rad_s=np.array([pitch_rate]),
+                gravity_z=np.array([.99]),
+                support=np.array([.9]),
+                bad_contact=np.array([bad]),
+                vx_samples=np.array([20]),
+                mean_vx=np.array([vx]),
+                mean_cmd_vx=np.array([.18]),
+                previous_streak=np.array([streak]),
+                previous_paid=np.array([paid]),
+                eligible=np.array([True]))
+        for kw in (dict(both=False),dict(top_now=False),
+                   dict(pitch=.6),dict(pitch_rate=1.5),
+                   dict(vx=0.),dict(bad=1.),
+                   dict(x=.99),dict(x=1.82)):
+            st,was_paid,payment,released=recover(**kw)
+            self.assertEqual(int(st[0]),0.)
+            self.assertFalse(bool(released[0]))
+            self.assertEqual(float(payment[0]),0.)
+        # Supported, moving, post-foot-contact recovery for 0.4 seconds.
+        st=0
+        for _ in range(19):
+            new_st,paid,amt,release=recover(streak=st)
+            st=int(new_st[0])
+            self.assertFalse(bool(release[0]))
+            self.assertEqual(float(amt[0]),0.)
+        st,paid,amt,release=recover(streak=st)
+        self.assertTrue(bool(release[0]))
+        self.assertGreater(float(amt[0]),0.)
+        self.assertTrue(bool(paid[0]))
+        _,_,repeat,released_again=recover(streak=int(st[0]),paid=True)
+        self.assertEqual(float(repeat[0]),0.)
+        self.assertFalse(bool(released_again[0]))
+        # Vectorisation contract holds for JAX too (same pure maths).
+        import jax.numpy as jnp
+        bj,pj,_=stair_tutor_foot_progress(
+            jnp,jnp.asarray(zeros),jnp.asarray(body),jnp.asarray(landed),
+            jnp.asarray(bottom2),jnp.asarray(edge),jnp.asarray(top),
+            jnp.asarray(lip),jnp.asarray(radius),jnp.asarray(live))
+        np.testing.assert_allclose(np.asarray(bj),b2,rtol=1e-5)
+        self.assertGreater(float(pj[0]),0.)
 
     def _assert_refined_school_proof_and_checkpoint_contract(self):
         """Second generation school, starting at the *actual* 180M parent.
@@ -420,6 +517,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self._assert_bidirectional_school_proof_and_checkpoint()
         self._assert_refined_school_proof_and_checkpoint_contract()
         self._assert_real_millimetre_credit_cannot_farm_or_cross_wall_low()
+        self._assert_stair_tutor_staged_credit_and_escrow()
         # Checkpoint-persistent stair graduation: two independent successful
         # 100-attempt windows at REAL near-50mm uphill lips. A failed
         # window must reset proof streak; 0/partial footholds never pass.
