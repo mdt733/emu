@@ -184,3 +184,68 @@ coordinates. Only the *reward pressure* to synchronise foot movement
 to that clock is relaxed near a physical stair. That is a teaching
 factor which can be tested without inventing a new runtime stair
 detector in the browser or hardware.
+
+## D frozen-policy science examiner — use ALL 16, never select a winner
+
+This source-pinned read-only examiner extracts as much as possible from
+the completed 1.66B world-step teaching laboratory. It runs **no PPO,
+no policy updates and no curriculum promotion**. Run in an independent
+detached worktree. The training lineages and D's current chosen policies
+are never rewritten.
+
+```bash
+# From a clean worktree at science/h40-d-coach-autopsy:
+source ~/emu/.venv/bin/activate
+export EMU_PHYSICAL_PROFILE=h40 PYTHONPATH="$PWD"
+python -m scripts.examine_h40_d_coaches --smoke
+python -m scripts.examine_h40_d_coaches
+```
+
+The `--smoke` mode exercises the full export → GPU matrix → true-MJX
+two-lip trace → package chain with one actor and a different output
+directory. Check that it finishes before running the complete scan.
+The complete run resumes already verified cases and produces:
+
+`~/emu-data/exams/h40-d-coach-science-v1/science-bundle.zip`
+
+**This is the single file to upload for investigation.** It includes
+all 16 training configs, full logged `metrics.csv`, fixed evaluations,
+summary results, checkpoint SHA256 **but not checkpoint bytes**, actor
+weight fingerprints **but not policy weights**, exact-source/robot
+hashes, source-grounded treatment-integrity warnings and the independent
+physical read-only test evidence, including per-world CSV and selected
+event-level trajectory extracts.
+
+One matched 2048-world CUDA batch per actor for each: a signed 0–50mm
+stair matrix in 2.5mm increments (50 replicas per height/sign), the
+same-index 2000-world zero-height seam, and a 10-family balanced
+control/slope/command matrix. These tests use the existing
+`scripts.capability_matrix_exam` real-prism first-life evaluator.
+
+A separate genuine *two-riser* true-MJX Academy collision fixture
+runs 128 worlds for up-up, sampled mixed signs and down-heavy first
+lips at seed 1701 and independent seed 2701; it also tests an identical
+mixed operator request, input-only ToF masking and phase holding at
+seed 1701. Each trace spans 1050 control frames (21 seconds). It
+records per-foot support **before chassis crossing**, clearance against
+real target triangle surfaces, five-frame sequential and simultaneous
+upper contacts **separately** at both lips, 50cm downstream, the
+full 20-frame commanded-velocity window, falls, fatigue proxies,
+torque-cap violations, 16-zone ToF validity and reasons for failure.
+
+**Limits:** up/down Academy signed heights are physically generated
+according to its saved shape, not exact across all levels; paired
+seam matrices are exact but only single-riser. This does not supply
+randomized training-seed confidence, measured real motor temperature,
+hardware VL53L8CX data or proof a policy learned a new behaviour.
+The input ablations are counterfactual policy-sensitivity tests.
+Beware historical contact and reward label inconsistencies: the
+independent score deliberately does not read Academy success flags.
+The archive reports the original training reward evidence separately
+from the independently measured capabilities.
+
+**Resource discipline:** do not compile 2048 worlds plus 128 traces in
+one JAX process. The driver launches one bounded child at a time so
+GPU allocations return between scenarios. Interrupted stages preserve
+logs and completed evidence; a complete ZIP is NEVER emitted while a
+mandatory case is missing or has an incorrect policy/protocol hash.
