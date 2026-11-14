@@ -289,9 +289,10 @@ def bundle(output:Path,*,smoke:bool,expected:list[str],metadata):
         raise RuntimeError('Refusing misleading COMPLETE zip; missing:\n'+'\n'.join(absent))
     summary_rows=summarize(output,expected)
     documents=[]
-    excluded={'science-bundle.zip','science-smoke.zip'}
+    excluded={'science-bundle.zip','science-smoke.zip',
+              'bundle_manifest.json'}
     for p in sorted(output.rglob('*')):
-        if not p.is_file() or p.name in excluded:
+        if not p.is_file() or p.name in excluded or p.name.endswith('.part'):
             continue
         if 'actors' in p.relative_to(output).parts:
             # The user-requested ZIP must contain evidence ONLY.
@@ -359,7 +360,8 @@ def main(argv=None):
           'scripts/capability_matrix_exam.py',
           'emu/terrain_carpet_mjx.py','emu/carpet_prism_mjx.py',
           'emu/physical_variants.py','emu/robot.xml')}
-    if output==root or root in output.parents or output==Path.cwd():
+    if (output==root or root in output.parents or output==Path.cwd()
+            or output==checkout or checkout in output.parents):
         ap.error('Exam output must be separate from training and source')
     output.mkdir(parents=True,exist_ok=True)
     json_write(output/'provenance.json',dict(
