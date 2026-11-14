@@ -218,6 +218,9 @@ def one_run_config(args) -> TrainingConfig:
     finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
     dual_lip=bool(getattr(args,'two_lip_continuation_school',False))
     stair_arm=str(getattr(args,'stair_tournament_arm','off'))
+    tutor_mode=str(getattr(args,'stair_tutor_mode','legacy'))
+    if tutor_mode not in ('legacy','escrow'):
+        raise ValueError('Unknown stair tutor mode')
     if stair_arm not in ('off','control','progressive','free-phase','foothold','commands',
                             'progressive+free-phase','progressive+foothold','progressive+commands',
                             'free-phase+foothold','free-phase+commands','foothold+commands',
@@ -250,6 +253,8 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('two-lip continuation requires --progressive-school '
                          '--refined-school --bidirectional-school '
                          '--outcome-graduation and --science-step-finish-on-transfer')
+    if tutor_mode=='escrow' and not (dual_lip and outcome):
+        raise ValueError('Escrow tutor requires --two-lip-continuation-school and --outcome-graduation')
     if dual_lip and science_args['science_step_goal_weight']>0.:
         raise ValueError('two-lip continuation forbids first-destination terminal reward')
     if dual_lip and course_frames<1200:
@@ -288,6 +293,7 @@ def one_run_config(args) -> TrainingConfig:
                    bidirectional_school=paired,
                    two_lip_continuation_school=dual_lip,
                    stair_tournament_arm=stair_arm,
+                   stair_tutor_mode=tutor_mode,
                    outcome_walk_start_steps=walk_start,
                    outcome_stair_approved=approved,
                    outcome_approval_start_steps=approved_start,
