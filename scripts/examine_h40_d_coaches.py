@@ -156,15 +156,27 @@ def matrix_case(name,kind,*,smoke):
     return dict(worlds=worlds,horizon=horizon,levels=20,trials_per_level=10,mode=kind)
 
 
-def finished_exam(out:Path,*,kind:str):
+def finished_exam(out:Path,*,kind:str, expected=None):
     header=out/('exam.json' if kind=='trace' else 'matrix_summary.json')
-    expected=out/('physical_worlds.csv' if kind=='trace' else 'matrix_worlds.csv')
-    return header.is_file() and expected.is_file() and expected.stat().st_size>100
+    evidence=out/('physical_worlds.csv' if kind=='trace' else 'matrix_worlds.csv')
+    if not (header.is_file() and evidence.is_file() and evidence.stat().st_size>100):
+        return False
+    try:
+        manifest=json.loads(header.read_text(encoding="utf-8"))
+        if kind=='matrix':manifest=manifest['manifest']
+        if not isinstance(manifest,dict):return False
+        if expected:
+            for k,value in expected.items():
+                if manifest.get(k)!=value:
+                    return False
+    except (ValueError,KeyError,OSError):
+        return False
+    return True
 
 
-def run_case(outdir, args, *,case, env):
+def run_case(outdir, args, *,case, env,expected):
     typ='trace' if case.startswith('trace_') else 'matrix'
-    if finished_exam(outdir,kind=typ):
+    if finished_exam(outdir,kind=typ,expected=expected):
         print(f'VERIFIED EXISTING: {outdir}',flush=True)
         return
     if outdir.exists() and any(outdir.iterdir()):
@@ -173,8 +185,8 @@ def run_case(outdir, args, *,case, env):
     logs=outdir.parent.parent.parent/'logs'/(
         outdir.parent.name+'_'+case+'.log')
     cmd(args,log=logs,env=env)
-    if not finished_exam(outdir,kind=typ):
-        raise RuntimeError(f'Exam returned without expected evidence: {outdir}')
+    if not finished_exam(outdir,kind=typ,expected=expected):
+        raise RuntimeError(f'Exam returned without matching source/protocol evidence: {outdir}')
 
 
 def summarize(exam_root:Path, names:list[str]):
@@ -281,6 +293,10 @@ def bundle(output:Path,*,smoke:bool,expected:list[str],metadata):
     for p in sorted(output.rglob('*')):
         if not p.is_file() or p.name in excluded:
             continue
+        if 'actors' in p.relative_to(output).parts:
+            # The user-requested ZIP must contain evidence ONLY.
+            # Do not leak all sixteen trained policy weight blobs.
+            continue
         if 'logs' in p.relative_to(output).parts:
             # Include logs only if user needs diagnosis, not verbose build spam.
             continue
@@ -329,7 +345,7 @@ def main(argv=None):
     names=[args.only_arm] if args.only_arm else (
         [ARMS[0]] if args.smoke else list(ARMS))
     meta=validate_runs(root,names)
-    if output==root or output in root.parents or output==Path.cwd():
+    if output==root or root in output.parents or output==Path.cwd():
         ap.error('Exam output must be separate from training and source')
     output.mkdir(parents=True,exist_ok=True)
     json_write(output/'provenance.json',meta)
@@ -362,7 +378,10 @@ def main(argv=None):
                 '--levels',str(spec['levels']),
                 '--trials-per-level',str(spec['trials_per_level']),
                 '--mode',spec['mode']
-            ),case='matrix_'+kind,env=env)
+            ),case='matrix_'+kind,env=env,
+               expected=dict(policy_sha256=actor['artifact_sha256'],
+                             seed=1701,worlds=spec['worlds'],
+                             horizon=spec['horizon'],mode=kind))
         programs=('up',) if args.smoke else FULL_PROGRAMS
         seeds=(1701,) if args.smoke else (1701,2701)
         for seed in seeds:
@@ -375,7 +394,12 @@ def main(argv=None):
                     '--device',args.device,
                     '--worlds',str(4 if args.smoke else 128),
                     '--horizon',str(450 if args.smoke else 1050)
-                ),case=f'trace_{program}_s{seed}',env=env)
+                ),case=f'trace_{program}_s{seed}',env=env,
+                   expected=dict(
+                       exported_policy_sha256=actor['artifact_sha256'],
+                       seed=seed,worlds=(4 if args.smoke else 128),
+                       horizon=(450 if args.smoke else 1050),
+                       program=program))
         # Preserve complete original training evidence, not just the
         # distorted stage summary. Never include checkpoint or actor bytes.
         dest=output/'training'/name
