@@ -114,8 +114,8 @@ def validate_runs(root:Path,names:list[str]):
         raise FileNotFoundError('Missing completed D foundation and locked ancestor')
     declared=original.read_text(encoding='utf-8').strip()
     actual=sha(parent)
-    if declared!=actual:
-        raise RuntimeError('Immutable 60M parent SHA changed! Refuse exam.')
+    if declared!=actual or declared!=D_PARENT:
+        raise RuntimeError('Unexpected immutable 60M D parent SHA. Refuse exam.')
     source=None
     metadata={}
     for name in ('foundation-60m',*(f'arm-{x}' for x in names)):
@@ -345,10 +345,26 @@ def main(argv=None):
     names=[args.only_arm] if args.only_arm else (
         [ARMS[0]] if args.smoke else list(ARMS))
     meta=validate_runs(root,names)
+    checkout=Path(__file__).resolve().parent.parent
+    exam_commit=subprocess.check_output(
+        ['git','rev-parse','HEAD'],cwd=checkout,text=True).strip()
+    if subprocess.check_output(
+        ['git','status','--porcelain'],cwd=checkout,text=True).strip():
+        raise RuntimeError('Examiner checkout must be SOURCE PINNED and clean')
+    examiner_sources={
+        p:sha(checkout/p) for p in (
+          'emu/d_science_exam.py','emu/ppo.py',
+          'scripts/h40_d_two_lip_exam.py',
+          'scripts/examine_h40_d_coaches.py',
+          'scripts/capability_matrix_exam.py',
+          'emu/terrain_carpet_mjx.py','emu/carpet_prism_mjx.py',
+          'emu/physical_variants.py','emu/robot.xml')}
     if output==root or root in output.parents or output==Path.cwd():
         ap.error('Exam output must be separate from training and source')
     output.mkdir(parents=True,exist_ok=True)
-    json_write(output/'provenance.json',meta)
+    json_write(output/'provenance.json',dict(
+        **meta,examiner_commit=exam_commit,
+        examiner_source_hashes=examiner_sources))
     json_write(output/'treatment_integrity.json',detect_source_issues(root))
     env=dict(os.environ,EMU_PHYSICAL_PROFILE='h40',
              PYTHONPATH=str(Path(__file__).resolve().parent.parent))
