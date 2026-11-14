@@ -170,6 +170,11 @@ def reduce_results(trials:list[Trial],result:dict[str,np.ndarray]):
         finished=sum(bool(x["completed_destination"]) for x in records) if target else 0
         arrived=sum(bool(x["both_feet_top_five"]) for x in records) if target else 0
         leading=sum(bool(x["lead_foot_top"]) for x in records) if target else 0
+        toe_prebody=sum(bool(x["toe_cleared_lip_before_body_cross"])
+                        for x in records) if target else 0
+        toe_values=[float(x["max_toe_clearance_before_body_cross_m"])*1000.
+                    for x in records
+                    if float(x["max_toe_clearance_before_body_cross_m"])>-.5]
         survived=sum(bool(x["survived"]) for x in records)
         low,high=wilson_95(finished,n)
         traverse_lo,traverse_hi=wilson_95(counts["traversed_5frame"],n)
@@ -186,6 +191,9 @@ def reduce_results(trials:list[Trial],result:dict[str,np.ndarray]):
             measured_grade_deg_mean=round(float(np.mean(
                 [x["actual_grade_deg"] for x in records])),4),
             leading_top=leading,each_foot_top_five=arrived,
+            toe_cleared_before_body=toe_prebody,
+            toe_max_clearance_mean_mm=(
+                round(float(np.mean(toe_values)),3) if toe_values else None),
             **counts,
             first_both_foot_x_mean_m=round(float(np.mean(first_contact_x)),4)
                 if first_contact_x else None,
@@ -351,6 +359,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
         if not selected:
             continue
         gates=("leading_top","each_foot_top_five",
+               "toe_cleared_before_body",
                "traversed_upright_5frame","traversed_in_lane_5frame",
                "traversed_5frame","completed_destinations")
         stage_counts[kind]=dict(
@@ -389,6 +398,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     for gate,label in (
         ("leading_top","First destination foot"),
         ("each_foot_top_five","Each foot supported for 5 frames"),
+        ("toe_cleared_before_body","Toe above upper lip +5mm before body"),
         ("traversed_upright_5frame","Upright crossing for 5 frames"),
         ("traversed_in_lane_5frame","Crossing plus lane for 5 frames"),
         ("traversed_5frame","Crossing plus lane and heading for 5 frames"),
