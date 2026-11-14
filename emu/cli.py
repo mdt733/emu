@@ -130,6 +130,8 @@ def main(argv=None) -> int:
                             'progressive+free-phase+foothold+commands'),
                    default='off',
                    help='Experiment D teaching laboratory: 16 factorial arms with common physical certification, no finalist elimination')
+    q.add_argument('--stair-tutor-mode',choices=('legacy','escrow'),default='legacy',
+                   help='50mm uphill physics tutor: baseline legacy or bounded feet + delayed recovered chassis reward')
     q.add_argument('--two-lip-continuation-school',action='store_true',
                    help='Experiment C: physical two 1m-spaced signed lips, 50cm post-second recovery + commanded vx; one cold policy')
     q.add_argument('--science-step-finish-on-transfer',action='store_true',
