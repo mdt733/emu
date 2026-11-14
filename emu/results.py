@@ -1075,6 +1075,10 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         # Report the actual payment and bounded six-stage high-water gains.
         'nursery_reward_sum': float(np.asarray(
             metrics.get('nursery_reward',0.)).sum()),
+        'tutor_escrow_releases':float(np.asarray(
+            metrics.get('tutor_escrow_release_new',0.)).sum()),
+        'tutor_pre_root_plants':float(np.asarray(
+            metrics.get('tutor_pre_root_plant_new',0.)).sum()),
         **{f'nursery_progress_{stage}_sum':float(np.asarray(
             metrics.get(f'nursery_progress_{stage}',0.)).sum())
            for stage in ('approach','r_lift','l_lift','r_over','l_over','chassis')},
