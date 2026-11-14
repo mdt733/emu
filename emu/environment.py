@@ -2528,7 +2528,7 @@ class EmuMJXEnv(TaskSampler):
             'academy_foothold_new':academy['foothold_new'].astype(jnp.float32),
             'academy_transfer_new':academy['transfer_new'].astype(jnp.float32),
             'academy_followthrough_new':academy['progress_new'].astype(jnp.float32),
-            'academy_reward':academy['reward'],
+            'academy_reward':academy_payment,
             'nursery_reward':academy['nursery_payment'],
             'tutor_escrow_release_new':academy['tutor_release'].astype(jnp.float32),
             'tutor_pre_root_plant_new':academy['tutor_before_root'],
