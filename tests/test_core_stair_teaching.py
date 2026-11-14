@@ -274,7 +274,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
         # Vectorisation contract holds for JAX too (same pure maths).
         import jax.numpy as jnp
         bj,pj,_=stair_tutor_foot_progress(
-            jnp,jnp.asarray(zeros),jnp.asarray(body),jnp.asarray(landed),
+            jnp,jnp.asarray(b1),jnp.asarray(body),jnp.asarray(landed),
             jnp.asarray(bottom2),jnp.asarray(edge),jnp.asarray(top),
             jnp.asarray(lip),jnp.asarray(radius),jnp.asarray(live))
         np.testing.assert_allclose(np.asarray(bj),b2,rtol=1e-5)
