@@ -1100,7 +1100,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
              goal_line,goal_line_both,goal_window_both,
              goal_window_heading,goal_window_safe,goal_window_all,
              x_window_any,x_window_both,first_both_frame,first_both_x,
-             open_streak,lane_streak,open_cross,lane_cross)=carry
+             open_streak,lane_streak,open_cross,lane_cross,
+             toe_clearance_best,toe_before_body)=carry
             # Maintain *different* operator instructions in the same
             # JAX program; bypass random command resampling without
             # changing the actual deployable observation format.
@@ -1153,6 +1154,22 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                        (feet[:,:,0] < 2.*TILE_M) &
                        (feet[:,:,1]>=0.) & (feet[:,:,1]<TILE_M))
             valid_feet=top_feet & in_target & healthy[:,None]
+            # EXAMINER ONLY: report toe clearance against the measured
+            # upper prism target surface BEFORE the torso crosses x=1m.
+            # This captures physical lift/forward passage even when the
+            # contact event never completes and course success stays zero.
+            toe_near=((feet[:,:,0]>=TILE_M-.22) &
+                      (feet[:,:,0]<=TILE_M+.20) &
+                      (feet[:,:,1]>=0.) & (feet[:,:,1]<TILE_M) &
+                      (xy[:,0,None]<TILE_M) & healthy[:,None])
+            toe_above=bottom-edge_new[:,None]
+            toe_clearance_best=jnp.maximum(
+                toe_clearance_best,
+                jnp.max(jnp.where(toe_near,toe_above,-1.),axis=1))
+            toe_before_body=(toe_before_body |
+                (target_mask & jnp.any(
+                    toe_near & (feet[:,:,0]>=TILE_M+.005) &
+                    (toe_above>=.005),axis=1)))
             lead_seen=lead_seen | (target_mask & jnp.any(
                 valid_feet,axis=1))
             foot_streak=jnp.where(valid_feet,foot_streak+1,0)
@@ -1227,7 +1244,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     goal_window_both,goal_window_heading,
                     goal_window_safe,goal_window_all,
                     x_window_any,x_window_both,first_both_frame,first_both_x,
-                    open_streak,lane_streak,open_cross,lane_cross)
+                    open_streak,lane_streak,open_cross,lane_cross,
+                    toe_clearance_best,toe_before_body)
 
         finished=jax.lax.fori_loop(0,horizon,frame_step,(
             es0,jnp.ones((n,),dtype=jnp.bool_),
@@ -1235,14 +1253,16 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             zero_i,false,zero,zero_i,zero,zero,zero,zero,zero,zero,
             zero_i,false,false,false,false,false,false,false,
             false,false,jnp.full((n,),-1,jnp.int32),zero,
-            zero_i,zero_i,false,false))
+            zero_i,zero_i,false,false,
+            jnp.full((n,),-1.,jnp.float32),false))
         (_,live,fall,lead,streak,seen,arrival,complete,progress,
          frames,speed_err,yaw_err,support,gravity,lateral,still,
          traverse_streak,traversed,goal_line,goal_line_both,
          goal_window_both,goal_window_heading,
          goal_window_safe,goal_window_all,x_window_any,x_window_both,
          first_both_frame,first_both_x,open_streak,lane_streak,
-         open_cross,lane_cross)=finished
+         open_cross,lane_cross,toe_clearance_best,
+         toe_before_body)=finished
         denom=jnp.maximum(frames,1).astype(jnp.float32)
         return dict(
             actual_lip_m=measured_lip,actual_grade_deg=measured_grade,
@@ -1262,6 +1282,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             goal_x_window_after_both=x_window_both,
             first_both_foot_frame=first_both_frame,
             first_both_foot_body_x_m=first_both_x,
+            max_toe_clearance_before_body_cross_m=toe_clearance_best,
+            toe_cleared_lip_before_body_cross=toe_before_body,
             traversed_upright_5frame=open_cross,
             traversed_in_lane_5frame=lane_cross,
             best_forward_progress_m=progress,
