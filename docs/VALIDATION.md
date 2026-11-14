@@ -224,11 +224,10 @@ control/slope/command matrix. These tests use the existing
 
 A separate genuine *two-riser* true-MJX Academy collision fixture
 runs 128 worlds for up-up, sampled mixed signs and down-heavy first
-lips at seed 1701 and independent seed 2701; it also tests an identical
-mixed operator request, input-only ToF masking and phase holding at
-seed 1701. Each trace spans 1050 control frames (21 seconds). It
-records per-foot support **before chassis crossing**, clearance against
-real target triangle surfaces, five-frame sequential and simultaneous
+lips at seed 1701 and independent seed 2701; it also tests matched left/right mixed operator requests, input-only
+ToF masking and phase holding at seed 1701. Each trace spans 1050 control frames (21 seconds). It
+records per-foot support **before chassis crossing**, toe clearance
+across the exact-height 2,048-world fixture and against real triangle surfaces, five-frame sequential and simultaneous
 upper contacts **separately** at both lips, 50cm downstream, the
 full 20-frame commanded-velocity window, falls, fatigue proxies,
 torque-cap violations, 16-zone ToF validity and reasons for failure.
