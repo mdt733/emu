@@ -5,40 +5,61 @@ import assert from 'node:assert/strict';
 import {parsePolicy} from '../src/policy.js';
 import * as depthLabSensor from '../src/sensor.js';
 import {joystickToCommands,nextYawCommand} from '../src/controls.js';
-import {terrainRoleEnvelope} from '../src/training-solid-carpet.js';
 import {createSensorLabCarpet,carpetTileCorners,carpetLocalLimits,carpetLatitudeDifficulty,carpetHeightfieldPatch,carpetSpawnSoleLift,streamingCarpetXml,LAB_TILE_COUNT} from '../src/sensor-lab-carpet.js';
 import {meadowTreeForTile} from '../src/growing-meadow.js';
-import {withTerrain,terrainSensorHeightFallback} from '../src/terrain.js';
-import {trainingLimits} from '../src/training-carpet.js';
+import {withTerrain,terrainSensorHeight} from '../src/terrain.js';
+import {SPECIALIST_SCENES,makeSpecialistScene,sceneRole,
+  specialistTileCorners,supportedFirstLip,specialistExerciseCommand} from '../src/specialist-scenes.js';
 
-test('the main and static showcase expose one Infinite Meadow, not the retired Field',()=>{
+test('viewer exposes Meadow and separate physical specialists without retired worlds',()=>{
   const html=readFileSync(new URL('../index.html',import.meta.url),'utf8');
   const main=readFileSync(new URL('../src/main.js',import.meta.url),'utf8');
   const sim=readFileSync(new URL('../src/sim.js',import.meta.url),'utf8');
-  assert.match(html,/<option value="carpet" selected>Infinite Meadow<\/option>/);
+  assert.match(html,/<select id="sceneMode"/);
+  for(const [mode] of SPECIALIST_SCENES)
+    assert.match(html,new RegExp('option value="'+mode+'"'));
+  assert.match(html,/id="specialistScenePanel"/);
+  assert.match(html,/id="sceneHeight"/);
+  assert.match(html,/id="sceneDistance"/);
+  assert.match(html,/id="sceneApproach"/);
+  assert.match(html,/id="sceneCommandAxis"/);
   assert.match(html,/Automatic Meadow stroll/);
-  assert.doesNotMatch(html,/id="worldField"|id="worldCarpet"|value="park"|id="fieldPanel"|id="navNext"/);
-  assert.match(sim,/this\.terrainMode\s*=\s*'carpet'/);
+  assert.doesNotMatch(html,/id="worldField"|id="fieldPanel"|id="navNext"/);
+  assert.doesNotMatch(sim,/this\.terrainMode/);
   assert.doesNotMatch(sim,/generateTerrainPark|createParkMarkers|setParkFeaturesEnabled/);
   assert.doesNotMatch(main,/GoalNavigator|GoalPlannerWorker|setWorld\('park'\)|navWorker/);
   assert.match(main,/function meadowStroll\(/);
-  assert.match(main,/sim\.setTerrainMode\('carpet'\)/);
+  assert.doesNotMatch(main,/terrainMode\.value|setTerrainMode\(/);
+  assert.doesNotMatch(html,/id="terrainMode"/);
+  assert.doesNotMatch(sim,/setTerrainMode\(|sensorObstacle|surfaceSlopeDegrees|setSensorObstacle|setSurfaceLab/);
+  assert.throws(()=>withTerrain('<mujoco><worldbody></worldbody></mujoco>',
+    {park:{physics:'legacy-box'}}),/requires its real streaming/);
+  assert.match(main,/let lastResetGeneration\s*=\s*-1/);
+  assert.match(main,/function updatePhysicalObservation\(/);
+  assert.match(main,/function selectObservationWorld\(/);
+  assert.match(sim,/setTrainingScenario\(/);
+  const switchBody=sim.slice(sim.indexOf('  setTrainingScenario('),
+    sim.indexOf('  prepareLessonBirth('));
+  assert.match(switchBody,/this\.park\.configureScenario\(scenario,this\.meadowSettings\)/);
+  assert.match(switchBody,/this\.reset\(\)/);
+  assert.doesNotMatch(switchBody,/this\.loadModel\(|new PolicyRunner|this\.policy\s*=/,
+    'switching a viewer world must never rebuild or replace the actor');
+  assert.match(main,/if\(sceneMode\.value!=='meadow'&&carpetDrive\.value==='lesson'&&sim\)/);
+  assert.match(main,/const command=sim\.commandTarget;/);
+  assert.doesNotMatch(html,/id="carpetTrainingInspector"|id="carpetRole"|id="carpetResetLimits"|id="carpetDiagnostics"/,
+    'retired training inspector must not appear beside real specialist controls');
+  assert.doesNotMatch(main,/refreshCarpetLive\(|carpetAutoApply|applyCarpetTerrain\(/,
+    'obsolete background training preview must not modify selected spectator terrain');
+  const caps={vx_max:.4,vx_min:-.2,vy_abs:.1,yaw_abs:.8};
+  assert.deepEqual(specialistExerciseCommand('step-up',0,caps),
+    {vx:.22,vy:0,yaw:0,pitch:0});
+  assert.deepEqual(specialistExerciseCommand('command',14,caps),
+    {vx:-.12,vy:0,yaw:0,pitch:0});
+  assert.equal(specialistExerciseCommand('control',0,caps).vx,.168);
+
 });
 
 const limits={vx_min:-.53,vx_max:1.04,vy_abs:.22,yaw_abs:1.5,pitch_abs_rad:.08};
-const measured=(step,more={})=>({source:'training',seed:735,step,
-  foundationSteps:20_000_000,academyIntroSteps:60_000_000,
-  academyStream:true,hillPeakDeg:12,transitionDeg:3,stepUpM:.03,stepDownM:.04,...more});
-const data=step=>trainingLimits({training_step:step,
-  latest_metrics:{step,frontier_vx_hi:'.28',frontier_vx_lo:'-.07',
-    frontier_vy:'.12',frontier_yaw:'.7',frontier_push_n:'.65',
-    resilience_difficulty:'.36',slope_max_deg:'.7',terrain_height_m:'.004',
-    academy_height_up_m:'.003',academy_height_down_m:'.002',
-    slope_exposure:'.8',terrain_exposure:'.5'},
-  training_config:{terrain_carpet:true,academy_stream:true,seed:735,
-    foundation_steps:20000000,academy_intro_steps:60000000,
-    push_max_force_n:.7}});
-
 test('only the current physical 360-input policy contract is accepted',()=>{
   const fields=Array.from({length:55},(_,i)=>'base_'+i).concat(
     ['ground_forward_grade_rad','ground_sideways_grade_rad','ground_visibility_confidence']);
@@ -180,7 +201,7 @@ test('viewer Carpet uses 225 real heightfields instead of changing compiled coll
   assert.equal((xml.bodies.match(/type="hfield"/g)||[]).length,225);
   assert.equal((xml.bodies.match(/mocap="true"/g)||[]).length,225);
   const base='<mujoco><asset></asset><worldbody><geom name="floor" type="plane" size="5 5 .05"/></worldbody></mujoco>';
-  const scene=withTerrain(base,'carpet',{park});
+  const scene=withTerrain(base,{park});
   assert.equal((scene.match(/type="hfield"/g)||[]).length,225);
   assert.doesNotMatch(scene,/name="floor"/);
   assert.doesNotMatch(scene,/sensor_lab_prism_/);
@@ -310,7 +331,7 @@ test('streaming Carpet refuses to remove any tile supporting an H40 foot',()=>{
 
 test('streaming ground is still visible to the frozen H40 4x4 ToF and optical flow',()=>{
   const carpet=createSensorLabCarpet({hillPeakDeg:0,stepUpM:0,stepDownM:0});
-  const surface=terrainSensorHeightFallback('carpet',carpet);
+  const surface=terrainSensorHeight(carpet);
   const meshModel={ngeom:1,geom_type:new Int32Array([7]),
     geom_bodyid:new Int32Array([0]),geom_size:new Float64Array(3)};
   const meshData={geom_xpos:new Float64Array(3),
@@ -346,7 +367,7 @@ test('real MuJoCo browser WASM reuses an hfield collider without resetting H40',
     new URL('../../../showcase/champion.emupolicy',import.meta.url),'utf8'));
   const park=createSensorLabCarpet({hillPeakDeg:0,stepUpM:0,stepDownM:0});
   const model=mj.MjModel.from_xml_string(
-    withTerrain(actor.robot_xml,'carpet',{park}));
+    withTerrain(actor.robot_xml,{park}));
   const data=new mj.MjData(model);
   try{
     assert.equal(Number(model.nhfield),225);
@@ -457,4 +478,85 @@ test('physical h40 foot occlusion depends on mounting geometry, never a hardcode
   assert.deepEqual(actual.footOccluded.slice(12),[true,false,false,true],
     'the chosen under-torso mount naturally grazes OUTER foot zones');
   assert.deepEqual(actual.footHitCounts.slice(12),[1,0,0,1]);
+});
+
+
+test('specialist training carpet is REAL mutable signed terrain with source-matched first-lip spawn',()=>{
+  const up=makeSpecialistScene('step-up',{stepCm:5,spawnCm:22,randomize:false});
+  assert.equal(up.kind,'step');
+  assert.equal(up.distanceM,.22);
+  assert.equal(up.edgeX,1);
+  assert.equal(up.lipM,.05);
+  assert.equal(up.approachDeg,0);
+  assert.equal(makeSpecialistScene('step-up',{
+    stepCm:5,approachDeg:9,randomize:false}).approachDeg,9);
+  assert.equal(sceneRole('step-up'),'step');
+  assert.deepEqual(specialistTileCorners(0,0,up),[0,0,0,0]);
+  assert.deepEqual(specialistTileCorners(1,0,up),[.05,.05,.05,.05]);
+  const park=createSensorLabCarpet({
+    seed:735,hillPeakDeg:0,stepUpM:0,stepDownM:0,scenario:up});
+  assert.equal(park.physics,'streaming-heightfield');
+  assert.equal(park.tiles.length,LAB_TILE_COUNT);
+  assert.ok(Math.abs(park.sampleHeight(1.1,.5)-
+    park.sampleHeight(.9,.5)-.05)<1e-9);
+  assert.equal(park.sampleHeight(1.1,.5),.05);
+  assert.ok(park.tiles.every(t=>carpetHeightfieldPatch(t)
+    .every(h=>Number.isFinite(h)&&h>=0&&h<=1)));
+  const down=makeSpecialistScene('step-down',{stepCm:2,randomize:false});
+  park.configureScenario(down);
+  park.resetGrowth();
+  assert.equal(park.sampleHeight(.8,.5),0);
+  assert.equal(park.sampleHeight(1.2,.5),-.02);
+  assert.equal(park.at(1,0).base,-.02);
+  const fixed=makeSpecialistScene('step-up',{stepCm:5,trial:3,randomize:false});
+  assert.equal(fixed.distanceM,.225);
+  const varied=Array.from({length:10},(_,trial)=>makeSpecialistScene('step-up',{
+    stepCm:5,trial,seed:735,randomize:true}));
+  assert.ok(new Set(varied.map(v=>v.distanceM.toFixed(4))).size>1);
+  assert.ok(varied.every(v=>v.distanceM>=.15&&v.distanceM<=.30));
+  assert.ok(varied.every(v=>v.lipM>=.0475&&v.lipM<=.0525));
+  assert.ok(varied.every(v=>v.approachDeg>=-3&&v.approachDeg<=3));
+  assert.ok(varied.every(v=>v.sideOffsetM>=-.05&&v.sideOffsetM<=.05));
+  assert.ok(new Set(varied.map(v=>v.approachDeg.toFixed(3))).size>1);
+  assert.ok(varied.every(v=>v.phaseRad>=0&&v.phaseRad<Math.PI*2));
+  assert.ok(new Set(varied.map(v=>v.phaseRad.toFixed(3))).size>1);
+  // The same 225 physical bodies persist as we switch all the way back
+  // from Academy to generalised Meadow; only hfield samples are reset.
+  const before=park.tiles;
+  park.configureScenario(null,{hillPeakDeg:0,stepUpM:0,stepDownM:0,
+    stepFrequency:0,northGainPerM:0});
+  park.resetGrowth();
+  assert.strictEqual(park.tiles,before);
+  assert.equal(park.sampleHeight(1.2,.5),0);
+  assert.throws(()=>makeSpecialistScene('invented'),/Unknown/);
+});
+
+test('cross slopes are physical, continuous and opposite in sign',()=>{
+  const left=makeSpecialistScene('slope-left',{gradeDeg:10,randomize:false});
+  const right=makeSpecialistScene('slope-right',{gradeDeg:10,randomize:false});
+  const climb=makeSpecialistScene('slope-up',{gradeDeg:10,randomize:false});
+  const descend=makeSpecialistScene('slope-down',{gradeDeg:10,randomize:false});
+  assert.equal(left.axis,'y');
+  assert.ok(specialistTileCorners(0,0,left)[2]>0);
+  assert.ok(specialistTileCorners(0,0,right)[2]<0);
+  assert.ok(specialistTileCorners(0,0,climb)[1]>0);
+  assert.ok(specialistTileCorners(0,0,descend)[1]<0);
+  assert.equal(specialistTileCorners(0,0,climb)[1],
+    specialistTileCorners(1,0,climb)[0]);
+});
+
+test('first lip completion requires both real soles on the new physical surface',()=>{
+  const scenario=makeSpecialistScene('step-down',{stepCm:2,randomize:false});
+  const feet=[
+    {x:1.12,soleZ:-.02,groundZ:-.02},
+    {x:1.13,soleZ:-.02,groundZ:-.02}
+  ];
+  const args={scenario,bodyX:1.12,feet,fallen:false};
+  assert.equal(supportedFirstLip(args),true);
+  assert.equal(supportedFirstLip({...args,bodyX:.98}),false);
+  assert.equal(supportedFirstLip({...args,fallen:true}),false);
+  assert.equal(supportedFirstLip({...args,feet:[
+    feet[0],{...feet[1],x:.98}]}),false);
+  assert.equal(supportedFirstLip({...args,feet:[
+    feet[0],{...feet[1],soleZ:.08}]}),false);
 });

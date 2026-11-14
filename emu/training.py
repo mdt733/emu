@@ -51,7 +51,8 @@ from .curriculum import RegimeGovernor
 from .training_health import TrainingHealth
 from .capability_focus import (teaching_profile, attention_weights, FOCUS_NAMES,
                                academy_birth_allocation, academy_focus_mix,
-                               academy_conditional_birth_share)
+                               academy_conditional_birth_share, school_lesson,
+                               school_without_steps)
 from .ppo import (make_trainer, update_running_stats, build_obs_norm_mask,
                   PerfBook, configure_jax, require_backend)
 from .results import (
@@ -136,6 +137,12 @@ def env_kwargs_from_args(args) -> dict:
         science_step_velocity_relief=args.science_step_velocity_relief,
         science_step_approach_m=args.science_step_approach_m,
         science_step_finish_on_transfer=args.science_step_finish_on_transfer,
+        two_lip_continuation_school=args.two_lip_continuation_school,
+        stair_tournament_arm=args.stair_tournament_arm,
+        outcome_graduation=args.outcome_graduation,
+        progressive_school=args.progressive_school,
+        refined_school=args.refined_school,
+        bidirectional_school=args.bidirectional_school,
         academy_stream=args.academy_stream,
         terrain_carpet=args.terrain_carpet,
         terrain_carpet_prisms=args.terrain_carpet_prisms,
@@ -324,7 +331,12 @@ def train(args: TrainingConfig) -> int:
                               unified_capability_focus=args.unified_capability_focus,
                               science_step_promotion_mm=args.science_step_promotion_mm,
                               science_step_retreat_mm=args.science_step_retreat_mm,
-                              science_step_min_attempts=args.science_step_min_attempts)
+                              science_step_min_attempts=args.science_step_min_attempts,
+                              outcome_mode=args.outcome_graduation,
+                              progressive_school=args.progressive_school,
+                              refined_school=args.refined_school,
+                              bidirectional_school=args.bidirectional_school,
+                              two_lip_continuation_school=args.two_lip_continuation_school)
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:
@@ -357,7 +369,10 @@ def train(args: TrainingConfig) -> int:
                         / 'training_config.json')
                     if parent_cfg_path.is_file():
                         try:
-                            parent_cfg = TrainingConfig.load(parent_cfg_path)
+                            # run.py already verified the external ancestor's source
+                            # and whole-checkpoint SHA256 before training.
+                            parent_cfg = TrainingConfig.load(
+                                parent_cfg_path, research_parent=True)
                             safe_evidence_fork = (
                                 compatible_academy_evidence_recipe(
                                     parent_cfg, args))
@@ -382,6 +397,12 @@ def train(args: TrainingConfig) -> int:
         except Exception as exc:
             raise RuntimeError(f"--resume curriculum/health restore failed: {exc}") from exc
 
+    # Source-pinned curriculum fork: no 3mm warm-up for the 50mm nursery.
+    if args.outcome_graduation:
+        governor.params.academy_height_up_m=min(args.academy_height_cap_m,
+            max(.050,governor.params.academy_height_up_m))
+        governor.params.academy_height_down_m=min(args.academy_height_cap_m,
+            governor.params.academy_height_down_m)
     # The capability field is built from the SAME rollout
     # metrics already transferred for PPO/governor diagnostics; there is no
     # extra simulation and no per-death host callback.  Held-out cloud results
@@ -421,6 +442,20 @@ def train(args: TrainingConfig) -> int:
             weights=list(attention_weights(
                 schedule=args.teaching_schedule,step=step,
                 foundation_steps=args.foundation_steps))
+            school=(school_lesson(
+                step=step,core_competence=governor.core_competence,
+                walking_graduated=governor.school_walking_graduated,
+                stair_mastered_step=governor.school_stair_mastered_step,
+                refined_school=args.refined_school,
+                uncoached_certified_step=governor.school_refined_state['uncoached_certified_step'],
+                descent_unlocked_step=governor.school_refined_state['descent_unlocked_step'],
+                descent_certified_step=governor.school_refined_state['descent_certified_step'],
+                rescue_end_step=governor.school_refined_state['rescue_end_step'])
+                if args.progressive_school else None)
+            if school is not None and not school['stairs_enabled']:
+                # Before 80M AND walking proof, do not steal learning budget
+                # for STEP specialist births or physical step contacts.
+                weights=list(school_without_steps(weights))
             # Reserve a deterministic share of all focused births for
             # useful moving, low-disturbance retention (CONTROL role).
             # The ordinary control role remains unchanged in baseline arms.
@@ -441,6 +476,13 @@ def train(args: TrainingConfig) -> int:
                     ramp_steps=args.academy_ramp_steps,
                     intro_share=args.academy_intro_share,
                     max_share=args.academy_max_share)
+                if args.progressive_school:
+                    academy_share=(academy_share if school['stairs_enabled'] else 0.)
+                elif args.outcome_graduation:
+                    # Retain the earlier experiment's immediate stair fork
+                    # only outside the progressive cold-start school.
+                    if step>=args.outcome_walk_start_steps:
+                        academy_share=max(academy_share,.60)
                 # Fast rehearsal was reserved BEFORE focus assignment.
                 # Honour 50% of ALL births rather than accidentally 50% of
                 # the remaining 75% when 25% of worlds rehearse fast gait.
@@ -449,6 +491,28 @@ def train(args: TrainingConfig) -> int:
                 weights,academy_probability=academy_focus_mix(
                     weights,conditional)
             d['academy_episode_probability']=academy_probability
+            if args.progressive_school:
+                d['outcome_walk_alpha']=school['walk_alpha']
+                d['outcome_stair_alpha']=school['stair_alpha']
+                if args.bidirectional_school:
+                    from .capability_focus import bidirectional_down_lesson
+                    b=governor.school_bidirectional_state
+                    down=bidirectional_down_lesson(
+                        step=step,stairs_enabled=school['stairs_enabled'],
+                        mastered_step=b['down_mastered_step'],
+                        uncoached_step=b['down_uncoached_certified_step'],
+                        certified_5cm_step=b['down_5cm_certified_step'],
+                        rescue_end_step=b['down_rescue_end_step'])
+                    d['outcome_down_stair_alpha']=down['down_alpha']
+                    d['outcome_down_share']=down['down_share']
+                else:
+                    d['outcome_down_stair_alpha']=school['stair_alpha']
+                    d['outcome_down_share']=school['down_share']
+            elif args.outcome_graduation:
+                competence=max(0.,min(1.,(governor.core_competence-.40)/.25))
+                d['outcome_walk_alpha']=(min(1.,max(0.,(step-args.outcome_walk_start_steps)/10_000_000.))*competence)
+                d['outcome_stair_alpha']=(min(1.,max(0.,(step-args.outcome_approval_start_steps)/10_000_000.)) if args.outcome_stair_approved else 0.)
+                d['outcome_down_share']=(args.outcome_down_share if args.outcome_stair_approved else 0.)
             for name,weight in zip(FOCUS_NAMES,weights):
                 d['focus_weight_'+name]=weight
             # Keep the 70-update steady-only bootstrap exactly where the
@@ -470,6 +534,9 @@ def train(args: TrainingConfig) -> int:
                 d['terrain_height_m'] = 0.0
                 d['slope_exposure'] = 0.0
                 d['slope_max_deg'] = 0.0
+            elif school is not None and not school['stairs_enabled']:
+                d['terrain_exposure'] = 0.0
+                d['terrain_height_m'] = 0.0
         elif step < args.foundation_steps:
             d['terrain_exposure'] = 0.0
             d['terrain_height_m'] = 0.0
@@ -606,6 +673,7 @@ def train(args: TrainingConfig) -> int:
     # This only aggregates already-transferred scalars; no GPU work or PPO
     # behavior changes. The count is since THIS process began.
     stair_audit = StairCreditAudit()
+    last_school_stage = None
     log_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(LOG_EVERY_UPDATES))
     save_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(CHECKPOINT_EVERY_UPDATES))
     snapshot_every_steps = max(0, int(SNAPSHOT_EVERY_STEPS))
@@ -692,6 +760,35 @@ def train(args: TrainingConfig) -> int:
             foundation_steps=args.foundation_steps,
             kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']),
             academy_max_height_m=(args.academy_height_cap_m if args.academy_stream else 0.))
+        if args.progressive_school:
+            stage=report['school_stage']
+            if stage != last_school_stage:
+                print(f'{LOG_PREFIX} SCHOOL {stage} at {total_steps:,}: '
+                      f"walking-fade={report['school_walk_alpha']:.2f} "
+                      f"stairs={report['school_stairs_enabled']:.0f} "
+                      f"up-frontier={report['academy_height_up_m']*100:.1f}cm",
+                      flush=True)
+                last_school_stage=stage
+            proof=report.get('school_stair_proof_event','')
+            if proof in ('50mm_window_pass','50mm_window_retry',
+                         '50mm_training_mastery'):
+                print(f'{LOG_PREFIX} SCHOOL physical 5cm proof: {proof} '
+                      f"good-windows={report['school_up_good_windows']:.0f}/2 "
+                      f"mastered-at={report['school_stair_mastered_step']}",
+                      flush=True)
+            refined_event=report.get('school_refined_event','')
+            if args.refined_school and refined_event in (
+                    'coaching_off_begin_fresh_proof',
+                    'uncoached_50mm_certified',
+                    'uncoached_50mm_rescue_started',
+                    'anchor_50mm_regression_hold',
+                    'uphill_75mm_certified_descent_opened',
+                    'downhill_50mm_certified'):
+                print(f'{LOG_PREFIX} SCHOOL RETENTION {refined_event} '
+                      f'at {total_steps:,} uphill='
+                      f"{report['academy_height_up_m']*100:.1f}cm "
+                      f"downhill={report['academy_height_down_m']*100:.1f}cm",
+                      flush=True)
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
         report.update(health_collapse)

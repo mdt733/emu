@@ -658,6 +658,12 @@ def run_training(config: TrainingConfig, *, provenance: dict[str, Any]) -> None:
         "EMU_GIT_DESCRIBE": str(provenance.get("describe", "")),
         "EMU_GIT_DIRTY": "true" if provenance.get("dirty") else "false",
     })
+    # Parent-only presentation: CSV/logging/checkpoints and subprocess
+    # stdout stay byte-for-byte unchanged. Configure per launch with
+    # EMU_CONSOLE_MODE=auto|dashboard|compact|verbose; it is NOT part of
+    # the hashed learning recipe, so this cannot modify training lineage.
+    from .console_dashboard import ConsoleRelay
+    relay = ConsoleRelay(run_dir, target_steps=config.steps)
     # A subprocess traceback is useless if we only echo its first
     # "Traceback" line. Keep a small bounded diagnostic tail while still
     # writing the FULL uncropped output to the canonical run console.log.
@@ -674,9 +680,8 @@ def run_training(config: TrainingConfig, *, provenance: dict[str, Any]) -> None:
         while not stop_heartbeat.wait(30.0):
             quiet = time.monotonic() - last_child_output[0]
             if quiet >= 30.0:
-                print(f"{LOG} working: {phase[0]} "
-                      f"({quiet:.0f}s since trainer output; full details in console.log)",
-                      flush=True)
+                relay.pulse(f"{LOG} working: {phase[0]} "
+                            f"({quiet:.0f}s since trainer output)")
 
     with (run_dir / "console.log").open("a", encoding="utf-8") as log:
         proc = subprocess.Popen(cmd, env=env, stdout=subprocess.PIPE,
@@ -697,25 +702,12 @@ def run_training(config: TrainingConfig, *, provenance: dict[str, Any]) -> None:
                         phase[0] = "frozen MJX physical examination"
                     elif "compile+first_update=" in t or t.startswith(LOG + " step="):
                         phase[0] = "steady PPO training"
-                if (t.startswith(LOG + " step=") or
-                        t.startswith(LOG + "   lessons ") or
-                        t.startswith(LOG + "   speed ") or
-                        t.startswith(LOG + " training start ") or
-                        t.startswith(LOG + " one cold-start ") or
-                        t.startswith(LOG + " obs_dim=") or
-                        t.startswith(LOG + " compiling MJX/JAX update") or
-                        t.startswith(LOG + " compile+first_update=") or
-                        t.startswith(LOG + " fixed-eval ") or
-                        t.startswith(LOG + " PPO TARGET REACHED") or
-                        t.startswith(LOG + " final ") or
-                        t.startswith(LOG + " WARNING:") or
-                        "AUTO-RECOVERY" in t or
-                        "training complete" in t or "Traceback" in t):
-                    print("    " + t[:400], flush=True)
+                relay.forward(line)
             rc = proc.wait()
         finally:
             stop_heartbeat.set()
             worker.join(timeout=1.0)
+            relay.close()
     if rc:
         print(f"{LOG} training subprocess exited with code {rc}; last diagnostic lines:", flush=True)
         for line in error_tail:

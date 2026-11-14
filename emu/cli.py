@@ -18,7 +18,6 @@ def main(argv=None) -> int:
     p.add_argument('--version',action='version',version=VERSION)
     sub=p.add_subparsers(dest='cmd',required=True)
 
-    q=sub.add_parser('view',help='open the read-only capability-field viewer'); q.add_argument('--seed',type=int,default=None,help='legacy explicit seed subfolder'); q.add_argument('--run-root',default=''); q.add_argument('--run-dir',default=''); q.add_argument('--port',type=int,default=8765)
     q=sub.add_parser('doctor',help='validate Python/JAX/MJX and core contracts')
     q.add_argument('--require-gpu',action=argparse.BooleanOptionalAction,default=True)
     q.add_argument('--no-mjx-smoke',action='store_true')
@@ -109,6 +108,30 @@ def main(argv=None) -> int:
                    help='v5052 loosen forward-speed tracking during Academy step negotiation, 0..1')
     q.add_argument('--science-step-approach-m',type=float,default=0.,
                    help='v5052 respawn Academy robots 0.1..0.35m before next real 1m tile boundary; 0=original spawn')
+    q.add_argument('--outcome-graduation',action='store_true',help='graduate gait rewards and teach 50mm physical stairs')
+    q.add_argument('--progressive-school',action='store_true',
+                   help='cold 0-20-60-80M walking school, then competence-gated 50mm stairs')
+    q.add_argument('--refined-school',action='store_true',
+                   help='5cm assisted mastery -> remove stair coaching -> verify uncoached -> slow uphill -> descents')
+    q.add_argument('--bidirectional-school',action='store_true',
+                   help='paired 50/50 uphill and downhill nursery from walking graduation, independent shaping/proof')
+    q.add_argument('--outcome-walk-start-steps',type=int,default=60000000,help='absolute steps when 10M walking graduation starts')
+    q.add_argument('--outcome-stair-approved',action='store_true',help='fade dense coaching after independently proven 50mm climbs')
+    q.add_argument('--outcome-approval-start-steps',type=int,default=0,help='absolute steps when independent stair proof was approved')
+    q.add_argument('--outcome-down-share',type=float,default=.20,help='descent share after stair graduation')
+    q.add_argument('--stair-tournament-arm',
+                   choices=('off','control','progressive','free-phase','foothold','commands',
+                            'progressive+free-phase','progressive+foothold','progressive+commands',
+                            'free-phase+foothold','free-phase+commands','foothold+commands',
+                            'progressive+free-phase+foothold',
+                            'progressive+free-phase+commands',
+                            'progressive+foothold+commands',
+                            'free-phase+foothold+commands',
+                            'progressive+free-phase+foothold+commands'),
+                   default='off',
+                   help='Experiment D teaching laboratory: 16 factorial arms with common physical certification, no finalist elimination')
+    q.add_argument('--two-lip-continuation-school',action='store_true',
+                   help='Experiment C: physical two 1m-spaced signed lips, 50cm post-second recovery + commanded vx; one cold policy')
     q.add_argument('--science-step-finish-on-transfer',action='store_true',
                    help='v5054 Academy-only: end as success after both feet top + safe 10cm ascent, respawn for next lip')
     q.add_argument('--science-step-promotion-mm',type=float,default=0.,
@@ -160,15 +183,6 @@ def main(argv=None) -> int:
     if args.cmd=='doctor':
         from .doctor import doctor
         return doctor(args)
-    if args.cmd=='view':
-        from .contracts import seed_root, run_base
-        from .capability_viewer import field_main as view
-        av=['--port',str(args.port)]
-        if args.run_dir: av += ['--run-dir',args.run_dir]
-        elif args.run_root: av += ['--run-root',str(Path(args.run_root).expanduser())]
-        elif args.seed is not None: av += ['--run-root',str(seed_root(args.seed))]
-        else: av += ['--run-root',str(run_base())]
-        return int(view(av) or 0)
     if args.cmd=='posture-report':
         from .contracts import run_base
         from .results import posture_report

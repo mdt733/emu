@@ -1,11 +1,11 @@
-"""v5053 GPU-matrix contract: true per-world fixtures and honest score bins."""
+"""Current GPU-matrix contract: true per-world fixtures and honest score bins."""
 from __future__ import annotations
 
 import unittest
 from dataclasses import asdict
 import numpy as np
 
-from scripts.v5053_matrix_exam import (
+from scripts.capability_matrix_exam import (
     assignments,reduce_results,wilson_95,compare_paired_exams,PAIRED_GATES)
 from emu.terrain_carpet_mjx import (
     TILE_M,exact_exam_lip_profiles,tile_geometry)
@@ -56,6 +56,8 @@ class MatrixExamTests(unittest.TestCase):
             actual_grade_deg=np.zeros(4),
             survived=np.array([True,True,False,True]),
             lead_foot_top=np.array([True,True,False,False]),
+            toe_cleared_lip_before_body_cross=np.array([True,False,False,False]),
+            max_toe_clearance_before_body_cross_m=np.array([.012,.006,-.03,-1.]),
             both_feet_top_five=np.array([True,False,False,False]),
             goal_line_crossed=np.array([True,True,False,False]),
             goal_line_after_both=np.array([True,False,False,False]),
@@ -80,6 +82,8 @@ class MatrixExamTests(unittest.TestCase):
         row=curve[0]
         self.assertEqual(row["leading_top"],2)
         self.assertEqual(row["each_foot_top_five"],1)
+        self.assertEqual(row["toe_cleared_before_body"],1)
+        self.assertAlmostEqual(row["toe_max_clearance_mean_mm"],-4.,places=5)
         self.assertEqual(row["completed_destinations"],1)
         self.assertEqual(row["goal_line_crossed"],2)
         self.assertEqual(row["goal_line_after_both"],1)

@@ -46,7 +46,11 @@ def training_flags(run_dir: Path, seed: int = 735) -> list[str]:
     ]
 
 
-def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
+def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path, monkeypatch):
+    # Parent console is a read-only part of the launch/CLI contract, not
+    # a new independent physics test or PPO teaching capability.
+    _assert_readonly_console_dashboard_five_million_step_trends_and_tty(
+        tmp_path, monkeypatch)
     from emu.cli import main as emu_cli_main
     cli_args=training_flags(tmp_path/"run")
     seen=[]
@@ -99,6 +103,84 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     m["cmd_vx"]=np.asarray([.12],np.float32)
     assert float(_gait_maturity(m,np,allow_zero_command_balance=True)[1][0])==pytest.approx(.30)
     assert cfg.physical_profile=="h40"
+    # The real overnight school is ONE cold 180M trainer, not a
+    # 120M checkpoint fork with walking and stair coaching overlapped.
+    school_flags=[
+        "train","--run-dir",str(tmp_path/"progressive"),
+        "--steps","180000000","--envs","2048","--device","cuda",
+        "--seed","735","--profile","sim2real",
+        "--terrain-actor","--terrain-step-max-m",".08",
+        "--unified-capabilities","--terrain-carpet","--carpet-prisms",
+        "--academy-stream","--terrain-lesson","coherent-careful",
+        "--growth-recipe","main-mature","--teaching-schedule","staged",
+        "--progressive-school",
+    ]
+    with patch("emu.run.train_one",side_effect=capture):
+        assert emu_cli_main(school_flags)==0
+    school_cfg=seen[-1]
+    assert school_cfg.progressive_school and school_cfg.outcome_graduation
+    assert school_cfg.foundation_steps==20_000_000
+    assert school_cfg.outcome_walk_start_steps==60_000_000
+    assert school_cfg.academy_intro_steps==80_000_000
+    assert school_cfg.academy_start_steps==80_000_000
+    assert school_cfg.academy_ramp_steps==20_000_000
+    assert school_cfg.academy_height_cap_m==pytest.approx(.08)
+    assert school_cfg.science_step_finish_on_transfer
+    assert not school_cfg.refined_school
+    with patch("emu.run.train_one",side_effect=capture):
+        assert emu_cli_main(school_flags+["--refined-school"])==0
+    refined=seen[-1]
+    assert refined.progressive_school and refined.refined_school
+    assert refined.outcome_graduation
+    assert refined.academy_height_cap_m==pytest.approx(.08)
+    with patch("emu.run.train_one",side_effect=capture):
+        assert emu_cli_main(school_flags+["--refined-school",
+                                        "--bidirectional-school"])==0
+    paired=seen[-1]
+    assert paired.progressive_school and paired.refined_school
+    assert paired.bidirectional_school and paired.outcome_graduation
+    assert paired.terrain_carpet_prisms
+    assert paired.academy_height_cap_m==pytest.approx(.08)
+    from emu.run import verify_experiment_fork
+    verify_experiment_fork(school_cfg,paired)
+    with pytest.raises(ValueError,match="requires --progressive-school"):
+        with patch("emu.run.train_one",side_effect=lambda ns:one_run_config(ns)):
+            emu_cli_main(training_flags(tmp_path/"bad_paired")+
+                         ["--bidirectional-school"])
+    # The refined recipe is a source-verified new run, not an in-place
+    # change to a 300M checkpoint's immutable teaching contract.
+    from emu.run import verify_experiment_fork
+    verify_experiment_fork(school_cfg,refined)
+    with pytest.raises(ValueError,match="requires --progressive-school"):
+        with patch("emu.run.train_one",side_effect=lambda ns:one_run_config(ns)):
+            emu_cli_main(training_flags(tmp_path/"bad_refined")+
+                         ["--refined-school"])
+    from emu.capability_focus import school_lesson,school_without_steps
+    assert school_lesson(step=0,core_competence=0.,
+                         walking_graduated=False,stair_mastered_step=-1)['stage']=='foundation'
+    assert school_lesson(step=40_000_000,core_competence=.9,
+                         walking_graduated=False,stair_mastered_step=-1)['stage']=='supported_growth'
+    fading=school_lesson(step=70_000_000,core_competence=.9,
+                         walking_graduated=False,stair_mastered_step=-1)
+    assert fading['stage']=='walking_graduation'
+    assert fading['walk_alpha']==pytest.approx(.5)
+    not_ready=school_lesson(step=100_000_000,core_competence=.38,
+                         walking_graduated=False,stair_mastered_step=-1)
+    assert not not_ready['stairs_enabled']
+    assert not_ready['stair_alpha']==0.
+    approved=school_lesson(step=80_000_000,core_competence=.55,
+                         walking_graduated=True,stair_mastered_step=-1)
+    assert approved['stairs_enabled'] and approved['stair_alpha']==0.
+    assert approved['down_share']==0.
+    mastered=school_lesson(step=110_000_000,core_competence=.20,
+                         walking_graduated=True,stair_mastered_step=100_000_000)
+    assert mastered['stair_alpha']==pytest.approx(.5)
+    assert mastered['down_share']==pytest.approx(.1)
+    weights=school_without_steps((.2,.2,.2,.2,.1,.1))
+    assert sum(weights)==pytest.approx(1.) and weights[3]==0.
+    with pytest.raises(ValueError,match='progressive school requires'):
+        with patch("emu.run.train_one",side_effect=lambda ns:one_run_config(ns)):
+            emu_cli_main(school_flags+["--foundation-steps","10000000"])
     assert not {"cloud_probes_per_eval","cloud_final_probes",
                 "science_reset_step_evidence_on_fork"} & asdict(cfg).keys()
     assert training_sensor_contract(cfg) is not None
@@ -160,6 +242,41 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     cfg_path = tmp_path / "training_config.json"
     first.save(cfg_path)
     assert TrainingConfig.load(cfg_path) == first
+    # Actual H40 120M ancestor schema: five new graduation fields absent,
+    # three retired settings present. Adapt only for an external research fork,
+    # not for a same-source retry or checkpoint continuation.
+    ancestor=asdict(first)
+    for key in ('outcome_graduation', 'outcome_walk_start_steps',
+                'outcome_stair_approved', 'outcome_approval_start_steps',
+                'outcome_down_share'):
+        ancestor.pop(key)
+    ancestor.update(cloud_final_probes=0, cloud_probes_per_eval=0,
+                    science_reset_step_evidence_on_fork=False)
+    cfg_path.write_text(json.dumps(ancestor), encoding="utf-8")
+    with pytest.raises(ValueError, match="training config keys mismatch"):
+        TrainingConfig.load(cfg_path)
+    migrated=TrainingConfig.load(cfg_path, research_parent=True)
+    assert migrated == first
+    from emu.run import verify_experiment_fork
+    verify_experiment_fork(migrated, replace(first, outcome_graduation=True))
+    # Parent recipe is parseable, but its old success semantics must not
+    # masquerade as measured 50mm stair-completion evidence.
+    from emu.training import compatible_academy_evidence_recipe
+    assert not compatible_academy_evidence_recipe(
+        migrated, replace(first, outcome_graduation=True,
+                          science_step_finish_on_transfer=True))
+    for key, value in (('cloud_final_probes', 10),
+                       ('cloud_probes_per_eval', 1),
+                       ('science_reset_step_evidence_on_fork', True)):
+        invalid={**ancestor, key:value}
+        cfg_path.write_text(json.dumps(invalid), encoding="utf-8")
+        with pytest.raises(ValueError, match="non-default"):
+            TrainingConfig.load(cfg_path, research_parent=True)
+    cfg_path.write_text(json.dumps({**ancestor, 'unknown_legacy_switch':0}),
+                        encoding="utf-8")
+    with pytest.raises(ValueError, match="training config keys mismatch"):
+        TrainingConfig.load(cfg_path, research_parent=True)
+    first.save(cfg_path)
     partial = json.loads(cfg_path.read_text(encoding="utf-8"))
     # The new physical lineage has no pre-v5054 migration exceptions.
     # A missing teaching field is a different recipe, not a compatible run.
@@ -308,3 +425,97 @@ def test_current_360_checkpoint_roundtrip_rejects_sensor_drift(tmp_path):
         load_checkpoint(file,expected_observation_schema=OBS_SCHEMA_TERRAIN,
                         expected_sensor_contract=corrupted)
 
+
+
+def _assert_readonly_console_dashboard_five_million_step_trends_and_tty(tmp_path, monkeypatch):
+    """Display-only: compare two *sampled* 5M windows across resumed history."""
+    import csv
+    import io
+    from emu.console_dashboard import (
+        ConsoleRelay, console_mode, read_history, render_screen,
+        metric_delta, stair_window_trend, latest_heldout,
+    )
+    path = tmp_path / "metrics.csv"
+    data = [
+        dict(step=str(i * 1_000_000),
+             reward_mean=str(1. + i / 10),
+             fall_rate=str(.40 - i / 100),
+             ep_len_mean=str(200 + 10 * i),
+             core_competence=str(.3 + i / 20),
+             academy_episodes="10",
+             academy_short_climb_successes="2" if 1 <= i <= 6 else "5",
+             academy_near_attempts_up="40",
+             academy_near_successes_up="10",
+             academy_near_attempts_down="40",
+             academy_near_successes_down="20",
+             command_probe_attempts_vx_hi="8",
+             command_probe_successes_vx_hi="6",
+             slope_near_attempts_uphill="8",
+             slope_near_stability_successes_uphill="4",
+             eval_policy_step=str((i // 5) * 5_000_000),
+             eval_broad_score=str(.80 + (i // 5) * .02))
+        for i in range(12)
+    ]
+    with path.open("w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=list(data[0]))
+        writer.writeheader()
+        writer.writerows(data)
+    history = read_history(path)
+    assert len(history) == 12
+    assert metric_delta(history, "reward_mean", precision=2) == "+0.50"
+    assert metric_delta(history, "fall_rate", scale=100, precision=1,
+                        suffix="pp") == "-5.0pp"
+    assert metric_delta(history[:4], "reward_mean") == "--"
+    assert "5M sampled: 25/50 (50.0%)" in stair_window_trend(history)
+    assert "Δ vs prior 5M +30.0pp" in stair_window_trend(history)
+    assert "Δ since 5M +0.020" in latest_heldout(history)
+    screen = render_screen(history[-1], phase="PPO",
+                           target_steps=300_000_000,
+                           run_name="test-run", history=history,
+                           width=80, height=24)
+    assert all(section in screen for section in (
+        "MAIN", "COMMANDS", "SLOPES", "STEPS", "RESILIENCE",
+        "TRANSITIONS", "CONTROL", "TRAINING", "FROZEN", "EVENTS"))
+    assert "5M near UP 50/200 (25.0%)" in screen
+    assert "DOWN 100/200 (50.0%)" in screen
+    assert "vx+ 75%(40)" in screen
+    assert "stable up 50%(40)" in screen
+    assert "approach angle: unmeasured" in screen
+    assert "-5.0pp" in screen
+    tall = render_screen(history[-1], phase="PPO",
+                         target_steps=300_000_000, run_name="test-run",
+                         history=history, width=100, height=36)
+    assert "settled command tracking" in tall
+    assert "5M anchor UP" in tall
+    assert "focus share" in tall
+    assert all(len(line) < 80 for line in screen.splitlines())
+    assert len(screen.splitlines()) <= 22
+
+    # Empty or sparse histories must NOT fabricate a directional trend.
+    sparse = [dict(step="10000000", academy_episodes="0")]
+    assert metric_delta(sparse, "reward_mean") == "--"
+    assert "insufficient" in stair_window_trend(sparse)
+
+    stream = io.StringIO()
+    assert console_mode("auto", stream) == "compact"
+    compact = ConsoleRelay(tmp_path, target_steps=300_000_000,
+                           mode="compact", stream=stream)
+    compact.forward("[emu_v5015] step=11,000,000 rew=+2.100\n")
+    assert "Δ5M=" in stream.getvalue()
+    assert "\x1b[" not in stream.getvalue()
+
+    class FakeTty(io.StringIO):
+        def isatty(self):
+            return True
+
+    monkeypatch.setenv("TERM", "xterm-256color")
+    monkeypatch.delenv("NO_COLOR", raising=False)
+    tty = FakeTty()
+    relay = ConsoleRelay(tmp_path, target_steps=300_000_000,
+                         mode="dashboard", stream=tty)
+    relay.forward("[emu_v5015] step=11,000,000 rew=+2.100\n")
+    relay.forward("[emu_v5015] SCHOOL assisted_stairs at 11M\n")
+    relay.close()
+    assert "\x1b[2J" in tty.getvalue()
+    assert "STEPS" in tty.getvalue()
+    assert tty.getvalue().endswith("\x1b[?25h\n")

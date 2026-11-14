@@ -172,7 +172,88 @@ def one_run_config(args) -> TrainingConfig:
         if not math.isfinite(value) or not lo<=value<=hi:
             raise ValueError(f'{key} must be finite and in [{lo},{hi}]')
         science_args[key]=value
+    school=bool(getattr(args,'progressive_school',False))
+    refined=bool(getattr(args,'refined_school',False))
+    if refined and not school:
+        raise ValueError('--refined-school requires --progressive-school')
+    paired=bool(getattr(args,'bidirectional_school',False))
+    if paired and not (school and refined):
+        raise ValueError('--bidirectional-school requires --progressive-school and --refined-school')
+    outcome=bool(getattr(args,'outcome_graduation',False)) or school
+    walk_start=int(getattr(args,'outcome_walk_start_steps',60_000_000))
+    approved=bool(getattr(args,'outcome_stair_approved',False))
+    approved_start=int(getattr(args,'outcome_approval_start_steps',0))
+    down_share=float(getattr(args,'outcome_down_share',.20))
+    if (walk_start<0 or approved_start<0 or not math.isfinite(down_share)
+            or not 0.<=down_share<=.40 or (approved and not outcome)
+            or (approved and approved_start<=0)
+            or (outcome and terrain_max<.06)):
+        raise ValueError('outcome requires >=60mm true-prism capacity; stair approval needs positive start step')
+    if outcome:
+        if height_cap<.05:
+            raise ValueError('outcome 50mm nursery cannot have a lower Academy cap')
+        # Signed 50..80mm prism nursery: physical data must not saturate
+        # silently while the governor reports a taller fictitious frontier.
+        height_cap=min(height_cap,.08)
+    if school:
+        # A single source-pinned lesson recipe, not 20M/60M/80M train jobs.
+        # Old outcome mode remains available on its original research branch.
+        if (foundation_steps != 20_000_000 or
+                walk_start != 60_000_000 or
+                not unified or not terrain_actor or not terrain_carpet or
+                not carpet_prisms or not academy_stream or
+                terrain_lesson != 'coherent-careful' or
+                approved or not .08 <= terrain_max <= .08 or
+                teaching_schedule != 'staged'):
+            raise ValueError(
+                'progressive school requires: 20M foundation, 60M walking fade, '
+                'staged specialists, coherent-careful true-prism Academy, '
+                '80mm physical capacity, and no premature stair approval')
+        # No Academy births before walking has graduated. The teacher gates
+        # this schedule by evidence as well as by the 80M age boundary.
+        intro=start=80_000_000
+        ramp=20_000_000
+        intro_share=.10
+        academy_share=.55
     finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
+    dual_lip=bool(getattr(args,'two_lip_continuation_school',False))
+    stair_arm=str(getattr(args,'stair_tournament_arm','off'))
+    if stair_arm not in ('off','control','progressive','free-phase','foothold','commands',
+                            'progressive+free-phase','progressive+foothold','progressive+commands',
+                            'free-phase+foothold','free-phase+commands','foothold+commands',
+                            'progressive+free-phase+foothold',
+                            'progressive+free-phase+commands',
+                            'progressive+foothold+commands',
+                            'free-phase+foothold+commands',
+                            'progressive+free-phase+foothold+commands'):
+        raise ValueError('invalid stair tournament arm')
+    if stair_arm!='off' and not dual_lip:
+        raise ValueError('stair teaching laboratory requires --two-lip-continuation-school')
+    if 'foothold' in stair_arm.split('+'):
+        # Factor F is a PREDECLARED authentic-contact payment schedule,
+        # not a silent hidden default or manually tweaked reward search.
+        for k,amount in (
+            ('science_supported_cross_bonus',3.),
+            ('science_foothold_bonus',4.),
+            ('science_bilateral_support_bonus',6.),
+            ('science_followthrough_bonus',6.)):
+            if science_args[k] != 0.:
+                raise ValueError('Foothold treatment owns '+k+'; do not double-pay')
+            science_args[k]=amount
+    elif stair_arm not in ('off',) and any(
+            science_args[k]!=0. for k in (
+                'science_supported_cross_bonus','science_foothold_bonus',
+                'science_bilateral_support_bonus','science_followthrough_bonus')):
+        raise ValueError('Laboratory control treatments must NOT inherit foothold-specific bonuses')
+    if dual_lip and not (school and refined and paired and outcome
+                          and finish_on_transfer):
+        raise ValueError('two-lip continuation requires --progressive-school '
+                         '--refined-school --bidirectional-school '
+                         '--outcome-graduation and --science-step-finish-on-transfer')
+    if dual_lip and science_args['science_step_goal_weight']>0.:
+        raise ValueError('two-lip continuation forbids first-destination terminal reward')
+    if dual_lip and course_frames<1200:
+        raise ValueError('two-lip continuation needs at least 1200 control frames')
     if finish_on_transfer and not academy_stream:
         raise ValueError('--science-step-finish-on-transfer requires Academy stream')
     approach=science_args['science_step_approach_m']
@@ -201,7 +282,16 @@ def one_run_config(args) -> TrainingConfig:
                    terrain_lesson=terrain_lesson, force_program=force_program,
                    temporal_vx_reward_share=temporal_share,
                    science_gate_mode=science_gate,
-                   science_step_finish_on_transfer=finish_on_transfer,
+                   science_step_finish_on_transfer=(finish_on_transfer or outcome),
+                   outcome_graduation=outcome,
+                   progressive_school=school, refined_school=refined,
+                   bidirectional_school=paired,
+                   two_lip_continuation_school=dual_lip,
+                   stair_tournament_arm=stair_arm,
+                   outcome_walk_start_steps=walk_start,
+                   outcome_stair_approved=approved,
+                   outcome_approval_start_steps=approved_start,
+                   outcome_down_share=down_share,
                    **science_args,
                    stillness_birth_frac=stillness_birth_frac,
                    science_step_promotion_mm=science_promotion,
@@ -431,7 +521,7 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str,
             parent_cfg=parent.parent.parent/'training_config.json'
             if not parent_cfg.is_file():
                 raise RuntimeError('research parent has no training_config.json')
-            verify_experiment_fork(TrainingConfig.load(parent_cfg), config)
+            verify_experiment_fork(TrainingConfig.load(parent_cfg, research_parent=True), config)
         parent_step = int(payload['meta']['step'])
         if parent_step >= expected:
             raise RuntimeError(f'Parent step {parent_step:,} is at/beyond target {expected:,}')

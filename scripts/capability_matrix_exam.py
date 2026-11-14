@@ -1,4 +1,4 @@
-"""v5053: one GPU matrix of independent physical capability trials.
+"""Current GPU matrix of independent physical capability trials.
 
 Read-only frozen .emupolicy evaluation. EXACT signed 1m-seam steps and
 continuous signed grades use the same 8 real convex prisms as live training.
@@ -20,7 +20,7 @@ import numpy as np
 # Fingerprint the actual frozen examiner implementation, not only its actor.
 # Two runs with matching policy hashes can still differ in evaluation physics.
 EXAM_SOURCE_PATHS=(
-    "scripts/v5053_matrix_exam.py","emu/environment.py","emu/ppo.py",
+    "scripts/capability_matrix_exam.py","emu/environment.py","emu/ppo.py",
     "emu/terrain_carpet_mjx.py","emu/carpet_prism_mjx.py",
     "emu/contracts.py","emu/tof_geometry.py","emu/training_config.py",
     "emu/rewards.py","emu/physical_variants.py","emu/policy_export.py",
@@ -170,6 +170,11 @@ def reduce_results(trials:list[Trial],result:dict[str,np.ndarray]):
         finished=sum(bool(x["completed_destination"]) for x in records) if target else 0
         arrived=sum(bool(x["both_feet_top_five"]) for x in records) if target else 0
         leading=sum(bool(x["lead_foot_top"]) for x in records) if target else 0
+        toe_prebody=sum(bool(x["toe_cleared_lip_before_body_cross"])
+                        for x in records) if target else 0
+        toe_values=[float(x["max_toe_clearance_before_body_cross_m"])*1000.
+                    for x in records
+                    if float(x["max_toe_clearance_before_body_cross_m"])>-.5]
         survived=sum(bool(x["survived"]) for x in records)
         low,high=wilson_95(finished,n)
         traverse_lo,traverse_hi=wilson_95(counts["traversed_5frame"],n)
@@ -186,6 +191,9 @@ def reduce_results(trials:list[Trial],result:dict[str,np.ndarray]):
             measured_grade_deg_mean=round(float(np.mean(
                 [x["actual_grade_deg"] for x in records])),4),
             leading_top=leading,each_foot_top_five=arrived,
+            toe_cleared_before_body=toe_prebody,
+            toe_max_clearance_mean_mm=(
+                round(float(np.mean(toe_values)),3) if toe_values else None),
             **counts,
             first_both_foot_x_mean_m=round(float(np.mean(first_contact_x)),4)
                 if first_contact_x else None,
@@ -297,7 +305,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     score_mask=np.asarray(
         [t.kind in ("step_up","step_down","flat_control") for t in trials],
         dtype=np.bool_)
-    print(f"v5053 MATRIX {worlds} real-prism MJX worlds, "
+    print(f"EMU MATRIX {worlds} real-prism MJX worlds, "
           f"{sum(x.kind!='padding' for x in trials)} assigned, "
           f"{horizon} frames, {mode} — compiling and measuring",flush=True)
     started=time.perf_counter()
@@ -351,6 +359,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
         if not selected:
             continue
         gates=("leading_top","each_foot_top_five",
+               "toe_cleared_before_body",
                "traversed_upright_5frame","traversed_in_lane_5frame",
                "traversed_5frame","completed_destinations")
         stage_counts[kind]=dict(
@@ -389,6 +398,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     for gate,label in (
         ("leading_top","First destination foot"),
         ("each_foot_top_five","Each foot supported for 5 frames"),
+        ("toe_cleared_before_body","Toe above upper lip +5mm before body"),
         ("traversed_upright_5frame","Upright crossing for 5 frames"),
         ("traversed_in_lane_5frame","Crossing plus lane for 5 frames"),
         ("traversed_5frame","Crossing plus lane and heading for 5 frames"),
@@ -452,7 +462,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
             "No neural weight or curriculum updates; confidence intervals",
             "reflect repeated trials, not PPO training-seed uncertainty."]
     (output/"matrix_summary.md").write_text("\n".join(lines)+"\n")
-    print(f"v5053 complete: {len(detail)} independent trials, "
+    print(f"EMU matrix complete: {len(detail)} independent trials, "
           f"{worlds*horizon/max(wall,.001):,.0f} world-steps/s including "
           f"compile; report {output/'matrix_summary.md'}",flush=True)
     return manifest,curves

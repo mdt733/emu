@@ -77,3 +77,98 @@ def stable_arrival(xp, qualified, previous_streak, already_completed):
     streak=xp.where(qualified,previous_streak+1,0)
     newly_completed=(streak>=GOAL_STABLE_FRAMES) & ~already_completed
     return streak, newly_completed
+
+
+
+def downhill_nursery_progress(xp, previous, body_xy, foot_xyz,
+                              foot_bottom, edge_x, source_top, lip_m,
+                              destination_contact_seen, eligible):
+    """Teach controlled descending, not the uphill foot-lift recipe.
+
+    Positive credit is one-time per episode and requires real signed
+    lower-tile geometry. Destination contact is certified separately by
+    the existing physical prism foot-pair detector. All six signals are
+    teacher-only; no hidden state enters the 360-input deployed actor.
+    """
+    forward=foot_xyz[:,:,0]
+    lateral=foot_xyz[:,:,1]
+    row=xp.floor(body_xy[:,1])
+    corridor=(lateral>row[:,None]+.06)&(lateral<row[:,None]+.94)
+    near=(forward>=edge_x[:,None]-.28)&(
+          forward<=edge_x[:,None]+.35)&corridor
+    magnitude=xp.maximum(.012,xp.abs(lip_m[:,None]))
+    destination_top=source_top+lip_m[:,None]
+    approach=xp.clip((body_xy[:,0]-(edge_x-.30))/.25,0.,1.)
+    # The swing foot actually descends below the high source surface.
+    reach=(xp.clip((source_top-foot_bottom-.003)/magnitude,0.,1.)*
+           near*(forward>=edge_x[:,None]-.012))
+    # Landing is a TRUE destination top contact, not a foot entering
+    # the lower slab's XY area or unrealistically passing through a wall.
+    # Keep the actual contact verdict Boolean until AFTER the logical
+    # support test. Casting to float first breaks both NumPy and JAX AND.
+    landed=xp.asarray(destination_contact_seen,dtype=xp.bool_)
+    over=(landed & (forward>=edge_x[:,None]+.018) &
+          (foot_bottom>=destination_top-.015) & near).astype(foot_bottom.dtype)
+    transferred=xp.clip((body_xy[:,0]-(edge_x-.02))/.18,0.,1.)*(
+        xp.any(destination_contact_seen,axis=1))
+    progress=xp.stack((approach,reach[:,0],reach[:,1],
+                       over[:,0],over[:,1],transferred),axis=1)
+    best=xp.maximum(previous,xp.where(eligible[:,None],progress,previous))
+    gains=xp.maximum(0.,best-previous)
+    weights=xp.asarray((2.,4.,4.,6.,6.,7.),dtype=best.dtype)
+    return best,xp.sum(gains*weights[None,:],axis=1),gains
+
+def nursery_progress(xp, previous, body_xy, foot_xyz, foot_bottom, edge_x,
+                     source_top, lip_m, upper_foothold_seen, eligible):
+    """Return (best [N,6], payment [N], gains [N,6]).
+
+    source_top samples the actual source prism at x=edge-25mm for each
+    foot's Y. Advancing over the edge requires physically sufficient height.
+    """
+    forward=foot_xyz[:,:,0]
+    fy=foot_xyz[:,:,1]
+    row=xp.floor(body_xy[:,1])
+    corridor=((fy>row[:,None]+.06)&(fy<row[:,None]+.94))
+    near=((forward>=edge_x[:,None]-.28)&
+          (forward<=edge_x[:,None]+.15)&corridor)
+    approach=xp.clip((body_xy[:,0]-(edge_x-.30))/.25,0.,1.)
+    lift=xp.clip((foot_bottom-source_top-.003)/
+                 xp.maximum(.060,lip_m[:,None]+.012),0.,1.)*near
+    over=xp.clip((forward-(edge_x[:,None]-.05))/.15,0.,1.)*(
+        (foot_bottom>=source_top+lip_m[:,None]+.002)&near)
+    transferred=xp.clip((body_xy[:,0]-(edge_x-.02))/.18,0.,1.)*(
+        xp.any(upper_foothold_seen,axis=1))
+    progress=xp.stack((approach,lift[:,0],lift[:,1],
+                       over[:,0],over[:,1],transferred),axis=1)
+    best=xp.maximum(previous,xp.where(eligible[:,None],progress,previous))
+    gains=xp.maximum(0.,best-previous)
+    weights=xp.asarray((2.,6.,6.,5.,5.,7.),dtype=best.dtype)
+    return best,xp.sum(gains*weights[None,:],axis=1),gains
+
+
+def two_lip_continuation_success(xp, *, academy_active, supported_lips,
+                                 first_lip_two_feet, half_metre_after_second,
+                                 samples, mean_vx, mean_cmd_vx,
+                                 gravity_z, support, bad_contact,
+                                 yaw_error, terminal,
+                                 second_lip_two_feet=True, required_lips=2):
+    """Teacher-side C graduation: no first-lip or ballistic finish credit.
+
+    'supported_lips' counts distinct novel MJX prism crossings.
+    The second transfer is independently proven by five frames of both
+    actual feet on the target top surface, not merely a body crossing.
+    D retains the 50cm post-transfer milestone until the separate recent
+    command window becomes valid; C used only the event frame.
+    20 recent command samples span >=0.4s. A lunge cannot earn success.
+    This check must never enter the deployable 360-input observation.
+    """
+    if required_lips not in (1,2):
+        raise ValueError('Supported-lip lesson must require 1 or 2 crossings')
+    return (academy_active & (supported_lips>=required_lips) &
+            first_lip_two_feet & second_lip_two_feet &
+            half_metre_after_second & (samples>=20) &
+            (mean_cmd_vx>=.075) & (mean_vx>=.05) &
+            (xp.abs(mean_vx-mean_cmd_vx)<=.10) &
+            (gravity_z>=.80) & (support>=.50) &
+            (bad_contact<.50) & (xp.abs(yaw_error)<.35) &
+            ~terminal)

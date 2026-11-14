@@ -47,6 +47,137 @@ def attention_weights(*, schedule: str, step: int,
     return tuple((1.-t)*x+t*y for x,y in zip(before,after))
 COMMAND, RESILIENCE, SLOPE, STEP, TRANSITION, CONTROL = range(6)
 
+# One H40 education programme. Time opens LESSON opportunities; it never
+# silently certifies a capability. Keep gates on the host and their evidence
+# in the checkpointed RegimeGovernor, not inside the deployable 360 actor.
+SCHOOL_WALK_FADE_START = 60_000_000
+SCHOOL_STAIRS_EARLIEST = 80_000_000
+SCHOOL_WALK_FADE_STEPS = 20_000_000
+SCHOOL_STAIR_FADE_STEPS = 20_000_000
+SCHOOL_MIN_WALK_CORE = .55
+SCHOOL_STAIR_PROOF_ATTEMPTS = 100
+SCHOOL_STAIR_PROOF_RATE = .70
+SCHOOL_STAIR_PROOF_WINDOWS = 2
+# Evidence gates, not wall-clock promotions. A direction gets no harder until
+# the preceding skill survives without its shaping rewards.
+SCHOOL_UNCOACHED_PROOF_RATE = .65
+SCHOOL_HIGH_PROOF_RATE = .65
+SCHOOL_DOWN_PROOF_RATE = .65
+SCHOOL_ANCHOR_RETENTION_MIN = .45
+SCHOOL_SLOW_GROWTH_INTERVAL = 1_000_000
+SCHOOL_ANCHOR_RETREAT_HOLD = 10_000_000
+SCHOOL_RESCUE_STEPS = 5_000_000
+SCHOOL_RESCUE_FADE_STEPS = 5_000_000
+SCHOOL_RESCUE_ALPHA = .75
+SCHOOL_RESCUE_TRIGGER_RATE = .40
+
+
+def school_lesson(*, step: int, core_competence: float,
+                  walking_graduated: bool, stair_mastered_step: int,
+                  refined_school: bool = False,
+                  uncoached_certified_step: int = -1,
+                  descent_unlocked_step: int = -1,
+                  descent_certified_step: int = -1,
+                  rescue_end_step: int = -1) -> dict:
+    """Pure staged teacher decision; never inferred from network age alone.
+
+    0..20M foundation; 20..60M supported specialist growth;
+    60..80M (or longer) competence-gated walking teacher fade.
+    Only AFTER walking graduation: true +50mm nursery with full coaching.
+    Two independently measured 100-encounter proof windows permit staged
+    stair-coaching fade, signed descent and expansion beyond +50mm.
+    """
+    import math
+    if step < 0 or not math.isfinite(float(core_competence)):
+        raise ValueError('invalid school step/competence')
+    if stair_mastered_step >= 0 and not walking_graduated:
+        raise ValueError('stair mastery cannot precede walking graduation')
+    dose=min(1.,max(0.,(step-SCHOOL_WALK_FADE_START) /
+                    SCHOOL_WALK_FADE_STEPS))
+    readiness=min(1.,max(0.,(core_competence-.35) /
+                         (SCHOOL_MIN_WALK_CORE-.35)))
+    walk_alpha=1. if walking_graduated else dose*readiness
+    active=(walking_graduated and step>=SCHOOL_STAIRS_EARLIEST)
+    stair_alpha=(min(1.,max(0.,(step-stair_mastered_step)/
+                      SCHOOL_STAIR_FADE_STEPS))
+                 if active and stair_mastered_step>=0 else 0.)
+    stage=('foundation' if step<=20_000_000 else
+           'supported_growth' if step<SCHOOL_WALK_FADE_START else
+           'walking_graduation' if not active else
+           'assisted_stairs' if stair_mastered_step<0 else
+           'stair_graduation')
+    rescue_active=(refined_school and active and stair_mastered_step>=0 and
+                   uncoached_certified_step<0 and rescue_end_step>=0 and
+                   step<rescue_end_step+SCHOOL_RESCUE_FADE_STEPS)
+    if rescue_active:
+        # A small fixed portion of dense stair coaching returns temporarily
+        # after two genuinely bad no-help proof windows. Never re-enable
+        # gait/phase instructions or advance the physical stair height.
+        stair_alpha=(SCHOOL_RESCUE_ALPHA if step<rescue_end_step else
+                     SCHOOL_RESCUE_ALPHA+
+                     (1.-SCHOOL_RESCUE_ALPHA)*
+                     (step-rescue_end_step)/SCHOOL_RESCUE_FADE_STEPS)
+    if refined_school and active and stair_mastered_step >= 0:
+        # Three distinct proofs: assisted 5cm -> no-help 5cm ->
+        # harder uphill -> signed descent. A 5cm success never authorises
+        # simultaneous reward removal, height increase AND descent.
+        stage=('recover_5cm_guidance' if rescue_active else
+               'fade_5cm_guidance' if stair_alpha<1. else
+               'prove_uncoached_5cm' if uncoached_certified_step<0 else
+               'expand_uphill_retaining_5cm' if descent_unlocked_step<0 else
+               'introduce_descent' if descent_certified_step<0 else
+               'signed_stair_growth')
+    return dict(stage=stage, walk_alpha=walk_alpha,
+                stairs_enabled=active, stair_alpha=stair_alpha,
+                down_share=(.20 if descent_certified_step>=0 else
+                            .10 if descent_unlocked_step>=0 else 0.)
+                if refined_school else .20*stair_alpha)
+
+
+
+# Paired stair school never waits for 7.5cm uphill before trying downhill.
+# Each direction graduates under its own fully withdrawn reward.
+SCHOOL_DOWN_START_M = .020
+SCHOOL_DOWN_TARGET_M = .050
+SCHOOL_BIDIRECTIONAL_DOWN_SHARE = .50
+
+
+def bidirectional_down_lesson(*, step: int, stairs_enabled: bool,
+                              mastered_step: int, uncoached_step: int,
+                              certified_5cm_step: int,
+                              rescue_end_step: int = -1) -> dict:
+    """Physical downhill teacher. No dependency on uphill graduation."""
+    if not stairs_enabled:
+        return dict(down_share=0., down_alpha=0., stage='await_walking')
+    if mastered_step < 0:
+        return dict(down_share=SCHOOL_BIDIRECTIONAL_DOWN_SHARE,
+                    down_alpha=0., stage='downhill_assisted_20mm')
+    alpha=max(0.,min(1.,(step-mastered_step)/SCHOOL_STAIR_FADE_STEPS))
+    if uncoached_step < 0 and rescue_end_step >= 0 and (
+            step < rescue_end_step + SCHOOL_RESCUE_FADE_STEPS):
+        alpha=(SCHOOL_RESCUE_ALPHA if step < rescue_end_step else
+               SCHOOL_RESCUE_ALPHA+(1.-SCHOOL_RESCUE_ALPHA)*
+               (step-rescue_end_step)/SCHOOL_RESCUE_FADE_STEPS)
+        stage='downhill_rescue'
+    else:
+        stage=('downhill_fade_20mm' if alpha<1. else
+               'downhill_prove_uncoached_20mm' if uncoached_step<0 else
+               'downhill_grow_to_50mm' if certified_5cm_step<0 else
+               'downhill_50mm_certified')
+    return dict(down_share=SCHOOL_BIDIRECTIONAL_DOWN_SHARE,
+                down_alpha=alpha,stage=stage)
+
+def school_without_steps(weights):
+    """Before stair school, preserve six walking specialists' other roles."""
+    import math
+    if len(weights)!=6 or not math.isclose(sum(weights),1.,abs_tol=1e-4):
+        raise ValueError('invalid school specialist weights')
+    w=list(weights)
+    w[STEP]=0.
+    denom=sum(w)
+    return tuple(v/denom for v in w)
+
+
 
 # The cold-start gait has first refusal through 20M world steps. Thereafter
 # the only time-driven quantity is TEACHING SHARE; physical targets always

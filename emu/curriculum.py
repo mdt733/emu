@@ -13,6 +13,15 @@ import math
 from .contracts import CONTROL_DT
 from .training_health import TrainingHealth  # stable public import
 from .training_config import FRONTIER_GROWTH_FRAC, FRONTIER_RETREAT_FRAC, FRONTIER_SENSOR_SAFETY
+from .capability_focus import (school_lesson, bidirectional_down_lesson,
+    SCHOOL_BIDIRECTIONAL_DOWN_SHARE, SCHOOL_DOWN_START_M,
+    SCHOOL_DOWN_TARGET_M, SCHOOL_STAIRS_EARLIEST,
+    SCHOOL_MIN_WALK_CORE, SCHOOL_STAIR_PROOF_ATTEMPTS,
+    SCHOOL_STAIR_PROOF_RATE, SCHOOL_STAIR_PROOF_WINDOWS,
+    SCHOOL_UNCOACHED_PROOF_RATE, SCHOOL_HIGH_PROOF_RATE,
+    SCHOOL_DOWN_PROOF_RATE, SCHOOL_ANCHOR_RETENTION_MIN,
+    SCHOOL_SLOW_GROWTH_INTERVAL, SCHOOL_ANCHOR_RETREAT_HOLD,
+    SCHOOL_RESCUE_STEPS, SCHOOL_RESCUE_TRIGGER_RATE)
 
 # ---------------------------------------------------------------------------
 # Compact organic-birth curriculum/governor.
@@ -141,8 +150,39 @@ class RegimeGovernor:
                  unified_capability_focus: bool = False,
                  science_step_promotion_mm: float = 0.0,
                  science_step_retreat_mm: float = 0.0,
-                 science_step_min_attempts: int = 4):
+                 science_step_min_attempts: int = 4,
+                 outcome_mode: bool = False,
+                 progressive_school: bool = False,
+                 refined_school: bool = False,
+                 bidirectional_school: bool = False,
+                 two_lip_continuation_school: bool = False):
         self.params = RegimeParams()
+        self.outcome_mode=bool(outcome_mode)
+        self.progressive_school=bool(progressive_school)
+        self.refined_school=bool(refined_school)
+        self.bidirectional_school=bool(bidirectional_school)
+        # Static source/config identity, NOT an unsaved curriculum shortcut.
+        # The ordinary assisted first-foot mechanics introduce the school;
+        # every uncoached certificate uses the full two-lip continuation.
+        self.two_lip_continuation_school=bool(two_lip_continuation_school)
+        if self.two_lip_continuation_school and not (
+                self.bidirectional_school and self.outcome_mode):
+            raise ValueError('two-lip continuation requires paired outcome school')
+        if self.bidirectional_school and not (
+                self.refined_school and self.progressive_school):
+            raise ValueError('bidirectional school requires progressive/refined')
+        self.school_bidirectional_state=self._empty_bidirectional_state()
+        if self.refined_school and not self.progressive_school:
+            raise ValueError('refined school requires progressive school')
+        self.school_refined_state=self._empty_refined_state()
+        # Serialized physical-competence gates; never keyed to wall-clock time
+        # or an uncheckpointed Python closure. A curriculum resume restores
+        # these alongside PPO and its optimizer.
+        self.school_walking_graduated=False
+        self.school_stair_mastered_step=-1
+        self.school_up_window_attempts=0.
+        self.school_up_window_successes=0.
+        self.school_up_good_windows=0
         self.unified_capability_focus = bool(unified_capability_focus)
         if (not math.isfinite(science_step_promotion_mm) or
                 not 0. <= science_step_promotion_mm <= 10. or
@@ -235,6 +275,49 @@ class RegimeGovernor:
             for band in ('near','easy')
             for kind in ('attempts','successes')})
 
+    @staticmethod
+    def _empty_refined_state() -> dict[str, int | float]:
+        """Saved refinement gates; zero evidence never implies competence."""
+        return dict(
+            coaching_off_step=-1, uncoached_certified_step=-1,
+            uncoached_attempts=0., uncoached_successes=0.,
+            uncoached_good_windows=0,
+            uncoached_failed_windows=0, uncoached_last_rate=0.,
+            rescue_end_step=-1,
+            last_up_growth_step=-1,
+            anchor_attempts=0., anchor_successes=0.,
+            retention_hold_until=0,
+            high_attempts=0., high_successes=0., high_good_windows=0,
+            descent_unlocked_step=-1,
+            down_attempts=0., down_successes=0., down_good_windows=0,
+            descent_certified_step=-1,
+        )
+
+    @staticmethod
+    def _empty_bidirectional_state() -> dict[str,int | float]:
+        """Only paired-school checkpoints carry these independent DOWN gates.
+
+        The imported 180M walker contains no downhill proof and cannot
+        inherit an uphill graduation merely because both share one actor.
+        """
+        return dict(
+            down_mastered_step=-1,
+            down_coaching_off_step=-1,
+            down_uncoached_certified_step=-1,
+            down_5cm_certified_step=-1,
+            down_last_growth_step=-1,
+            down_rescue_end_step=-1,
+            down_retention_hold_until=0,
+            down_assisted_attempts=0., down_assisted_successes=0.,
+            down_assisted_good_windows=0,
+            down_uncoached_attempts=0., down_uncoached_successes=0.,
+            down_uncoached_good_windows=0,
+            down_failed_windows=0, down_last_rate=0.,
+            down_high_attempts=0., down_high_successes=0.,
+            down_high_good_windows=0,
+            down_anchor_attempts=0., down_anchor_successes=0.,
+        )
+
     def state_dict(self) -> dict[str, Any]:
         """Everything that can affect the governor's next decision.
         Recovery/resume is a temporal rewind only if this dynamic state is
@@ -248,6 +331,14 @@ class RegimeGovernor:
             '_updates_done_total': self._updates_done_total,
             'terrain_evidence': dict(self.terrain_evidence),
             'academy_evidence': dict(self.academy_evidence),
+            'school_walking_graduated': self.school_walking_graduated,
+            'school_stair_mastered_step': self.school_stair_mastered_step,
+            'school_up_window_attempts': self.school_up_window_attempts,
+            'school_up_window_successes': self.school_up_window_successes,
+            'school_up_good_windows': self.school_up_good_windows,
+            'school_refined_state': dict(self.school_refined_state),
+            **({'school_bidirectional_state':dict(self.school_bidirectional_state)}
+               if self.bidirectional_school else {}),
             'frontier_precision_ema': dict(self.frontier_precision_ema),
             'frontier_bad_streak': dict(self.frontier_bad_streak),
             **({'command_evidence': {k:dict(v) for k,v in
@@ -261,6 +352,19 @@ class RegimeGovernor:
         # governor state. Historical layouts belong to historical commits;
         # do not synthesize evidence after a silent schema migration.
         expected = set(self.state_dict())
+        if isinstance(d,dict) and self.bidirectional_school:
+            # Exact 180M ancestor predates BOTH schools. Only a declared
+            # cross-source research fork may call this adapter; same-run
+            # resumes remain source-pinned and must carry all new keys.
+            if set(d)==expected-{'school_refined_state','school_bidirectional_state'}:
+                d={**d,'school_refined_state':self._empty_refined_state(),
+                   'school_bidirectional_state':self._empty_bidirectional_state()}
+            elif set(d)==expected-{'school_bidirectional_state'}:
+                # A deliberate source-checked fork from refined school.
+                d={**d,'school_bidirectional_state':self._empty_bidirectional_state()}
+        elif (isinstance(d,dict) and self.refined_school
+                and set(d)==expected-{'school_refined_state'}):
+            d={**d,'school_refined_state':self._empty_refined_state()}
         if not isinstance(d, dict) or set(d) != expected:
             raise ValueError(
                 f"curriculum state keys mismatch: expected={sorted(expected)} "
@@ -338,6 +442,74 @@ class RegimeGovernor:
                     values['easy_successes']>values['easy_attempts']):
                     raise ValueError(f'bad slope evidence {direction}')
             self.slope_evidence={k:dict(v) for k,v in entries.items()}
+        # Incompatible historical governor schemas are never adapted.
+        # Only this new school lineage has the following persisted gates.
+        if (type(d['school_walking_graduated']) is not bool or
+                type(d['school_stair_mastered_step']) is not int or
+                d['school_stair_mastered_step'] < -1 or
+                type(d['school_up_good_windows']) is not int or
+                not 0 <= d['school_up_good_windows'] <= SCHOOL_STAIR_PROOF_WINDOWS or
+                any(not math.isfinite(float(d[k])) or float(d[k]) < 0.
+                    for k in ('school_up_window_attempts',
+                              'school_up_window_successes')) or
+                d['school_up_window_successes'] > d['school_up_window_attempts'] or
+                (d['school_stair_mastered_step'] >= 0 and
+                 not d['school_walking_graduated'])):
+            raise ValueError('invalid progressive school graduation state')
+        for k in ('school_walking_graduated','school_stair_mastered_step',
+                  'school_up_window_attempts','school_up_window_successes',
+                  'school_up_good_windows'):
+            setattr(self,k,d[k])
+        refined=d['school_refined_state']
+        defaults=self._empty_refined_state()
+        if not isinstance(refined,dict) or set(refined)!=set(defaults):
+            raise ValueError('refined school checkpoint keys mismatch')
+        for k,zero in defaults.items():
+            v=refined[k]
+            if (type(zero) is int and type(v) is not int or
+                    type(zero) is float and
+                    (type(v) not in (int,float) or
+                     not math.isfinite(float(v)) or v < 0) or
+                    k.endswith('_step') and v < -1 or
+                    k.endswith('_windows') and not 0<=v<=2):
+                raise ValueError('invalid refined school checkpoint '+k)
+        for prefix in ('uncoached','anchor','high','down'):
+            if refined[prefix+'_successes']>refined[prefix+'_attempts']:
+                raise ValueError('refined school successes exceed attempts')
+        if (refined['uncoached_certified_step']>=0 and
+                (refined['coaching_off_step']<0 or
+                 self.school_stair_mastered_step<0) or
+            refined['descent_unlocked_step']>=0 and
+                refined['uncoached_certified_step']<0 or
+            refined['descent_certified_step']>=0 and
+                refined['descent_unlocked_step']<0):
+            raise ValueError('invalid refined school certification order')
+        self.school_refined_state=dict(refined)
+        if self.bidirectional_school:
+            paired=d['school_bidirectional_state']
+            expected_paired=self._empty_bidirectional_state()
+            if not isinstance(paired,dict) or set(paired)!=set(expected_paired):
+                raise ValueError('bidirectional school checkpoint schema mismatch')
+            for key,empty in expected_paired.items():
+                v=paired[key]
+                if type(empty) is int:
+                    if type(v) is not int or (
+                            key.endswith('_step') and v< -1) or (
+                            key.endswith('_windows') and not 0<=v<=2):
+                        raise ValueError('invalid bidirectional checkpoint '+key)
+                elif (type(v) not in (float,int) or
+                      not math.isfinite(float(v)) or v<0):
+                    raise ValueError('invalid bidirectional checkpoint '+key)
+            for key in ('down_assisted','down_uncoached','down_high','down_anchor'):
+                if paired[key+'_successes']>paired[key+'_attempts']:
+                    raise ValueError('bidirectional successes exceed attempts')
+            if (paired['down_uncoached_certified_step']>=0 and
+                    (paired['down_mastered_step']<0 or
+                     paired['down_coaching_off_step']<0) or
+                paired['down_5cm_certified_step']>=0 and
+                    paired['down_uncoached_certified_step']<0):
+                raise ValueError('invalid downhill certification ordering')
+            self.school_bidirectional_state=dict(paired)
         self.params = RegimeParams(**saved_params)
         for name in ('competence', 'fall_ema', '_falls_ema', '_episodes_ema',
                      'frontier_precision_ema', 'frontier_bad_streak'):
@@ -590,7 +762,8 @@ class RegimeGovernor:
         return 'hold_probe_learning'
 
     def advance_academy(self, row: dict[str,float], *, max_height_m:float,
-                        enabled:bool, kl_ok:bool=True) -> str:
+                        enabled:bool, kl_ok:bool=True,
+                        max_down_height_m:float | None = None) -> str:
         """Grow UP and DOWN independently from real, approached lip encounters.
 
         Easy crossings audit retained skill; near-frontier encounters alone
@@ -618,11 +791,14 @@ class RegimeGovernor:
                     raise ValueError('Academy successes exceed encounters')
             evidence[f'{direction}_updates']+=1.
             frontier=f'academy_height_{direction}_m'
+            direction_cap=(max_down_height_m if direction=='down' and
+                           max_down_height_m is not None else max_height_m)
             nmin=self.ACADEMY_MIN_ATTEMPTS_PER_DIRECTION
             easy_n=evidence[f'{direction}_easy_attempts']
             near_n=evidence[f'{direction}_near_attempts']
             if (easy_n>=nmin and evidence[f'{direction}_easy_successes']/easy_n<.25):
-                setattr(self.params,frontier,max(self.ACADEMY_MIN_LIP_M,
+                floor=(.050 if self.outcome_mode and direction=='up' else self.ACADEMY_MIN_LIP_M)
+                setattr(self.params,frontier,max(floor,
                     getattr(self.params,frontier)-self.ACADEMY_HEIGHT_GROWTH_M))
                 event='retreat'
             elif near_n>=nmin:
@@ -630,7 +806,7 @@ class RegimeGovernor:
                 if good and kl_ok:
                     previous=getattr(self.params,frontier)
                     setattr(self.params,frontier,min(
-                        max_height_m,previous+self.ACADEMY_HEIGHT_GROWTH_M))
+                        direction_cap,previous+self.ACADEMY_HEIGHT_GROWTH_M))
                     event='expand' if getattr(self.params,frontier)>previous else 'cap'
                 else:
                     event='kl_hold' if good else 'learning'
@@ -827,6 +1003,236 @@ class RegimeGovernor:
                 events[k]=action
         return events
 
+
+    def observe_school_evidence(self, row: dict[str,float], *, step: int,
+                                stairs_enabled: bool) -> str:
+        """Gate TWO separate >=100-encounter real +50mm uphill proof windows.
+
+        A real attempt is a closed birth near the 50mm physical frontier;
+        success demands the supported 15-frame climb, not lift or position.
+        Failed windows reset the consecutive-proof count. Expansion and the
+        coaching fade are forbidden until BOTH windows are successful.
+        """
+        if not self.progressive_school:
+            return 'not_school'
+        if (not stairs_enabled or self.school_stair_mastered_step >= 0 or
+                self.params.academy_height_up_m > .0505):
+            return 'no_new_50mm_proof'
+        n=float(row.get('academy_near_attempts_up',0.))
+        good=float(row.get(
+            ('academy_near_first_lip_up' if self.two_lip_continuation_school
+             else 'academy_near_successes_up'),0.))
+        if (not math.isfinite(n) or not math.isfinite(good)
+                or n<0. or good<0. or good>n):
+            raise ValueError('invalid actual 50mm physical proof')
+        self.school_up_window_attempts+=n
+        self.school_up_window_successes+=good
+        if self.school_up_window_attempts < SCHOOL_STAIR_PROOF_ATTEMPTS:
+            return 'collect_50mm'
+        ratio=self.school_up_window_successes / self.school_up_window_attempts
+        if ratio >= SCHOOL_STAIR_PROOF_RATE:
+            self.school_up_good_windows+=1
+            verdict='50mm_window_pass'
+        else:
+            self.school_up_good_windows=0
+            verdict='50mm_window_retry'
+        # A new independent window must earn its own >=100 attempts.
+        self.school_up_window_attempts=0.
+        self.school_up_window_successes=0.
+        if self.school_up_good_windows>=SCHOOL_STAIR_PROOF_WINDOWS:
+            self.school_stair_mastered_step=step
+            verdict='50mm_training_mastery'
+        return verdict
+
+    def observe_refined_school_evidence(
+            self, row: dict[str, float], *, step: int, stair_alpha: float) -> str:
+        """A single host-only sequencer for separate physical skill proofs.
+
+        Always count CLOSED, height-banded supported terminal climbs, never
+        foothold shaping, reset hints or a reward threshold. All evidence
+        windows and promotion timestamps are serialized beside PPO.
+        """
+        if not self.refined_school or self.school_stair_mastered_step < 0:
+            return 'not_in_refined_school'
+        s=self.school_refined_state
+        if stair_alpha < 1.:
+            return 'fade_5cm_stair_coaching'
+        if s['coaching_off_step']<0:
+            s['coaching_off_step']=step
+            return 'coaching_off_begin_fresh_proof'
+        if s['uncoached_certified_step']<0:
+            # 50mm frontier is FROZEN here. Ignore all assisted-era evidence
+            # and start after dense coaching has reached exactly zero.
+            event=self._refined_window(
+                row,s,'uncoached','academy_near_attempts_up',
+                'academy_near_successes_up',SCHOOL_UNCOACHED_PROOF_RATE)
+            if event=='certified':
+                s['uncoached_certified_step']=step
+                s['last_up_growth_step']=step
+                s['uncoached_failed_windows']=0
+                return 'uncoached_50mm_certified'
+            if event=='retry':
+                s['uncoached_failed_windows']=(
+                    s['uncoached_failed_windows']+1
+                    if s['uncoached_last_rate']<SCHOOL_RESCUE_TRIGGER_RATE
+                    else 0)
+                if s['uncoached_failed_windows']>=2:
+                    s['rescue_end_step']=step+SCHOOL_RESCUE_STEPS
+                    # After the 5M refresh + 5M re-fade, skip the first
+                    # boundary rollout: it may still contain assisted
+                    # rewards. Only the NEXT clean rollout earns proof.
+                    s['coaching_off_step']=-1
+                    s['uncoached_failed_windows']=0
+                    s['uncoached_good_windows']=0
+                    return 'uncoached_50mm_rescue_started'
+            return 'uncoached_50mm_'+event
+
+        # A constant exact 50mm birth cohort remains throughout growth.
+        # Do not confuse an adaptive easy/frontier band with this fixed task.
+        self._refined_window(row,s,'anchor','academy_anchor_attempts_up',
+                             'academy_anchor_successes_up',
+                             SCHOOL_ANCHOR_RETENTION_MIN,consecutive=False)
+        if s.pop('_anchor_failed',False):
+            s['retention_hold_until']=max(
+                s['retention_hold_until'],step+SCHOOL_ANCHOR_RETREAT_HOLD)
+            return 'anchor_50mm_regression_hold'
+        if s['descent_unlocked_step']<0:
+            if self.params.academy_height_up_m < .075-1e-6:
+                return 'uphill_slow_growth'
+            event=self._refined_window(
+                row,s,'high','academy_near_attempts_up',
+                'academy_near_successes_up',SCHOOL_HIGH_PROOF_RATE)
+            if event=='certified':
+                s['descent_unlocked_step']=step
+                return 'uphill_75mm_certified_descent_opened'
+            return 'prove_75mm_'+event
+        if self.bidirectional_school:
+            # The uphill evidence gate does not certify or teach descent.
+            # DOWN has its own 20mm / no-help / 50mm proof path.
+            return 'uphill_75mm_certified_downhill_independent'
+        if s['descent_certified_step']<0:
+            if self.params.academy_height_down_m < .05-1e-6:
+                return 'learning_downhill_50mm'
+            event=self._refined_window(
+                row,s,'down','academy_near_attempts_down',
+                'academy_near_successes_down',SCHOOL_DOWN_PROOF_RATE)
+            if event=='certified':
+                s['descent_certified_step']=step
+                return 'downhill_50mm_certified'
+            return 'prove_downhill_50mm_'+event
+        return 'signed_growth'
+
+    @staticmethod
+    def _refined_window(row: dict[str,float], state: dict, prefix: str,
+                        attempts_key: str, successes_key: str,
+                        required_rate: float, *, consecutive: bool = True) -> str:
+        attempts=float(row.get(attempts_key,0.))
+        successes=float(row.get(successes_key,0.))
+        if (not math.isfinite(attempts) or not math.isfinite(successes) or
+                attempts<0 or successes<0 or successes>attempts):
+            raise ValueError('invalid '+prefix+' supported climb evidence')
+        state[prefix+'_attempts']+=attempts
+        state[prefix+'_successes']+=successes
+        if state[prefix+'_attempts']<SCHOOL_STAIR_PROOF_ATTEMPTS:
+            return 'collect'
+        rate=state[prefix+'_successes']/state[prefix+'_attempts']
+        if prefix=='uncoached':
+            state['uncoached_last_rate']=rate
+        state[prefix+'_attempts']=state[prefix+'_successes']=0.
+        if not consecutive:
+            state['_anchor_failed']=rate<required_rate
+            return 'retention_fail' if rate<required_rate else 'retained'
+        if rate<required_rate:
+            state[prefix+'_good_windows']=0
+            return 'retry'
+        state[prefix+'_good_windows']+=1
+        return ('certified' if state[prefix+'_good_windows']>=SCHOOL_STAIR_PROOF_WINDOWS
+                else 'first_window_pass')
+
+    def observe_bidirectional_school_evidence(
+            self, row: dict[str,float], *, step:int) -> str:
+        """Independent DOWN proof. No uphill 7.5cm prerequisite.
+
+        All measurements are real first-signed-lip absorbing terminal
+        outcomes. Windows are fresh after teaching reaches zero.
+        """
+        if not self.bidirectional_school or not self.school_walking_graduated:
+            return 'not_in_paired_school'
+        b=self.school_bidirectional_state
+        if b['down_mastered_step']<0:
+            if abs(self.params.academy_height_down_m-SCHOOL_DOWN_START_M)>.0005:
+                return 'await_fixed_20mm'
+            # Only assisted introduction credits a first supported lip.
+            # Every downhill no-help/50mm graduate must complete BOTH
+            # genuine lips and ordinary commanded walking afterwards.
+            assisted_row=row
+            if self.two_lip_continuation_school:
+                assisted_row={**row,'academy_near_successes_down':
+                    row.get('academy_near_first_lip_down',0.)}
+            event=self._refined_window(
+                assisted_row,b,'down_assisted','academy_near_attempts_down',
+                'academy_near_successes_down',SCHOOL_STAIR_PROOF_RATE)
+            if event=='certified':
+                b['down_mastered_step']=step
+                return 'downhill_20mm_coached_certified'
+            return 'downhill_20mm_assisted_'+event
+        lesson=bidirectional_down_lesson(
+            step=step,stairs_enabled=True,
+            mastered_step=b['down_mastered_step'],
+            uncoached_step=b['down_uncoached_certified_step'],
+            certified_5cm_step=b['down_5cm_certified_step'],
+            rescue_end_step=b['down_rescue_end_step'])
+        if lesson['down_alpha']<1.:
+            return lesson['stage']
+        if b['down_coaching_off_step']<0:
+            b['down_coaching_off_step']=step
+            return 'downhill_coaching_off_start_clean_proof'
+        if b['down_uncoached_certified_step']<0:
+            event=self._refined_window(
+                row,b,'down_uncoached','academy_near_attempts_down',
+                'academy_near_successes_down',SCHOOL_UNCOACHED_PROOF_RATE)
+            if event=='certified':
+                b['down_uncoached_certified_step']=step
+                b['down_last_growth_step']=step
+                b['down_failed_windows']=0
+                return 'downhill_20mm_uncoached_certified'
+            if event=='retry':
+                n=float(row.get('academy_near_attempts_down',0.))
+                hits=float(row.get('academy_near_successes_down',0.))
+                if n>0 and hits/n<SCHOOL_RESCUE_TRIGGER_RATE:
+                    b['down_failed_windows']+=1
+                else:
+                    b['down_failed_windows']=0
+                if b['down_failed_windows']>=2:
+                    b['down_rescue_end_step']=step+SCHOOL_RESCUE_STEPS
+                    b['down_coaching_off_step']=-1
+                    b['down_failed_windows']=0
+                    b['down_uncoached_good_windows']=0
+                    return 'downhill_20mm_rescue_started'
+            return 'downhill_20mm_uncoached_'+event
+
+        # Keep a genuine fixed 20mm cohort while trying larger descents.
+        self._refined_window(
+            row,b,'down_anchor','academy_anchor_attempts_down',
+            'academy_anchor_successes_down',
+            SCHOOL_ANCHOR_RETENTION_MIN,consecutive=False)
+        if b.pop('_anchor_failed',False):
+            b['down_retention_hold_until']=max(
+                b['down_retention_hold_until'],
+                step+SCHOOL_ANCHOR_RETREAT_HOLD)
+            return 'downhill_anchor_regression_hold'
+        if b['down_5cm_certified_step']<0:
+            if self.params.academy_height_down_m<SCHOOL_DOWN_TARGET_M-1e-6:
+                return 'downhill_grow_to_50mm'
+            event=self._refined_window(
+                row,b,'down_high','academy_near_attempts_down',
+                'academy_near_successes_down',SCHOOL_DOWN_PROOF_RATE)
+            if event=='certified':
+                b['down_5cm_certified_step']=step
+                return 'downhill_50mm_uncoached_certified'
+            return 'downhill_50mm_'+event
+        return 'downhill_50mm_retained'
+
     def advance_curriculum(self, row: dict[str, float], *, step: int,
                            max_height_m: float, foundation_steps: int,
                            kl_ok_to_expand: bool = True,
@@ -843,15 +1249,168 @@ class RegimeGovernor:
         report = self.update(
             row, kl_ok_to_expand=kl_ok_to_expand,
             specialist_growth_enabled=growth_enabled)
+        if self.progressive_school:
+            # Approval is earned only after the 80M milestone AND a
+            # reasonably reliable core walking cohort. Persist it once
+            # earned so later hard stair lessons cannot turn gait shaping
+            # back on just because the overall core metric dips.
+            prior=school_lesson(
+                step=step,core_competence=self.core_competence,
+                walking_graduated=self.school_walking_graduated,
+                stair_mastered_step=self.school_stair_mastered_step,
+                refined_school=self.refined_school,
+                uncoached_certified_step=self.school_refined_state['uncoached_certified_step'],
+                descent_unlocked_step=self.school_refined_state['descent_unlocked_step'],
+                descent_certified_step=self.school_refined_state['descent_certified_step'],
+                rescue_end_step=self.school_refined_state['rescue_end_step'])
+            if (step>=SCHOOL_STAIRS_EARLIEST and not self.school_walking_graduated
+                    and self.core_competence>=SCHOOL_MIN_WALK_CORE
+                    and prior['walk_alpha']>=.99):
+                self.school_walking_graduated=True
+            school=school_lesson(
+                step=step,core_competence=self.core_competence,
+                walking_graduated=self.school_walking_graduated,
+                stair_mastered_step=self.school_stair_mastered_step)
+            if self.bidirectional_school and school['stairs_enabled'] and (
+                    self.school_bidirectional_state['down_uncoached_certified_step']<0):
+                # The first DOWN lesson starts at a real 20mm physical lip;
+                # it is not postponed until uphill has graduated at 75mm.
+                self.params.academy_height_down_m=SCHOOL_DOWN_START_M
+            report['school_stair_proof_event']=self.observe_school_evidence(
+                row,step=step,stairs_enabled=school['stairs_enabled'])
+            report['school_down_proof_event']=self.observe_bidirectional_school_evidence(
+                row,step=step) if self.bidirectional_school else 'not_paired'
+            report['school_refined_event']=self.observe_refined_school_evidence(
+                row,step=step,stair_alpha=school['stair_alpha'])
+            school=school_lesson(
+                step=step,core_competence=self.core_competence,
+                walking_graduated=self.school_walking_graduated,
+                stair_mastered_step=self.school_stair_mastered_step,
+                refined_school=self.refined_school,
+                uncoached_certified_step=self.school_refined_state['uncoached_certified_step'],
+                descent_unlocked_step=self.school_refined_state['descent_unlocked_step'],
+                descent_certified_step=self.school_refined_state['descent_certified_step'],
+                rescue_end_step=self.school_refined_state['rescue_end_step'])
+            if self.bidirectional_school:
+                b=self.school_bidirectional_state
+                down=bidirectional_down_lesson(
+                    step=step,stairs_enabled=school['stairs_enabled'],
+                    mastered_step=b['down_mastered_step'],
+                    uncoached_step=b['down_uncoached_certified_step'],
+                    certified_5cm_step=b['down_5cm_certified_step'],
+                    rescue_end_step=b['down_rescue_end_step'])
+                report.update(
+                    school_down_stage=down['stage'],
+                    school_down_stair_alpha=down['down_alpha'],
+                    school_down_share=down['down_share'],
+                    school_down_mastered_step=b['down_mastered_step'],
+                    school_down_uncoached_certified_step=b['down_uncoached_certified_step'],
+                    school_down_5cm_certified_step=b['down_5cm_certified_step'],
+                    school_down_good_windows=b['down_assisted_good_windows'],
+                    school_down_nohelp_windows=b['down_uncoached_good_windows'],
+                    school_down_high_windows=b['down_high_good_windows'],
+                    school_down_retention_hold_until=b['down_retention_hold_until'])
+                # This time the up and down graduates are independent.
+                if (self.school_refined_state['descent_unlocked_step']>=0 and
+                    b['down_5cm_certified_step']>=0 and
+                    self.school_refined_state['descent_certified_step']<0):
+                    self.school_refined_state['descent_certified_step']=step
+            report.update(school_stage=school['stage'],
+                          school_walk_alpha=school['walk_alpha'],
+                          school_stairs_enabled=float(school['stairs_enabled']),
+                          school_stair_alpha=school['stair_alpha'],
+                          school_stair_mastered_step=self.school_stair_mastered_step,
+                          school_walk_graduated=float(self.school_walking_graduated),
+                          school_up_proof_window_attempts=self.school_up_window_attempts,
+                          school_up_proof_window_successes=self.school_up_window_successes,
+                          school_up_good_windows=float(self.school_up_good_windows))
+            if self.refined_school:
+                report.update({
+                    'school_uncoached_certified_step':
+                        self.school_refined_state['uncoached_certified_step'],
+                    'school_descent_unlocked_step':
+                        self.school_refined_state['descent_unlocked_step'],
+                    'school_descent_certified_step':
+                        self.school_refined_state['descent_certified_step'],
+                    'school_retention_hold_until':
+                        self.school_refined_state['retention_hold_until'],
+                    'school_uncoached_good_windows':
+                        self.school_refined_state['uncoached_good_windows'],
+                    'school_high_good_windows':
+                        self.school_refined_state['high_good_windows'],
+                    'school_down_good_windows':
+                        self.school_refined_state['down_good_windows'],
+                    'school_rescue_end_step':
+                        self.school_refined_state['rescue_end_step'],
+                })
+            if not school['stairs_enabled']:
+                max_height_m=0.
+                academy_max_height_m=0.
+            elif self.school_stair_mastered_step < 0:
+                academy_max_height_m=min(academy_max_height_m,.05)
+            if self.refined_school:
+                # Coaching removal is tested on exactly the mastered
+                # physical 50mm task; no simultaneous bigger stair/descent.
+                refined=self.school_refined_state
+                if refined['uncoached_certified_step']<0:
+                    academy_max_height_m=min(academy_max_height_m,.05)
+                    max_height_m=min(max_height_m,.05)
+                else:
+                    # Even after uphill proof, freeze ascent at 7.5cm
+                    # while the *separate* downhill nursery is being learned.
+                    limit=(.08 if refined['descent_certified_step']>=0 else .075)
+                    current=self.params.academy_height_up_m
+                    growth_allowed=(step>=refined['last_up_growth_step']+
+                                    SCHOOL_SLOW_GROWTH_INTERVAL and
+                                    step>=refined['retention_hold_until'])
+                    academy_max_height_m=min(
+                        academy_max_height_m,limit,
+                        current+(.0005 if growth_allowed else 0.))
         report['terrain_event'] = (
             self.advance_terrain(
                 row, max_height_m=max_height_m, kl_ok=kl_ok_to_expand)
             if growth_enabled else 'foundation_flat')
+        old_up=self.params.academy_height_up_m
+        down_limit=None
+        if self.refined_school:
+            refined=self.school_refined_state
+            down_limit=(self.ACADEMY_SEED_LIP_M
+                        if refined['descent_unlocked_step']<0 else
+                        .05 if refined['descent_certified_step']<0 else
+                        .08)
+        if self.bidirectional_school and self.school_walking_graduated:
+            paired=self.school_bidirectional_state
+            old_down=self.params.academy_height_down_m
+            if paired['down_uncoached_certified_step']<0:
+                down_limit=SCHOOL_DOWN_START_M
+            else:
+                limit=(.08 if (paired['down_5cm_certified_step']>=0 and
+                              refined['descent_unlocked_step']>=0)
+                       else SCHOOL_DOWN_TARGET_M)
+                growth_allowed=(step>=paired['down_last_growth_step']+
+                                SCHOOL_SLOW_GROWTH_INTERVAL and
+                                step>=paired['down_retention_hold_until'])
+                down_limit=min(limit,old_down+(.0005 if growth_allowed else 0.))
+        else:
+            old_down=self.params.academy_height_down_m
         report['academy_event']=self.advance_academy(
             row,max_height_m=academy_max_height_m,
             enabled=(self.unified_capability_focus and
                      academy_max_height_m>0. and growth_enabled),
-            kl_ok=kl_ok_to_expand)
+            kl_ok=kl_ok_to_expand,max_down_height_m=down_limit)
+        if (self.refined_school and
+                self.params.academy_height_up_m>old_up+1e-7):
+            self.school_refined_state['last_up_growth_step']=step
+        if self.bidirectional_school and self.school_walking_graduated:
+            paired=self.school_bidirectional_state
+            if paired['down_uncoached_certified_step']<0:
+                self.params.academy_height_down_m=SCHOOL_DOWN_START_M
+            else:
+                self.params.academy_height_down_m=min(
+                    down_limit,max(SCHOOL_DOWN_START_M,
+                                   self.params.academy_height_down_m))
+                if self.params.academy_height_down_m>old_down+1e-7:
+                    paired['down_last_growth_step']=step
         report['academy_height_up_m']=self.params.academy_height_up_m
         report['academy_height_down_m']=self.params.academy_height_down_m
         report.update({f'academy_window_{key}':value

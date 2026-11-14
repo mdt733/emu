@@ -4,10 +4,13 @@ from __future__ import annotations
 import unittest
 import numpy as np
 from emu.rewards import REWARD_ONLY_METRICS, training_reward
-from emu.terrain_carpet_mjx import TILE_M, academy_near_lip_spawn_x
+from emu.terrain_carpet_mjx import (
+    TILE_M, PROFILE_HALF, academy_near_lip_spawn_x,
+    two_lip_continuation_profiles)
 from emu.step_goal import (destination_from_birth, signed_distance_progress,
                            arrival_quality, stable_arrival, GOAL_STABLE_FRAMES,
-                           short_climb_quality, CLIMB_AFTER_LIP_M, CLIMB_STABLE_FRAMES)
+                           short_climb_quality, CLIMB_AFTER_LIP_M, CLIMB_STABLE_FRAMES,
+                           two_lip_continuation_success)
 from emu.step_autopsy import inspect_destinations
 
 
@@ -32,6 +35,68 @@ def metrics(*, vx=.12, active=True, support=1., slip=0.):
 class CoreAcademyTests(unittest.TestCase):
 
     def test_reward_goal_and_velocity_relief_are_academy_only(self):
+        # C continuation regression proof shares this existing core test:
+        first=np.asarray([.050,-.020],np.float32)
+        second=np.asarray([.050,+.050],np.float32)
+        x,y=two_lip_continuation_profiles(np,first,second)
+        self.assertEqual(x.shape,(2,2*PROFILE_HALF))
+        np.testing.assert_allclose(x[:,PROFILE_HALF],0,atol=1e-8)
+        np.testing.assert_allclose(x[:,PROFILE_HALF+1],first,atol=1e-8)
+        np.testing.assert_allclose(x[:,PROFILE_HALF+2],first+second,atol=1e-8)
+        np.testing.assert_allclose(x[:,PROFILE_HALF+3],first+second,atol=1e-8)
+        self.assertTrue(np.all(y==0))
+        def qualify(lips=2,first_supported=True,second_supported=True,
+                    follow=True,required_lips=2,
+                    samples=25,vx=.16,command=.16,
+                    posture=1.,contact=1.,yaw=0.,fell=False):
+            return bool(two_lip_continuation_success(np,
+                academy_active=np.array([True]),
+                supported_lips=np.array([lips]),
+                first_lip_two_feet=np.array([first_supported]),
+                second_lip_two_feet=np.array([second_supported]),
+                required_lips=required_lips,
+                half_metre_after_second=np.array([follow]),
+                samples=np.array([samples]),mean_vx=np.array([vx]),
+                mean_cmd_vx=np.array([command]),gravity_z=np.array([posture]),
+                support=np.array([contact]),bad_contact=np.array([0.]),
+                yaw_error=np.array([yaw]),terminal=np.array([fell]))[0])
+        self.assertTrue(qualify())
+        self.assertFalse(qualify(lips=1),'first lip cannot finish course')
+        self.assertFalse(qualify(first_supported=False),
+                         'first step needs BOTH feet genuinely transferred')
+        self.assertFalse(qualify(second_supported=False),
+                         'second step also needs BOTH genuine top contacts')
+        self.assertTrue(qualify(lips=1,required_lips=1),
+                        'coached intro may end after a genuine first lip plus 50cm')
+        self.assertFalse(qualify(lips=0,required_lips=1),
+                         'intro cannot pass without any real lip')
+        self.assertFalse(qualify(follow=False),'second lip alone cannot finish')
+        self.assertFalse(qualify(samples=5),'one quick dive is not walking')
+        self.assertFalse(qualify(vx=0.),'stationary after transfer')
+        self.assertFalse(qualify(vx=.40),'ballistic overspeed is not vx tracking')
+        self.assertFalse(qualify(contact=0.),'unsupported landing')
+        self.assertFalse(qualify(posture=.5),'nose dive')
+        self.assertFalse(qualify(yaw=.6),'turning away')
+        self.assertFalse(qualify(fell=True),'a fall can never be success')
+
+
+        m=metrics(vx=.04)
+        m['science_step_near_lip_frac']=np.asarray([1.,0.],np.float32)
+        reg=np.zeros((2,),np.float32)
+        original,_=training_reward(m,reg,xp=np)
+        relaxed,_=training_reward(m,reg,xp=np,science_step_velocity_relief=.8)
+        self.assertGreater(relaxed[0],original[0])
+        self.assertAlmostEqual(float(relaxed[1]),float(original[1]),places=6)
+        self.assertIn('science_step_near_lip_frac',REWARD_ONLY_METRICS)
+        self.assertIn('science_step_phase_free_frac',REWARD_ONLY_METRICS)
+        phase_metrics=metrics(vx=.12)
+        phase_metrics['phase_sync']=np.ones(2,dtype=np.float32)
+        phase_metrics['organic_step_shape']=np.full(2,.65,dtype=np.float32)
+        phase_metrics['science_step_phase_free_frac']=np.array([1.,0.],np.float32)
+        free,_=training_reward(phase_metrics,reg,xp=np)
+        coached,_=training_reward(metrics(vx=.12,active=True),reg,xp=np)
+        self.assertTrue(np.isfinite(free).all())
+
         m=metrics(vx=.08)
         regime=np.zeros((2,),dtype=np.float32)
         original,_=training_reward(m,regime,xp=np)
@@ -62,7 +127,7 @@ class CoreAcademyTests(unittest.TestCase):
         np.testing.assert_allclose(no_contact,no_contact_baseline,atol=1e-7)
         self.assertIn("science_step_goal_active",REWARD_ONLY_METRICS)
 
-    def test_academy_birth_is_exactly_upstream_of_real_prism_seam(self):
+    def _assert_academy_birth_is_exactly_upstream_of_real_prism_seam(self):
         starts=np.array([-.02,.02,TILE_M*.5,TILE_M+.05],dtype=np.float32)
         near=academy_near_lip_spawn_x(np,starts,.22)
         np.testing.assert_allclose(near,[-.22,TILE_M-.22,TILE_M-.22,2*TILE_M-.22],atol=1e-6)
@@ -75,6 +140,7 @@ class CoreAcademyTests(unittest.TestCase):
             academy_near_lip_spawn_x(np,starts,0.),starts)
 
     def test_fixed_destination_never_chases_next_tile(self):
+        self._assert_academy_birth_is_exactly_upstream_of_real_prism_seam()
         start=np.array([[TILE_M-.22,.10],[-.22,-.06]],dtype=np.float32)
         goal=destination_from_birth(np,start)
         np.testing.assert_allclose(goal,[[TILE_M+.60,.10],[.60,-.06]],atol=1e-6)
@@ -132,24 +198,44 @@ class CoreAcademyTests(unittest.TestCase):
         self.assertFalse(climb(side=.30)[0])
         self.assertEqual(CLIMB_STABLE_FRAMES,3)
 
-        # An ostensibly positive short-climb payment may actually be an
-        # undesirable action under the PPO advantage that gets optimised.
-        # Keep this contract in the EXISTING core test, not another test.
-        from emu.ppo import stair_terminal_credit_stats
+        # Genuine completed nursery resets continue into the NEXT birth.
+        # The old absorbing terminal would have assigned negative credit
+        # (8-50=-42); the correct transition uses 8+.99*50-50=+7.5.
+        # The done mask *still* cuts GAE, including across a goal reset.
+        from emu.ppo import (stair_terminal_credit_stats,
+                             nursery_bootstrap_transition)
+        old_obs=np.arange(4.,dtype=np.float32)[:,None]
+        reset_obs=old_obs+100.
+        fall=np.array([1.,0.,0.,0.],dtype=np.float32)
+        finish=np.array([0.,1.,0.,1.],dtype=np.float32)
+        terminal, boot=nursery_bootstrap_transition(
+            np,old_obs,reset_obs,fall,finish)
+        np.testing.assert_array_equal(terminal,fall)
+        np.testing.assert_array_equal(boot[:,0],[0.,101.,2.,103.])
         credit=stair_terminal_credit_stats(
-            np,np.array([-42.,2.,3.,4.]),
+            np,np.array([7.5,2.,3.,4.]),
             np.array([8.,0.,0.,0.]),
             np.array([50.,0.,0.,0.]),
-            np.array([1.,0.,0.,0.]))
+            np.array([1.,0.,0.,0.]),
+            np.array([50.,0.,0.,0.]),np.zeros(4))
         self.assertEqual(float(credit['stair_credit_finish_events']),1.)
         self.assertEqual(float(credit['stair_credit_finish_reward']),8.)
-        self.assertEqual(float(credit['stair_credit_finish_td']),-42.)
-        self.assertEqual(float(credit['stair_credit_finish_adv_raw']),-42.)
-        self.assertLess(float(credit['stair_credit_finish_adv_normalised']),0.)
-        self.assertEqual(float(credit['stair_credit_finish_negative_fraction']),1.)
+        self.assertEqual(float(credit['stair_credit_finish_bootstrap_value']),50.)
+        self.assertAlmostEqual(float(credit['stair_credit_finish_td']),7.5)
+        self.assertEqual(float(credit['stair_credit_finish_adv_raw']),7.5)
+        self.assertGreater(float(credit['stair_credit_finish_adv_normalised']),0.)
+        self.assertEqual(float(credit['stair_credit_finish_negative_fraction']),0.)
+        # Not every successful reset must give positive advantage if the
+        # critic's new-birth value is lower. Keep the negative-credit audit.
+        negative=stair_terminal_credit_stats(
+            np,np.array([-42.,2.,3.,4.]),
+            np.array([8.,0.,0.,0.]),np.array([50.,0.,0.,0.]),
+            np.array([1.,0.,0.,0.]),np.zeros(4),np.zeros(4))
+        self.assertEqual(float(negative['stair_credit_finish_td']),-42.)
+        self.assertEqual(float(negative['stair_credit_finish_negative_fraction']),1.)
         empty=stair_terminal_credit_stats(
             np,np.array([1.,2.]),np.array([0.,0.]),
-            np.array([0.,0.]),np.zeros(2))
+            np.array([0.,0.]),np.zeros(2),np.zeros(2),np.zeros(2))
         self.assertEqual(float(empty['stair_credit_finish_events']),0.)
         self.assertEqual(float(empty['stair_credit_finish_adv_raw']),-1.)
 
@@ -161,12 +247,20 @@ class CoreAcademyTests(unittest.TestCase):
             'academy_episodes':3.,'academy_episodes_first_lip_armed':2.,
             'academy_episodes_two_foot_ready':1.,
             'academy_short_climb_successes':1.,
+            'nursery_reward_sum':9.,
+            'nursery_progress_approach_sum':2.,
+            'nursery_progress_r_lift_sum':1.,
+            'nursery_progress_l_lift_sum':.5,
+            'nursery_progress_r_over_sum':.25,
+            'nursery_progress_l_over_sum':0.,
+            'nursery_progress_chassis_sum':.1,
             'academy_active_fraction':.5,
             'academy_actual_cmd_vx_mps':.1,
             'academy_actual_vx_mps':.08,
         }, {
             'stair_credit_finish_events':1.,
             'stair_credit_finish_reward':8.,'stair_credit_finish_value':50.,
+            'stair_credit_finish_bootstrap_value':0.,
             'stair_credit_finish_td':-42.,
             'stair_credit_finish_adv_raw':-42.,
             'stair_credit_finish_adv_normalised':-1.5,
@@ -190,6 +284,7 @@ class CoreAcademyTests(unittest.TestCase):
         },{
             'stair_credit_finish_events':2.,
             'stair_credit_finish_reward':10.,'stair_credit_finish_value':5.,
+            'stair_credit_finish_bootstrap_value':0.,
             'stair_credit_finish_td':5.,
             'stair_credit_finish_adv_raw':4.,
             'stair_credit_finish_adv_normalised':.5,
@@ -201,6 +296,10 @@ class CoreAcademyTests(unittest.TestCase):
         self.assertEqual(window['ppo_stair_audit_academy_episodes'],12.)
         self.assertEqual(window['ppo_stair_audit_academy_episodes_first_lip_armed'],8.)
         self.assertEqual(window['ppo_stair_audit_academy_episodes_two_foot_ready'],5.)
+        self.assertEqual(window['ppo_stair_audit_nursery_reward_sum'],9.)
+        self.assertEqual(window['ppo_stair_audit_nursery_progress_approach_sum'],2.)
+        self.assertEqual(window['ppo_stair_audit_nursery_progress_r_lift_sum'],1.)
+        self.assertAlmostEqual(window['ppo_stair_audit_nursery_progress_chassis_sum'],.1)
         self.assertAlmostEqual(window['ppo_stair_audit_finish_adv_normalised'],-1./6.)
         self.assertAlmostEqual(window['ppo_stair_audit_finish_negative_fraction'],1./3.)
         self.assertAlmostEqual(window['ppo_stair_audit_academy_cmd_vx_mps'],.15)
