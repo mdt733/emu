@@ -29,6 +29,8 @@ PROGRAMS={
     "down":dict(down=1.,command=(.18,0.,0.),phase="normal",tof="normal"),
     "mixed-command":dict(down=.50,command=(.20,.05,.08),
                          phase="normal",tof="normal"),
+    "mixed-command-reverse":dict(down=.50,command=(.20,-.05,-.08),
+                                 phase="normal",tof="normal"),
     "tof-masked":dict(down=.50,command=(.18,0.,0.),
                       phase="normal",tof="mask"),
     "phase-held":dict(down=.50,command=(.18,0.,0.),
