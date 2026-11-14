@@ -427,6 +427,16 @@ def main(argv=None):
             if src.is_file():shutil.copyfile(src,dest/fname)
         # Saved exports remain local for resume, but are deliberately
         # excluded from the upload archive.
+    # Preserve the 60M ancestor's learning curve too, without exporting
+    # training weights or treating it as one of the 16 D treatments.
+    source_root=root/'foundation-60m'
+    foundation_out=output/'training'/'foundation-60m'
+    foundation_out.mkdir(parents=True,exist_ok=True)
+    for fname in ('training_config.json','run_meta.json','metrics.csv',
+                  'fixed_eval.csv','results.md','results_data.json',
+                  'envelope_summary.json'):
+        src=source_root/fname
+        if src.is_file():shutil.copyfile(src,foundation_out/fname)
     if not args.only_arm:
         bundle(output,smoke=args.smoke,expected=names,metadata=meta)
     else:
