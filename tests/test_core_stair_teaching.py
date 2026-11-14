@@ -9,6 +9,17 @@ from emu.rewards import _physical_qualities
 class CoreStairPhysicsTests(unittest.TestCase):
 
     def test_four_world_actual_mjx_science_update(self):
+        # Pure, deterministic examiner gate tests inside existing core case:
+        # do NOT add a new permanent test or another physics simulator.
+        from emu.d_science_exam import _first5, _run5, _moving_window_good
+        self.assertFalse(_run5([0,1,1,1,0,1,1,1,1]))
+        self.assertTrue(_run5([0,1,1,1,1,1]))
+        self.assertEqual(_first5([0,1,1,1,1,1]),5)
+        self.assertEqual(_first5([1,1,1,0,1,1]),-1)
+        self.assertEqual(_moving_window_good(
+            np.full(25,.12),np.full(25,.12)),19)
+        self.assertEqual(_moving_window_good(
+            np.full(25,.0),np.full(25,.12)),-1)
         # Compile the *real physics step* including new transfer event
         # memory and all reward-side research branches, not a toy reward
         # calculation. Four worlds are deliberately CPU-bounded.
