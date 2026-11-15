@@ -19,6 +19,7 @@ Keep extraction local to existing modules; avoid new wrapper mazes.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import time
 from dataclasses import replace
@@ -100,7 +101,9 @@ def compatible_academy_evidence_recipe(parent: TrainingConfig,
                for name in (
                    'science_step_finish_on_transfer',
                    'science_step_goal_weight', 'science_step_approach_m',
-                   'stair_tutor_mode',
+                   # Tutor reward shaping DOES NOT alter physical success
+                   # certification. Both matched arms inherit the same
+                   # 80M governor evidence, not asymmetric resets.
                    'academy_stream', 'academy_height_cap_m',
                    'academy_course_episode_frames',
                    'terrain_carpet', 'terrain_carpet_prisms',
@@ -369,9 +372,20 @@ def train(args: TrainingConfig) -> int:
                             # and whole-checkpoint SHA256 before training.
                             parent_cfg = TrainingConfig.load(
                                 parent_cfg_path, research_parent=True)
-                            safe_evidence_fork = (
+                            # D's old 'off' course ignored independent
+                            # second-foot support; current two-lip lessons
+                            # require it. Do NOT inherit its optimistic
+                            # Academy success evidence into the new bridge.
+                            # Current same-source tutor forks have no D
+                            # selector and share identical success semantics.
+                            historical=json.loads(
+                                parent_cfg_path.read_text(encoding="utf-8"))
+                            old_course=historical.get(
+                                'stair_tournament_arm','control')
+                            safe_evidence_fork=(
+                                old_course=='control' and
                                 compatible_academy_evidence_recipe(
-                                    parent_cfg, args))
+                                    parent_cfg,args))
                         except (ValueError, TypeError, OSError) as exc:
                             print(f'{LOG_PREFIX} parent recipe not verifiable: '
                                   f'{exc}; clearing incompatible evidence',
