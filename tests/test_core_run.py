@@ -292,6 +292,12 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     assert not compatible_academy_evidence_recipe(
         migrated, replace(first, outcome_graduation=True,
                           science_step_finish_on_transfer=True))
+    # The A/B changes the *teacher reward*, not the measured definition of
+    # course success: preserve the same age-80M governor counters in both.
+    shared=replace(first,science_step_finish_on_transfer=True,
+                   stair_tutor_mode='legacy')
+    assert compatible_academy_evidence_recipe(
+        shared,replace(shared,stair_tutor_mode='escrow'))
     for key, value in (('cloud_final_probes', 10),
                        ('cloud_probes_per_eval', 1),
                        ('science_reset_step_evidence_on_fork', True),
