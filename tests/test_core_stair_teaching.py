@@ -189,13 +189,18 @@ class CoreStairPhysicsTests(unittest.TestCase):
         """No lunge reward, true top-first geometry, once-only recovery."""
         from emu.step_goal import (stair_tutor_foot_progress,
                                    stair_tutor_recovery,academy_event_payment)
-        old=np.array([0.,3.,10.,13.],np.float32)
+        # [UP Academy, DOWN Academy, mixed second UP, ordinary STEP].
+        # Preserve non-UP event credit in escrow mode, not just the
+        # ordinary +10 STEP-crossing bonus calculated elsewhere.
+        old=np.array([3.,13.,10.,3.,10.],np.float32)
+        up=np.array([True,False,True,False,False])
+        expected=np.array([0.,13.,0.,3.,10.],np.float32)
         np.testing.assert_array_equal(
-            academy_event_payment(np,old,"legacy"),old)
+            academy_event_payment(np,old,"legacy",up),old)
         np.testing.assert_array_equal(
-            academy_event_payment(np,old,"escrow"),np.zeros_like(old))
+            academy_event_payment(np,old,"escrow",up),expected)
         with self.assertRaises(ValueError):
-            academy_event_payment(np,old,"unknown")
+            academy_event_payment(np,old,"unknown",up)
         zeros=np.zeros((1,6),np.float32)
         body=np.array([[.80,.50]],np.float32)
         edge=np.array([1.],np.float32)
@@ -277,7 +282,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
         import jax.numpy as jnp
         np.testing.assert_array_equal(
             np.asarray(academy_event_payment(
-                jnp,jnp.asarray(old),"escrow")),np.zeros_like(old))
+                jnp,jnp.asarray(old),"escrow",jnp.asarray(up))),expected)
         bj,pj,_=stair_tutor_foot_progress(
             jnp,jnp.asarray(b1),jnp.asarray(body),jnp.asarray(landed),
             jnp.asarray(bottom2),jnp.asarray(edge),jnp.asarray(top),
