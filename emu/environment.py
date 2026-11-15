@@ -1805,7 +1805,11 @@ class EmuMJXEnv(TaskSampler):
         terrain_cross_new = academy['ordinary_step_new']
         reward=reward+10.0*terrain_cross_new.astype(jnp.float32)
         ep_return=ep_return+10.0*terrain_cross_new.astype(jnp.float32)
-        academy_payment=(10.*academy['cross_new'].astype(jnp.float32)
+        # Academy's old first-foot crossing payout must NOT bypass the
+        # staged tutor. Ordinary terrain crossings retain their own pay.
+        # The escrow arm gets only foot shaping, authentic landing and
+        # recovered-commanded-motion until the full two-lip outcome.
+        academy_payment=(jnp.zeros_like(academy['reward'])
                          if self.stair_tutor_mode=='escrow' else academy['reward'])
         reward=reward+academy_payment
         ep_return=ep_return+academy_payment
