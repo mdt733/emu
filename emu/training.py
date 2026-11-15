@@ -119,6 +119,7 @@ def env_kwargs_from_args(args) -> dict:
         vy_max_mps=args.vy_max_mps, yaw_max_rad_s=args.yaw_max_rad_s,
         phase_speed_gain=args.phase_speed_gain,
         motor_guidance_weight=args.motor_guidance_weight,
+        motor_torque_scale=args.motor_torque_scale,
         terrain_step_max_m=args.terrain_step_max_m,
         unified_capability_focus=args.unified_capability_focus,
         velocity_i_ramp_s=args.velocity_i_ramp_s,
@@ -283,6 +284,8 @@ def train(args: TrainingConfig) -> int:
     # world with the new two-ball-foot-only world.
     meta['mjx_physics'] = {
         'feet_only_contacts': env.feet_only_contacts,
+        'motor_torque_scale_research_only': args.motor_torque_scale,
+        'hardware_rated_torque_nm': 0.980665,
         'reset_forward_capacity': env.reset_forward_capacity,
         'solver_iterations': int(env.mj_model.opt.iterations),
         'solver_ls_iterations': int(env.mj_model.opt.ls_iterations),
