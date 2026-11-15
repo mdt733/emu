@@ -100,6 +100,7 @@ def compatible_academy_evidence_recipe(parent: TrainingConfig,
                for name in (
                    'science_step_finish_on_transfer',
                    'science_step_goal_weight', 'science_step_approach_m',
+                   'stair_tutor_mode',
                    'academy_stream', 'academy_height_cap_m',
                    'academy_course_episode_frames',
                    'terrain_carpet', 'terrain_carpet_prisms',
