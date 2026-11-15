@@ -40,6 +40,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
             science_step_finish_on_transfer=True,
             two_lip_continuation_school=True,
             stair_tournament_arm='control',
+            # No obsolete D-factor shaping: match the new A/B physics.
             stair_tutor_mode='escrow',  # compile actual 8-prism escrow branch
             solver_iterations=2,solver_ls_iterations=4,
             science_gate_mode="zero-only",
@@ -47,11 +48,6 @@ class CoreStairPhysicsTests(unittest.TestCase):
             science_phase_sync_strength=0.,
             science_crouch_allowance_m=.03,
             science_stride_efficiency_weight=.08,
-            science_supported_cross_bonus=6.,
-            science_foothold_bonus=3.,
-            science_bilateral_support_bonus=4.,
-            science_followthrough_bonus=10.,
-            science_sensor_teacher_bonus=3.,
             science_step_goal_weight=0.,  # D disallows first-lip goal jackpot
             science_step_velocity_relief=.80,
             science_step_approach_m=.22,
