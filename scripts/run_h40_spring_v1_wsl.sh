@@ -7,7 +7,7 @@ set -euo pipefail
 MODE="${1:-}"
 case "$MODE" in
   all|smoke|gpu-gate|plan|train-20m|extend-40m|extend-120m|exam) ;;
-  *) echo "Usage: bash scripts/run_h40_spring_v1_wsl.sh all|smoke|gpu-gate|plan|train-20m|extend-120m" >&2; exit 2 ;;
+  *) echo "Usage: bash scripts/run_h40_spring_v1_wsl.sh all|smoke|gpu-gate|plan|train-20m|extend-40m|extend-120m|exam" >&2; exit 2 ;;
 esac
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,7 +35,7 @@ RUN_DIR="${EMU_SPRING_RUN_DIR:-$HOME/emu-data/runs/h40-spring-v1-outcomes-s735}"
 mkdir -p "$(dirname "$RUN_DIR")"
 
 # Prevent non-source-pinned training or a dirty experimental model.
-if [[ "$MODE" == train-20m || "$MODE" == extend-120m ]]; then
+if [[ "$MODE" == train-20m || "$MODE" == extend-40m || "$MODE" == extend-120m ]]; then
   if [[ -n "$(git status --porcelain)" ]]; then
     echo "Refusing training: uncommitted/untracked Git changes." >&2
     exit 1
@@ -244,7 +244,7 @@ last = rows[-1]
 def number(name):
     value = float(last.get(name, float("nan")))
     if not math.isfinite(value):
-        raise RuntimeError(f"Cannot extend: nonfinite {name} at 20M")
+        raise RuntimeError(f"Cannot extend: nonfinite {name} at {age}M")
     return value
 step = number("step")
 fall = number("fall_rate")
