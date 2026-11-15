@@ -163,6 +163,19 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert not {"cloud_probes_per_eval","cloud_final_probes",
                 "science_reset_step_evidence_on_fork"} & asdict(cfg).keys()
     assert training_sensor_contract(cfg) is not None
+    # The final one-paste WSL command contains embedded Python report and
+    # 20M safety-gate blocks. Compile all heredocs and the surrounding Bash
+    # syntax in existing core acceptance (no extra test family).
+    import re
+    import shutil
+    import subprocess
+    runner = Path(__file__).resolve().parents[1] / "scripts/run_h40_spring_v1_wsl.sh"
+    source = runner.read_text(encoding="utf-8")
+    for block in re.findall(r"python - <<'PY'\\n(.*?)\\nPY", source, re.S):
+        compile(block, str(runner), "exec")
+    assert len(re.findall(r"python - <<'PY'",source)) >= 2
+    if shutil.which("bash"):
+        subprocess.run(["bash","-n",str(runner)],check=True)
     # Keep 24 core tests: this UI is another assertion of the *existing*
     # public CLI contract, not a new training experiment/test family.
     _check_readonly_dashboard(tmp_path)
