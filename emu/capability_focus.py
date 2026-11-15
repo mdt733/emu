@@ -56,6 +56,27 @@ COMMAND, RESILIENCE, SLOPE, STEP, TRANSITION, CONTROL = range(6)
 # Thus a 20% command allocation really means ~20% command-focused worlds.
 SPECIALIST_ACTIVE_FRACTION = 1.0
 SPECIALIST_BLEND_STEPS = 10_000_000
+
+# Gentle hand-holding lasts through the gait foundation; the actual PPO
+# reward-specific gait payment and stepping-activity gating then decrease
+# linearly to zero across the next 20M world steps. Difficulty/frontiers and
+# physical safety do NOT depend on this calendar.
+OUTCOME_GUIDANCE_FADE_STEPS = 20_000_000
+
+
+def gait_guidance_strength(*, step: int, foundation_steps: int,
+                           fade_steps: int) -> float:
+    """1 while teaching gait, 1→0 during post-foundation, then 0 forever.
+
+    fade_steps=0 is the source-pinned historical recipe (no fade).
+    """
+    if any(type(x) is not int or x < 0
+           for x in (step, foundation_steps, fade_steps)):
+        raise ValueError("gait guidance requires nonnegative integer steps")
+    if fade_steps == 0 or step <= foundation_steps:
+        return 1.0
+    return max(0.0, 1.0 - (step - foundation_steps) / fade_steps)
+
 NONFOCUS_STRENGTH = 0.50
 CONTROL_STRENGTH = 0.25
 
