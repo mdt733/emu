@@ -273,8 +273,11 @@ class TrainingConfig:
         new_keys={'outcome_graduation','outcome_walk_start_steps',
                   'outcome_stair_approved','outcome_approval_start_steps',
                   'outcome_down_share','progressive_school','refined_school',
-                  'bidirectional_school','two_lip_continuation_school',
-                  'stair_tutor_mode'}
+                  'bidirectional_school','two_lip_continuation_school'}
+        if research_parent:
+            # New reward-contract fields are migrated ONLY across a
+            # specifically validated external checkpoint boundary.
+            new_keys.add('stair_tutor_mode')
         if research_parent:
             # These were eliminated by source cleanup, not replaced with a
             # different actor, geometry, optimizer or curriculum contract.
