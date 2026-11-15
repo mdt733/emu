@@ -12,6 +12,7 @@ import hashlib
 import json
 import math
 from pathlib import Path
+from xml.etree import ElementTree as ET
 
 import mujoco
 import numpy as np
@@ -121,6 +122,96 @@ def _simulate(model, *, swing):
     )
 
 
+# Temporary spring candidates are NOT production models. The 30/30 mm original
+# causes overlapping anchor sites at -90 degrees, so candidate geometry may
+# deliberately use 35/25 mm offsets. Targets are *neutral knee torque*, not
+# actuator gains or changes to the frozen policy's [-33.2,+33.2] target span.
+SPRING_CANDIDATES = (
+    ("30_30_same_neutral_soft", .030, .030, 150., .520606),
+    ("35_25_gentle_low_rate", .035, .025, 150., .350),
+    ("35_25_gentler_low_rate", .035, .025, 150., .250),
+    ("35_25_medium_rate", .035, .025, 300., .350),
+)
+DESIGN_ANGLES_DEG = (-90, -85, -70, -55, -40, -30, -20, 0, 30, 60, 90)
+
+
+def _spring_candidate(xml, thigh_arm_m, shin_arm_m, stiffness_n_m,
+                      neutral_support_nm):
+    """In-memory candidate; preserve the generated H40 XML and actor.
+
+    A tendon with 30/30mm anchors collapses to zero length at -90deg.
+    Asymmetric 35/25mm anchors retain a 10mm separation at that limit.
+    Design-only -90deg joint travel is NOT approved hardware clearance.
+    """
+    if not (0.015 <= thigh_arm_m <= .050 and
+            0.015 <= shin_arm_m <= .050 and
+            10. <= stiffness_n_m <= 500. and
+            0. <= neutral_support_nm <= .6):
+        raise ValueError("Candidate spring outside research envelope")
+    l_neutral = math.hypot(thigh_arm_m, shin_arm_m)
+    lever_neutral = thigh_arm_m * shin_arm_m / l_neutral
+    springlength = l_neutral + neutral_support_nm / (stiffness_n_m * lever_neutral)
+    root = ET.fromstring(xml)
+    for side in "rl":
+        knee_body = root.find(f".//body[@name='{side}_shin']")
+        thigh_site = root.find(f".//site[@name='{side}_knee_strut_thigh']")
+        shin_site = root.find(f".//site[@name='{side}_knee_strut_shin']")
+        tendon = root.find(f".//spatial[@name='{side}_knee_support']")
+        knee = root.find(f".//joint[@name='{side}_knee']")
+        if any(el is None for el in (knee_body, thigh_site, shin_site, tendon, knee)):
+            raise RuntimeError("Generated H40 missing spring links")
+        knee_xyz = [float(v) for v in knee_body.get("pos").split()]
+        a = thigh_arm_m / math.sqrt(2.0)
+        b = shin_arm_m / math.sqrt(2.0)
+        thigh_site.set("pos", f"{knee_xyz[0]+a:.9f} 0 {knee_xyz[2]+a:.9f}")
+        shin_site.set("pos", f"{b:.9f} 0 {-b:.9f}")
+        tendon.set("stiffness", f"{stiffness_n_m:.9f}")
+        tendon.set("springlength", f"{springlength:.9f}")
+        knee.set("range", "-90 95")  # research geometry only; no NN changes
+    model = mujoco.MjModel.from_xml_string(ET.tostring(root, encoding="unicode"))
+    return model, springlength
+
+
+def spring_design_study(xml):
+    """Passive torque measured with mj_forward, not a guessed knee lever."""
+    base = mujoco.MjModel.from_xml_string(xml)
+    rows = [dict(name="unchanged_champion", hardware_valid=True,
+                 stiffness_n_m=float(base.tendon_stiffness[0]),
+                 rest_length_mm=float(base.tendon_lengthspring[0, 0] * 1000.0)
+                 if hasattr(base, "tendon_lengthspring") else None,
+                 thigh_arm_mm=30, shin_arm_mm=30,
+                 neutral_support_nm=.520606,
+                 static=_static(base, "r_knee",
+                                [x for x in DESIGN_ANGLES_DEG if x >= -55]))]
+    for name, a, b, k, tau0 in SPRING_CANDIDATES:
+        model, rest = _spring_candidate(xml, a, b, k, tau0)
+        curve = _static(model, "r_knee", DESIGN_ANGLES_DEG)
+        normal = next(x["passive_torque_nm"] for x in curve if x["angle_deg"] == 0)
+        if not math.isclose(normal, tau0, rel_tol=.005, abs_tol=.003):
+            raise RuntimeError(f"MuJoCo spring force mismatch: {name}: {normal}")
+        rows.append(dict(name=name, hardware_valid=False,
+                         stiffness_n_m=k, rest_length_mm=rest * 1000.,
+                         thigh_arm_mm=a * 1000., shin_arm_mm=b * 1000.,
+                         neutral_support_nm=tau0,
+                         max_passive_torque_nm=max(x["passive_torque_nm"]
+                                                   for x in curve),
+                         min_attachment_separation_mm=abs(a - b) * 1000.,
+                         static=curve,
+                         neutral_settle=_simulate(
+                             _spring_candidate(xml, a, b, k, tau0)[0],
+                             swing=False)))
+    return dict(
+        statement="research-only MuJoCo static sweeps, not buildable spring designs",
+        candidate_joint_range_deg=[-90, 95],
+        warning=("Original equal 30/30mm tendon sites coincide at -90deg. "
+                 "The real foot also folds into the hip/chassis in this nominal geometry. "
+                 "Neither physical clearance nor actuator reach is proven."),
+        engineering=("MuJoCo tendon springlength is an effective reference separation, "
+                     "NOT evidence that a compression cartridge of that length fits "
+                     "between 10-60mm-spaced mounting points. A long spring and "
+                     "preload require a distinct real guided linkage/rocker."),
+        rows=rows)
+
 def run(output: Path):
     output = output.expanduser().resolve()
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
@@ -151,6 +242,7 @@ def run(output: Path):
             swing=_simulate(model, swing=True),
             neutral_settle=_simulate(_model(xml, spring_scale, torque_scale), swing=False),
         ))
+    data["spring_design"] = spring_design_study(xml)
     output.mkdir(parents=True, exist_ok=True)
     (output / "mechanics.json").write_text(
         json.dumps(data, indent=2, allow_nan=False) + "\n", encoding="utf-8")
@@ -171,6 +263,23 @@ def run(output: Path):
             f"{knee['passive_torque_nm']:+.3f} | {s['deepest_knee_deg']:.1f}° | "
             f"{s['max_relative_foot_rise_mm']:.1f} | {100*s['knee_at_cap_fraction']:.1f} | "
             f"{t['min_torso_z_m']:.3f} |")
+    lines += ["", "## Spring redesign (research models only)", "",
+              "Reduced rate + preload is calibrated to neutral torque. "
+              "A long, remote/rocker-mounted spring may be required.",
+              "The -90° joint stop is ONLY used for candidate force-angle "
+              "sweeps; a physical foot/torso collision remains unresolved.", "",
+              "| Candidate | Effective rate N/m | Rest ref mm | Knee at 0° | Knee at -55° | Peak sampled knee torque | Neutral settle torso m |",
+              "|---|---:|---:|---:|---:|---:|---:|"]
+    for candidate in data["spring_design"]["rows"]:
+        lookup = {v["angle_deg"]: v["passive_torque_nm"]
+                  for v in candidate["static"]}
+        settled = candidate.get("neutral_settle", {}).get("min_torso_z_m")
+        lines.append(
+            f"| {candidate['name']} | {candidate['stiffness_n_m']:.1f} | "
+            f"{candidate['rest_length_mm'] if candidate['rest_length_mm'] is not None else float('nan'):.1f} | "
+            f"{lookup[0]:+.3f} | {lookup[-55]:+.3f} | "
+            f"{candidate.get('max_passive_torque_nm', float('nan')):.3f} | "
+            f"{settled if settled is not None else float('nan'):.3f} |")
     lines += ["", "## Interpretation guardrails", "",
               "- Spring improvement in an unloaded swing does not prove a climb.",
               "- Neutral settling is only a same-initial-state support proxy: it cannot certify stance or gait.",
