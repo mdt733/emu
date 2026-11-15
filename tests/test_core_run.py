@@ -137,6 +137,29 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert late_terms["contact"] == pytest.approx(.5)
     assert early_terms["posture"] < late_terms["posture"]
     assert late > early
+    # At 40M the step cadence *and* foot-under-hip pose cease to earn
+    # rewards. Real attitude/height/support remain as outcome constraints.
+    from emu.rewards import _physical_qualities
+    qualities=dict(attitude_quality=np.array([.9]),
+                   height_error=np.array([0.]),
+                   cmd_pitch=np.array([0.]),
+                   foot_mid_cone=np.array([0.]),
+                   bad_contact=np.array([0.]),
+                   support=np.array([1.]),
+                   stance_slip=np.array([0.]),
+                   swing_clearance=np.array([.04]),
+                   target_step_height=np.array([.03]),
+                   organic_step_shape=np.array([.8]),
+                   action_delta_norm=np.array([0.]),
+                   joint_limit_pressure=np.array([0.]),
+                   scissor_pressure=np.array([0.]))
+    first = _physical_qualities(qualities,np,gait_guidance_strength=1.)
+    free = _physical_qualities(qualities,np,gait_guidance_strength=0.)
+    same = _physical_qualities({**qualities,
+              "foot_mid_cone":np.array([1.])},np,
+              gait_guidance_strength=0.)
+    assert float(first[0][0]) < float(free[0][0])
+    assert float(free[0][0]) == pytest.approx(float(same[0][0]))
     assert not {"cloud_probes_per_eval","cloud_final_probes",
                 "science_reset_step_evidence_on_fork"} & asdict(cfg).keys()
     assert training_sensor_contract(cfg) is not None
