@@ -57,7 +57,9 @@ source ~/emu/.venv/bin/activate
 # Expected parent: ~/emu-data/runs/h40-d-coach-lab-s735/foundation-60m/checkpoints/final.pkl
 bash scripts/run_h40_stair_tutor_wsl.sh preflight
 bash scripts/run_h40_stair_tutor_wsl.sh smoke
-# Only after source and GPU checks pass: 2 x 30M from SAME frozen 60M parent.
+# Shared 60M→80M walking bridge (20M trained ONCE); no duplicate warmup.
+bash scripts/run_h40_stair_tutor_wsl.sh bridge
+# Two matched 80M→100M, 20M tutor forks from identical checkpoint.
 bash scripts/run_h40_stair_tutor_wsl.sh both
 # Frozen-policy two-seed true-prism exams:
 bash scripts/run_h40_stair_tutor_wsl.sh exam
