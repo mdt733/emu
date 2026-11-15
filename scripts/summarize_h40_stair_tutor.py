@@ -72,6 +72,21 @@ def physical_exams(root: Path):
     return result
 
 
+def paired_matrix(root: Path):
+    pairs={}
+    for arm in ("legacy","escrow"):
+        path=root/"exams"/arm/"paired_comparison_s1701"/"matrix_paired_curves.csv"
+        if not path.is_file():
+            continue
+        with path.open(newline="",encoding="utf-8-sig") as stream:
+            rows=list(csv.DictReader(stream))
+        for row in rows:
+            if row["kind"] not in ("step_up","step_down"):
+                raise RuntimeError(f"Unexpected comparison kind {row['kind']}")
+        pairs[arm]=rows
+    return pairs
+
+
 def report(root: Path):
     cases={}
     for arm in ("legacy","escrow"):
@@ -94,13 +109,14 @@ def report(root: Path):
             final_step=_float(last.get("step")),counts=counts,
             last={key:_float(last.get(key)) for key in FINAL})
     exams=physical_exams(root)
+    paired=paired_matrix(root)
     payload=dict(
         schema="h40_stair_tutor_ab_v1",parent_steps=ANCHOR,
         source_note="same 60M frozen learner; physical H40 MJX; 50mm UP kept",
         warning=("Selected rollout event counts are not complete episodes; "
                  "last alpha/height are teacher state. Do not sum cumulative "
                  "PPO audit metrics; do not interpret retired clearance/goal counts."),
-        arms=cases,physical_exams=exams)
+        arms=cases,physical_exams=exams,paired_flat_matrix=paired)
     root.mkdir(parents=True,exist_ok=True)
     (root/"tutor_ab_summary.json").write_text(
         json.dumps(payload,indent=2,sort_keys=True)+"\n")
@@ -159,6 +175,21 @@ def report(root: Path):
         lines += ["", "The strict outcome additionally requires the original "
                   "examiner's post-second recovery gate. Double-foot "
                   "simultaneous standing is NOT mandatory.", ""]
+    if paired:
+        lines += ["", "## Exact 50mm versus matched flat control", "",
+                  "| Actor | Direction | Flat traversals | 50mm traversals | Difference |",
+                  "|---|---|---:|---:|---:|"]
+        for arm in ("legacy","escrow"):
+            for row in paired.get(arm,[]):
+                lines.append(
+                    f"| {arm} | {row['kind']} | "
+                    f"{row['traversed_5frame_flat']}/{row['pairs']} | "
+                    f"{row['traversed_5frame_stair']}/{row['pairs']} | "
+                    f"{row['traversed_5frame_difference_pct']} pp |")
+        lines += ["", "Same world index / seed / initial command; compare "
+                  "direction-specific actual prism traversal rather than "
+                  "raw root crossings. A zero-height success alone is "
+                  "NOT a stair skill.", ""]
     (root/"tutor_ab_summary.md").write_text("\n".join(lines),encoding="utf-8")
     print("\n".join(lines))
     return payload
