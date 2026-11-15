@@ -67,9 +67,9 @@ bash scripts/run_h40_stair_tutor_wsl.sh report
 ~~~
 
 No billion-step campaign is authorised by this experiment. **Stop** if
-uphill Academy exposure is negligible or if the escrow arm fails to improve
+uphill Academy exposure is negligible (automated legacy-arm gate) or if the escrow arm fails to improve
 physical pre-root upper-foot contact and controlled recovery. Decide whether
-to extend from 90M to 110M only with independent physical data, and repeat
+to extend from 100M to 120M only with independent physical data, and repeat
 with a different training seed before any causal claim. Running this script
 without an explicit mode prints help and trains nothing. Running preflight
 never launches PPO. The launch checks parent SHA-256 and source identity;
