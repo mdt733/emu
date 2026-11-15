@@ -119,17 +119,9 @@ def main(argv=None) -> int:
     q.add_argument('--outcome-stair-approved',action='store_true',help='fade dense coaching after independently proven 50mm climbs')
     q.add_argument('--outcome-approval-start-steps',type=int,default=0,help='absolute steps when independent stair proof was approved')
     q.add_argument('--outcome-down-share',type=float,default=.20,help='descent share after stair graduation')
-    q.add_argument('--stair-tournament-arm',
-                   choices=('off','control','progressive','free-phase','foothold','commands',
-                            'progressive+free-phase','progressive+foothold','progressive+commands',
-                            'free-phase+foothold','free-phase+commands','foothold+commands',
-                            'progressive+free-phase+foothold',
-                            'progressive+free-phase+commands',
-                            'progressive+foothold+commands',
-                            'free-phase+foothold+commands',
-                            'progressive+free-phase+foothold+commands'),
+    q.add_argument('--stair-tournament-arm',choices=('off','control'),
                    default='off',
-                   help='Experiment D teaching laboratory: 16 factorial arms with common physical certification, no finalist elimination')
+                   help='Retained strict second-lip support control. Retired D factorial recipes are in Git history')
     q.add_argument('--stair-tutor-mode',choices=('legacy','escrow'),default='legacy',
                    help='50mm uphill physics tutor: baseline legacy or bounded feet + delayed recovered chassis reward')
     q.add_argument('--two-lip-continuation-school',action='store_true',
