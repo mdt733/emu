@@ -48,6 +48,7 @@ jobs:
           bash -n scripts/run_h40_stair_tutor_wsl.sh
           bash scripts/run_h40_stair_tutor_wsl.sh help > /dev/null
           python -m scripts.summarize_h40_stair_tutor --help > /dev/null
+          python -m scripts.h40_d_two_lip_exam --help > /dev/null
           # Main carries one real H40 inference actor. Validate its full
           # observation contract independently of manual Pages approval.
           python - <<'PY'
