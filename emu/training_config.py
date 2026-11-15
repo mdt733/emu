@@ -157,6 +157,10 @@ class TrainingConfig:
     # less for repeated nominal overload and gross shaft-motion effort.
     # Compare only against a matched no-guidance branch after physics exams.
     motor_guidance_weight: float = 0.0
+    # Research-only actuator force multiplier. 1.0 is the real C018 hard cap;
+    # up to 2.0 explicitly studies whether torque authority blocks footholds.
+    # Saved as checkpoint configuration; never a hardware specification.
+    motor_torque_scale: float = 1.0
 
     # Current H40 stores real-prism terrain difficulty in the same source-pinned
     # configuration: zero means flat exposure, not a retired finite platform.
