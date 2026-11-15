@@ -2115,7 +2115,8 @@ class EmuMJXEnv(TaskSampler):
             full_course_new=jnp.zeros_like(done)
             intro_new=jnp.zeros_like(done)
             cmd_followed=jnp.zeros_like(done)
-        academy={**academy,'completed':goal_new,'finish_new':finish_new,
+        academy={**academy,'reward_paid':academy_payment,
+                 'completed':goal_new,'finish_new':finish_new,
                  'course_new':full_course_new,
                  'intro_new':intro_new,
                  'lesson_new':course_new,
@@ -2528,7 +2529,7 @@ class EmuMJXEnv(TaskSampler):
             'academy_foothold_new':academy['foothold_new'].astype(jnp.float32),
             'academy_transfer_new':academy['transfer_new'].astype(jnp.float32),
             'academy_followthrough_new':academy['progress_new'].astype(jnp.float32),
-            'academy_reward':academy_payment,
+            'academy_reward':academy['reward_paid'],
             'nursery_reward':academy['nursery_payment'],
             'tutor_escrow_release_new':academy['tutor_release'].astype(jnp.float32),
             'tutor_pre_root_plant_new':academy['tutor_before_root'],
