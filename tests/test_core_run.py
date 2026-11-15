@@ -171,7 +171,7 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     import subprocess
     runner = Path(__file__).resolve().parents[1] / "scripts/run_h40_spring_v1_wsl.sh"
     source = runner.read_text(encoding="utf-8")
-    for block in re.findall(r"python - <<'PY'\\n(.*?)\\nPY", source, re.S):
+    for block in re.findall(r"python - <<'PY'\n(.*?)\nPY", source, re.S):
         compile(block, str(runner), "exec")
     assert len(re.findall(r"python - <<'PY'",source)) >= 2
     if shutil.which("bash"):
