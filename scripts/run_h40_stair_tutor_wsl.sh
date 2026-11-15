@@ -5,7 +5,10 @@ set -euo pipefail
 
 ROOT="${EMU_TUTOR_ROOT:-$HOME/emu-data/runs/h40-stair-tutor-ab-s735}"
 PARENT="${EMU_TUTOR_PARENT:-$HOME/emu-data/runs/h40-d-coach-lab-s735/foundation-60m/checkpoints/final.pkl}"
-TARGET="${EMU_TUTOR_TARGET:-90000000}"  # 60M parent -> 90M; 30M per arm
+BRIDGE_TARGET=80000000  # once-only walking graduation
+TARGET=100000000       # 80M->100M matched 20M tutor arms
+BRIDGE="$ROOT/bridge-80m"
+BRIDGE_PARENT="$BRIDGE/checkpoints/final.pkl"
 MODE="${1:-help}"
 cd "$(dirname "$0")/.."
 export PYTHONPATH="$PWD"
@@ -69,12 +72,26 @@ register_study(){
   [[ -f "$ROOT/ancestor.sha256" ]] || printf '%s\n' "$PARENT_HASH" > "$ROOT/ancestor.sha256"
   [[ -f "$ROOT/ancestor-source.sha" ]] || printf '%s\n' "$PARENT_SOURCE" > "$ROOT/ancestor-source.sha"
 }
-make_args(){
-  local arm="$1"; shift
-  local prefix="$ROOT/$arm"
-  FLAGS=("${COMMON[@]}" --run-dir "$prefix" --steps "$TARGET"
-         --envs 2048 --stair-tutor-mode "$arm")
-  if [[ -f "$prefix/training_config.json" ]]; then
+verify_bridge(){
+  [[ -f "$BRIDGE_PARENT" ]] || {
+    echo "Missing shared 80M bridge checkpoint. Run bridge first." >&2
+    exit 1
+  }
+  local observed
+  observed="$(sha256sum "$BRIDGE_PARENT" | cut -d' ' -f1)"
+  if [[ -f "$ROOT/bridge.sha256" ]]; then
+    [[ "$(cat "$ROOT/bridge.sha256")" == "$observed" ]] || {
+      echo "Shared 80M ancestor changed. REFUSING both arms." >&2; exit 1
+    }
+  else
+    printf '%s\n' "$observed" > "$ROOT/bridge.sha256"
+  fi
+  echo "Shared 80M bridge SHA256: $observed"
+}
+make_bridge_args(){
+  FLAGS=("${COMMON[@]}" --run-dir "$BRIDGE" --steps "$BRIDGE_TARGET"
+         --envs 2048 --stair-tutor-mode legacy)
+  if [[ -f "$BRIDGE/training_config.json" ]]; then
     FLAGS+=(--resume auto)
   else
     FLAGS+=(--resume "$PARENT"
@@ -82,13 +99,45 @@ make_args(){
       --research-parent-sha256 "$PARENT_HASH")
   fi
 }
+make_args(){
+  local arm="$1"
+  local prefix="$ROOT/$arm"
+  FLAGS=("${COMMON[@]}" --run-dir "$prefix" --steps "$TARGET"
+         --envs 2048 --stair-tutor-mode "$arm")
+  if [[ -f "$prefix/training_config.json" ]]; then
+    FLAGS+=(--resume auto)
+  else
+    FLAGS+=(--resume "$BRIDGE_PARENT")
+  fi
+}
 check(){
-  echo "Source $COMMIT; immutable parent $PARENT_SOURCE / $PARENT_HASH"
-  echo "Runs: $ROOT, target absolute $TARGET, 50mm UP/20mm DOWN"
-  for arm in legacy escrow; do
-    make_args "$arm"
-    python -m emu.cli train "${FLAGS[@]}" --check-resume-only
-  done
+  echo "Tutor source $COMMIT; 60M parent source $PARENT_SOURCE SHA256=$PARENT_HASH"
+  make_bridge_args
+  python -m emu.cli train "${FLAGS[@]}" --check-resume-only
+  if [[ -f "$BRIDGE_PARENT" ]]; then
+    verify_bridge
+    for arm in legacy escrow; do
+      make_args "$arm"
+      python -m emu.cli train "${FLAGS[@]}" --check-resume-only
+    done
+  else
+    echo "Arms start only after shared 80M walking bridge."
+  fi
+}
+run_bridge(){
+  register_study
+  make_bridge_args
+  python -m emu.cli train "${FLAGS[@]}" --check-resume-only
+  python -m emu.cli train "${FLAGS[@]}"
+  verify_bridge
+}
+run_arm(){
+  local arm="$1"
+  register_study
+  verify_bridge
+  make_args "$arm"
+  python -m emu.cli train "${FLAGS[@]}" --check-resume-only
+  python -m emu.cli train "${FLAGS[@]}"
 }
 case "$MODE" in
   help)
