@@ -1,17 +1,29 @@
 #!/usr/bin/env bash
 # H40 spring-v1 with 20M gait nursery -> 40M outcome-only reward, cold start.
-# Usage: bash scripts/run_h40_spring_v1_wsl.sh smoke|gpu-gate|plan|train-20m|extend-120m
+# Usage: bash scripts/run_h40_spring_v1_wsl.sh all|smoke|gpu-gate|plan|train-20m|extend-120m
 # One run directory and one trainer, founded on the existing main-style recipe.
 set -euo pipefail
 
 MODE="${1:-}"
 case "$MODE" in
-  smoke|gpu-gate|plan|train-20m|extend-120m) ;;
-  *) echo "Usage: bash scripts/run_h40_spring_v1_wsl.sh smoke|gpu-gate|plan|train-20m|extend-120m" >&2; exit 2 ;;
+  all|smoke|gpu-gate|plan|train-20m|extend-120m) ;;
+  *) echo "Usage: bash scripts/run_h40_spring_v1_wsl.sh all|smoke|gpu-gate|plan|train-20m|extend-120m" >&2; exit 2 ;;
 esac
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO"
+
+if [[ "$MODE" == all ]]; then
+  # Unattended one-paste campaign. Each stage independently verifies the
+  # actual physical model and latest source-pinned run contract. Never
+  # combine the old champion checkpoint with this new reward schedule.
+  for stage in smoke gpu-gate train-20m extend-120m; do
+    echo "===== H40 SPRING V1 OUTCOME TRAINING: $stage ====="
+    bash "$REPO/scripts/run_h40_spring_v1_wsl.sh" "$stage"
+  done
+  echo "===== COMPLETE: $HOME/emu-data/runs/h40-spring-v1-outcomes-s735 ====="
+  exit 0
+fi
 
 # The env var must precede *every* EMU Python import, including policy export
 # and viewer/exam. Never silently reuse main's frozen actor.
