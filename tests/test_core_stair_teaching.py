@@ -188,7 +188,14 @@ class CoreStairPhysicsTests(unittest.TestCase):
     def _assert_stair_tutor_staged_credit_and_escrow(self):
         """No lunge reward, true top-first geometry, once-only recovery."""
         from emu.step_goal import (stair_tutor_foot_progress,
-                                   stair_tutor_recovery)
+                                   stair_tutor_recovery,academy_event_payment)
+        old=np.array([0.,3.,10.,13.],np.float32)
+        np.testing.assert_array_equal(
+            academy_event_payment(np,old,"legacy"),old)
+        np.testing.assert_array_equal(
+            academy_event_payment(np,old,"escrow"),np.zeros_like(old))
+        with self.assertRaises(ValueError):
+            academy_event_payment(np,old,"unknown")
         zeros=np.zeros((1,6),np.float32)
         body=np.array([[.80,.50]],np.float32)
         edge=np.array([1.],np.float32)
@@ -268,6 +275,9 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertFalse(bool(released_again[0]))
         # Vectorisation contract holds for JAX too (same pure maths).
         import jax.numpy as jnp
+        np.testing.assert_array_equal(
+            np.asarray(academy_event_payment(
+                jnp,jnp.asarray(old),"escrow")),np.zeros_like(old))
         bj,pj,_=stair_tutor_foot_progress(
             jnp,jnp.asarray(b1),jnp.asarray(body),jnp.asarray(landed),
             jnp.asarray(bottom2),jnp.asarray(edge),jnp.asarray(top),
