@@ -69,6 +69,10 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertEqual(out.state.academy_progress_origin_xy.shape,(4,2))
         self.assertEqual(out.state.nursery_best.shape,(4,6))
         self.assertIn('nursery_reward',out.metrics)
+        # This is a real 50mm UP birth; merely compiling a disabled
+        # JAX reward branch is NOT meaningful tutor smoke coverage.
+        self.assertGreater(float(np.sum(np.asarray(jax.device_get(
+            out.metrics['nursery_reward'])))),0.)
         self.assertIn('tutor_escrow_release_new',out.metrics)
         self.assertIn('tutor_pre_root_plant_new',out.metrics)
         self.assertEqual(out.state.stair_tutor_recovery_streak.shape,(4,))
