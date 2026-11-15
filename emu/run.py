@@ -212,6 +212,9 @@ def one_run_config(args) -> TrainingConfig:
         academy_share=.55
     finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
     dual_lip=bool(getattr(args,'two_lip_continuation_school',False))
+    torque_scale=float(getattr(args,'motor_torque_scale',1.0))
+    if not math.isfinite(torque_scale) or not 1.0<=torque_scale<=2.0:
+        raise ValueError('motor torque research scale must be finite in [1.0,2.0]')
     tutor_mode=str(getattr(args,'stair_tutor_mode','legacy'))
     if tutor_mode not in ('legacy','escrow'):
         raise ValueError('Unknown stair tutor mode')
@@ -260,6 +263,7 @@ def one_run_config(args) -> TrainingConfig:
                    bidirectional_school=paired,
                    two_lip_continuation_school=dual_lip,
                    stair_tutor_mode=tutor_mode,
+                   motor_torque_scale=torque_scale,
                    outcome_walk_start_steps=walk_start,
                    outcome_stair_approved=approved,
                    outcome_approval_start_steps=approved_start,
