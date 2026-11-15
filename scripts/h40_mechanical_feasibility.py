@@ -185,7 +185,11 @@ def spring_design_study(xml):
                                 [x for x in DESIGN_ANGLES_DEG if x >= -55]))]
     for name, a, b, k, tau0 in SPRING_CANDIDATES:
         model, rest = _spring_candidate(xml, a, b, k, tau0)
-        curve = _static(model, "r_knee", DESIGN_ANGLES_DEG)
+        # At -90 equal 30/30mm anchors coincide exactly, so MuJoCo has
+        # no well-defined spatial tendon direction. Never sample that singularity.
+        angles = (DESIGN_ANGLES_DEG if abs(a - b) > 1e-8
+                  else [x for x in DESIGN_ANGLES_DEG if x > -90])
+        curve = _static(model, "r_knee", angles)
         normal = next(x["passive_torque_nm"] for x in curve if x["angle_deg"] == 0)
         if not math.isclose(normal, tau0, rel_tol=.005, abs_tol=.003):
             raise RuntimeError(f"MuJoCo spring force mismatch: {name}: {normal}")
