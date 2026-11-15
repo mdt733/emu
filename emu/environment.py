@@ -81,7 +81,11 @@ from .contracts import (
 # its JIT shape cannot vary between training and the frozen examiner.
 FOOT_BODIES = ['r_foot', 'l_foot']
 BAD_BODIES = ['torso', 'r_thigh', 'l_thigh', 'r_shin', 'l_shin']
-TARGET_SPAN = np.array([0.38, 0.48, 0.58, 0.38, 0.48, 0.58], dtype=np.float32)
+# Frozen champion retains its exact 6-target scaling. Opt-in cold-start
+# H40 spring-v1 research gets the requested full motor-joint target ROM.
+# This is resolved once at process import and pinned by generated robot XML.
+from .physical_variants import target_span_rad
+TARGET_SPAN = np.array(target_span_rad(), dtype=np.float32)
 RESET_JOINT_NOISE = 0.004
 RESET_QVEL_NOISE = 0.003
 RESET_FORWARD_VELOCITY_BLEND = 1.0
