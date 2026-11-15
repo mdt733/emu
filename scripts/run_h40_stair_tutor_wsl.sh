@@ -175,6 +175,7 @@ case "$MODE" in
       }
       python -m scripts.h40_d_two_lip_exam --policy "$POLICY" \
         --output "$DEST" --program up --tutor-mode escrow \
+        --assert-tutor-active \
         --worlds 128 --horizon 500 --seed 1701 --device cuda
     fi
     ;;
