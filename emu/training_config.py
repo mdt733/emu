@@ -185,17 +185,11 @@ class TrainingConfig:
     science_phase_sync_strength: float = 1.0  # organic lift shaping, 0..1
     science_crouch_allowance_m: float = 0.0  # only STEP-focused worlds
     science_stride_efficiency_weight: float = 0.0  # bounded useful-distance proxy
-    science_supported_cross_bonus: float = 0.0  # one-time authentic lip crossing
-    science_foothold_bonus: float = 0.0  # authentic first upper foothold
-    science_bilateral_support_bonus: float = 0.0  # 5-frame both-feet top support
-    science_followthrough_bonus: float = 0.0  # 50cm post-transfer heading-controlled travel
-    science_sensor_teacher_bonus: float = 0.0  # sensor-visible upper foothold
     # v5052 stair task: separate destination-style progress from velocity tracking.
     science_step_goal_weight: float = 0.0  # bounded real forward motion, Academy only
     science_step_velocity_relief: float = 0.0  # Academy-only speed-tracking relief [0,1]
     science_step_approach_m: float = 0.0  # Academy birth metres before next physical 1m lip; 0=legacy
     two_lip_continuation_school: bool = False  # C: genuine 2-lip course + 50cm commanded follow-through proof
-    stair_tournament_arm: str = 'off'  # only off/strict control; D 16-arm study in old source
     stair_tutor_mode: str = 'legacy'  # 'escrow' stages foot geometry and defers chassis credit
     science_step_finish_on_transfer: bool = False  # v5054: absorbing success + reset after real two-foot climb
     # Opt-in physical nursery. Approval requires an independent 50mm exam.
@@ -280,13 +274,22 @@ class TrainingConfig:
                   'outcome_stair_approved','outcome_approval_start_steps',
                   'outcome_down_share','progressive_school','refined_school',
                   'bidirectional_school','two_lip_continuation_school',
-                  'stair_tournament_arm','stair_tutor_mode'}
+                  'stair_tutor_mode'}
         if research_parent:
             # These were eliminated by source cleanup, not replaced with a
             # different actor, geometry, optimizer or curriculum contract.
             # Refuse non-neutral values instead of silently altering history.
             retired={'cloud_final_probes':0, 'cloud_probes_per_eval':0,
-                     'science_reset_step_evidence_on_fork':False}
+                     'science_reset_step_evidence_on_fork':False,
+                     # The D factorial controls are archived with their
+                     # original source. Only neutral research ancestors
+                     # may migrate into this simplified tutor source.
+                     'stair_tournament_arm':'off',
+                     'science_supported_cross_bonus':0.0,
+                     'science_foothold_bonus':0.0,
+                     'science_bilateral_support_bonus':0.0,
+                     'science_followthrough_bonus':0.0,
+                     'science_sensor_teacher_bonus':0.0}
             for key in extra & retired.keys():
                 value=data[key]
                 expected_value=retired[key]
