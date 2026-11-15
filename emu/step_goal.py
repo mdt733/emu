@@ -247,16 +247,18 @@ def stair_tutor_recovery(xp, *, body_xy, edge_x, transfer_seen,
     return streak,previous_paid|released,payment,released
 
 
-def academy_event_payment(xp, legacy_payment, tutor_mode):
-    """One explicit owner for old first-foot crossing payouts.
+def academy_event_payment(xp, legacy_payment, tutor_mode,
+                          actual_uphill_academy_event):
+    """Suppress ONLY the actual signed uphill Academy event in escrow mode.
 
-    In the escrow arm, a real (but still uncompleted) foothold may teach
-    via the staged foot path; it must not also cash out the old Academy
-    first-lip crossing reward ahead of two-foot recovered locomotion.
-    Ordinary (non-Academy) confirmed crossings remain independent.
+    All non-Academy STEP footholds, downhill Academy crossings and mixed
+    course DOWN lips keep their historical reward. The signed event must
+    be measured from the real MJX prisms in the frame of the crossing,
+    *not* inferred from a birth direction or nominal curriculum height.
     """
-    if tutor_mode == "escrow":
-        return xp.zeros_like(legacy_payment)
     if tutor_mode == "legacy":
         return legacy_payment
+    if tutor_mode == "escrow":
+        return xp.where(actual_uphill_academy_event,
+                        xp.zeros_like(legacy_payment),legacy_payment)
     raise ValueError("Unknown tutor mode")
