@@ -1,9 +1,9 @@
 """The single H40 physical robot, generated from one canonical MJCF source.
 
-H40 is the default model for new source-pinned runs. The 26/30/34cm
-factorial variants remain available at their original Git commits, not in
-this current trainer. Generated H40 XML lives in a content-addressed cache;
-its bytes and model SHA256 are unchanged by removing unused profile choices.
+H40 is the protected mainline model. One opt-in, source-pinned research
+profile changes only knee spring geometry/preload and knee joint limits.
+Both generated XMLs use independent content-addressed cache identities.
+The mainline H40 XML bytes and SHA256 MUST remain unchanged.
 """
 from __future__ import annotations
 
@@ -23,8 +23,26 @@ class Profile:
     hip_roll_stiffness: float = 2.0
 
 
-# One trained physical model. Alternatives belong in source-pinned research.
-PROFILES = {"h40": Profile(.40)}
+# One protected champion + one deliberately untrained cold-start research robot.
+# Research strut: effective 150 N/m, ~0.521 Nm neutral knee assistance,
+# 35/25 mm offset anchors, and -90..+95deg knee range. This spatial tendon
+# springlength represents equivalent preload; a real long cartridge/rocker
+# capable of this stroke has NOT been mechanically designed or validated.
+RESEARCH_PROFILE = "h40-spring-v1"
+PROFILES = {"h40": Profile(.40), RESEARCH_PROFILE: Profile(.40)}
+
+# NN position-target interpretation is part of the robot contract: never
+# reinterpret the frozen champion's six actions under a different profile.
+def target_span_rad(name: str | None = None) -> tuple[float, ...]:
+    chosen = name or selected_profile()
+    if chosen not in PROFILES:
+        raise ValueError(f"Unknown EMU physical profile {chosen!r}")
+    if chosen == RESEARCH_PROFILE:
+        return (math.radians(25.), math.radians(50.), math.radians(90.),
+                math.radians(25.), math.radians(50.), math.radians(90.))
+    # Preserve exactly the historical champion floats and action scaling.
+    return (.38, .48, .58, .38, .48, .58)
+
 
 BASE_NEUTRAL_M = .2584
 BASE_HALF_LINK_M = .1202
@@ -79,6 +97,8 @@ def profile_numbers(name: str) -> dict[str, float | str]:
     mass = REFERENCE_TOTAL_MASS_KG + REFERENCE_LINK_MASS_KG * (scale - 1.)
     stiffness = REFERENCE_KNEE_STIFFNESS_N_M * (
         1. + KNEE_SPRING_HEIGHT_GAIN*(scale-1.)) * scale * p.knee_support
+    if name == RESEARCH_PROFILE:
+        stiffness = 150.0  # fixed H40 research spring, not a new hardware rating
     # No height-dependent chassis translation; all six servo masses
     # remain at torso, while light rods move with the legs.
     torso_x = BASE_TORSO_X_M
@@ -162,8 +182,32 @@ def generate_xml(source_xml: str, name: str) -> str:
         # rotational flex stiffness scales approximately EI/L, not constant.
         _get(root, f".//joint[@name='{prefix}shin_flex']").set(
             "stiffness", f"{4.0/s:.8f}")
-        _get(root, f".//spatial[@name='{prefix}knee_support']").set(
-            "stiffness", f"{float(info['knee_strut_k_n_m']):.8f}")
+        spring = _get(root, f".//spatial[@name='{prefix}knee_support']")
+        spring.set("stiffness", f"{float(info['knee_strut_k_n_m']):.8f}")
+        if name == RESEARCH_PROFILE:
+            # Offset the two anchor radii: equal 30/30mm sites coincide at
+            # -90deg. Offset 35/25mm leaves 10mm separation at that angle.
+            thigh_arm, shin_arm = .035, .025
+            lever = thigh_arm * shin_arm / math.hypot(thigh_arm, shin_arm)
+            rest = (math.hypot(thigh_arm, shin_arm) +
+                    .520606 / (150.0 * lever))
+            thigh_pin = -BASE_HALF_LINK_M * s + thigh_arm / math.sqrt(2.)
+            _set_xyz(_get(root, f".//site[@name='{prefix}knee_strut_thigh']"),
+                     "pos", (thigh_pin, 0., thigh_pin))
+            _set_xyz(_get(root, f".//site[@name='{prefix}knee_strut_shin']"),
+                     "pos", (shin_arm / math.sqrt(2.), 0.,
+                             -shin_arm / math.sqrt(2.)))
+            spring.set("springlength", f"{rest:.9f}")
+            _get(root, f".//joint[@name='{prefix}knee']").set(
+                "range", "-90 95")
+            # Match the physical ROM on the actuator as well; the 6-output
+            # policy controls +/-90deg, not a residual +/-33deg clamp.
+            _get(root, f".//position[@name='{prefix}knee']").set(
+                "ctrlrange", "-90 95")
+            _get(root, f".//position[@name='{prefix}hip_roll']").set(
+                "ctrlrange", "-25 25")
+            _get(root, f".//position[@name='{prefix}hip_pitch']").set(
+                "ctrlrange", "-50 50")
     return ET.tostring(root, encoding="unicode")
 
 
@@ -177,7 +221,7 @@ def robot_xml_path(package_dir: Path) -> Path:
         "EMU_PHYSICAL_MODEL_CACHE",
         Path.home() / ".cache" / "emu" / "physical_models")).expanduser()
     cache.mkdir(parents=True, exist_ok=True)
-    target = cache / f"h40-{sha[:20]}.xml"
+    target = cache / f"{name}-{sha[:20]}.xml"
     if target.is_file():
         if hashlib.sha256(target.read_bytes()).hexdigest() != sha:
             raise RuntimeError(f"Corrupt immutable EMU model cache: {target}")
