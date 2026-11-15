@@ -401,6 +401,14 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision(tmp_path):
     assert sweep[-55] < .65
     assert gentle["max_passive_torque_nm"] < .65
     assert rows["35_25_gentler_low_rate"]["max_passive_torque_nm"] < gentle["max_passive_torque_nm"]
+    long_spring = rows["35_25_long_preload"]
+    forces = {x["angle_deg"]: x["spring_compression_force_n"]
+              for x in long_spring["static"]}
+    # Gentle, long effective preloaded spring: close to constant force
+    # across the nominal swing bend, instead of original +139% growth.
+    assert forces[-55] / forces[0] < 1.12
+    assert long_spring["max_passive_torque_nm"] < .5
+    assert long_spring["rest_length_mm"] > 250.  # linkage/packaging challenge
     # Equal-arm design has a zero-length tendon at -90; do not score
     # its singular limit as a valid hardware knee position.
     assert -90 not in {x["angle_deg"] for x in rows["30_30_same_neutral_soft"]["static"]}
