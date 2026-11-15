@@ -113,7 +113,7 @@ if [[ "$MODE" == exam ]]; then
     python scripts/v5053_matrix_exam.py \
       --policy "$POLICY" --output "$NEW_EXAM" \
       --mode stairs --worlds 2048 --horizon 350 \
-      --levels 20 --trials-per-level 50 \
+      --levels 20 --trials-per-level 50 --max-step-m .08 \
       --seed 1701 --device cuda
   fi
   # The champion is evaluated with its OWN unchanged H40 physical profile,
@@ -127,7 +127,7 @@ if [[ "$MODE" == exam ]]; then
     EMU_PHYSICAL_PROFILE=h40 python scripts/v5053_matrix_exam.py \
       --policy "$BASELINE" --output "$MAIN_EXAM" \
       --mode stairs --worlds 2048 --horizon 350 \
-      --levels 20 --trials-per-level 50 \
+      --levels 20 --trials-per-level 50 --max-step-m .08 \
       --seed 1701 --device cuda
   fi
   export EMU_SPRING_REPORT_ROOT="$RUN_DIR"
@@ -151,7 +151,7 @@ if set(data) != set(sources):
 for label, summary in data.items():
     manifest=summary["manifest"]
     expected=dict(seed=1701, worlds=2048, assigned_worlds=2000,
-                  horizon=350, mode="stairs", levels=20)
+                  horizon=350, mode="stairs", levels=20, max_step_m=.08)
     for key,wanted in expected.items():
         if manifest.get(key) != wanted:
             raise RuntimeError(f"{label} matrix contract {key}: "
@@ -165,8 +165,8 @@ if old_hash != "b513bb3326a73d9ca661f761f1352b22c36d0f1b6d51be72c2eca15d8712ef5b
 if old_hash == new_hash:
     raise RuntimeError("Both exams used same robot physics! Wrong EMU_PHYSICAL_PROFILE")
 lines = ["# H40 vs Spring-v1: independent frozen physical stair examinations", "",
-         "Both use 2,000 real-prism attempts, 50 each at signed 2.5mm increments",
-         "up to +/-50mm, same initial command and random seed. This compares",
+         "Both use 2,000 real-prism attempts, 50 each at signed 4mm increments",
+         "up to +/-80mm, same initial command and random seed. This compares",
          "two independently trained actors and *different physics*, so it",
          "does not isolate the causal contribution of spring, range or reward.",
          "Leading-foot upper contact is NOT equivalent to two-foot support",
