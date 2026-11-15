@@ -185,6 +185,20 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision(tmp_path):
     experimental_model = mujoco.MjModel.from_xml_string(experimental_xml)
     assert experimental_model.nu == 6 and experimental_model.ntendon == 2
     assert np.all(experimental_model.actuator_forcelimited == 1)
+    assert np.all(experimental_model.actuator_ctrllimited == 1)
+    # MuJoCo ctrlrange is in RAW RADIANS, even though joint range is
+    # authored in degrees in MJCF. Verify the *compiled* motor targets.
+    for side in ("r", "l"):
+        for joint,lo,hi in (("hip_roll",-25.,25.),
+                            ("hip_pitch",-50.,50.),
+                            ("knee",-90.,95.)):
+            aid=mujoco.mj_name2id(experimental_model,
+                                  mujoco.mjtObj.mjOBJ_ACTUATOR,
+                                  f"{side}_{joint}")
+            assert aid >= 0
+            np.testing.assert_allclose(
+                experimental_model.actuator_ctrlrange[aid],
+                np.deg2rad([lo,hi]),atol=1e-6)
     np.testing.assert_allclose(
         experimental_model.actuator_forcerange,
         np.tile([-SERVO_RATED_CONTINUOUS_TORQUE_NM,
