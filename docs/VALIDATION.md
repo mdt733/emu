@@ -164,13 +164,16 @@ teacher, clean out rejected experiment flags, then train a fresh
 end-to-end learner with the final curriculum. Neither D nor C changes
 the committed public champion or approves a Pages release.
 
-From the pinned D source worktree:
+**Historical, archived D-source-only launcher** (not available in the
+current research checkout; retain only for reproducing the original D study):
 
 ```bash
+# This command exists only at the experiment D source commit recorded
+# in the existing run's run_meta.json, not on the active tutor branch.
 bash scripts/run_h40_d_coach_lab_wsl.sh all
 ```
 
-The launcher can also run `foundation`, `list` or
+The historical launcher could also run `foundation`, `list` or
 `arm 04-commands` independently. It validates complete checkpoint
 ancestry before each fork, keeps each output in a distinct directory
 under `~/emu-data/runs/h40-d-coach-lab-s735` and resumes interrupted
@@ -184,6 +187,24 @@ coordinates. Only the *reward pressure* to synchronise foot movement
 to that clock is relaxed near a physical stair. That is a teaching
 factor which can be tested without inventing a new runtime stair
 detector in the browser or hardware.
+
+## Active science: H40 50mm stair tutor A/B
+
+Draft [PR #89](https://github.com/mdt733/emu/pull/89) replaces the completed
+16-factor D training harness with one controlled **legacy vs escrow** test.
+Do not mistake a better nursery reward for supported locomotion. Pay new
+chassis-progress bonuses only after independent real upper-foot contacts,
+posture/pitch-velocity recovery and commanded forward velocity. The initial
+50mm step remains intentionally difficult: reducing it would permit an
+ordinary gait to trip across without learning a new stair skill.
+
+Train a common 60M→80M walking bridge once. Compare the two 80M→100M tutor
+forks on genuine first/second lip support, post-second command recovery and
+matched exact 50mm vs flat physical exams. The launcher stops before the
+second arm if the baseline encounters too few genuine 50mm uphill tasks.
+The source SHA and all parent checkpoints must remain immutable. Neither
+branch can be promoted without frozen tests and independent training seed
+replication.
 
 ## D frozen-policy science examiner — use ALL 16, never select a winner
 
