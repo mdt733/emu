@@ -7,6 +7,7 @@ than retaining obsolete campaign code just to keep its tests green.
 from __future__ import annotations
 
 from dataclasses import asdict, replace
+from types import SimpleNamespace
 from pathlib import Path
 from typing import Any, NamedTuple
 from unittest.mock import patch
@@ -104,8 +105,7 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     # rewired frozen champion or an undocumented change of teaching weights.
     from emu.capability_focus import gait_guidance_strength
     with patch.dict("os.environ", {"EMU_PHYSICAL_PROFILE": "h40-spring-v1"}):
-        v2 = one_run_config(seen[0] if False else __import__(
-            "types").SimpleNamespace(
+        v2 = one_run_config(SimpleNamespace(
                 profile="sim2real", run_dir=str(tmp_path/"spring-outcomes"),
                 steps=120_000_000, envs=2048, seed=735, device="cuda",
                 terrain_actor=True, unified_capabilities=True,
