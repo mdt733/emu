@@ -245,3 +245,18 @@ def stair_tutor_recovery(xp, *, body_xy, edge_x, transfer_seen,
     progress=xp.clip((body_xy[:,0]-(edge_x-.20))/.45,0.,1.)
     payment=xp.where(released,24.*progress,0.)
     return streak,previous_paid|released,payment,released
+
+
+def academy_event_payment(xp, legacy_payment, tutor_mode):
+    """One explicit owner for old first-foot crossing payouts.
+
+    In the escrow arm, a real (but still uncompleted) foothold may teach
+    via the staged foot path; it must not also cash out the old Academy
+    first-lip crossing reward ahead of two-foot recovered locomotion.
+    Ordinary (non-Academy) confirmed crossings remain independent.
+    """
+    if tutor_mode == "escrow":
+        return xp.zeros_like(legacy_payment)
+    if tutor_mode == "legacy":
+        return legacy_payment
+    raise ValueError("Unknown tutor mode")
