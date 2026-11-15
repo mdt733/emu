@@ -242,6 +242,18 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     cfg_path = tmp_path / "training_config.json"
     first.save(cfg_path)
     assert TrainingConfig.load(cfg_path) == first
+    # A correctly completed 100M run has its last sampled metrics row
+    # around 99.6M; do not discard the experiment as under-exposed.
+    from scripts.summarize_h40_stair_tutor import gate_useful_legacy_exposure
+    valid={'arms':{'legacy':{'final_step':99_614_720,
+           'counts':{'academy_anchor_attempts_up':30.,
+                     'academy_near_attempts_up':7.}}}}
+    gate_useful_legacy_exposure(valid)
+    with pytest.raises(RuntimeError,match='NO USEFUL TUTOR COMPARISON'):
+        gate_useful_legacy_exposure({'arms':{'legacy':{
+            **valid['arms']['legacy'], 'counts':{
+                'academy_anchor_attempts_up':80.,
+                'academy_near_attempts_up':0.}}}})
     # A same-source run may not silently inherit a new reward tutor mode.
     required=json.loads(cfg_path.read_text(encoding='utf-8'))
     required.pop('stair_tutor_mode')
