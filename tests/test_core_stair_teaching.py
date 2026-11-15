@@ -39,7 +39,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
             bidirectional_school=True,
             science_step_finish_on_transfer=True,
             two_lip_continuation_school=True,
-            stair_tournament_arm='progressive+free-phase+foothold+commands',
+            stair_tournament_arm='control',
             stair_tutor_mode='escrow',  # compile actual 8-prism escrow branch
             solver_iterations=2,solver_ls_iterations=4,
             science_gate_mode="zero-only",
