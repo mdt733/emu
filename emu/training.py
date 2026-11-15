@@ -50,6 +50,7 @@ from .training_config import (
 from .curriculum import RegimeGovernor
 from .training_health import TrainingHealth
 from .capability_focus import (teaching_profile, attention_weights, FOCUS_NAMES,
+                                gait_guidance_strength,
                                academy_birth_allocation, academy_focus_mix,
                                academy_conditional_birth_share)
 from .ppo import (make_trainer, update_running_stats, build_obs_norm_mask,
@@ -407,6 +408,12 @@ def train(args: TrainingConfig) -> int:
                 foundation_mix=args.foundation_mix,
                 steady_difficulty=float(governor.params.steady_difficulty))
             d['specialist_mix'] = profile.specialist_fraction
+            # New spring-profile learner alone: 0–20M full gait assistance;
+            # 20–40M linear fade; >=40M pure measured-outcome incentives.
+            # This signal is teacher-only, not in actor observations.
+            d['gait_guidance_strength'] = gait_guidance_strength(
+                step=step, foundation_steps=args.foundation_steps,
+                fade_steps=args.gait_guidance_fade_steps)
             # The 20M foundation uses original main-style births only.
             # Afterward, honour the explicit run configuration even when
             # resuming a cold-foundation checkpoint whose saved governor
@@ -708,6 +715,7 @@ def train(args: TrainingConfig) -> int:
                 key='regime_frac_'+name
                 report[key]=float(params[key])
             report['foundation_control_mix']=float(params['foundation_control_mix'])
+            report['gait_guidance_strength']=float(params['gait_guidance_strength'])
             report['academy_expected_birth_fraction']=float(
                 (1.-params['athletic_rehearsal_frac'])*
                 params['specialist_mix']*params['focus_weight_step']*
