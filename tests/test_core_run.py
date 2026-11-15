@@ -102,7 +102,46 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert not {"cloud_probes_per_eval","cloud_final_probes",
                 "science_reset_step_evidence_on_fork"} & asdict(cfg).keys()
     assert training_sensor_contract(cfg) is not None
+    # Keep 24 core tests: this UI is another assertion of the *existing*
+    # public CLI contract, not a new training experiment/test family.
+    _check_readonly_dashboard(tmp_path)
 
+
+def _check_readonly_dashboard(tmp_path):
+    import csv
+    import json
+    from emu.console_dashboard import (
+        read_history, render, sampled_window, delta, target_from_config)
+    from emu.cli import main as cli_main
+    directory = tmp_path / "dashboard-run"
+    directory.mkdir()
+    (directory/"training_config.json").write_text(
+        json.dumps({"steps":120000000}),encoding="utf-8")
+    assert target_from_config(directory)==120000000
+    rows=[
+        dict(step=95000000,reward_mean=2.0,fall_rate=.2,
+             academy_near_attempts_up=10,academy_near_successes_up=1),
+        dict(step=100000000,reward_mean=2.5,fall_rate=.1,
+             academy_near_attempts_up=8,academy_near_successes_up=1),
+    ]
+    source=directory/"metrics.csv"
+    with source.open("w",newline="",encoding="utf-8") as fp:
+        writer=csv.DictWriter(fp,fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    before=source.read_bytes()
+    history=read_history(source)
+    assert delta(history,"reward_mean",precision=1)=="+0.5"
+    assert sampled_window(history,"academy_near_attempts_up",
+                          "academy_near_successes_up")=="1/8 (12.5%)"
+    screen=render(history,run_name=directory.name,
+                  target=120000000,width=100,height=27)
+    assert "100.0M / 120.0M" in screen
+    assert "STAIRS" in screen and "NOT all-episode counts" in screen
+    assert "not yet evaluated" in screen
+    assert cli_main(["dashboard","--run-dir",str(directory),
+                     "--once","--plain"]) == 0
+    assert source.read_bytes()==before
 
 
 def test_actual_evaluator_uses_prisms_not_boxes(tmp_path, monkeypatch):
