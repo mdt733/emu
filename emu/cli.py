@@ -52,6 +52,8 @@ def main(argv=None) -> int:
     q.add_argument('--device',choices=['auto','cpu','cuda','gpu'],default='cuda')
     q.add_argument('--profile',choices=['sim2real'],default='sim2real')
     q.add_argument('--pitch-deg',type=float,default=None,help='chassis pitch command limit in degrees (current prism default 8)')
+    q.add_argument('--motor-torque-scale',type=float,default=1.0,
+                   help='RESEARCH ONLY: 1.0 actual 0.981Nm C018 hard cap; 1.0..2.0 augmented simulation, never hardware qualification')
     q.add_argument('--motor-guidance-weight',type=float,default=0.0,
                    help='optional motor effort teaching term in [0, 0.10], default 0 unchanged')
     q.add_argument('--terrain-actor',action='store_true',
