@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # H40 spring-v1 with 20M gait nursery -> 40M outcome-only reward, cold start.
-# Usage: bash scripts/run_h40_spring_v1_wsl.sh all|smoke|gpu-gate|plan|train-20m|extend-120m
+# Usage: bash scripts/run_h40_spring_v1_wsl.sh all|smoke|gpu-gate|plan|train-20m|extend-120m|exam
 # One run directory and one trainer, founded on the existing main-style recipe.
 set -euo pipefail
 
 MODE="${1:-}"
 case "$MODE" in
-  all|smoke|gpu-gate|plan|train-20m|extend-120m) ;;
+  all|smoke|gpu-gate|plan|train-20m|extend-120m|exam) ;;
   *) echo "Usage: bash scripts/run_h40_spring_v1_wsl.sh all|smoke|gpu-gate|plan|train-20m|extend-120m" >&2; exit 2 ;;
 esac
 
@@ -17,7 +17,7 @@ if [[ "$MODE" == all ]]; then
   # Unattended one-paste campaign. Each stage independently verifies the
   # actual physical model and latest source-pinned run contract. Never
   # combine the old champion checkpoint with this new reward schedule.
-  for stage in smoke gpu-gate train-20m extend-120m; do
+  for stage in smoke gpu-gate train-20m extend-120m exam; do
     echo "===== H40 SPRING V1 OUTCOME TRAINING: $stage ====="
     bash "$REPO/scripts/run_h40_spring_v1_wsl.sh" "$stage"
   done
@@ -75,6 +75,107 @@ if [[ "$MODE" == smoke || "$MODE" == gpu-gate ]]; then
   WORLDS=128
   if [[ "$MODE" == gpu-gate ]]; then WORLDS=2048; fi
   python scripts/smoke_gpu_carpet.py --device cuda --worlds "$WORLDS" --frames 2 --prisms --ppo --full-update
+  exit 0
+fi
+
+
+if [[ "$MODE" == exam ]]; then
+  # Read-only after training. Two separate executable processes load the
+  # *correct* physical model and target span for each frozen actor.
+  # A 2,000-world exact signed lip matrix is 0.7M physics frames per
+  # actor, below 1% of the training budget. No PPO updates occur.
+  FINAL="$RUN_DIR/checkpoints/final.pkl"
+  POLICY="$RUN_DIR/h40-spring-v1-outcomes-120m.emupolicy"
+  EXAM_ROOT="$RUN_DIR/heldout"
+  NEW_EXAM="$EXAM_ROOT/spring-v1"
+  MAIN_EXAM="$EXAM_ROOT/main-champion"
+  mkdir -p "$EXAM_ROOT"
+  [[ -f "$FINAL" ]] || { echo "No completed final checkpoint for examination" >&2; exit 1; }
+  if [[ ! -f "$POLICY" ]]; then
+    python -m emu.cli export-policy "$FINAL" "$POLICY"
+  fi
+  if [[ ! -f "$NEW_EXAM/matrix_summary.json" ]]; then
+    python scripts/v5053_matrix_exam.py \
+      --policy "$POLICY" --output "$NEW_EXAM" \
+      --mode stairs --worlds 2048 --horizon 350 \
+      --levels 20 --trials-per-level 50 \
+      --seed 1701 --device cuda
+  fi
+  # The champion is evaluated with its OWN unchanged H40 physical profile,
+  # not the new 150N/m spring or the widened neural action targets.
+  BASELINE="$REPO/showcase/champion.emupolicy"
+  if [[ -f "$BASELINE" && ! -f "$MAIN_EXAM/matrix_summary.json" ]]; then
+    EMU_PHYSICAL_PROFILE=h40 python scripts/v5053_matrix_exam.py \
+      --policy "$BASELINE" --output "$MAIN_EXAM" \
+      --mode stairs --worlds 2048 --horizon 350 \
+      --levels 20 --trials-per-level 50 \
+      --seed 1701 --device cuda
+  fi
+  export EMU_SPRING_REPORT_ROOT="$RUN_DIR"
+  python - <<'PY'
+import json
+import os
+import zipfile
+from pathlib import Path
+root = Path(os.environ["EMU_SPRING_REPORT_ROOT"])
+exam = root / "heldout"
+sources = {
+    "Spring-v1": exam / "spring-v1" / "matrix_summary.json",
+    "Main H40": exam / "main-champion" / "matrix_summary.json",
+}
+data = {label: json.loads(p.read_text(encoding="utf-8"))
+        for label,p in sources.items() if p.is_file()}
+if "Spring-v1" not in data:
+    raise RuntimeError("New frozen actor has no physically verified matrix results")
+lines = ["# H40 vs Spring-v1: independent frozen physical stair examinations", "",
+         "Both use 2,000 real-prism attempts, 50 each at signed 2.5mm increments",
+         "up to +/-50mm, same initial command and random seed. This compares",
+         "two independently trained actors and *different physics*, so it",
+         "does not isolate the causal contribution of spring, range or reward.",
+         "Leading-foot upper contact is NOT equivalent to two-foot support",
+         "or to traversing the 60cm destination window.", "",
+         "| Actor | Signed riser | First upper foot | Both feet held | Safe traversal |",
+         "|---|---:|---:|---:|---:|"]
+for label, summary in data.items():
+    lookup = {(r["kind"], int(r["level"])):r
+              for r in summary["curves"]}
+    manifest = summary["manifest"]
+    lines.append(f"")
+    lines.append(f"**{label}** physical SHA256: " +
+                 f"`{manifest['robot_model_sha256']}`")
+    for level in (10,12,14,16,20):
+        for kind in ("step_up", "step_down"):
+            row = lookup[(kind,level)]
+            lines.append(
+                f"| {label} | {row['requested_step_mm']:+.1f}mm | "
+                f"{row['leading_top']}/{row['worlds']} | "
+                f"{row['each_foot_top_five']}/{row['worlds']} | "
+                f"{row['traversed_5frame']}/{row['worlds']} |")
+lines += ["", "Full 20-height curves and first-life world-level"
+          " evidence are in heldout/*/matrix_*.csv.",
+          "Training metrics and this exam are distinct sources of truth.", ""]
+comparison=exam/"comparison.md"
+comparison.write_text("\\n".join(lines),encoding="utf-8")
+# The normal trainer already produced a compact results bundle without
+# huge optimizer/PKL files. Add the heldout physical comparison and actor.
+bundle=root/"results_bundle.zip"
+if not bundle.is_file():
+    raise RuntimeError("Missing trainer results bundle after final checkpoint")
+with zipfile.ZipFile(bundle,mode="a",compression=zipfile.ZIP_DEFLATED) as z:
+    present=set(z.namelist())
+    sources=[comparison,root/"h40-spring-v1-outcomes-120m.emupolicy"]
+    sources.extend(p for p in exam.rglob("*")
+                   if p.is_file() and p != comparison and p.suffix in (
+                       ".csv",".json",".md"))
+    for p in sources:
+        if p.is_file():
+            name=p.relative_to(root).as_posix()
+            if name not in present:
+                z.write(p,arcname=name)
+                present.add(name)
+print("HELD-OUT EXAM:",comparison)
+print("RESULTS BUNDLE:",bundle)
+PY
   exit 0
 fi
 
