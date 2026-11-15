@@ -55,7 +55,8 @@ class Trial:
     initial_kick_mps: float
 
 
-def trial_spec(kind: str, level: int, levels: int, replicate: int, world: int) -> Trial:
+def trial_spec(kind: str, level: int, levels: int, replicate: int, world: int,
+               *, max_step_m: float = .05) -> Trial:
     if kind not in (*KINDS,"flat_control") or not 1<=level<=levels:
         raise ValueError("unknown trial kind/level")
     f=level/levels
@@ -83,19 +84,22 @@ def trial_spec(kind: str, level: int, levels: int, replicate: int, world: int) -
         grade=-12.*f
     elif kind=="step_up":
         vx=.25
-        step=.05*f
+        step=max_step_m*f
     elif kind=="flat_control":
         vx=.25
     elif kind=="step_down":
         vx=.25
-        step=-.05*f
+        step=-max_step_m*f
     return Trial(world,kind,level,replicate,vx,vy,yaw,step,grade,kick)
 
 
 def assignments(worlds: int, *, mode: str="balanced", levels: int=20,
-                trials_per_level: int|None=None) -> list[Trial]:
+                trials_per_level: int|None=None,
+                max_step_m: float = .05) -> list[Trial]:
     if mode not in ("balanced","stairs","stairs_up","stairs_down","flat") or not 1<=levels<=40 or worlds<2:
         raise ValueError("invalid matrix mode/geometry")
+    if not np.isfinite(max_step_m) or not 0.001<=max_step_m<=.08:
+        raise ValueError("max_step_m must be between 0.001 and 0.08m")
     if mode=="flat":
         levels=1  # A zero-height seam, exactly matched to the stair commands.
     trials=(10 if mode=="balanced" else 50 if mode=="stairs" else 100)
@@ -119,7 +123,8 @@ def assignments(worlds: int, *, mode: str="balanced", levels: int=20,
     for kind in kinds:
         for level in range(1,levels+1):
             for rep in range(trials):
-                result.append(trial_spec(kind,level,levels,rep,len(result)))
+                result.append(trial_spec(kind,level,levels,rep,len(result),
+                                         max_step_m=max_step_m))
     # Unused worlds stay in batch as explicitly labelled filler; never
     # enter the registered challenge's success denominator.
     while len(result)<worlds:
@@ -219,7 +224,7 @@ def save_csv(path:Path,rows:list[dict]):
 def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
                worlds:int=2048,horizon:int=350,seed:int=1701,
                levels:int=20,trials_per_level:int|None=None,
-               device:str="cuda"):
+               max_step_m:float=.05,device:str="cuda"):
     from emu.contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN
     from emu.policy_export import load_exported_actor_for_exam
     from emu.ppo import make_trainer,configure_jax,require_backend
@@ -232,7 +237,8 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     if mode=="flat":
         levels=1
     trials=assignments(worlds,mode=mode,levels=levels,
-                       trials_per_level=trials_per_level)
+                       trials_per_level=trials_per_level,
+                       max_step_m=max_step_m)
     policy=policy.expanduser().resolve()
     output=output.expanduser().resolve()
     if not policy.is_file() or policy.suffix!=".emupolicy":
@@ -330,6 +336,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
         actor_training_source=actor["source"],
         seed=seed,worlds=worlds,assigned_worlds=len(detail),
         horizon=horizon,mode=mode,levels=levels,
+        max_step_m=max_step_m,
         trials_per_level=trials_per_level if trials_per_level is not None
                            else (10 if mode=="balanced" else 50 if mode=="stairs" else 100),
         device=jax.default_backend(),wall_seconds=round(wall,3),
@@ -583,6 +590,8 @@ def main(argv=None):
     p.add_argument("--horizon",type=int,default=350)
     p.add_argument("--seed",type=int,default=1701)
     p.add_argument("--levels",type=int,default=20)
+    p.add_argument("--max-step-m",type=float,default=.05,
+                   help="maximum signed stair fixture height in metres; default .05, max .08")
     p.add_argument("--trials-per-level",type=int,default=None)
     p.add_argument("--device",choices=("cpu","cuda"),default="cuda")
     a=p.parse_args(argv)
