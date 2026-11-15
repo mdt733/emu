@@ -162,6 +162,21 @@ case "$MODE" in
     fi
     python -m emu.cli train "${FLAGS[@]}" --check-resume-only
     python -m emu.cli train "${FLAGS[@]}"
+    # The 60M parent has no Academy births yet. A PPO-only smoke cannot
+    # validate 50mm tutor contact/reward code, so ALSO run frozen-policy
+    # real-MJX 50mm UP worlds with the escrow pathway statically compiled.
+    POLICY="$ROOT/gpu-smoke/foundation-60m.emupolicy"
+    mkdir -p "$(dirname "$POLICY")"
+    python -m emu.cli export-policy "$PARENT" "$POLICY"
+    DEST="$ROOT/gpu-smoke/real-50mm-up"
+    if [[ ! -f "$DEST/exam.json" ]]; then
+      [[ ! -e "$DEST" ]] || {
+        echo "Incomplete genuine 50mm smoke; inspect/move $DEST" >&2; exit 1;
+      }
+      python -m scripts.h40_d_two_lip_exam --policy "$POLICY" \
+        --output "$DEST" --program up --tutor-mode escrow \
+        --worlds 128 --horizon 500 --seed 1701 --device cuda
+    fi
     ;;
   bridge)
     run_bridge
