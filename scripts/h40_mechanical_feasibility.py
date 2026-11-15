@@ -253,7 +253,7 @@ def run(output: Path):
     xml_path = Path(ROBOT_XML)
     xml = xml_path.read_text(encoding="utf-8")
     data = dict(
-        schema="h40_mechanical_feasibility_v1",
+        schema="h40_mechanical_feasibility_v2",
         source_generated_h40_sha256=hashlib.sha256(xml.encode()).hexdigest(),
         source_xml=str(xml_path),
         rated_servo_nm=SERVO_RATED_CONTINUOUS_TORQUE_NM,
