@@ -158,6 +158,30 @@ case "$MODE" in
           fi
         done
       done
+      # Paired actual 50mm UP/DOWN versus identical zero-height seam worlds.
+      # Same actor, command, seed and per-world reset keys. Read-only.
+      STAIR="$ROOT/exams/$arm/paired_stairs_s1701"
+      FLAT="$ROOT/exams/$arm/paired_flat_s1701"
+      PAIR="$ROOT/exams/$arm/paired_comparison_s1701"
+      if [[ ! -f "$STAIR/matrix_summary.json" ]]; then
+        [[ ! -e "$STAIR" ]] || { echo "Incomplete $STAIR" >&2; exit 1; }
+        python -m scripts.capability_matrix_exam --policy "$POLICY" \
+          --output "$STAIR" --mode stairs --worlds 128 \
+          --levels 1 --trials-per-level 64 --horizon 350 \
+          --seed 1701 --device cuda
+      fi
+      if [[ ! -f "$FLAT/matrix_summary.json" ]]; then
+        [[ ! -e "$FLAT" ]] || { echo "Incomplete $FLAT" >&2; exit 1; }
+        python -m scripts.capability_matrix_exam --policy "$POLICY" \
+          --output "$FLAT" --mode flat --worlds 128 \
+          --trials-per-level 128 --horizon 350 \
+          --seed 1701 --device cuda
+      fi
+      if [[ ! -f "$PAIR/matrix_compare.json" ]]; then
+        [[ ! -e "$PAIR" ]] || { echo "Incomplete $PAIR" >&2; exit 1; }
+        python -m scripts.capability_matrix_exam --compare-stairs "$STAIR" \
+          --compare-flat "$FLAT" --output "$PAIR"
+      fi
     done
     python -m scripts.summarize_h40_stair_tutor --root "$ROOT"
     ;;
