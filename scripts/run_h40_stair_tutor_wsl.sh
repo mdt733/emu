@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Small, controlled 50mm H40 tutorial A/B; old 16-arm study stays archived.
-# Every fork starts from the same finished 60M D foundation policy/critic.
+# One walking bridge trains 60M -> 80M once. Both arms fork its exact full checkpoint.
 set -euo pipefail
 
 ROOT="${EMU_TUTOR_ROOT:-$HOME/emu-data/runs/h40-stair-tutor-ab-s735}"
@@ -141,7 +141,7 @@ run_arm(){
 }
 case "$MODE" in
   help)
-    echo "Usage: bash $0 preflight | smoke | arm legacy | arm escrow | both | exam | report"
+    echo "Usage: bash $0 preflight | smoke | bridge | arm legacy | arm escrow | both | exam | report"
     echo "First do preflight and smoke. No training when called without an explicit mode."
     ;;
   preflight)
@@ -163,21 +163,19 @@ case "$MODE" in
     python -m emu.cli train "${FLAGS[@]}" --check-resume-only
     python -m emu.cli train "${FLAGS[@]}"
     ;;
+  bridge)
+    run_bridge
+    ;;
   arm)
     [[ $# -eq 2 && ( "$2" == legacy || "$2" == escrow ) ]] || {
       echo "Usage: $0 arm legacy|escrow" >&2; exit 2;
     }
-    register_study
-    make_args "$2"
-    python -m emu.cli train "${FLAGS[@]}" --check-resume-only
-    python -m emu.cli train "${FLAGS[@]}"
+    run_arm "$2"
     ;;
   both)
-    register_study
+    run_bridge
     for arm in legacy escrow; do
-      make_args "$arm"
-      python -m emu.cli train "${FLAGS[@]}" --check-resume-only
-      python -m emu.cli train "${FLAGS[@]}"
+      run_arm "$arm"
     done
     ;;
   exam)
