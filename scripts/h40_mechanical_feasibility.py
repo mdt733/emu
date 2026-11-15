@@ -128,7 +128,9 @@ def _simulate(model, *, swing):
 # actuator gains or changes to the frozen policy's [-33.2,+33.2] target span.
 SPRING_CANDIDATES = (
     ("30_30_same_neutral_soft", .030, .030, 150., .520606),
+    ("35_25_long_preload", .035, .025, 80., .350),
     ("35_25_gentle_low_rate", .035, .025, 150., .350),
+    ("35_25_same_neutral_support", .035, .025, 150., .520606),
     ("35_25_gentler_low_rate", .035, .025, 150., .250),
     ("35_25_medium_rate", .035, .025, 300., .350),
 )
