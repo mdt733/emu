@@ -61,6 +61,21 @@ assert np.isclose(TARGET_SPAN[2], np.pi/2, atol=1e-6)
 assert all(np.isclose(m.jnt_range[
     mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, f"{side}_knee")][0],
     -np.pi/2, atol=1e-5) for side in "rl")
+# MUJOCO ACTUATOR CTRL LIMITS ARE RAW RADIANS, NOT THE DEGREE-BASED
+# JOINT RANGE: validate the actual compiled model in the user's WSL.
+assert (m.actuator_ctrllimited == 1).all()
+for side in "rl":
+    for axis, lo, hi in (("knee",-90.,95.),
+                         ("hip_pitch",-50.,50.),
+                         ("hip_roll",-25.,25.)):
+        aid=mujoco.mj_name2id(m,mujoco.mjtObj.mjOBJ_ACTUATOR,
+                              f"{side}_{axis}")
+        assert aid >= 0
+        actual=m.actuator_ctrlrange[aid]
+        assert np.allclose(actual,np.deg2rad([lo,hi]),atol=1e-6), (
+            f"Actuator {side}_{axis}: expected radian targets "
+            f"{np.deg2rad([lo,hi]).tolist()}, compiled {actual.tolist()}")
+assert np.allclose(m.tendon_stiffness[:2],[150.,150.],atol=1e-4)
 print("Research source model:", hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest())
 print("Research actor targets:", np.round(np.rad2deg(TARGET_SPAN), 2).tolist(), "degrees")
 print("Rated actuator limits:", m.actuator_forcerange[0].tolist(), "Nm")
