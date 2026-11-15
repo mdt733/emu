@@ -50,6 +50,7 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
     keys=(
         ('reward_mean','Training reward'),
         ('fall_rate','Completed-episode fall fraction'),
+        ('gait_guidance_strength','Prescribed gait shaping share (1=nursery, 0=outcome only)'),
         ('vx_mean','Achieved mean vx (m/s)'),
         ('cmd_vx_mean','Requested mean vx (m/s)'),
         ('control_shaft_j_per_m','Control mechanical J/m (proxy)'),
@@ -108,7 +109,8 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
             for name in ('results.md','results_data.json','metrics.csv',
                          'training_config.json','run_meta.json','fixed_eval.csv',
                          'envelope_summary.json','capability_evidence.json',
-                         'capability_field_summary.json','performance.json'):
+                         'capability_field_summary.json','performance.json',
+                         '20m_unattended_gate.json'):
                 path=root/name
                 if path.is_file() and not path.is_symlink():
                     z.write(path,arcname=name)
