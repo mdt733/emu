@@ -242,6 +242,13 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     cfg_path = tmp_path / "training_config.json"
     first.save(cfg_path)
     assert TrainingConfig.load(cfg_path) == first
+    # A same-source run may not silently inherit a new reward tutor mode.
+    required=json.loads(cfg_path.read_text(encoding='utf-8'))
+    required.pop('stair_tutor_mode')
+    cfg_path.write_text(json.dumps(required),encoding='utf-8')
+    with pytest.raises(ValueError,match='training config keys mismatch'):
+        TrainingConfig.load(cfg_path)
+    first.save(cfg_path)
     # Actual H40 120M ancestor schema: five new graduation fields absent,
     # three retired settings present. Adapt only for an external research fork,
     # not for a same-source retry or checkpoint continuation.
