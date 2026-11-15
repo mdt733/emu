@@ -46,6 +46,7 @@ jobs:
           PY
           python -m compileall -q emu scripts tests
           bash -n scripts/run_h40_stair_tutor_wsl.sh
+          bash scripts/run_h40_stair_tutor_wsl.sh help > /dev/null
           python -m scripts.summarize_h40_stair_tutor --help > /dev/null
           # Main carries one real H40 inference actor. Validate its full
           # observation contract independently of manual Pages approval.
