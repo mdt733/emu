@@ -74,9 +74,10 @@ never launches PPO. The launch checks parent SHA-256 and source identity;
 same-source extensions require the run's own validated checkpoint.
 
 Independent exams include 50mm UP, mixed UP/DOWN and 20mm DOWN programmes
-at seeds 1701 and 2701 for both frozen actors. They use eight authentic MJX
-prisms, not a viewer or teacher success flag. Upload the two-arm tutor
-report plus exams for review before another GPU budget.
+at seeds 1701 and 2701 for both frozen actors, PLUS an exact-height 50mm
+UP/DOWN exam paired by per-world index against a zero-height seam control.
+These use eight authentic MJX prisms, not a viewer or teacher success flag.
+Upload the two-arm tutor report plus exams for review before another budget.
 
 **Historical studies:** The 500M C launcher from source
 69c9d6a959147d5f02ebf2a024a28de00362a6b4 and the completed 16-arm D
