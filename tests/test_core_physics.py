@@ -522,6 +522,9 @@ def test_real_top_supported_crossing_in_both_axes():
             (.003,1,1,0), (-.02,1,0,1)):
         _check_real_top_supported_crossing_in_both_axes(
             rise, axis, up, down)
+    # Same contact family: never mistake a riser sidewall for a top
+    # foothold, even while the other foot is genuinely supported.
+    _check_side_contact_cannot_be_counted_as_supported_top_foothold()
 
 
 def test_tof_sees_real_15cm_vertical_uphill_wall():
@@ -535,7 +538,7 @@ def test_tof_sees_real_15cm_vertical_uphill_wall():
     assert abs(float(t[0,0])-.15)<1e-4,t
 
 
-def test_side_contact_cannot_be_counted_as_supported_top_foothold():
+def _check_side_contact_cannot_be_counted_as_supported_top_foothold():
     # Two contacts to the SAME upward tile. The first sphere is pressed
     # into the vertical step riser; the second is standing on the top.
     frame=jnp.zeros((1,2,3,3),dtype=jnp.float32)
