@@ -76,6 +76,24 @@ for side in "rl":
             f"Actuator {side}_{axis}: expected radian targets "
             f"{np.deg2rad([lo,hi]).tolist()}, compiled {actual.tolist()}")
 assert np.allclose(m.tendon_stiffness[:2],[150.,150.],atol=1e-4)
+# The replacement spring should help support neutral standing, but should
+# NOT itself overrun a rated knee servo during a substantial swing bend.
+data=mujoco.MjData(m)
+for side in "rl":
+    jid=mujoco.mj_name2id(m,mujoco.mjtObj.mjOBJ_JOINT,f"{side}_knee")
+    qid,vid=m.jnt_qposadr[jid],m.jnt_dofadr[jid]
+    torques={}
+    for degrees in (0,-55,-85,-90):
+        mujoco.mj_resetData(m,data)
+        data.qpos[qid]=np.deg2rad(degrees)
+        mujoco.mj_forward(m,data)
+        torque=float(data.qfrc_passive[vid])
+        assert np.isfinite(torque) and np.isfinite(data.ten_length).all()
+        torques[degrees]=torque
+    assert np.isclose(torques[0],.520606,atol=.008),torques
+    assert 0. < torques[-55] < SERVO_RATED_CONTINUOUS_TORQUE_NM,torques
+    print(side,"knee spring passive torques (0/-55/-85/-90 deg):",
+          [round(torques[d],3) for d in (0,-55,-85,-90)],"Nm")
 print("Research source model:", hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest())
 print("Research actor targets:", np.round(np.rad2deg(TARGET_SPAN), 2).tolist(), "degrees")
 print("Rated actuator limits:", m.actuator_forcerange[0].tolist(), "Nm")
