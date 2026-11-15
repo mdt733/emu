@@ -48,7 +48,10 @@ def save_csv(path,records):
 
 
 def run(*,policy:Path,output:Path,program:str,worlds:int=128,
-        horizon:int=1050,seed:int=1701,device:str="cuda"):
+        horizon:int=1050,seed:int=1701,device:str="cuda",
+        tutor_mode:str="legacy"):
+    if tutor_mode not in ('legacy','escrow'):
+        raise ValueError('tutor_mode must be legacy or escrow')
     if program not in PROGRAMS:
         raise ValueError(f'Unknown physical program {program}')
     if worlds<2 or worlds>512 or horizon<450 or horizon>1450:
@@ -94,6 +97,7 @@ def run(*,policy:Path,output:Path,program:str,worlds:int=128,
         bidirectional_school=True,outcome_graduation=True,
         science_step_finish_on_transfer=True,
         two_lip_continuation_school=True,
+        stair_tutor_mode=tutor_mode,
         **{k:v for k,v in sensor.items() if k!='sensor_noise_scale'})
     assert env.sensor_contract==sensor_observation_contract(
         sensor,schema=OBS_SCHEMA_TERRAIN,array_only=True)
@@ -157,7 +161,7 @@ def run(*,policy:Path,output:Path,program:str,worlds:int=128,
         actor_source=actor['source'],actor_sha=actor['source']['actor_sha256'],
         exported_policy_sha256=actor['artifact_sha256'],
         robot_xml_sha256=hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest(),
-        program=program,settings=spec,
+        program=program,settings=spec,tutor_mode=tutor_mode,
         seed=seed,worlds=worlds,horizon=horizon,
         control_dt_s=.02,device=jax.default_backend(),
         elapsed_s=round(time.monotonic()-started,2),
@@ -189,6 +193,8 @@ def main(argv=None):
     ap.add_argument('--horizon',type=int,default=1050)
     ap.add_argument('--seed',type=int,default=1701)
     ap.add_argument('--device',choices=('cpu','cuda'),default='cuda')
+    ap.add_argument('--tutor-mode',choices=('legacy','escrow'),default='legacy',
+                    help='read-only reward-path integration probe; frozen policy and physics unchanged')
     args=ap.parse_args(argv)
     run(**vars(args))
 
