@@ -250,6 +250,8 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
                 'outcome_stair_approved', 'outcome_approval_start_steps',
                 'outcome_down_share'):
         ancestor.pop(key)
+    # Earlier science D 60M ancestors also predate the escrow tutor flag.
+    ancestor.pop('stair_tutor_mode')
     ancestor.update(cloud_final_probes=0, cloud_probes_per_eval=0,
                     science_reset_step_evidence_on_fork=False)
     cfg_path.write_text(json.dumps(ancestor), encoding="utf-8")
