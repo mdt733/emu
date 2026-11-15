@@ -200,14 +200,16 @@ def generate_xml(source_xml: str, name: str) -> str:
             spring.set("springlength", f"{rest:.9f}")
             _get(root, f".//joint[@name='{prefix}knee']").set(
                 "range", "-90 95")
-            # Match the physical ROM on the actuator as well; the 6-output
-            # policy controls +/-90deg, not a residual +/-33deg clamp.
-            _get(root, f".//position[@name='{prefix}knee']").set(
-                "ctrlrange", "-90 95")
-            _get(root, f".//position[@name='{prefix}hip_roll']").set(
-                "ctrlrange", "-25 25")
-            _get(root, f".//position[@name='{prefix}hip_pitch']").set(
-                "ctrlrange", "-50 50")
+            # MuJoCo compiler angle="degree" converts JOINT range, but
+            # actuator ctrlrange is a RAW target in radians! Never put
+            # 90 / 95 degrees here (would mean 90 / 95 radians).
+            for axis,lo,hi in (("knee",-90.,95.),
+                               ("hip_roll",-25.,25.),
+                               ("hip_pitch",-50.,50.)):
+                motor=_get(root, f".//position[@name='{prefix}{axis}']")
+                motor.set("ctrllimited","true")
+                motor.set("ctrlrange",
+                          f"{math.radians(lo):.9f} {math.radians(hi):.9f}")
     return ET.tostring(root, encoding="unicode")
 
 
