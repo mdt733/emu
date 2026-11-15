@@ -119,7 +119,11 @@ if [[ "$MODE" == exam ]]; then
   # The champion is evaluated with its OWN unchanged H40 physical profile,
   # not the new 150N/m spring or the widened neural action targets.
   BASELINE="$REPO/showcase/champion.emupolicy"
-  if [[ -f "$BASELINE" && ! -f "$MAIN_EXAM/matrix_summary.json" ]]; then
+  [[ -f "$BASELINE" ]] || {
+    echo "Cannot complete matched exam: original champion actor missing" >&2
+    exit 1
+  }
+  if [[ ! -f "$MAIN_EXAM/matrix_summary.json" ]]; then
     EMU_PHYSICAL_PROFILE=h40 python scripts/v5053_matrix_exam.py \
       --policy "$BASELINE" --output "$MAIN_EXAM" \
       --mode stairs --worlds 2048 --horizon 350 \
@@ -142,6 +146,24 @@ data = {label: json.loads(p.read_text(encoding="utf-8"))
         for label,p in sources.items() if p.is_file()}
 if "Spring-v1" not in data:
     raise RuntimeError("New frozen actor has no physically verified matrix results")
+if set(data) != set(sources):
+    raise RuntimeError("Matched control missing: need BOTH independent actor matrices")
+for label, summary in data.items():
+    manifest=summary["manifest"]
+    expected=dict(seed=1701, worlds=2048, assigned_worlds=2000,
+                  horizon=350, mode="stairs", levels=20)
+    for key,wanted in expected.items():
+        if manifest.get(key) != wanted:
+            raise RuntimeError(f"{label} matrix contract {key}: "
+                               f"expected {wanted}, got {manifest.get(key)}")
+    if not manifest.get("zero_optimizer_updates") or not manifest.get("first_life_only"):
+        raise RuntimeError(f"{label} exam did not verify frozen first-life evaluation")
+old_hash=data["Main H40"]["manifest"]["robot_model_sha256"]
+new_hash=data["Spring-v1"]["manifest"]["robot_model_sha256"]
+if old_hash != "b513bb3326a73d9ca661f761f1352b22c36d0f1b6d51be72c2eca15d8712ef5b":
+    raise RuntimeError(f"Wrong main H40 control model SHA: {old_hash}")
+if old_hash == new_hash:
+    raise RuntimeError("Both exams used same robot physics! Wrong EMU_PHYSICAL_PROFILE")
 lines = ["# H40 vs Spring-v1: independent frozen physical stair examinations", "",
          "Both use 2,000 real-prism attempts, 50 each at signed 2.5mm increments",
          "up to +/-50mm, same initial command and random seed. This compares",
