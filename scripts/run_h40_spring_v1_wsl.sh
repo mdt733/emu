@@ -22,6 +22,7 @@ if [[ "$MODE" == all ]]; then
     bash "$REPO/scripts/run_h40_spring_v1_wsl.sh" "$stage"
   done
   echo "===== COMPLETE: $HOME/emu-data/runs/h40-spring-v1-outcomes-s735 ====="
+  echo "Upload: $HOME/emu-data/runs/h40-spring-v1-outcomes-s735/results_bundle.zip"
   exit 0
 fi
 
@@ -63,6 +64,10 @@ assert all(np.isclose(m.jnt_range[
 print("Research source model:", hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest())
 print("Research actor targets:", np.round(np.rad2deg(TARGET_SPAN), 2).tolist(), "degrees")
 print("Rated actuator limits:", m.actuator_forcerange[0].tolist(), "Nm")
+print("MuJoCo physics solver:", m.opt.iterations, "iterations,",
+      m.opt.ls_iterations, "line searches")
+assert m.opt.iterations >= 50 and m.opt.ls_iterations >= 10, (
+    "Do not train with a low-contact-fidelity solver without paired smoke")
 PY
 
 if [[ "$MODE" == smoke || "$MODE" == gpu-gate ]]; then
@@ -86,6 +91,56 @@ if [[ "$MODE" == extend-120m ]]; then
   RESUME=(--resume auto)
 fi
 
+# Automatic guard before spending another 100M on a catastrophic cold start.
+# This is deliberately permissive: a 20M walker is NOT expected to solve
+# stairs, slopes or fast command tracking yet. Avoid relying on reward mean
+# (reward economics change by design at 20–40M).
+if [[ "$MODE" == extend-120m ]]; then
+  export EMU_SPRING_GATE_RUN_DIR="$RUN_DIR"
+  python - <<'PY'
+import csv
+import json
+import math
+import os
+from pathlib import Path
+
+root = Path(os.environ["EMU_SPRING_GATE_RUN_DIR"])
+csv_path = root / "metrics.csv"
+if not csv_path.is_file():
+    raise RuntimeError("Cannot extend: no 20M training metrics")
+with csv_path.open(newline="", encoding="utf-8") as stream:
+    rows = list(csv.DictReader(stream))
+if not rows:
+    raise RuntimeError("Cannot extend: empty training metrics")
+last = rows[-1]
+def number(name):
+    value = float(last.get(name, float("nan")))
+    if not math.isfinite(value):
+        raise RuntimeError(f"Cannot extend: nonfinite {name} at 20M")
+    return value
+step = number("step")
+fall = number("fall_rate")
+length = number("ep_len_mean")
+support = number("support")
+skips = number("nan_grad_skips_total")
+reasons = []
+if step < 20_000_000: reasons.append("20M checkpoint incomplete")
+if not 0 <= fall < .85: reasons.append("more than 85% of completed episodes fall")
+if length < 100: reasons.append("mean completed episode shorter than 100 frames")
+if support < .15: reasons.append("too little foot support")
+if skips > 10: reasons.append("PPO had more than 10 nonfinite gradient skips")
+facts = dict(step=step,fall_rate=fall,ep_len_mean=length,
+             episode_support=support,nan_grad_skips_total=skips,
+             interpretation="permissive gross-collapse gate, NOT proven locomotion",
+             approved=(not reasons),blockers=reasons)
+(root/"20m_unattended_gate.json").write_text(
+    json.dumps(facts,indent=2)+"\\n",encoding="utf-8")
+print("20M AUTOMATIC GATE:",json.dumps(facts),flush=True)
+if reasons:
+    raise SystemExit("Stopping at 20M rather than spending 100M on a collapsed learner")
+PY
+fi
+
 python -m emu.cli train \
   --profile sim2real \
   --run-dir "$RUN_DIR" \
@@ -102,7 +157,6 @@ python -m emu.cli train \
   --academy-intro-share .10 --academy-max-share .40 \
   --academy-height-cap-m .15 \
   --fixed-eval-every-steps 60000000 \
-  --solver-iterations 2 --solver-ls-iterations 4 \
   "${RESUME[@]}" \
   $(if [[ "$MODE" == plan ]]; then printf '%s' '--plan'; fi)
 
