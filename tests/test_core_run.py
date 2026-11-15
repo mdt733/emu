@@ -253,7 +253,13 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
     # Earlier science D 60M ancestors also predate the escrow tutor flag.
     ancestor.pop('stair_tutor_mode')
     ancestor.update(cloud_final_probes=0, cloud_probes_per_eval=0,
-                    science_reset_step_evidence_on_fork=False)
+                    science_reset_step_evidence_on_fork=False,
+                    stair_tournament_arm='off',
+                    science_supported_cross_bonus=0.0,
+                    science_foothold_bonus=0.0,
+                    science_bilateral_support_bonus=0.0,
+                    science_followthrough_bonus=0.0,
+                    science_sensor_teacher_bonus=0.0)
     cfg_path.write_text(json.dumps(ancestor), encoding="utf-8")
     with pytest.raises(ValueError, match="training config keys mismatch"):
         TrainingConfig.load(cfg_path)
@@ -269,7 +275,13 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
                           science_step_finish_on_transfer=True))
     for key, value in (('cloud_final_probes', 10),
                        ('cloud_probes_per_eval', 1),
-                       ('science_reset_step_evidence_on_fork', True)):
+                       ('science_reset_step_evidence_on_fork', True),
+                       ('stair_tournament_arm','foothold'),
+                       ('science_supported_cross_bonus',3.),
+                       ('science_foothold_bonus',4.),
+                       ('science_bilateral_support_bonus',6.),
+                       ('science_followthrough_bonus',6.),
+                       ('science_sensor_teacher_bonus',3.)):
         invalid={**ancestor, key:value}
         cfg_path.write_text(json.dumps(invalid), encoding="utf-8")
         with pytest.raises(ValueError, match="non-default"):
