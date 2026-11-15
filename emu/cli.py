@@ -92,16 +92,6 @@ def main(argv=None) -> int:
                    help='up to 5cm extra posture-height allowance in STEP-focused lessons')
     q.add_argument('--science-stride-efficiency-weight',type=float,default=0.,
                    help='bounded command-tracking useful-progress-per-lift shaping')
-    q.add_argument('--science-supported-cross-bonus',type=float,default=0.,
-                   help='additional one-time true supported prism-lip crossing payment')
-    q.add_argument('--science-foothold-bonus',type=float,default=0.,
-                   help='additional first real upper foothold payment')
-    q.add_argument('--science-bilateral-support-bonus',type=float,default=0.,
-                   help='additional verified 5-frame two-foot upper-tile support payment')
-    q.add_argument('--science-followthrough-bonus',type=float,default=0.,
-                   help='one-time reward for 50cm after bilateral lip support with heading bound')
-    q.add_argument('--science-sensor-teacher-bonus',type=float,default=0.,
-                   help='privileged sensor-visible foothold teaching bonus; actor input unchanged')
     q.add_argument('--science-step-goal-weight',type=float,default=0.,
                    help='v5052 bounded supported forward-progress payment ONLY in real Academy steps')
     q.add_argument('--science-step-velocity-relief',type=float,default=0.,
@@ -119,9 +109,6 @@ def main(argv=None) -> int:
     q.add_argument('--outcome-stair-approved',action='store_true',help='fade dense coaching after independently proven 50mm climbs')
     q.add_argument('--outcome-approval-start-steps',type=int,default=0,help='absolute steps when independent stair proof was approved')
     q.add_argument('--outcome-down-share',type=float,default=.20,help='descent share after stair graduation')
-    q.add_argument('--stair-tournament-arm',choices=('off','control'),
-                   default='off',
-                   help='Retained strict second-lip support control. Retired D factorial recipes are in Git history')
     q.add_argument('--stair-tutor-mode',choices=('legacy','escrow'),default='legacy',
                    help='50mm uphill physics tutor: baseline legacy or bounded feet + delayed recovered chassis reward')
     q.add_argument('--two-lip-continuation-school',action='store_true',
