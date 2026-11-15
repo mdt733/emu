@@ -173,9 +173,12 @@ case "$MODE" in
     ;;
   both)
     run_bridge
-    for arm in legacy escrow; do
-      run_arm "$arm"
-    done
+    run_arm legacy
+    # A 20M tutor fork is pointless if the baseline never encountered
+    # the 50mm uphill lessons. Explicitly stop before funding escrow.
+    python -m scripts.summarize_h40_stair_tutor \
+      --root "$ROOT" --require-up-exposure
+    run_arm escrow
     ;;
   exam)
     # Fully frozen policy exams: 2 actors x 3 physical programmes x 2 seeds.
