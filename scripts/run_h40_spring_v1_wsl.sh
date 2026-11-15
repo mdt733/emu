@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # H40 spring-v1 with 20M gait nursery -> 40M outcome-only reward, cold start.
-# Usage: bash scripts/run_h40_spring_v1_wsl.sh all|smoke|gpu-gate|plan|train-20m|extend-120m|exam
+# Usage: bash scripts/run_h40_spring_v1_wsl.sh all|smoke|gpu-gate|plan|train-20m|extend-40m|extend-120m|exam
 # One run directory and one trainer, founded on the existing main-style recipe.
 set -euo pipefail
 
 MODE="${1:-}"
 case "$MODE" in
-  all|smoke|gpu-gate|plan|train-20m|extend-120m|exam) ;;
+  all|smoke|gpu-gate|plan|train-20m|extend-40m|extend-120m|exam) ;;
   *) echo "Usage: bash scripts/run_h40_spring_v1_wsl.sh all|smoke|gpu-gate|plan|train-20m|extend-120m" >&2; exit 2 ;;
 esac
 
@@ -17,7 +17,7 @@ if [[ "$MODE" == all ]]; then
   # Unattended one-paste campaign. Each stage independently verifies the
   # actual physical model and latest source-pinned run contract. Never
   # combine the old champion checkpoint with this new reward schedule.
-  for stage in smoke gpu-gate train-20m extend-120m exam; do
+  for stage in smoke gpu-gate train-20m extend-40m extend-120m exam; do
     echo "===== H40 SPRING V1 OUTCOME TRAINING: $stage ====="
     bash "$REPO/scripts/run_h40_spring_v1_wsl.sh" "$stage"
   done
@@ -202,17 +202,27 @@ fi
 # essential: never resume a historical v1 spring run into this source.
 STEPS=20000000
 RESUME=()
+if [[ "$MODE" == extend-40m ]]; then
+  STEPS=40000000
+  RESUME=(--resume auto)
+fi
 if [[ "$MODE" == extend-120m ]]; then
   STEPS=120000000
   RESUME=(--resume auto)
 fi
 
-# Automatic guard before spending another 100M on a catastrophic cold start.
-# This is deliberately permissive: a 20M walker is NOT expected to solve
-# stairs, slopes or fast command tracking yet. Avoid relying on reward mean
-# (reward economics change by design at 20–40M).
-if [[ "$MODE" == extend-120m ]]; then
+# Two automatic checkpoints, with no human interaction:
+# 20M checks basic cold-start viability before 20M→40M.
+# 40M checks whether withdrawing preferred-gait rewards collapsed the walker
+# before committing the final 80M. Both are deliberately permissive.
+# No comparisons of training reward means across changing reward economics.
+if [[ "$MODE" == extend-40m || "$MODE" == extend-120m ]]; then
   export EMU_SPRING_GATE_RUN_DIR="$RUN_DIR"
+  if [[ "$MODE" == extend-40m ]]; then
+    export EMU_SPRING_GATE_AGE=20
+  else
+    export EMU_SPRING_GATE_AGE=40
+  fi
   python - <<'PY'
 import csv
 import json
@@ -221,9 +231,11 @@ import os
 from pathlib import Path
 
 root = Path(os.environ["EMU_SPRING_GATE_RUN_DIR"])
+age = int(os.environ["EMU_SPRING_GATE_AGE"])
+assert age in (20,40)
 csv_path = root / "metrics.csv"
 if not csv_path.is_file():
-    raise RuntimeError("Cannot extend: no 20M training metrics")
+    raise RuntimeError(f"Cannot extend: no {age}M training metrics")
 with csv_path.open(newline="", encoding="utf-8") as stream:
     rows = list(csv.DictReader(stream))
 if not rows:
@@ -240,7 +252,7 @@ length = number("ep_len_mean")
 support = number("support")
 skips = number("nan_grad_skips_total")
 reasons = []
-if step < 20_000_000: reasons.append("20M checkpoint incomplete")
+if step < age * 1_000_000: reasons.append(f"{age}M checkpoint incomplete")
 if not 0 <= fall < .85: reasons.append("more than 85% of completed episodes fall")
 if length < 100: reasons.append("mean completed episode shorter than 100 frames")
 if support < .15: reasons.append("too little foot support")
@@ -249,11 +261,11 @@ facts = dict(step=step,fall_rate=fall,ep_len_mean=length,
              episode_support=support,nan_grad_skips_total=skips,
              interpretation="permissive gross-collapse gate, NOT proven locomotion",
              approved=(not reasons),blockers=reasons)
-(root/"20m_unattended_gate.json").write_text(
+(root/f"{age}m_unattended_gate.json").write_text(
     json.dumps(facts,indent=2)+"\n",encoding="utf-8")
-print("20M AUTOMATIC GATE:",json.dumps(facts),flush=True)
+print(f"{age}M AUTOMATIC GATE:",json.dumps(facts),flush=True)
 if reasons:
-    raise SystemExit("Stopping at 20M rather than spending 100M on a collapsed learner")
+    raise SystemExit(f"Stopping at {age}M rather than continuing a collapsed learner")
 PY
 fi
 
@@ -276,6 +288,6 @@ python -m emu.cli train \
   "${RESUME[@]}" \
   $(if [[ "$MODE" == plan ]]; then printf '%s' '--plan'; fi)
 
-# The same v2 run directory is preserved across 20M -> 120M. Never change
+# The same v2 run directory is preserved across 20M -> 40M -> 120M. Never change
 # source SHA, profile or run directory between its stages.
 # WARNING: do not launch alongside the earlier spring-v1 GPU experiment.
