@@ -1529,6 +1529,8 @@ class EmuMJXEnv(TaskSampler):
             np.any(slope[16:18]<.001) or
             np.any(slope[16:18]>self.academy_height_cap_m)):
             raise ValueError('Academy UP/DOWN lip frontiers exceed physical compiled cap')
+        if not np.isfinite(slope[18]) or not 0. <= slope[18] <= 1.:
+            raise ValueError('gait guidance strength must be within [0,1]')
         if not np.all(np.isfinite(slope[~np.isnan(slope)])):
             raise ValueError('invalid physical terrain override')
         packed=np.concatenate((packed,slope))
@@ -1682,6 +1684,7 @@ class EmuMJXEnv(TaskSampler):
             motor_guidance_weight=self.motor_guidance_weight,
             allow_zero_command_balance=self.stillness_birth_frac > 0.,
             science_gate_mode=self.science_gate_mode,
+            gait_guidance_strength=params[P.gait_guidance_strength],
             science_phase_sync_strength=self.science_phase_sync_strength,
             science_crouch_allowance_m=self.science_crouch_allowance_m,
             science_stride_efficiency_weight=self.science_stride_efficiency_weight,
