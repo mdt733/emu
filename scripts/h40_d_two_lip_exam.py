@@ -63,8 +63,10 @@ def tutor_activation_audit(frames, *, worlds: int, require: bool=False):
         raise RuntimeError("Invalid real-MJX tutor telemetry dimensions")
     initial=int(np.count_nonzero(
         active[0] & (birth[0]>=.045) & (birth[0]<=.055)))
-    positive=int(np.count_nonzero(paid>0.))
-    total=float(np.sum(paid))
+    active_up=active & (birth>=.045) & (birth<=.055)
+    positive=int(np.count_nonzero((paid>0.) & active_up))
+    # A downhill/ordinary reward cannot pass an UP-tutor activation gate.
+    total=float(np.sum(np.where(active_up,paid,0.)))
     audit=dict(initial_50mm_up_academy_worlds=initial,
                positive_tutor_payment_frames=positive,
                staged_tutor_payment_sum=round(total,4),
