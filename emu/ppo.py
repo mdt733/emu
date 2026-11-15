@@ -919,6 +919,14 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 # reward measurements as the actual training environment.
                 terrain_support=out.metrics['support'],
                 terrain_bad_contact=out.metrics['bad_contact'],
+                # Mentor-only smoke telemetry, never used by independent
+                # course scoring or policy input; prove that the stair
+                # tutor actually ran and generated nonzero rewards.
+                tutor_academy_active=es.academy_active,
+                tutor_signed_birth_lip_m=es.academy_birth_lip_m,
+                tutor_nursery_payment=out.metrics['nursery_reward'],
+                tutor_escrow_release=out.metrics['tutor_escrow_release_new'],
+                tutor_pre_root_plant=out.metrics['tutor_pre_root_plant_new'],
                 # Independent goal certification uses raw poststep pose,
                 # matched with the poststep physical contact health below.
                 # It never reads the teacher's goal-completion reward flag.
