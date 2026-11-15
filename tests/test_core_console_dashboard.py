@@ -50,7 +50,7 @@ def test_dashboard_read_only_real_columns_and_missing_data(tmp_path, capsys):
     assert latest_frozen(history).startswith("0.830")
     screen = render(history,run_name="emu-run",target=120000000,width=100,height=27)
     assert "STAIRS" in screen and "sampled" in screen
-    assert "not all-episode" in screen
+    assert "NOT all-episode" in screen
     assert "100.0M / 120.0M" in screen
     assert csv_path.read_bytes() == original
     # The public CLI is dependency-free and cannot start PPO.
