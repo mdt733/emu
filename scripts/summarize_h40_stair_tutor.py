@@ -25,7 +25,7 @@ COUNTS = (
 )
 FINAL=("academy_active_fraction","academy_height_up_m","academy_height_down_m",
        "outcome_stair_alpha","fall_rate","academy_actual_vx_mps")
-ANCHOR=60_000_000
+ANCHOR=80_000_000
 
 
 def _float(value):
@@ -112,7 +112,7 @@ def report(root: Path):
     paired=paired_matrix(root)
     payload=dict(
         schema="h40_stair_tutor_ab_v1",parent_steps=ANCHOR,
-        source_note="same 60M frozen learner; physical H40 MJX; 50mm UP kept",
+        source_note="same frozen 80M bridge learned from historical 60M D foundation; H40 MJX; 50mm UP kept",
         warning=("Selected rollout event counts are not complete episodes; "
                  "last alpha/height are teacher state. Do not sum cumulative "
                  "PPO audit metrics; do not interpret retired clearance/goal counts."),
@@ -124,7 +124,7 @@ def report(root: Path):
         "# H40 50mm stair tutor — initial matched A/B","",
         "All counts below are selected rollout diagnostics, NOT independent "
         "frozen-policy 50mm exam certifications. Two arms share an immutable "
-        "60M parent; main was not changed.","",
+        "80M bridge; main was not changed.","",
         "| Signal | Legacy | Escrow |","|---|---:|---:|"]
     metrics=(
         ("Logged rollouts","n_logged_rollouts"),
