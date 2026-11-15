@@ -32,42 +32,57 @@ These are validation operations, not a license to change an existing
 source-pinned training run. A 20M cold gait smoke and matched exams are
 necessary before considering major policy changes for promotion.
 
-## Experiment C — cold 500M campaign
+## Current experiment — 50mm foot tutor and recovered-chassis escrow
 
-The new C campaign (unpromoted, draft [PR #84](https://github.com/mdt733/emu/pull/84))
-**starts from random network weights, not 120M/180M/420M**. The
-original tested training revision is `69c9d6a959147d5f02ebf2a024a28de00362a6b4`.
-It is the experiment's own immutable source; this maintenance branch
-is NOT an interchangeable resume source.
+This source is a **research continuation of draft PR #88**, not an update to
+the current H40 champion. The 50mm uphill Academy entry was deliberate:
+small steps often reward unchanged walking, not obstacle negotiation.
+The new tutor rewards bounded actual-prism foot lift and clearance,
+then confirmed support, but holds the chassis-progress reward until both
+feet independently supported the first upper tile and commanded walking
+recovered for 20 consecutive control frames with safe pitch angular speed.
+Only the recoverable body position can release escrow, never a falling lunge.
+All tutor calculations use privileged teacher-side physics, not actor inputs.
+The original 20mm DOWN school remains intact as an internal control.
 
-```bash
+Use an **independent, clean Git worktree** at the tested research commit.
+Do not change source or target config while a run is in progress.
+
+~~~bash
 cd ~/emu
-git fetch origin experiment/h40-cold-dual-lip-continuation
-git worktree add --detach ~/emu-cold-duallip \
-  69c9d6a959147d5f02ebf2a024a28de00362a6b4
-cd ~/emu-cold-duallip
+git fetch origin research/h40-stair-tutor-escrow
+git worktree add --detach ~/emu-stair-tutor origin/research/h40-stair-tutor-escrow
+cd ~/emu-stair-tutor
 source ~/emu/.venv/bin/activate
-bash scripts/run_h40_cold_duallip_500m_wsl.sh
-```
+# Expected parent: ~/emu-data/runs/h40-d-coach-lab-s735/foundation-60m/checkpoints/final.pkl
+bash scripts/run_h40_stair_tutor_wsl.sh preflight
+bash scripts/run_h40_stair_tutor_wsl.sh smoke
+# Only after source and GPU checks pass: 2 x 30M from SAME frozen 60M parent.
+bash scripts/run_h40_stair_tutor_wsl.sh both
+# Frozen-policy two-seed true-prism exams:
+bash scripts/run_h40_stair_tutor_wsl.sh exam
+bash scripts/run_h40_stair_tutor_wsl.sh report
+~~~
 
-Same-run recovery, **only inside that same pinned worktree**:
+No billion-step campaign is authorised by this experiment. **Stop** if
+uphill Academy exposure is negligible or if the escrow arm fails to improve
+physical pre-root upper-foot contact and controlled recovery. Decide whether
+to extend from 90M to 110M only with independent physical data, and repeat
+with a different training seed before any causal claim. Running this script
+without an explicit mode prints help and trains nothing. Running preflight
+never launches PPO. The launch checks parent SHA-256 and source identity;
+same-source extensions require the run's own validated checkpoint.
 
-```bash
-cd ~/emu-cold-duallip
-source ~/emu/.venv/bin/activate
-bash scripts/run_h40_cold_duallip_500m_wsl.sh --resume
-```
+Independent exams include 50mm UP, mixed UP/DOWN and 20mm DOWN programmes
+at seeds 1701 and 2701 for both frozen actors. They use eight authentic MJX
+prisms, not a viewer or teacher success flag. Upload the two-arm tutor
+report plus exams for review before another GPU budget.
 
-The launcher refuses a nonempty cold target, and accepts `--resume auto`
-only for an explicit restart. The source and checkpoint/config identity
-are validated before PPO begins. Original run path:
-`~/emu-data/runs/h40-cold-duallip-500m-s735`.
-
-The 500M target, seed 735 and 2048 environments are **requested steps**,
-not an observed result. Foundation starts with 20M gait steps; stairs
-unlock after a further competency gate and stage schedule. Each completed
-C Academy course requires two signed lips and controlled continuation;
-none of those training events is by itself an independent frozen exam.
+**Historical studies:** The 500M C launcher from source
+69c9d6a959147d5f02ebf2a024a28de00362a6b4 and the completed 16-arm D
+launcher from draft PR #88 belong in Git history. They are not maintained
+as active launch scripts. Use their original source for historic reruns;
+never silently resume a campaign under the tutor source.
 
 ## Viewer and sensor lab
 
