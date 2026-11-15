@@ -62,7 +62,6 @@ COMMON=(
   --bidirectional-school --science-step-finish-on-transfer
   --two-lip-continuation-school
   --science-step-goal-weight 0 --science-step-velocity-relief .80
-  --stair-tournament-arm control
   --fixed-eval-every-steps 10000000
 )
 
