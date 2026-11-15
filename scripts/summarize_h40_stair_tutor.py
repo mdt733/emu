@@ -203,7 +203,9 @@ def gate_useful_legacy_exposure(payload):
     age=trial.get("final_step",0)
     anchored=counters.get("academy_anchor_attempts_up",0)
     approached=counters.get("academy_near_attempts_up",0)
-    if age < 99_900_000 or anchored < 20 or approached < 5:
+    # Console metrics are logged every ten 65,536-step PPO updates; a
+    # completed 100M run may legitimately have its last CSV row at 99.6M.
+    if age < 99_000_000 or anchored < 20 or approached < 5:
         raise RuntimeError(
             "NO USEFUL TUTOR COMPARISON: legacy arm at "
             f"{age:,.0f} steps, {anchored:,.0f} sampled 50mm UP "
