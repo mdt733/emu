@@ -155,7 +155,7 @@ lines += ["", "Full 20-height curves and first-life world-level"
           " evidence are in heldout/*/matrix_*.csv.",
           "Training metrics and this exam are distinct sources of truth.", ""]
 comparison=exam/"comparison.md"
-comparison.write_text("\\n".join(lines),encoding="utf-8")
+comparison.write_text("\n".join(lines),encoding="utf-8")
 # The normal trainer already produced a compact results bundle without
 # huge optimizer/PKL files. Add the heldout physical comparison and actor.
 bundle=root/"results_bundle.zip"
@@ -235,7 +235,7 @@ facts = dict(step=step,fall_rate=fall,ep_len_mean=length,
              interpretation="permissive gross-collapse gate, NOT proven locomotion",
              approved=(not reasons),blockers=reasons)
 (root/"20m_unattended_gate.json").write_text(
-    json.dumps(facts,indent=2)+"\\n",encoding="utf-8")
+    json.dumps(facts,indent=2)+"\n",encoding="utf-8")
 print("20M AUTOMATIC GATE:",json.dumps(facts),flush=True)
 if reasons:
     raise SystemExit("Stopping at 20M rather than spending 100M on a collapsed learner")
