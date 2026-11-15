@@ -92,7 +92,7 @@ check(){
 }
 case "$MODE" in
   help)
-    echo "Usage: bash $0 preflight | smoke | arm legacy | arm escrow | both | report"
+    echo "Usage: bash $0 preflight | smoke | arm legacy | arm escrow | both | exam | report"
     echo "First do preflight and smoke. No training when called without an explicit mode."
     ;;
   preflight)
@@ -130,6 +130,36 @@ case "$MODE" in
       python -m emu.cli train "${FLAGS[@]}" --check-resume-only
       python -m emu.cli train "${FLAGS[@]}"
     done
+    ;;
+  exam)
+    # Fully frozen policy exams: 2 actors x 3 physical programmes x 2 seeds.
+    # No PPO update; no root crossing alone counts as a climb.
+    register_study
+    for arm in legacy escrow; do
+      FINAL="$ROOT/$arm/checkpoints/final.pkl"
+      [[ -f "$FINAL" ]] || {
+        echo "Missing completed arm checkpoint: $FINAL" >&2; exit 1;
+      }
+      mkdir -p "$ROOT/policies"
+      POLICY="$ROOT/policies/$arm.emupolicy"
+      python -m emu.cli export-policy "$FINAL" "$POLICY"
+      for program in up mixed down; do
+        for seed in 1701 2701; do
+          DEST="$ROOT/exams/$arm/${program}_s$seed"
+          if [[ -f "$DEST/exam.json" ]]; then
+            echo "Existing physical evidence: $DEST"
+          else
+            [[ ! -e "$DEST" ]] || {
+              echo "Incomplete exam, inspect and move manually: $DEST" >&2; exit 1;
+            }
+            python -m scripts.h40_d_two_lip_exam --policy "$POLICY" \
+              --output "$DEST" --program "$program" \
+              --worlds 128 --horizon 1050 --seed "$seed" --device cuda
+          fi
+        done
+      done
+    done
+    python -m scripts.summarize_h40_stair_tutor --root "$ROOT"
     ;;
   report)
     python -m scripts.summarize_h40_stair_tutor --root "$ROOT"
