@@ -94,7 +94,6 @@ def run(*,policy:Path,output:Path,program:str,worlds:int=128,
         bidirectional_school=True,outcome_graduation=True,
         science_step_finish_on_transfer=True,
         two_lip_continuation_school=True,
-        stair_tournament_arm='off',
         **{k:v for k,v in sensor.items() if k!='sensor_noise_scale'})
     assert env.sensor_contract==sensor_observation_contract(
         sensor,schema=OBS_SCHEMA_TERRAIN,array_only=True)
