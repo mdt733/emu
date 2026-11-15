@@ -143,7 +143,7 @@ def test_batched_mocaps_match_old_birth_and_recycling():
         rtol=0,atol=2e-7)
 
 
-def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
+def test_foot_only_contacts_preserve_mass_and_remove_torso_collision(tmp_path):
     """Remove solver contacts, not the 460g central chassis or its inertia."""
     from pathlib import Path
     from mujoco import mjx
@@ -366,6 +366,42 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     varied_limits=np.asarray(varied.actuator_forcerange)
     assert varied_limits.shape == (8,6,2)
     assert np.max(np.abs(varied_limits)) <= SERVO_RATED_CONTINUOUS_TORQUE_NM+1e-6
+
+    # Keep source/model provenance and the 24-case budget: mechanics belongs
+    # inside the existing real-MuJoCo physics contract, not a new suite.
+    import json
+    from scripts.h40_mechanical_feasibility import run as mechanical_run
+    (mechanical_json, mechanical_md) = mechanical_run(tmp_path / "mechanical")
+    assert mechanical_md.is_file()
+    bench = json.loads(mechanical_json.read_text())
+    assert bench["source_generated_h40_sha256"] == training_h40_xml_sha
+    assert len(bench["cases"]) == 4
+    normal, soft, boosted, both = bench["cases"]
+    assert normal["case"] == "hardware_valid"
+    assert all(c["case"] == "diagnostic_only" for c in (soft, boosted, both))
+    at_minus_30 = lambda c: next(x["passive_torque_nm"]
+        for x in c["knee_passive_sweep"] if x["angle_deg"] == -30)
+    assert at_minus_30(normal) > SERVO_RATED_CONTINUOUS_TORQUE_NM
+    assert at_minus_30(soft) == pytest.approx(at_minus_30(normal) * .25,
+                                               abs=2e-5)
+    assert at_minus_30(boosted) == pytest.approx(at_minus_30(normal), abs=2e-5)
+    assert normal["swing"]["max_abs_knee_actuator_nm"] <= SERVO_RATED_CONTINUOUS_TORQUE_NM+1e-5
+    assert boosted["swing"]["max_abs_knee_actuator_nm"] <= 2*SERVO_RATED_CONTINUOUS_TORQUE_NM+1e-5
+
+    # Pre-step torque and pose correspond to the action two trace frames
+    # earlier. Must not confuse extreme NN output with *actual* motor torque.
+    from emu.prism_exam import policy_motor_summary
+    a=np.zeros((5,1,6)); a[0,0,2] = 1.
+    torque=np.zeros_like(a); torque[2,0,2] = SERVO_RATED_CONTINUOUS_TORQUE_NM
+    row=policy_motor_summary(dict(
+        actor_action=a, spring_joint_qpos_rad=np.zeros((5,1,8)),
+        servo_joint_rate_rad_s=np.zeros_like(a), servo_torque_nm=torque,
+        servo_peak_limit_nm=np.full((1,6),SERVO_RATED_CONTINUOUS_TORQUE_NM),
+        done=np.zeros((5,1),bool)))["joints"][2]
+    assert row["joint"] == "r_knee"
+    assert row["frames"] == 3
+    assert row["at_cap_fraction"] == pytest.approx(1/3, abs=1e-5)
+    assert row["near_action_limit_fraction"] == pytest.approx(1/3, abs=1e-5)
 
 
 def test_midpoint_2x2_window_covers_30cm_and_preserves_present_tile():
