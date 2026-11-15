@@ -221,33 +221,14 @@ def one_run_config(args) -> TrainingConfig:
     tutor_mode=str(getattr(args,'stair_tutor_mode','legacy'))
     if tutor_mode not in ('legacy','escrow'):
         raise ValueError('Unknown stair tutor mode')
-    if stair_arm not in ('off','control','progressive','free-phase','foothold','commands',
-                            'progressive+free-phase','progressive+foothold','progressive+commands',
-                            'free-phase+foothold','free-phase+commands','foothold+commands',
-                            'progressive+free-phase+foothold',
-                            'progressive+free-phase+commands',
-                            'progressive+foothold+commands',
-                            'free-phase+foothold+commands',
-                            'progressive+free-phase+foothold+commands'):
-        raise ValueError('invalid stair tournament arm')
+    if stair_arm not in ('off','control'):
+        raise ValueError('Retired 16-way D experiments are in original pinned Git source')
     if stair_arm!='off' and not dual_lip:
-        raise ValueError('stair teaching laboratory requires --two-lip-continuation-school')
-    if 'foothold' in stair_arm.split('+'):
-        # Factor F is a PREDECLARED authentic-contact payment schedule,
-        # not a silent hidden default or manually tweaked reward search.
-        for k,amount in (
-            ('science_supported_cross_bonus',3.),
-            ('science_foothold_bonus',4.),
-            ('science_bilateral_support_bonus',6.),
-            ('science_followthrough_bonus',6.)):
-            if science_args[k] != 0.:
-                raise ValueError('Foothold treatment owns '+k+'; do not double-pay')
-            science_args[k]=amount
-    elif stair_arm not in ('off',) and any(
-            science_args[k]!=0. for k in (
-                'science_supported_cross_bonus','science_foothold_bonus',
-                'science_bilateral_support_bonus','science_followthrough_bonus')):
-        raise ValueError('Laboratory control treatments must NOT inherit foothold-specific bonuses')
+        raise ValueError('Strict physical two-lip control requires two-lip school')
+    if stair_arm=='control' and any(science_args[k] for k in (
+        'science_supported_cross_bonus','science_foothold_bonus',
+        'science_bilateral_support_bonus','science_followthrough_bonus')):
+        raise ValueError('Control arm cannot inherit unrelated foothold payments')
     if dual_lip and not (school and refined and paired and outcome
                           and finish_on_transfer):
         raise ValueError('two-lip continuation requires --progressive-school '
