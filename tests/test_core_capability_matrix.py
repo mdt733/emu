@@ -31,6 +31,17 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(len({x.level for x in a if x.kind=="step_up"}),20)
         self.assertEqual(len({x.level for x in a if x.kind=="step_down"}),20)
         self.assertEqual(min(x.exact_step_m for x in a if x.kind=="step_down"),-.05)
+        # The new H40-long-leg experiment checks to 80mm, but all
+        # historical held-out exams remain exactly 0–50mm by default.
+        higher=assignments(2048,mode="stairs",max_step_m=.08)
+        self.assertAlmostEqual(max(x.exact_step_m for x in higher),.08)
+        self.assertAlmostEqual(min(x.exact_step_m for x in higher),-.08)
+        self.assertAlmostEqual(min(x.exact_step_m for x in higher
+                                   if x.kind=="step_up"),.004)
+        self.assertEqual(sum(x.kind=="step_up" for x in higher),1000)
+        self.assertEqual(sum(x.kind=="step_down" for x in higher),1000)
+        with self.assertRaisesRegex(ValueError,"max_step_m"):
+            assignments(2048,mode="stairs",max_step_m=.081)
         self.assertEqual(sum(x.kind=="step_up" for x in assignments(2048,mode="stairs_up")),2000)
         self.assertEqual(sum(x.kind=="step_down" for x in assignments(2048,mode="stairs_down")),2000)
         flat=assignments(128,mode="flat")
