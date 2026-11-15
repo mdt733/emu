@@ -56,6 +56,7 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
                     motor_guidance_per_world=None, temporal_vx=None,
                     allow_zero_command_balance=False,
                     science_gate_mode="legacy", science_phase_sync_strength=1.0,
+                    gait_guidance_strength=1.0,
                     science_crouch_allowance_m=0.0,
                     science_stride_efficiency_weight=0.0,
                     science_step_goal_weight=0.0,
@@ -94,6 +95,10 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
     locomotion_maturity, stepping_gate = _gait_maturity(
         m, jnp, allow_zero_command_balance=allow_zero_command_balance,
         gate_mode=science_gate_mode)
+    # Explicit 20M→40M progression: remove the arbitrary gait-activity
+    # condition from posture/contact quality, but KEEP the actual measured
+    # posture, upright support and non-foot-contact safeguards.
+    stepping_gate = 1.0 + gait_guidance_strength * (stepping_gate - 1.0)
 
     # Keep only the five unweighted shaping diagnostics used off-device.
     terms = {
@@ -129,7 +134,8 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
         posture=upright_height, contact=feet_only_contact,
         anti_slip=stance_anti_slip, clearance=swing_clearance,
         smoothness=servo_smoothness, joint_safety=joint_safety,
-        stepping_gate=stepping_gate, **motor_kwargs)
+        stepping_gate=stepping_gate,
+        gait_guidance_strength=gait_guidance_strength, **motor_kwargs)
     # Control emphasis: an *extra* smooth-gait lesson, but only while
     # genuinely walking and following a command. Static balancing has no
     # free energy/jerk reward. All historical eight payments are unchanged.
@@ -188,7 +194,8 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
 
 def weighted_training_terms(*, alive, locomotion, posture, contact,
                             anti_slip, clearance, smoothness, joint_safety,
-                            stepping_gate, motor_cost=None):
+                            stepping_gate, motor_cost=None,
+                            gait_guidance_strength=1.0):
     """Return (unpenalised PPO reward, individually weighted payments).
 
     Array inputs may be NumPy or JAX arrays; this function is pure and does
@@ -200,7 +207,10 @@ def weighted_training_terms(*, alive, locomotion, posture, contact,
         'posture': 0.68 * posture * stepping_gate,
         'contact': 0.50 * contact * stepping_gate,
         'anti_slip': 0.18 * anti_slip,
-        'clearance': 0.16 * clearance,
+        # HOW-to-walk (phase/alternating-foot/clearance) shaping only.
+        # Genuine terrain success is earned through command, support,
+        # collision, survival and task outcomes after the 40M fade.
+        'clearance': 0.16 * clearance * gait_guidance_strength,
         'smoothness': 0.12 * smoothness,
         'joint_safety': 0.17 * joint_safety,
     }
