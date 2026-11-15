@@ -174,6 +174,27 @@ def _spring_candidate(xml, thigh_arm_m, shin_arm_m, stiffness_n_m,
     return model, springlength
 
 
+
+def _spring_force_curve(model, angles, rest_m):
+    """Use measured MuJoCo tendon geometry and actual passive joint force."""
+    result = _static(model, "r_knee", angles)
+    data = mujoco.MjData(model)
+    qpos, _ = _joint(model, "r_knee")
+    tid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_TENDON,
+                            "r_knee_support")
+    if tid < 0:
+        raise RuntimeError("Missing right H40 strut")
+    for row in result:
+        mujoco.mj_resetData(model, data)
+        data.qpos[qpos] = math.radians(row["angle_deg"])
+        mujoco.mj_forward(model, data)
+        length = float(data.ten_length[tid])
+        row["attachment_separation_mm"] = round(1000. * length, 4)
+        row["spring_compression_force_n"] = round(
+            float(model.tendon_stiffness[tid]) * (rest_m - length), 4)
+    return result
+
+
 def spring_design_study(xml):
     """Passive torque measured with mj_forward, not a guessed knee lever."""
     base = mujoco.MjModel.from_xml_string(xml)
@@ -183,15 +204,15 @@ def spring_design_study(xml):
                  if hasattr(base, "tendon_lengthspring") else None,
                  thigh_arm_mm=30, shin_arm_mm=30,
                  neutral_support_nm=.520606,
-                 static=_static(base, "r_knee",
-                                [x for x in DESIGN_ANGLES_DEG if x >= -55]))]
+                 static=_spring_force_curve(base,
+                                [x for x in DESIGN_ANGLES_DEG if x >= -55], .060))]
     for name, a, b, k, tau0 in SPRING_CANDIDATES:
         model, rest = _spring_candidate(xml, a, b, k, tau0)
         # At -90 equal 30/30mm anchors coincide exactly, so MuJoCo has
         # no well-defined spatial tendon direction. Never sample that singularity.
         angles = (DESIGN_ANGLES_DEG if abs(a - b) > 1e-8
                   else [x for x in DESIGN_ANGLES_DEG if x > -90])
-        curve = _static(model, "r_knee", angles)
+        curve = _spring_force_curve(model, angles, rest)
         normal = next(x["passive_torque_nm"] for x in curve if x["angle_deg"] == 0)
         if not math.isclose(normal, tau0, rel_tol=.005, abs_tol=.003):
             raise RuntimeError(f"MuJoCo spring force mismatch: {name}: {normal}")
@@ -279,6 +300,8 @@ def run(output: Path):
     for candidate in data["spring_design"]["rows"]:
         lookup = {v["angle_deg"]: v["passive_torque_nm"]
                   for v in candidate["static"]}
+        force = {v["angle_deg"]: v["spring_compression_force_n"]
+                 for v in candidate["static"]}
         settled = candidate.get("neutral_settle", {}).get("min_torso_z_m")
         lines.append(
             f"| {candidate['name']} | {candidate['stiffness_n_m']:.1f} | "
@@ -286,6 +309,15 @@ def run(output: Path):
             f"{lookup[0]:+.3f} | {lookup[-55]:+.3f} | "
             f"{candidate.get('max_passive_torque_nm', float('nan')):.3f} | "
             f"{settled if settled is not None else float('nan'):.3f} |")
+    lines += ["", "## Spring-force growth (neutral to deep flexion)", "",
+              "| Candidate | Force at 0° | Force at −55° | Increase |",
+              "|---|---:|---:|---:|"]
+    for candidate in data["spring_design"]["rows"]:
+        force = {v["angle_deg"]: v["spring_compression_force_n"]
+                 for v in candidate["static"]}
+        gain = 100. * (force[-55] / force[0] - 1.) if force[0] else float("nan")
+        lines.append(f"| {candidate['name']} | {force[0]:.2f} N | "
+                     f"{force[-55]:.2f} N | {gain:+.1f}% |")
     lines += ["", "## Interpretation guardrails", "",
               "- Spring improvement in an unloaded swing does not prove a climb.",
               "- Neutral settling is only a same-initial-state support proxy: it cannot certify stance or gait.",
