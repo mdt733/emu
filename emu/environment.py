@@ -1794,8 +1794,13 @@ class EmuMJXEnv(TaskSampler):
         # The escrow arm gets only foot shaping, authentic landing and
         # recovered-commanded-motion until the full two-lip outcome.
         from .step_goal import academy_event_payment
+        # Suppress only the *actual signed UP* Academy lip, not the down
+        # Academy, the down second lip in mixed courses, or ordinary STEP.
+        # The current signed rise comes from true prism edge geometry.
+        academy_up_event=(state.academy_active &
+            (academy['height_m']>.0015))
         academy_payment=academy_event_payment(
-            jnp,academy['reward'],self.stair_tutor_mode)
+            jnp,academy['reward'],self.stair_tutor_mode,academy_up_event)
         reward=reward+academy_payment
         ep_return=ep_return+academy_payment
         # v5052: an ACTUAL goal task ends only at the fixed position
