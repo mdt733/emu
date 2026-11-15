@@ -99,6 +99,44 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     m["cmd_vx"]=np.asarray([.12],np.float32)
     assert float(_gait_maturity(m,np,allow_zero_command_balance=True)[1][0])==pytest.approx(.30)
     assert cfg.physical_profile=="h40"
+    assert cfg.gait_guidance_fade_steps == 0
+    # One new research profile has an explicit outcome transition, not a
+    # rewired frozen champion or an undocumented change of teaching weights.
+    from emu.capability_focus import gait_guidance_strength
+    with patch.dict("os.environ", {"EMU_PHYSICAL_PROFILE": "h40-spring-v1"}):
+        v2 = one_run_config(seen[0] if False else __import__(
+            "types").SimpleNamespace(
+                profile="sim2real", run_dir=str(tmp_path/"spring-outcomes"),
+                steps=120_000_000, envs=2048, seed=735, device="cuda",
+                terrain_actor=True, unified_capabilities=True,
+                terrain_step_max_m=.08, terrain_carpet=True, carpet_prisms=True,
+                academy_stream=True, terrain_lesson="coherent-careful",
+                growth_recipe="main-mature", force_program="gentle"))
+    assert v2.physical_profile == "h40-spring-v1"
+    assert v2.gait_guidance_fade_steps == 20_000_000
+    # Use actual source-pinned step ages, no fixed batch-age reset effects.
+    assert [gait_guidance_strength(step=n, foundation_steps=20_000_000,
+                                  fade_steps=v2.gait_guidance_fade_steps)
+            for n in (0, 20_000_000, 25_000_000, 30_000_000,
+                      35_000_000, 40_000_000, 120_000_000)
+            ] == pytest.approx([1.,1.,.75,.5,.25,0.,0.])
+    assert gait_guidance_strength(step=120_000_000,
+                                  foundation_steps=20_000_000,
+                                  fade_steps=0) == 1.
+    from emu.rewards import weighted_training_terms
+    money=dict(alive=0., locomotion=0., posture=1., contact=1.,
+               anti_slip=0., clearance=1., smoothness=0.,
+               joint_safety=0.)
+    early, early_terms = weighted_training_terms(
+        **money, stepping_gate=.3, gait_guidance_strength=1.)
+    late, late_terms = weighted_training_terms(
+        **money, stepping_gate=1., gait_guidance_strength=0.)
+    assert early_terms["clearance"] == pytest.approx(.16)
+    assert late_terms["clearance"] == pytest.approx(0.)
+    assert late_terms["posture"] == pytest.approx(.68)
+    assert late_terms["contact"] == pytest.approx(.5)
+    assert early_terms["posture"] < late_terms["posture"]
+    assert late > early
     assert not {"cloud_probes_per_eval","cloud_final_probes",
                 "science_reset_step_evidence_on_fork"} & asdict(cfg).keys()
     assert training_sensor_contract(cfg) is not None
