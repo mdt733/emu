@@ -225,6 +225,8 @@ UNIFIED_TERRAIN_FIELDS = (
     # Independent supported-up and supported-down frontiers, teacher only.
     ('academy_height_up_m',0.003),
     ('academy_height_down_m',0.003),
+    # Teacher-only reward schedule; outside all 360 actor sensor fields.
+    ('gait_guidance_strength',1.0),
 )
 UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
 P = SimpleNamespace(
@@ -248,6 +250,7 @@ P = SimpleNamespace(
     academy_episode_probability=TERRAIN_TASK_PARAM_DIM+15,
     academy_height_up_m=TERRAIN_TASK_PARAM_DIM+16,
     academy_height_down_m=TERRAIN_TASK_PARAM_DIM+17,
+    gait_guidance_strength=TERRAIN_TASK_PARAM_DIM+18,
 )
 
 
