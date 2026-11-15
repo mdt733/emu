@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# H40 spring-v1 cold-start training; source-pinned, no champion resume.
+# H40 spring-v1 with 20M gait nursery -> 40M outcome-only reward, cold start.
 # Usage: bash scripts/run_h40_spring_v1_wsl.sh smoke|gpu-gate|plan|train-20m|extend-120m
 # One run directory and one trainer, founded on the existing main-style recipe.
 set -euo pipefail
@@ -18,7 +18,7 @@ cd "$REPO"
 export EMU_PHYSICAL_PROFILE=h40-spring-v1
 export PYTHONPATH="$REPO${PYTHONPATH:+:$PYTHONPATH}"
 export EMU_UNIFIED_CONTINUOUS=cold-growth-approved
-RUN_DIR="${EMU_SPRING_RUN_DIR:-$HOME/emu-data/runs/h40-spring-v1-s735}"
+RUN_DIR="${EMU_SPRING_RUN_DIR:-$HOME/emu-data/runs/h40-spring-v1-outcomes-s735}"
 mkdir -p "$(dirname "$RUN_DIR")"
 
 # Prevent non-source-pinned training or a dirty experimental model.
@@ -61,9 +61,12 @@ if [[ "$MODE" == smoke || "$MODE" == gpu-gate ]]; then
   exit 0
 fi
 
-# Mainline philosophy: one actor, foundation 0–20M then earned specialists,
-# main-mature commands, gentle pushes, original reward/PPO, same prisms.
-# No reward, teacher, optimizer or phase alterations to favor the redesign.
+# Mainline PPO, one actor, original main foundation 0–20M, then earned
+# specialists. NEW v2 teaching contract: the special gait reward and
+# stepping-activity payment gate fade over 20M→40M, without rewarding a
+# particular step timing or stride thereafter. Original physical safety,
+# command and outcome payments remain. The different run directory is
+# essential: never resume a historical v1 spring run into this source.
 STEPS=20000000
 RESUME=()
 if [[ "$MODE" == extend-120m ]]; then
@@ -91,5 +94,6 @@ python -m emu.cli train \
   "${RESUME[@]}" \
   $(if [[ "$MODE" == plan ]]; then printf '%s' '--plan'; fi)
 
-# The same run directory is preserved across 20M -> 120M. Never change
-# code/branch/environment profile in between: source SHA is the resume key.
+# The same v2 run directory is preserved across 20M -> 120M. Never change
+# source SHA, profile or run directory between its stages.
+# WARNING: do not launch alongside the earlier spring-v1 GPU experiment.
