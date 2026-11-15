@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 COUNTS = (
+    "academy_anchor_attempts_up",
     "academy_near_attempts_up",
     "academy_near_first_lip_up",
     "academy_near_successes_up",
@@ -195,11 +196,33 @@ def report(root: Path):
     return payload
 
 
+def gate_useful_legacy_exposure(payload):
+    """Fail BEFORE spending any escrow-arm GPU time if no useful 50mm births."""
+    trial=payload["arms"].get("legacy",{})
+    counters=trial.get("counts",{})
+    age=trial.get("final_step",0)
+    anchored=counters.get("academy_anchor_attempts_up",0)
+    approached=counters.get("academy_near_attempts_up",0)
+    if age < 99_900_000 or anchored < 20 or approached < 5:
+        raise RuntimeError(
+            "NO USEFUL TUTOR COMPARISON: legacy arm at "
+            f"{age:,.0f} steps, {anchored:,.0f} sampled 50mm UP "
+            f"birth outcomes, {approached:,.0f} near-lip attempts. "
+            "Do not spend 20M more on escrow until Academy exposure "
+            "and walking graduation are diagnosed.")
+    print(f"STAIR EXPOSURE GATE PASS: {anchored:.0f} 50mm UP births, "
+          f"{approached:.0f} near-lip cases in selected rollouts.")
+
+
 def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--root",type=Path,required=True)
+    ap.add_argument("--require-up-exposure",action="store_true",
+                    help="abort before escrow-arm training if legacy never sees 50mm stair encounters")
     args=ap.parse_args()
-    report(args.root.expanduser())
+    payload=report(args.root.expanduser())
+    if args.require_up_exposure:
+        gate_useful_legacy_exposure(payload)
 
 
 if __name__=="__main__":
