@@ -41,6 +41,12 @@ class CoreStairPhysicsTests(unittest.TestCase):
              -audit_frames["tutor_signed_birth_lip_m"]}
         with self.assertRaisesRegex(RuntimeError,"activation smoke"):
             tutor_activation_audit(bad,worlds=4,require=True)
+        # Rewards outside the assigned uphill Academy cannot fake
+        # successful reward-path activation.
+        bad={**audit_frames,"tutor_nursery_payment":np.array(
+            [[0.,0.,0.,0.],[2.,0.,0.,0.]],np.float32)}
+        with self.assertRaisesRegex(RuntimeError,"activation smoke"):
+            tutor_activation_audit(bad,worlds=4,require=True)
         # Compile the *real physics step* including new transfer event
         # memory and all reward-side research branches, not a toy reward
         # calculation. Four worlds are deliberately CPU-bounded.
