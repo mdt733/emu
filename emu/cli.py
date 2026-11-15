@@ -38,6 +38,12 @@ def main(argv=None) -> int:
     q.add_argument('--mode',choices=('flat','slope','step','mixed'),default='mixed')
     q.add_argument('--grade-deg',type=float,default=3.,help='requested slope frontier, not a fixed fixture')
     q.add_argument('--lip-cm',type=float,default=1.,help='requested signed-step frontier, not a fixed fixture')
+    q=sub.add_parser('dashboard',help='read-only live dashboard for existing training metrics')
+    q.add_argument('--run-dir',type=Path,required=True,help='training run folder with metrics.csv')
+    q.add_argument('--target-steps',type=int,default=None,help='optional override for a not-yet-written training config')
+    q.add_argument('--interval',type=float,default=1.0,help='live polling period (seconds)')
+    q.add_argument('--once',action='store_true',help='single non-interactive snapshot')
+    q.add_argument('--plain',action='store_true',help='disable ANSI screen redraw')
     q=sub.add_parser('report',help='regenerate campaign results.md and evidence ZIP without GPU')
     q.add_argument('--root',required=True)
     q.add_argument('--no-bundle',action='store_true')
@@ -183,6 +189,16 @@ def main(argv=None) -> int:
         for path in paths:
             print(path)
         return 0
+    if args.cmd=='dashboard':
+        from .console_dashboard import main as dashboard_main
+        options=['--run-dir',str(args.run_dir),'--interval',str(args.interval)]
+        if args.target_steps is not None:
+            options+=['--target-steps',str(args.target_steps)]
+        if args.once:
+            options.append('--once')
+        if args.plain:
+            options.append('--plain')
+        return dashboard_main(options)
     if args.cmd=='report':
         from .results import write_report
         for output in write_report(Path(args.root),bundle=not args.no_bundle):
