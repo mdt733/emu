@@ -1007,17 +1007,11 @@ class EmuMJXEnv(TaskSampler):
                  science_phase_sync_strength: float = 1.0,
                  science_crouch_allowance_m: float = 0.0,
                  science_stride_efficiency_weight: float = 0.0,
-                 science_supported_cross_bonus: float = 0.0,
-                 science_foothold_bonus: float = 0.0,
-                 science_bilateral_support_bonus: float = 0.0,
-                 science_followthrough_bonus: float = 0.0,
-                 science_sensor_teacher_bonus: float = 0.0,
                  science_step_goal_weight: float = 0.0,
                  science_step_velocity_relief: float = 0.0,
                  science_step_approach_m: float = 0.0,
                  science_step_finish_on_transfer: bool = False,
                  two_lip_continuation_school: bool = False,
-                 stair_tournament_arm: str = 'off',
                  stair_tutor_mode: str = 'legacy',
                  outcome_graduation: bool = False,
                  progressive_school: bool = False,
@@ -1090,11 +1084,6 @@ class EmuMJXEnv(TaskSampler):
                     science_phase_sync_strength=(0.,1.),
                     science_crouch_allowance_m=(0.,.05),
                     science_stride_efficiency_weight=(0.,.12),
-                    science_supported_cross_bonus=(0.,15.),
-                    science_foothold_bonus=(0.,8.),
-                    science_bilateral_support_bonus=(0.,10.),
-                    science_followthrough_bonus=(0.,15.),
-                    science_sensor_teacher_bonus=(0.,8.),
                     science_step_goal_weight=(0.,.50),
                     science_step_velocity_relief=(0.,1.),
                     science_step_approach_m=(0.,.35))
@@ -1119,11 +1108,6 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('C two-lip school requires real transfer terminals, '
                              'outcome graduation and paired staged schools')
         self.two_lip_continuation_school=two_lip_continuation_school
-        if stair_tournament_arm not in ('off','control'):
-            raise ValueError('Retired D factorial treatments live in original Git study')
-        if stair_tournament_arm!='off' and not two_lip_continuation_school:
-            raise ValueError('D treatment requires the true two-lip MJX Academy')
-        self.stair_tournament_arm=stair_tournament_arm
         if stair_tutor_mode not in ('legacy','escrow'):
             raise ValueError('Unknown stair tutorial mode')
         if stair_tutor_mode=='escrow' and not (outcome_graduation and
@@ -1813,34 +1797,6 @@ class EmuMJXEnv(TaskSampler):
                          if self.stair_tutor_mode=='escrow' else academy['reward'])
         reward=reward+academy_payment
         ep_return=ep_return+academy_payment
-        # v5051: sparse event payments only; actual contact/top geometry
-        # is evaluated before each event and duplicate tiles are guarded.
-        # The bilateral event is *top support*, not measured CoM load.
-        if (self.science_supported_cross_bonus > 0. or
-                self.science_foothold_bonus > 0. or
-                self.science_bilateral_support_bonus > 0. or
-                self.science_followthrough_bonus > 0. or
-                self.science_sensor_teacher_bonus > 0.):
-            true_lip=(academy['ordinary_step_new'] | academy['cross_new'])
-            extra=(self.science_supported_cross_bonus*
-                   true_lip.astype(jnp.float32) +
-                   self.science_foothold_bonus*
-                   academy['foothold_new'].astype(jnp.float32) +
-                   self.science_bilateral_support_bonus*
-                   academy['transfer_new'].astype(jnp.float32) +
-                   self.science_followthrough_bonus*
-                   academy['progress_new'].astype(jnp.float32))
-            if self.science_sensor_teacher_bonus > 0.:
-                sensor_now=self._sensor_readout(state.sensor_state,
-                                               self._body_packets(data)[0])
-                valid=jnp.asarray(sensor_now['terrain_valid'],dtype=jnp.bool_)
-                ranges=sensor_now['terrain_ranges_m']
-                visible=jnp.any(valid & (ranges>.045) & (ranges<.70),axis=1)
-                extra=extra+self.science_sensor_teacher_bonus*(
-                    visible & academy['foothold_new']).astype(jnp.float32)
-            reward=reward+extra
-            ep_return=ep_return+extra
-
         # v5052: an ACTUAL goal task ends only at the fixed position
         # 60cm beyond the original lip, after true two-foot support transfer
         # plus five stable arrival frames. No instantaneous teleport or
@@ -2047,26 +2003,21 @@ class EmuMJXEnv(TaskSampler):
             window_cmd=hist_c.sum(axis=1)/jnp.maximum(hist_n,1)
             cmd_followed=(hist_n>=20) & (window_cmd>=.075) & (
                 window_vx>=.05) & (jnp.abs(window_vx-window_cmd)<=.10)
-            sticky=self.stair_tournament_arm!='off'
             full_course_new=two_lip_continuation_success(
                 jnp,academy_active=state.academy_active & step_focus,
                 supported_lips=academy['lip_index'],
                 first_lip_two_feet=goal_transfer_ready,
                 second_lip_two_feet=(
-                    second_transfer_seen if sticky else
-                    jnp.ones_like(second_transfer_seen)),
-                half_metre_after_second=(
-                    academy['progress_paid'] if sticky else
-                    academy['progress_new']),
+                    second_transfer_seen),
+                half_metre_after_second=academy['progress_paid'],
                 samples=hist_n,mean_vx=window_vx,mean_cmd_vx=window_cmd,
                 gravity_z=metrics['gravity_z'],support=metrics['support'],
                 bad_contact=metrics['bad_contact'],
                 yaw_error=metrics['yaw_rate']-metrics['cmd_yaw'],
                 terminal=terminal_fail | timeout)
             intro_new=jnp.zeros_like(full_course_new)
-            course_new=full_course_new | intro_new
-            course_payment=(45.*full_course_new.astype(jnp.float32)+
-                            12.*intro_new.astype(jnp.float32))
+            course_new=full_course_new
+            course_payment=45.*full_course_new.astype(jnp.float32)
             reward=reward+course_payment
             ep_return=ep_return+course_payment
             done=done|course_new
