@@ -388,6 +388,23 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision(tmp_path):
     assert normal["swing"]["max_abs_knee_actuator_nm"] <= SERVO_RATED_CONTINUOUS_TORQUE_NM+1e-5
     assert boosted["swing"]["max_abs_knee_actuator_nm"] <= 2*SERVO_RATED_CONTINUOUS_TORQUE_NM+1e-5
 
+    # Proposed low-rate preloaded springs are isolated source-pinned
+    # counterfactuals, checked against MuJoCo's *actual* passive force.
+    rows = {x["name"]: x for x in bench["spring_design"]["rows"]}
+    assert rows["unchanged_champion"]["hardware_valid"] is True
+    gentle = rows["35_25_gentle_low_rate"]
+    assert gentle["hardware_valid"] is False
+    assert gentle["min_attachment_separation_mm"] == pytest.approx(10.)
+    sweep = {x["angle_deg"]: x["passive_torque_nm"]
+             for x in gentle["static"]}
+    assert sweep[0] == pytest.approx(.350, abs=.003)
+    assert sweep[-55] < .65
+    assert gentle["max_passive_torque_nm"] < .65
+    assert rows["35_25_gentler_low_rate"]["max_passive_torque_nm"] < gentle["max_passive_torque_nm"]
+    # Equal-arm design has a zero-length tendon at -90; do not score
+    # its singular limit as a valid hardware knee position.
+    assert -90 not in {x["angle_deg"] for x in rows["30_30_same_neutral_soft"]["static"]}
+
     # Pre-step torque and pose correspond to the action two trace frames
     # earlier. Must not confuse extreme NN output with *actual* motor torque.
     from emu.prism_exam import policy_motor_summary
