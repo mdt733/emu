@@ -38,6 +38,40 @@ def _float(value):
     return 0.
 
 
+def physical_exams(root: Path):
+    """Untrained two-lip trajectory metrics, per frozen seed and programme."""
+    result={}
+    names=("up","mixed","down")
+    for arm in ("legacy","escrow"):
+        for program in names:
+            for seed in (1701,2701):
+                path=root/"exams"/arm/f"{program}_s{seed}"/"physical_worlds.csv"
+                if not path.is_file():
+                    continue
+                with path.open(newline="",encoding="utf-8-sig") as stream:
+                    rows=list(csv.DictReader(stream))
+                if len(rows)!=128:
+                    raise RuntimeError(f"Incomplete physical exam {path}: {len(rows)} worlds")
+                def yes(row,key):
+                    return row.get(key,"").strip().lower() in ("true","1")
+                count=lambda key:sum(yes(r,key) for r in rows)
+                result[f"{arm}/{program}_s{seed}"]=dict(
+                    worlds=len(rows),
+                    first_pre_root_plant=count("first_upper_contact_before_root"),
+                    first_both_individual=count("first_sequential_both"),
+                    second_both_individual=count("second_sequential_both"),
+                    second_50cm_recovered=count("half_m_after_second"),
+                    examiner_postsecond_healthy=count("course_healthy_commanded"),
+                    strict_both_supported_course=sum(
+                        yes(r,"first_sequential_both") and
+                        yes(r,"second_sequential_both") and
+                        yes(r,"course_healthy_commanded") for r in rows),
+                    falls=count("fell"),
+                    mean_max_abs_torque_nm=sum(_float(r.get("max_abs_servo_nm"))
+                                                for r in rows)/len(rows))
+    return result
+
+
 def report(root: Path):
     cases={}
     for arm in ("legacy","escrow"):
@@ -59,13 +93,14 @@ def report(root: Path):
             n_logged_rollouts=len(rows),first_step=_float(rows[0].get("step")),
             final_step=_float(last.get("step")),counts=counts,
             last={key:_float(last.get(key)) for key in FINAL})
+    exams=physical_exams(root)
     payload=dict(
         schema="h40_stair_tutor_ab_v1",parent_steps=ANCHOR,
         source_note="same 60M frozen learner; physical H40 MJX; 50mm UP kept",
         warning=("Selected rollout event counts are not complete episodes; "
                  "last alpha/height are teacher state. Do not sum cumulative "
                  "PPO audit metrics; do not interpret retired clearance/goal counts."),
-        arms=cases)
+        arms=cases,physical_exams=exams)
     root.mkdir(parents=True,exist_ok=True)
     (root/"tutor_ab_summary.json").write_text(
         json.dumps(payload,indent=2,sort_keys=True)+"\n")
@@ -109,6 +144,21 @@ def report(root: Path):
         "crossings, old goal_completions or teacher graduation.",
         "5. Recheck both actors on frozen 50mm UP/mixed/DOWN physical exams "
         "using two evaluation seeds; continue to 110M only if warranted.",""]
+    if exams:
+        lines += ["", "## Frozen two-lip physics (128 worlds/cell)", "",
+                  "| Arm/program | First foot planted before root | First both feet | "
+                  "Second both feet | Strict two-lip recovery | Falls |",
+                  "|---|---:|---:|---:|---:|---:|"]
+        for name in sorted(exams):
+            e=exams[name]
+            lines.append(f"| {name} | {e['first_pre_root_plant']}/128 | "
+                         f"{e['first_both_individual']}/128 | "
+                         f"{e['second_both_individual']}/128 | "
+                         f"{e['strict_both_supported_course']}/128 | "
+                         f"{e['falls']}/128 |")
+        lines += ["", "The strict outcome additionally requires the original "
+                  "examiner's post-second recovery gate. Double-foot "
+                  "simultaneous standing is NOT mandatory.", ""]
     (root/"tutor_ab_summary.md").write_text("\n".join(lines),encoding="utf-8")
     print("\n".join(lines))
     return payload
