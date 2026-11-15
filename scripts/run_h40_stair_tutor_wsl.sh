@@ -10,6 +10,11 @@ TARGET=100000000       # 80M->100M matched 20M tutor arms
 BRIDGE="$ROOT/bridge-80m"
 BRIDGE_PARENT="$BRIDGE/checkpoints/final.pkl"
 MODE="${1:-help}"
+if [[ "$MODE" == help ]]; then
+  echo "Usage: bash $0 preflight | smoke | bridge | arm legacy | arm escrow | both | exam | report"
+  echo "Explicit modes only; help never reads a checkpoint or trains."
+  exit 0
+fi
 cd "$(dirname "$0")/.."
 export PYTHONPATH="$PWD"
 export EMU_PHYSICAL_PROFILE=h40
@@ -139,10 +144,6 @@ run_arm(){
   python -m emu.cli train "${FLAGS[@]}"
 }
 case "$MODE" in
-  help)
-    echo "Usage: bash $0 preflight | smoke | bridge | arm legacy | arm escrow | both | exam | report"
-    echo "First do preflight and smoke. No training when called without an explicit mode."
-    ;;
   preflight)
     check
     ;;
