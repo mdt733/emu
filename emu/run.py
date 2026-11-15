@@ -154,11 +154,6 @@ def one_run_config(args) -> TrainingConfig:
         'science_phase_sync_strength':(0.,1.),
         'science_crouch_allowance_m':(0.,.05),
         'science_stride_efficiency_weight':(0.,.12),
-        'science_supported_cross_bonus':(0.,15.),
-        'science_foothold_bonus':(0.,8.),
-        'science_bilateral_support_bonus':(0.,10.),
-        'science_sensor_teacher_bonus':(0.,8.),
-        'science_followthrough_bonus':(0.,15.),
         'science_step_goal_weight':(0.,.50),
         'science_step_velocity_relief':(0.,1.),
         'science_step_approach_m':(0.,.35),
@@ -217,18 +212,9 @@ def one_run_config(args) -> TrainingConfig:
         academy_share=.55
     finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
     dual_lip=bool(getattr(args,'two_lip_continuation_school',False))
-    stair_arm=str(getattr(args,'stair_tournament_arm','off'))
     tutor_mode=str(getattr(args,'stair_tutor_mode','legacy'))
     if tutor_mode not in ('legacy','escrow'):
         raise ValueError('Unknown stair tutor mode')
-    if stair_arm not in ('off','control'):
-        raise ValueError('Retired 16-way D experiments are in original pinned Git source')
-    if stair_arm!='off' and not dual_lip:
-        raise ValueError('Strict physical two-lip control requires two-lip school')
-    if stair_arm=='control' and any(science_args[k] for k in (
-        'science_supported_cross_bonus','science_foothold_bonus',
-        'science_bilateral_support_bonus','science_followthrough_bonus')):
-        raise ValueError('Control arm cannot inherit unrelated foothold payments')
     if dual_lip and not (school and refined and paired and outcome
                           and finish_on_transfer):
         raise ValueError('two-lip continuation requires --progressive-school '
@@ -273,7 +259,6 @@ def one_run_config(args) -> TrainingConfig:
                    progressive_school=school, refined_school=refined,
                    bidirectional_school=paired,
                    two_lip_continuation_school=dual_lip,
-                   stair_tournament_arm=stair_arm,
                    stair_tutor_mode=tutor_mode,
                    outcome_walk_start_steps=walk_start,
                    outcome_stair_approved=approved,
