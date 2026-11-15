@@ -15,7 +15,7 @@ from pathlib import Path
 from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
                             run_training, update_boundary_at_or_after)
 from .contracts import source_repo_root, OBS_SCHEMA_TERRAIN
-from .physical_variants import selected_profile, profile_numbers
+from .physical_variants import selected_profile, profile_numbers, RESEARCH_PROFILE
 from .training_config import (TrainingConfig, prism_base_config,
                               training_sensor_contract, verify_existing_phase_config)
 
@@ -42,6 +42,10 @@ def one_run_config(args) -> TrainingConfig:
             raise ValueError(f"--{key.replace('_','-')} requires integer 1..100")
     unified = bool(getattr(args, 'unified_capabilities', False))
     foundation_steps=int(getattr(args,'foundation_steps',20_000_000))
+    # Research profile ONLY: phase out specific gait shaping over 20M
+    # after the 20M foundation. The protected normal H40 recipe keeps 0.
+    gait_guidance_fade_steps = (
+        20_000_000 if selected_profile() == RESEARCH_PROFILE else 0)
     foundation_mix=str(getattr(args,'foundation_mix','main'))
     teaching_schedule=str(getattr(args,'teaching_schedule','balanced'))
     velocity_i_ramp_s=float(getattr(args,'velocity_i_ramp_s',0.4))
@@ -185,6 +189,7 @@ def one_run_config(args) -> TrainingConfig:
                    observation_schema=OBS_SCHEMA_TERRAIN,
                    terrain_step_max_m=terrain_max, unified_capability_focus=unified,
                    foundation_steps=foundation_steps, foundation_mix=foundation_mix,
+                   gait_guidance_fade_steps=gait_guidance_fade_steps,
                    teaching_schedule=teaching_schedule,
                    velocity_i_ramp_s=velocity_i_ramp_s,
                    velocity_i_multiplier=velocity_i_multiplier,
