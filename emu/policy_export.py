@@ -404,16 +404,6 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
                 run_cfg, "science_crouch_allowance_m",0.),
             "science_stride_efficiency_weight": _scalar(
                 run_cfg, "science_stride_efficiency_weight",0.),
-            "science_supported_cross_bonus": _scalar(
-                run_cfg, "science_supported_cross_bonus",0.),
-            "science_foothold_bonus": _scalar(
-                run_cfg, "science_foothold_bonus",0.),
-            "science_bilateral_support_bonus": _scalar(
-                run_cfg, "science_bilateral_support_bonus",0.),
-            "science_sensor_teacher_bonus": _scalar(
-                run_cfg, "science_sensor_teacher_bonus",0.),
-            "science_followthrough_bonus": _scalar(
-                run_cfg, "science_followthrough_bonus",0.),
             # v5052 deployment provenance; 360 actor remains unchanged.
             "science_step_goal_weight": _scalar(
                 run_cfg, "science_step_goal_weight",0.),
