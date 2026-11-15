@@ -20,6 +20,27 @@ class CoreStairPhysicsTests(unittest.TestCase):
             np.full(25,.12),np.full(25,.12)),19)
         self.assertEqual(_moving_window_good(
             np.full(25,.0),np.full(25,.12)),-1)
+        # A mock trace with a compiled tutor but no real paid stair lessons
+        # must fail the CUDA smoke contract before any A/B fork starts.
+        from scripts.h40_d_two_lip_exam import tutor_activation_audit
+        audit_frames={
+            "tutor_academy_active":np.array([[1,1,1,1],[0,0,0,0]],bool),
+            "tutor_signed_birth_lip_m":np.array(
+                [[.050,.049,.051,.050],[0,0,0,0]],np.float32),
+            "tutor_nursery_payment":np.array(
+                [[.25,0.,0.,0.],[0.,0.,0.,0.]],np.float32),
+            "tutor_escrow_release":np.zeros((2,4),np.float32),
+        }
+        proof=tutor_activation_audit(audit_frames,worlds=4,require=True)
+        self.assertEqual(proof["initial_50mm_up_academy_worlds"],4)
+        self.assertEqual(proof["positive_tutor_payment_frames"],1)
+        bad={**audit_frames,"tutor_nursery_payment":np.zeros((2,4))}
+        with self.assertRaisesRegex(RuntimeError,"activation smoke"):
+            tutor_activation_audit(bad,worlds=4,require=True)
+        bad={**audit_frames,"tutor_signed_birth_lip_m":
+             -audit_frames["tutor_signed_birth_lip_m"]}
+        with self.assertRaisesRegex(RuntimeError,"activation smoke"):
+            tutor_activation_audit(bad,worlds=4,require=True)
         # Compile the *real physics step* including new transfer event
         # memory and all reward-side research branches, not a toy reward
         # calculation. Four worlds are deliberately CPU-bounded.
