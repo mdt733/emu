@@ -198,14 +198,21 @@ def _spring_force_curve(model, angles, rest_m):
 def spring_design_study(xml):
     """Passive torque measured with mj_forward, not a guessed knee lever."""
     base = mujoco.MjModel.from_xml_string(xml)
+    root = ET.fromstring(xml)
+    baseline_ref = float(root.find(
+        ".//spatial[@name='r_knee_support']").get("springlength"))
+    baseline_curve = _spring_force_curve(
+        base, [x for x in DESIGN_ANGLES_DEG if x >= -55], baseline_ref)
+    baseline_neutral = next(
+        v["passive_torque_nm"] for v in baseline_curve if v["angle_deg"] == 0)
     rows = [dict(name="unchanged_champion", hardware_valid=True,
                  stiffness_n_m=float(base.tendon_stiffness[0]),
-                 rest_length_mm=float(base.tendon_lengthspring[0, 0] * 1000.0)
-                 if hasattr(base, "tendon_lengthspring") else None,
+                 rest_length_mm=baseline_ref * 1000.,
                  thigh_arm_mm=30, shin_arm_mm=30,
-                 neutral_support_nm=.520606,
-                 static=_spring_force_curve(base,
-                                [x for x in DESIGN_ANGLES_DEG if x >= -55], .060))]
+                 neutral_support_nm=baseline_neutral,
+                 max_passive_torque_nm=max(
+                     v["passive_torque_nm"] for v in baseline_curve),
+                 static=baseline_curve)]
     for name, a, b, k, tau0 in SPRING_CANDIDATES:
         model, rest = _spring_candidate(xml, a, b, k, tau0)
         # At -90 equal 30/30mm anchors coincide exactly, so MuJoCo has
@@ -300,8 +307,6 @@ def run(output: Path):
     for candidate in data["spring_design"]["rows"]:
         lookup = {v["angle_deg"]: v["passive_torque_nm"]
                   for v in candidate["static"]}
-        force = {v["angle_deg"]: v["spring_compression_force_n"]
-                 for v in candidate["static"]}
         settled = candidate.get("neutral_settle", {}).get("min_torso_z_m")
         lines.append(
             f"| {candidate['name']} | {candidate['stiffness_n_m']:.1f} | "
