@@ -1793,8 +1793,9 @@ class EmuMJXEnv(TaskSampler):
         # staged tutor. Ordinary terrain crossings retain their own pay.
         # The escrow arm gets only foot shaping, authentic landing and
         # recovered-commanded-motion until the full two-lip outcome.
-        academy_payment=(jnp.zeros_like(academy['reward'])
-                         if self.stair_tutor_mode=='escrow' else academy['reward'])
+        from .step_goal import academy_event_payment
+        academy_payment=academy_event_payment(
+            jnp,academy['reward'],self.stair_tutor_mode)
         reward=reward+academy_payment
         ep_return=ep_return+academy_payment
         # v5052: an ACTUAL goal task ends only at the fixed position
