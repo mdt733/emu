@@ -49,7 +49,7 @@ def save_csv(path,records):
 
 def run(*,policy:Path,output:Path,program:str,worlds:int=128,
         horizon:int=1050,seed:int=1701,device:str="cuda",
-        tutor_mode:str="legacy"):
+        tutor_mode:str="legacy",assert_tutor_active:bool=False):
     if tutor_mode not in ('legacy','escrow'):
         raise ValueError('tutor_mode must be legacy or escrow')
     if program not in PROGRAMS:
@@ -136,6 +136,31 @@ def run(*,policy:Path,output:Path,program:str,worlds:int=128,
         jnp.asarray(spec['command'],dtype=jnp.float32),
         phase_probe=spec['phase'],tof_probe=spec['tof'])
     frames=jax.device_get(trace)
+    tutor_active=np.asarray(frames["tutor_academy_active"],bool)
+    tutor_birth_m=np.asarray(frames["tutor_signed_birth_lip_m"],float)
+    tutor_reward=np.asarray(frames["tutor_nursery_payment"],float)
+    tutor_escrow=np.asarray(frames["tutor_escrow_release"],float)
+    # The first pre-step frame is the clean Academy reset. Other frames
+    # can include normal autonomous episode restarts and ordinary terrain.
+    initial_valid=int(np.count_nonzero(
+        tutor_active[0] & (tutor_birth_m[0]>=.045) &
+        (tutor_birth_m[0]<=.055)))
+    reward_positive=int(np.count_nonzero(tutor_reward>0.))
+    reward_total=float(np.sum(tutor_reward))
+    tutor_diagnostics=dict(
+        initial_50mm_up_academy_worlds=initial_valid,
+        positive_tutor_payment_frames=reward_positive,
+        staged_tutor_payment_sum=round(reward_total,4),
+        escrow_release_events=int(np.sum(tutor_escrow>0.)))
+    if assert_tutor_active:
+        if tutor_mode!="escrow" or program!="up":
+            raise RuntimeError("Active tutor smoke requires escrow+pure-up")
+        if initial_valid<worlds//2 or reward_positive==0 or reward_total<=0.:
+            raise RuntimeError(
+                "Real 50mm tutor failed activation smoke: "
+                +str(tutor_diagnostics))
+        print("50MM UP ACTIVE TUTOR REWARD SMOKE PASS:",
+              tutor_diagnostics,flush=True)
     rows,examples=score_two_lip_trace(
         frames,label=program,actor_sha=actor['source']['actor_sha256'],
         seed=seed)
@@ -173,6 +198,7 @@ def run(*,policy:Path,output:Path,program:str,worlds:int=128,
         note="Up/mixed/down use real sampled independent signed risers. "
              "The masked-ToF and held-phase probes are input ablations "
              "on otherwise unchanged real physical worlds.",
+        tutor_reward_diagnostics=tutor_diagnostics,
         counts=counts,failures=failures,
         output_files=["physical_worlds.csv","trace_examples.csv"])
     (output/'exam.json').write_text(json.dumps(
@@ -195,6 +221,8 @@ def main(argv=None):
     ap.add_argument('--device',choices=('cpu','cuda'),default='cuda')
     ap.add_argument('--tutor-mode',choices=('legacy','escrow'),default='legacy',
                     help='read-only reward-path integration probe; frozen policy and physics unchanged')
+    ap.add_argument('--assert-tutor-active',action='store_true',
+                    help='fail if physical 50mm Academy world births and tutor payments are absent')
     args=ap.parse_args(argv)
     run(**vars(args))
 
