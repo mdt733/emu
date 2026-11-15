@@ -47,6 +47,34 @@ def save_csv(path,records):
         writer.writerows(records)
 
 
+def tutor_activation_audit(frames, *, worlds: int, require: bool=False):
+    """Verify actual UP Academy births AND paid mentor credit, not just JIT.
+
+    This audit is deliberately separate from independent success scoring:
+    it checks tutor runtime activation, never the robot's climbing skill.
+    """
+    active=np.asarray(frames["tutor_academy_active"],bool)
+    birth=np.asarray(frames["tutor_signed_birth_lip_m"],float)
+    paid=np.asarray(frames["tutor_nursery_payment"],float)
+    released=np.asarray(frames["tutor_escrow_release"],float)
+    if (active.ndim!=2 or birth.shape!=active.shape or
+            paid.shape!=active.shape or released.shape!=active.shape or
+            active.shape[1]!=worlds):
+        raise RuntimeError("Invalid real-MJX tutor telemetry dimensions")
+    initial=int(np.count_nonzero(
+        active[0] & (birth[0]>=.045) & (birth[0]<=.055)))
+    positive=int(np.count_nonzero(paid>0.))
+    total=float(np.sum(paid))
+    audit=dict(initial_50mm_up_academy_worlds=initial,
+               positive_tutor_payment_frames=positive,
+               staged_tutor_payment_sum=round(total,4),
+               escrow_release_events=int(np.count_nonzero(released>0.)))
+    if require and (initial<worlds//2 or positive==0 or
+                    not np.isfinite(total) or total<=0.):
+        raise RuntimeError("Real 50mm tutor failed activation smoke: "+str(audit))
+    return audit
+
+
 def run(*,policy:Path,output:Path,program:str,worlds:int=128,
         horizon:int=1050,seed:int=1701,device:str="cuda",
         tutor_mode:str="legacy",assert_tutor_active:bool=False):
@@ -136,29 +164,11 @@ def run(*,policy:Path,output:Path,program:str,worlds:int=128,
         jnp.asarray(spec['command'],dtype=jnp.float32),
         phase_probe=spec['phase'],tof_probe=spec['tof'])
     frames=jax.device_get(trace)
-    tutor_active=np.asarray(frames["tutor_academy_active"],bool)
-    tutor_birth_m=np.asarray(frames["tutor_signed_birth_lip_m"],float)
-    tutor_reward=np.asarray(frames["tutor_nursery_payment"],float)
-    tutor_escrow=np.asarray(frames["tutor_escrow_release"],float)
-    # The first pre-step frame is the clean Academy reset. Other frames
-    # can include normal autonomous episode restarts and ordinary terrain.
-    initial_valid=int(np.count_nonzero(
-        tutor_active[0] & (tutor_birth_m[0]>=.045) &
-        (tutor_birth_m[0]<=.055)))
-    reward_positive=int(np.count_nonzero(tutor_reward>0.))
-    reward_total=float(np.sum(tutor_reward))
-    tutor_diagnostics=dict(
-        initial_50mm_up_academy_worlds=initial_valid,
-        positive_tutor_payment_frames=reward_positive,
-        staged_tutor_payment_sum=round(reward_total,4),
-        escrow_release_events=int(np.sum(tutor_escrow>0.)))
+    tutor_diagnostics=tutor_activation_audit(
+        frames,worlds=worlds,require=assert_tutor_active)
     if assert_tutor_active:
         if tutor_mode!="escrow" or program!="up":
             raise RuntimeError("Active tutor smoke requires escrow+pure-up")
-        if initial_valid<worlds//2 or reward_positive==0 or reward_total<=0.:
-            raise RuntimeError(
-                "Real 50mm tutor failed activation smoke: "
-                +str(tutor_diagnostics))
         print("50MM UP ACTIVE TUTOR REWARD SMOKE PASS:",
               tutor_diagnostics,flush=True)
     rows,examples=score_two_lip_trace(
