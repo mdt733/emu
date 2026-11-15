@@ -280,7 +280,7 @@ class TrainingConfig:
                   'outcome_stair_approved','outcome_approval_start_steps',
                   'outcome_down_share','progressive_school','refined_school',
                   'bidirectional_school','two_lip_continuation_school',
-                  'stair_tournament_arm'}
+                  'stair_tournament_arm','stair_tutor_mode'}
         if research_parent:
             # These were eliminated by source cleanup, not replaced with a
             # different actor, geometry, optimizer or curriculum contract.
