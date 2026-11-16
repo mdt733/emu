@@ -182,8 +182,60 @@ def reduce_results(trials:list[Trial],result:dict[str,np.ndarray]):
                          if x["first_both_foot_frame"]>=0]
         first_contact_frames=[x["first_both_foot_frame"] for x in records
                               if x["first_both_foot_frame"]>=0]
+        # New read-only audit of actual signed motor/spring force. These
+        # columns quantify whether saturation is spent opposing centring
+        # spring torque, separately from the gait's terrain survival.
+        mechanics={}
+        if "hip_right_motor_abs_fraction_sum_mean" in records[0]:
+            mechanics.update(
+                fell_total=sum(x["fall_frame"]>=0 for x in records),
+                fell_height=sum(bool(x["fell_height"]) for x in records),
+                fell_tilt=sum(bool(x["fell_tilt"]) for x in records),
+                fell_before_lead_foot=sum(bool(x["fell_before_lead_foot"])
+                                          for x in records),
+                fell_after_lead_before_both=sum(bool(
+                    x["fell_after_lead_before_both"]) for x in records),
+                fell_after_both_feet=sum(bool(x["fell_after_both_feet"])
+                                          for x in records),
+                fell_near95_either_hip=sum(
+                    x["fall_frame"]>=0 and (
+                        bool(x["hip_right_near95_at_fall"]) or
+                        bool(x["hip_left_near95_at_fall"]))
+                    for x in records),
+                fell_near95_fighting_spring=sum(
+                    x["fall_frame"]>=0 and (
+                        (bool(x["hip_right_near95_at_fall"]) and
+                         bool(x["hip_right_opposing_at_fall"])) or
+                        (bool(x["hip_left_near95_at_fall"]) and
+                         bool(x["hip_left_opposing_at_fall"])))
+                    for x in records),
+                fall_lateral_offset_abs_mean_m=round(float(np.mean([
+                    abs(x["first_fall_y_offset_m"]) for x in records
+                    if x["fall_frame"]>=0])),4) if any(
+                    x["fall_frame"]>=0 for x in records) else 0.,
+                max_abs_lateral_offset_mean_m=round(float(np.mean([
+                    x["max_abs_lateral_offset_m"] for x in records])),4))
+            for side in ("right","left"):
+                for key in (
+                    "motor_abs_fraction_sum_mean",
+                    "spring_abs_nm_sum_mean",
+                    "roll_angle_abs_deg_sum_mean",
+                    "near95_sum_fraction",
+                    "opposing_sum_fraction",
+                    "assisting_sum_fraction",
+                    "near95_opposing_sum_fraction",
+                ):
+                    k=f"hip_{side}_{key}"
+                    mechanics[k]=round(float(np.mean(
+                        [x[k] for x in records])),5)
+                cond=f"hip_{side}_near95_opposed_conditional"
+                applicable=[float(x[cond]) for x in records
+                            if float(x[cond])>=0.]
+                mechanics[cond]=round(float(np.mean(applicable)),5
+                                     ) if applicable else None
         rows.append(dict(
             kind=kind,level=level,worlds=n,
+            **mechanics,
             requested_step_mm=round(records[0]["exact_step_m"]*1000.,4),
             measured_step_mm_mean=round(float(np.mean(
                 [x["actual_lip_m"]*1000. for x in records])),4),
@@ -328,7 +380,15 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     save_csv(output/"matrix_worlds.csv",detail)
     save_csv(output/"matrix_curve.csv",curves)
     manifest=dict(
-        schema="h40_true_prism_heterogeneous_matrix_v4",
+        schema="h40_true_prism_heterogeneous_matrix_v5_signed_joint_diagnostics",
+        diagnostic_semantics=dict(
+            sampling="first-life POST-integrated metrics before terminal reset; no training or reward access",
+            spring_torque_nm="-stiffness * (hip_roll_angle_rad - spring_reference_rad)",
+            motor_opposes_spring="actual_motor_torque_nm * passive_spring_torque_nm < -1e-6",
+            motor_assisted_by_spring="actual_motor_torque_nm * passive_spring_torque_nm > 1e-6",
+            near_rated_limit="abs(actual_motor_torque_nm) / compiled_rated_limit_nm >= 0.95",
+            falls="first death only; height/tilt may overlap; first upper-foot contact and both-foot support gates",
+            lateral="relative to target lane centre 0.5m"),
         exam_source_sha256=exam_source_fingerprint(),
         policy_sha256=actor['artifact_sha256'],
         actor_sha256=actor['source']['actor_sha256'],

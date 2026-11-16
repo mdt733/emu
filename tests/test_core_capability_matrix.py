@@ -12,7 +12,92 @@ from emu.terrain_carpet_mjx import (
 
 
 class MatrixExamTests(unittest.TestCase):
+    def _check_signed_hip_roll_spring_opposition(self):
+        from emu.ppo import hip_roll_load_terms
+        # +0.2rad hip -> spring drives toward zero (-0.4 Nm).
+        # Positive motor torque fights spring; negative motor is assisted.
+        x=hip_roll_load_terms(np,
+            np.array([.97,-.97,0.]),np.array([.2,.2,.2]),
+            2.,0.,.980665)
+        np.testing.assert_allclose(x["spring_nm"],[-.4,-.4,-.4])
+        np.testing.assert_array_equal(x["near95"],[True,True,False])
+        np.testing.assert_array_equal(x["opposition"],[True,False,False])
+        np.testing.assert_array_equal(x["assistance"],[False,True,False])
+        np.testing.assert_array_equal(x["near95_opposing"],[True,False,False])
+        # At mechanical +25deg: spring assists a motor pulling inward.
+        y=hip_roll_load_terms(np,np.array([-.3]),np.deg2rad([25.]),
+                              2.,0.,.980665)
+        self.assertAlmostEqual(float(y["spring_nm"][0]),-.87266463,places=6)
+        self.assertTrue(bool(y["assistance"][0]))
+
+    def _check_frozen_audit_runner_and_report_math(self):
+        import ast
+        from pathlib import Path
+        import shutil
+        import subprocess
+        from tempfile import TemporaryDirectory
+        from scripts.examine_h40_spring_v1_mechanics import immutable_copy
+        from scripts.summarize_stair_mechanics import group_stats
+        root=Path(__file__).resolve().parents[1]
+        for name in ("scripts/examine_h40_spring_v1_mechanics.py",
+                     "scripts/summarize_stair_mechanics.py",
+                     "emu/ppo.py"):
+            ast.parse((root/name).read_text(encoding="utf-8"))
+        if shutil.which("bash"):
+            subprocess.run(
+                ["bash","-n",str(root/"scripts/run_h40_stair_diagnostics_wsl.sh")],
+                check=True)
+        with TemporaryDirectory() as folder:
+            source=Path(folder)/"original"
+            frozen=Path(folder)/"frozen"
+            source.write_bytes(b"120M PPO optimiser/actor checkpoint")
+            immutable_copy(source,frozen)
+            self.assertEqual(frozen.read_bytes(),source.read_bytes())
+            immutable_copy(source,frozen) # repeat checks hashes, no overwrite
+            source.write_bytes(b"different ancestor bytes")
+            with self.assertRaisesRegex(RuntimeError,"refusing overwrite"):
+                immutable_copy(source,frozen)
+        # Frame-weighted load matters: short-lived early falls must not
+        # receive the same sample weight as 350-frame survivors.
+        rows=[]
+        for frames,near,opp in ((10,.5,.4),(350,.1,.02)):
+            row=dict(first_life_frames=str(frames),fall_frame="-1",
+                     survived="True",lead_foot_top="False",
+                     both_feet_top_five="False",
+                     traversed_upright_5frame="False",
+                     traversed_5frame="False",
+                     fell_before_lead_foot="False",
+                     fell_after_lead_before_both="False",
+                     fell_after_both_feet="False",
+                     fell_height="False",fell_tilt="False",
+                     first_fall_y_offset_m="0",
+                     max_abs_lateral_offset_m="0")
+            for side in ("right","left"):
+                prefix=f"hip_{side}_"
+                row.update({
+                    prefix+"motor_abs_fraction_sum_mean":".5",
+                    prefix+"spring_abs_nm_sum_mean":".4",
+                    prefix+"roll_angle_abs_deg_sum_mean":"11",
+                    prefix+"near95_sum_fraction":str(near),
+                    prefix+"near95_opposing_sum_fraction":str(opp),
+                    prefix+"opposing_sum_fraction":".4",
+                    prefix+"assisting_sum_fraction":".3",
+                    prefix+"near95_at_fall":"False",
+                    prefix+"opposing_at_fall":"False"})
+            rows.append(row)
+        stats=group_stats(rows)
+        expected_near=(.5*10+.1*350)/360
+        expected_cond=(.4*10+.02*350)/(.5*10+.1*350)
+        self.assertAlmostEqual(stats["right_near95_frame_frac"],expected_near)
+        self.assertAlmostEqual(
+            stats["right_near95_opposition_conditional"],expected_cond)
+        self.assertEqual(stats["falls"],0)
+
     def test_ten_capabilities_twenty_levels_ten_trials(self):
+        # Extend an existing core test rather than growing the permanently
+        # capped core-test suite for a temporary mechanics experiment.
+        self._check_signed_hip_roll_spring_opposition()
+        self._check_frozen_audit_runner_and_report_math()
         a=assignments(2048)
         self.assertEqual(len(a),2048)
         self.assertEqual(sum(x.kind!="padding" for x in a),2000)
@@ -104,6 +189,36 @@ class MatrixExamTests(unittest.TestCase):
         self.assertAlmostEqual(row["completion_rate"],1/3,places=4)
         self.assertLess(row["completion_wilson95_lo"],1/3)
         self.assertGreater(row["completion_wilson95_hi"],1/3)
+        # Verify diagnostic bins report first-fall stages and signed
+        # motor/spring opposition without treating a reward flag as success.
+        diag={k:np.zeros(4,dtype=float) for k in
+              ("fell_height","fell_tilt","fell_before_lead_foot",
+               "fell_after_lead_before_both","fell_after_both_feet",
+               "first_fall_x_m","first_fall_y_offset_m",
+               "max_abs_lateral_offset_m")}
+        diag["fall_frame"]=np.array([-1,12,9,-1])
+        for side in ("right","left"):
+            diag[f"hip_{side}_near95_at_fall"]=np.array(
+                [False,True,False,False])
+            diag[f"hip_{side}_opposing_at_fall"]=np.array(
+                [False,True,False,False])
+        diag["fell_tilt"]=np.array([0,1,1,0])
+        diag["fell_before_lead_foot"]=np.array([0,0,1,0])
+        diag["fell_after_lead_before_both"]=np.array([0,1,0,0])
+        for side in ("right","left"):
+            for name in (
+                "motor_abs_fraction_sum_mean","spring_abs_nm_sum_mean",
+                "roll_angle_abs_deg_sum_mean","near95_sum_fraction",
+                "opposing_sum_fraction","assisting_sum_fraction",
+                "near95_opposing_sum_fraction","near95_opposed_conditional"):
+                diag[f"hip_{side}_{name}"]=np.array([.25,.5,.75,.0])
+        detailed,binned=reduce_results(a,{**result,**diag})
+        self.assertEqual(binned[0]["fell_total"],2)
+        self.assertEqual(binned[0]["fell_before_lead_foot"],1)
+        self.assertEqual(binned[0]["fell_after_lead_before_both"],1)
+        self.assertAlmostEqual(
+            binned[0]["hip_right_near95_sum_fraction"],.5,places=4)
+        self.assertEqual(len(detailed),3)
         self.assertEqual(wilson_95(0,0),(0.,0.))
         flat_records=assignments(4,mode="flat",trials_per_level=3)
         flat_result={k:np.array(v,copy=True) for k,v in result.items()}
