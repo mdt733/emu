@@ -236,6 +236,41 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
         "    paths=[",1)[1]
     assert 'tutor_comparison.md' not in transfer_cmp_source
     assert 'tutor_comparison.json' not in transfer_cmp_source
+    # Exercise the complete ZIP writer using tiny synthetic files. The real
+    # 160M PPO/exams succeeded, but this final packaging step was previously
+    # untested and failed only AFTER the 4000 physical trials finished.
+    import zipfile
+    from unittest.mock import patch
+    import scripts.compare_h40_stair_transfer_tutor as transfer_mod
+    fake_run=tmp_path/"transfer-zip-smoke"
+    fake_parent=tmp_path/"frozen-140m-exam"
+    fake_run.mkdir()
+    for name in (
+        "transfer_source_manifest.json", "transfer_2m_gate.json",
+        "training_config.json","run_meta.json","metrics.csv",
+        "h40-stair-transfer-tutor-160m.emupolicy",
+    ):
+        (fake_run/name).write_text("test fixture",encoding="utf-8")
+    for root in (fake_parent,fake_run/"heldout"):
+        for kind in ("stairs","flat"):
+            d=root/kind
+            d.mkdir(parents=True)
+            for name in ("matrix_summary.json","matrix_curve.csv","matrix_worlds.csv"):
+                (d/name).write_text("test fixture",encoding="utf-8")
+    with (patch.object(transfer_mod,"PARENT_EXAM",fake_parent),
+          patch.object(transfer_mod,"compare",return_value={"test":True}),
+          patch.object(transfer_mod,"report",return_value=(
+              "# Synthetic comparison\n",{"champion_candidate":False})),
+          patch("sys.argv",["transfer-comparison","--run",str(fake_run)])):
+        transfer_mod.main()
+    with zipfile.ZipFile(fake_run/"transfer_results_bundle.zip") as bundle:
+        files=set(bundle.namelist())
+    assert {"transfer_comparison.md","transfer_comparison.json",
+            "heldout/stairs/matrix_worlds.csv",
+            "heldout/flat/matrix_worlds.csv",
+            "reference/stairs/matrix_worlds.csv",
+            "reference/flat/matrix_worlds.csv"}.issubset(files)
+    assert not any("tutor_comparison" in name for name in files)
     from scripts.compare_h40_stair_transfer_tutor import report as transfer_report
     tasks=("flat","up_4_40","up_44_60","up_64_80","down_44_80")
     old_vals=dict(attempts=250,falls=20,lead_top=.55,both_top=.20,
