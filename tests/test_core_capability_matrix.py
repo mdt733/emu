@@ -30,6 +30,67 @@ class MatrixExamTests(unittest.TestCase):
         self.assertAlmostEqual(float(y["spring_nm"][0]),-.87266463,places=6)
         self.assertTrue(bool(y["assistance"][0]))
 
+    def test_audit_runner_freezes_reference_and_preserves_exam_math(self):
+        import ast
+        from pathlib import Path
+        import shutil
+        import subprocess
+        from tempfile import TemporaryDirectory
+        from scripts.examine_h40_spring_v1_mechanics import immutable_copy
+        from scripts.summarize_stair_mechanics import group_stats
+        root=Path(__file__).resolve().parents[1]
+        for name in ("scripts/examine_h40_spring_v1_mechanics.py",
+                     "scripts/summarize_stair_mechanics.py",
+                     "emu/joint_diagnostics.py"):
+            ast.parse((root/name).read_text(encoding="utf-8"))
+        if shutil.which("bash"):
+            subprocess.run(
+                ["bash","-n",str(root/"scripts/run_h40_stair_diagnostics_wsl.sh")],
+                check=True)
+        with TemporaryDirectory() as folder:
+            source=Path(folder)/"original"
+            frozen=Path(folder)/"frozen"
+            source.write_bytes(b"120M PPO optimiser/actor checkpoint")
+            immutable_copy(source,frozen)
+            self.assertEqual(frozen.read_bytes(),source.read_bytes())
+            immutable_copy(source,frozen) # repeat checks hashes, no overwrite
+            source.write_bytes(b"different ancestor bytes")
+            with self.assertRaisesRegex(RuntimeError,"refusing overwrite"):
+                immutable_copy(source,frozen)
+        # Frame-weighted load matters: short-lived early falls must not
+        # receive the same sample weight as 350-frame survivors.
+        rows=[]
+        for frames,near,opp in ((10,.5,.4),(350,.1,.02)):
+            row=dict(first_life_frames=str(frames),fall_frame="-1",
+                     survived="True",lead_foot_top="False",
+                     both_feet_top_five="False",
+                     traversed_upright_5frame="False",
+                     traversed_5frame="False",
+                     fell_before_lead_foot="False",
+                     fell_after_lead_before_both="False",
+                     fell_after_both_feet="False",
+                     fell_height="False",fell_tilt="False",
+                     first_fall_y_offset_m="0",
+                     max_abs_lateral_offset_m="0")
+            for side in ("right","left"):
+                prefix=f"hip_{side}_"
+                row.update({
+                    prefix+"motor_abs_fraction_sum_mean":".5",
+                    prefix+"spring_abs_nm_sum_mean":".4",
+                    prefix+"roll_angle_abs_deg_sum_mean":"11",
+                    prefix+"near95_sum_fraction":str(near),
+                    prefix+"near95_opposing_sum_fraction":str(opp),
+                    prefix+"opposing_sum_fraction":".4",
+                    prefix+"assisting_sum_fraction":".3"})
+            rows.append(row)
+        stats=group_stats(rows)
+        expected_near=(.5*10+.1*350)/360
+        expected_cond=(.4*10+.02*350)/(.5*10+.1*350)
+        self.assertAlmostEqual(stats["right_near95_frame_frac"],expected_near)
+        self.assertAlmostEqual(
+            stats["right_near95_opposition_conditional"],expected_cond)
+        self.assertEqual(stats["falls"],0)
+
     def test_ten_capabilities_twenty_levels_ten_trials(self):
         a=assignments(2048)
         self.assertEqual(len(a),2048)
