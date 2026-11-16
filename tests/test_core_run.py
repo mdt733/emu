@@ -188,7 +188,6 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     # The terminal metrics bug was caused by two different report schemas.
     # Periodic AND final report sites must both call one common function.
     from emu.training import attach_unified_teaching_report
-    from types import SimpleNamespace
     import inspect
     src = inspect.getsource(__import__("emu.training",fromlist=["train"]).train)
     assert src.count("attach_unified_teaching_report(") == 2
