@@ -87,18 +87,37 @@ def read_original() -> tuple[dict, Path]:
     check_ancestor_source(source)
     if (ORIGIN/"checkpoints/final.pkl").exists():
         raise RuntimeError("Origin already has final.pkl; use its completed-run continuity, not a partial repair")
-    ckpt = find_valid_resume(
-        ORIGIN, expected_observation_schema=cfg.observation_schema,
-        expected_sensor_contract=training_sensor_contract(cfg))
+    contract=training_sensor_contract(cfg)
+    expected_boundary=update_boundary_at_or_after(20_000_000,2048)
+    best=ORIGIN/"checkpoints/best.pkl"
+    ckpt=None
+    payload=None
+    if best.is_file():
+        try:
+            tested=load_checkpoint(
+                best,validate=True,expected_observation_schema=cfg.observation_schema,
+                expected_sensor_contract=contract)
+            bmeta=tested["meta"]
+            import math
+            if (int(bmeta["step"])==expected_boundary and
+                    bmeta.get("evaluated_policy") is True and
+                    math.isfinite(float(bmeta.get("best_eval_score",float("nan"))))):
+                ckpt,payload=best,tested
+                print("FOUND EXACT FULL-20M EVALUATED BEST CHECKPOINT",flush=True)
+        except (OSError,ValueError,RuntimeError,KeyError,TypeError) as exc:
+            print(f"best.pkl not valid for repair ({exc}); checking normal snapshots",flush=True)
     if ckpt is None:
-        raise RuntimeError("No validated latest/snapshot PPO checkpoint in origin; original data preserved")
-    if not (ckpt.name == "latest.pkl" or
-            (ckpt.name.startswith("snapshot_step_") and ckpt.name.endswith(".pkl"))):
-        raise RuntimeError("Refusing nonstandard partial checkpoint")
-    payload = load_checkpoint(
-        ckpt,validate=True,
-        expected_observation_schema=cfg.observation_schema,
-        expected_sensor_contract=training_sensor_contract(cfg))
+        ckpt=find_valid_resume(
+            ORIGIN, expected_observation_schema=cfg.observation_schema,
+            expected_sensor_contract=contract)
+        if ckpt is None:
+            raise RuntimeError("No validated best/latest/snapshot PPO checkpoint in origin; preserved")
+        if not (ckpt.name == "latest.pkl" or
+                (ckpt.name.startswith("snapshot_step_") and ckpt.name.endswith(".pkl"))):
+            raise RuntimeError("Refusing nonstandard partial checkpoint")
+        payload=load_checkpoint(
+            ckpt,validate=True,expected_observation_schema=cfg.observation_schema,
+            expected_sensor_contract=contract)
     cmeta = payload["meta"]
     if (cmeta.get("source_provenance") or {}).get("git_commit") != source:
         raise RuntimeError("Original checkpoint source is not original run source")
@@ -107,7 +126,7 @@ def read_original() -> tuple[dict, Path]:
         raise RuntimeError("Current physical model hash differs from original learned actor")
     step = int(cmeta["step"])
     upper = update_boundary_at_or_after(20_000_000,2048)
-    if not 18_000_000 <= step < upper:
+    if not 18_000_000 <= step <= upper:
         raise RuntimeError(f"Expected validated late-20M checkpoint, found step={step:,}; refuse")
     old_metrics = ORIGIN/"metrics.csv"
     if not old_metrics.is_file():
@@ -133,11 +152,16 @@ def read_original() -> tuple[dict, Path]:
         "parent_checkpoint":str(ckpt),"parent_checkpoint_sha256":sha,
         "parent_checkpoint_world_steps":step,
         "original_20m_target_boundary":upper,
-        "world_steps_replayed_at_40m_target":upper-step,
+        "world_steps_missing_from_original_terminal_checkpoint":upper-step,
+        "exact_20m_evaluated_checkpoint_recovered":ckpt.name=="best.pkl",
         "original_latest_metrics":values,
         "original_trainer_completed_20m_but_terminal_CSV_missed_gait_guidance_strength":True,
         "changes_to_policy_physics_ppo_reward_teacher":"none; current commit only logging/repair scripts",
-        "note":"The final 20M weights were not checkpointed. Continuing from the last validated 19.xM weights; original source/run unchanged.",
+        "note":(
+            "The complete 20M evaluated weights and optimiser were captured in best.pkl before "
+            "the terminal CSV failure." if ckpt.name=="best.pkl" else
+            "Final 20M weights not preserved; resume from last validated 19.xM rotating checkpoint."
+        ) + " Original run and source remain unchanged.",
     }
     return manifest,ckpt
 
