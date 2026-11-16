@@ -1057,6 +1057,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             roll_angle_abs_deg_sum=z2,
             near95_sum=z2,opposing_sum=z2,
             near95_opposing_sum=z2,assisting_sum=z2,
+            fall_motor_near95=false_feet,fall_motor_opposition=false_feet,
+            fall_motor_rated_fraction=z2,fall_roll_abs_angle_deg=z2,
             first_fall_height=false,first_fall_tilt=false,
             first_fall_before_foot=false,
             first_fall_after_lead=false,first_fall_after_both=false,
@@ -1234,6 +1236,14 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     'assisting_sum',ht['assistance'].astype(jnp.float32)),
                 near95_opposing_sum=add(
                     'near95_opposing_sum',ht['near95_opposing'].astype(jnp.float32)),
+                fall_motor_near95=jnp.where(first_fall[:,None],
+                    ht['near95'],diagnostic['fall_motor_near95']),
+                fall_motor_opposition=jnp.where(first_fall[:,None],
+                    ht['opposition'],diagnostic['fall_motor_opposition']),
+                fall_motor_rated_fraction=jnp.where(first_fall[:,None],
+                    ht['rated_fraction'],diagnostic['fall_motor_rated_fraction']),
+                fall_roll_abs_angle_deg=jnp.where(first_fall[:,None],
+                    jnp.rad2deg(jnp.abs(angle)),diagnostic['fall_roll_abs_angle_deg']),
                 first_fall_height=diagnostic['first_fall_height'] |
                     (first_fall & (m['fall_height']>.5)),
                 first_fall_tilt=diagnostic['first_fall_tilt'] |
@@ -1287,6 +1297,14 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     'near95_opposing_sum') else 'mean')
                 joint_summary[f'hip_{side}_{name}_{suffix}']=(
                     diagnostic[name][:,idx] / denom)
+            joint_summary[f'hip_{side}_near95_at_fall']=(
+                diagnostic['fall_motor_near95'][:,idx])
+            joint_summary[f'hip_{side}_opposing_at_fall']=(
+                diagnostic['fall_motor_opposition'][:,idx])
+            joint_summary[f'hip_{side}_motor_fraction_at_fall']=(
+                diagnostic['fall_motor_rated_fraction'][:,idx])
+            joint_summary[f'hip_{side}_angle_abs_deg_at_fall']=(
+                diagnostic['fall_roll_abs_angle_deg'][:,idx])
             joint_summary[f'hip_{side}_near95_opposed_conditional']=jnp.where(
                 diagnostic['near95_sum'][:,idx]>0,
                 diagnostic['near95_opposing_sum'][:,idx]/
