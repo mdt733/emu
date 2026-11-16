@@ -221,6 +221,21 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert '--science-foothold-bonus' not in transfer_src
     assert '--science-supported-cross-bonus' not in transfer_src
     assert 'transfer_2m_gate.json' in transfer_src
+    # Regression for the real 160M completed-run failure: the comparison
+    # report was written as transfer_comparison.*, but the final ZIP still
+    # required obsolete tutor_comparison.* filenames. ZIP assembly MUST
+    # use the files that this same comparator actually writes.
+    transfer_comparator=(transfer_runner.parent/
+                         "compare_h40_stair_transfer_tutor.py")
+    transfer_cmp_source=transfer_comparator.read_text(encoding="utf-8")
+    assert '(args.run/"transfer_comparison.json").write_text(' in transfer_cmp_source
+    assert '(args.run/"transfer_comparison.md").write_text(' in transfer_cmp_source
+    assert 'args.run/"transfer_comparison.json"' in transfer_cmp_source.split(
+        "    paths=[",1)[1]
+    assert 'args.run/"transfer_comparison.md"' in transfer_cmp_source.split(
+        "    paths=[",1)[1]
+    assert 'tutor_comparison.md' not in transfer_cmp_source
+    assert 'tutor_comparison.json' not in transfer_cmp_source
     from scripts.compare_h40_stair_transfer_tutor import report as transfer_report
     tasks=("flat","up_4_40","up_44_60","up_64_80","down_44_80")
     old_vals=dict(attempts=250,falls=20,lead_top=.55,both_top=.20,
