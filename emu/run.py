@@ -319,14 +319,20 @@ def _validate_cross_source_research_parent(
     # This is NEVER enabled for ordinary research forks or --resume auto.
     import re
     completed=(parent.name == 'final.pkl')
+    # A completed independent evaluation may have already saved best.pkl
+    # at the exact PPO age before the terminal CSV publication failed.
+    # Preserve that fully trained PPO/optimiser snapshot if it validates.
+    evaluated_best=(parent.name == 'best.pkl' and
+                    payload['meta'].get('evaluated_policy') is True and
+                    np.isfinite(float(payload['meta'].get('best_eval_score',float('nan')))))
     partial=(parent.name == 'latest.pkl' or bool(re.fullmatch(
         r'snapshot_step_[0-9]+\.pkl', parent.name)))
-    permitted=(partial if repair_partial_parent else completed)
+    permitted=((partial or evaluated_best) if repair_partial_parent else completed)
     if (source != expected_source or source == provenance['commit']
             or not permitted or parent.parent.name != 'checkpoints'):
         raise RuntimeError(
             'Research parent requires exact declared source and an unmodified '
-            + ('latest/snapshot incomplete checkpoint' if repair_partial_parent
+            + ('validated best/latest/snapshot rescue checkpoint' if repair_partial_parent
                else 'completed final.pkl'))
     digest = hashlib.sha256()
     with parent.open('rb') as stream:
