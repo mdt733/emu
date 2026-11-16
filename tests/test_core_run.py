@@ -176,6 +176,15 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert len(re.findall(r"python - <<'PY'",source)) >= 2
     if shutil.which("bash"):
         subprocess.run(["bash","-n",str(runner)],check=True)
+    # The launcher must obey smoke_gpu_carpet's --full-update restriction:
+    # 128 worlds = small PPO check; 2048 worlds = real full PPO update.
+    smoke_command = source.split('if [[ "$MODE" == smoke ]]; then',1)[1]
+    smoke_command, full_command = smoke_command.split('  else',1)
+    full_command = full_command.split('  fi',1)[0]
+    assert "--worlds 128" in smoke_command
+    assert "--full-update" not in smoke_command
+    assert "--worlds 2048" in full_command
+    assert "--full-update" in full_command
     # Keep 24 core tests: this UI is another assertion of the *existing*
     # public CLI contract, not a new training experiment/test family.
     _check_readonly_dashboard(tmp_path)
