@@ -3639,6 +3639,20 @@ class EmuMJXEnv(TaskSampler):
         motor_roll_r = jnp.abs(data.actuator_force[:, 0])
         motor_roll_l = jnp.abs(data.actuator_force[:, 3])
         hip_roll_motor = dict(
+            # Actual signed motor and passive torque, same POST-integrated
+            # frame as the physical exam metrics, BEFORE terminal reset.
+            hip_roll_motor_torque_nm_right=data.actuator_force[:,0],
+            hip_roll_motor_torque_nm_left=data.actuator_force[:,3],
+            hip_roll_angle_rad_right=data.qpos[:,self.spring_qpos[0]],
+            hip_roll_angle_rad_left=data.qpos[:,self.spring_qpos[3]],
+            hip_roll_spring_torque_nm_right=(
+                -self.spring_stiffness[0] *
+                (data.qpos[:,self.spring_qpos[0]] -
+                 self.spring_reference[0])),
+            hip_roll_spring_torque_nm_left=(
+                -self.spring_stiffness[3] *
+                (data.qpos[:,self.spring_qpos[3]] -
+                 self.spring_reference[3])),
             hip_roll_motor_load_frac_right=(
                 motor_roll_r / jnp.maximum(self.servo_actuator_torque_limit_nm[..., 0], 1e-6)),
             hip_roll_motor_load_frac_left=(
