@@ -176,29 +176,53 @@ def main() -> int:
     print("RECOVERED CHECKPOINT:",parent,flush=True)
     print("RECOVERED STEP:",f"{manifest['parent_checkpoint_world_steps']:,}",flush=True)
     print("WILL CONTINUE at 40M, THEN 120M; no new neural-network birth",flush=True)
-    if CHILD.exists() and any(CHILD.iterdir()):
-        raise RuntimeError("Recovery destination already contains data; refusing overwrite. "
-                           "Inspect existing repaired lineage before attempting restart.")
-    # The original 2048-world PPO already compiled and trained successfully.
-    # These smoke runs exercise *new* source, not a new learning lineage.
-    for mode in ("smoke","gpu-gate"):
-        print(f"===== RECOVERY: {mode} =====",flush=True)
-        subprocess.run(["bash",str(LAUNCHER),mode],check=True,env=os.environ)
+    prior_cfg=CHILD/"training_config.json"
+    already=CHILD.exists() and any(CHILD.iterdir())
+    already_120=False
+    if already:
+        if not prior_cfg.is_file() or not (CHILD/"run_meta.json").is_file():
+            raise RuntimeError("Recovery destination is incomplete/ambiguous. "
+                               "Original remains safe; inspect its child before retrying.")
+        prior=TrainingConfig.load(prior_cfg)
+        current_meta=json.loads((CHILD/"run_meta.json").read_text(encoding="utf-8"))
+        if ((current_meta.get("source_provenance") or {}).get("git_commit") !=
+                manifest["repair_git_commit"] or
+                prior.steps not in (40_000_000,120_000_000) or
+                prior.seed != 735 or prior.envs != 2048 or
+                prior.physical_profile != "h40-spring-v1"):
+            raise RuntimeError("Refusing to mix an existing repaired run with "
+                               "different source, recipe or actor")
+        already_120=prior.steps == 120_000_000
+        print("SAFE RESTART of authenticated repaired run:",prior.steps,flush=True)
+    else:
+        # Original 2048-world PPO already trained successfully; these gates
+        # verify the repaired source without producing another actor.
+        for mode in ("smoke","gpu-gate"):
+            print(f"===== RECOVERY: {mode} =====",flush=True)
+            subprocess.run(["bash",str(LAUNCHER),mode],check=True,env=os.environ)
     env=dict(os.environ)
     env.update({
         "EMU_REPAIR_PARENT_CKPT":str(parent),
         "EMU_REPAIR_PARENT_SOURCE":manifest["original_git_commit"],
         "EMU_REPAIR_PARENT_SHA256":manifest["parent_checkpoint_sha256"],
     })
-    print("===== RECOVERY: verify exact ancestor before GPU training =====",flush=True)
-    # Source change only fixes terminal metrics schema and explicitly
-    # acknowledges the incomplete parent by two hashes.
-    # All model/actor/PPO/reward files were confirmed byte-equivalent above.
-    print("===== RECOVERY: resume PPO to 40M =====",flush=True)
-    subprocess.run(["bash",str(LAUNCHER),"repair-40m"],check=True,env=env)
-    (CHILD/"recovery_manifest.json").write_text(
-        json.dumps(manifest,indent=2,sort_keys=True)+"\n",encoding="utf-8")
-    shutil.copy2(ORIGIN/"metrics.csv",CHILD/"foundation_before_repair.csv")
+    if not already_120:
+        print("===== RECOVERY: resume PPO to 40M =====",flush=True)
+        # First invocation verifies the full ancestor source+bytes; a retry
+        # auto-resumes the child with its *own* newly pinned source.
+        subprocess.run(["bash",str(LAUNCHER),"repair-40m"],check=True,env=env)
+    manifest_path=CHILD/"recovery_manifest.json"
+    if manifest_path.exists():
+        saved=json.loads(manifest_path.read_text(encoding="utf-8"))
+        for name in ("original_git_commit","parent_checkpoint_sha256",
+                     "repair_git_commit"):
+            if saved.get(name)!=manifest[name]:
+                raise RuntimeError("Existing repair manifest differs; no lineage mutation")
+    else:
+        manifest_path.write_text(
+            json.dumps(manifest,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+    if not (CHILD/"foundation_before_repair.csv").is_file():
+        shutil.copy2(ORIGIN/"metrics.csv",CHILD/"foundation_before_repair.csv")
     print("===== RECOVERY: 40M→120M =====",flush=True)
     subprocess.run(["bash",str(LAUNCHER),"extend-120m"],check=True,env=os.environ)
     print("===== RECOVERY: independent 80mm frozen stair examination =====",flush=True)
