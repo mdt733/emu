@@ -50,6 +50,17 @@ def group_stats(rows):
         fell_after_both=sum(r["fell_after_both_feet"].lower()=="true" for r in rows),
         fell_height=sum(r["fell_height"].lower()=="true" for r in rows),
         fell_tilt=sum(r["fell_tilt"].lower()=="true" for r in rows),
+        fall_near95_either_hip=sum(
+            r["fall_frame"]!="-1" and (
+                r["hip_right_near95_at_fall"].lower()=="true" or
+                r["hip_left_near95_at_fall"].lower()=="true") for r in rows),
+        fall_near95_fighting_spring=sum(
+            r["fall_frame"]!="-1" and (
+                (r["hip_right_near95_at_fall"].lower()=="true" and
+                 r["hip_right_opposing_at_fall"].lower()=="true") or
+                (r["hip_left_near95_at_fall"].lower()=="true" and
+                 r["hip_left_opposing_at_fall"].lower()=="true"))
+            for r in rows),
         fall_lateral_offset_mean_m=(
             sum(abs(float(r["first_fall_y_offset_m"])) for r in falls)/len(falls)
             if falls else 0.),
@@ -148,6 +159,14 @@ def format_report(data):
             f"{stats['fell_before_lead']} | {stats['fell_after_lead']} | "
             f"{stats['fell_after_both']} | {stats['both_feet']} | "
             f"{stats['upright_cross']} | {stats['aligned_cross']} |")
+    lines.extend(["", "## Joint load *at the actual fall* (not average load)", "",
+                  "| Task | Falls | Either hip ≥95% at death | Hip ≥95% AND fighting spring at death |",
+                  "|---|---:|---:|---:|"])
+    for name,stats in groups.items():
+        lines.append(
+            f"| {name} | {stats['falls']} | "
+            f"{stats['fall_near95_either_hip']} | "
+            f"{stats['fall_near95_fighting_spring']} |")
     lines.extend(["", "Height- and tilt-triggered death flags can overlap. "
                   "A fall before obtaining both feet on the top is not "
                   "necessarily a lack of torque; compare the signed motor evidence.",
