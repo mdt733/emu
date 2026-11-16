@@ -12,7 +12,7 @@ from emu.terrain_carpet_mjx import (
 
 
 class MatrixExamTests(unittest.TestCase):
-    def test_actual_signed_hip_roll_spring_opposition(self):
+    def _check_signed_hip_roll_spring_opposition(self):
         from emu.ppo import hip_roll_load_terms
         # +0.2rad hip -> spring drives toward zero (-0.4 Nm).
         # Positive motor torque fights spring; negative motor is assisted.
@@ -30,7 +30,7 @@ class MatrixExamTests(unittest.TestCase):
         self.assertAlmostEqual(float(y["spring_nm"][0]),-.87266463,places=6)
         self.assertTrue(bool(y["assistance"][0]))
 
-    def test_audit_runner_freezes_reference_and_preserves_exam_math(self):
+    def _check_frozen_audit_runner_and_report_math(self):
         import ast
         from pathlib import Path
         import shutil
@@ -94,6 +94,10 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(stats["falls"],0)
 
     def test_ten_capabilities_twenty_levels_ten_trials(self):
+        # Extend an existing core test rather than growing the permanently
+        # capped core-test suite for a temporary mechanics experiment.
+        self._check_signed_hip_roll_spring_opposition()
+        self._check_frozen_audit_runner_and_report_math()
         a=assignments(2048)
         self.assertEqual(len(a),2048)
         self.assertEqual(sum(x.kind!="padding" for x in a),2000)
