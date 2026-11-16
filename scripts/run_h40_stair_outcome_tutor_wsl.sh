@@ -111,6 +111,7 @@ TRAIN_COMMON=(
   --science-step-approach-m .22
 )
 CONFIG="$EMU_TUTOR_ROOT/training_config.json"
+TARGET=""
 if [[ -f "$CONFIG" ]]; then
   TARGET="$("$PY" -c 'import json,sys; print(int(json.load(open(sys.argv[1]))["steps"]))' "$CONFIG")"
   if [[ "$TARGET" != "122000000" && "$TARGET" != "140000000" ]]; then
