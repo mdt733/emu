@@ -22,6 +22,26 @@ from .directional import contact_pair_mask
 from .directional import heading_rate_request
 from .contracts import CONTROL_DT, P
 
+def hip_roll_load_terms(xp, motor_nm, angle_rad, stiffness_nm_rad,
+                        spring_reference_rad, rated_limit_nm):
+    """Pure NumPy/JAX testable signed motor vs centring spring facts.
+
+    Passive spring torque = -stiffness * (joint angle - reference).
+    Motor torque fights this spring only if motor * spring torque < 0.
+    This is a joint-frame correlation, NOT proof of the spring's causal
+    effect on balance. It changes no actuator or PPO training behaviour.
+    """
+    spring_nm=-stiffness_nm_rad*(angle_rad-spring_reference_rad)
+    opposition=motor_nm*spring_nm < -1e-6
+    assistance=motor_nm*spring_nm > 1e-6
+    rated_fraction=xp.abs(motor_nm)/xp.maximum(rated_limit_nm,1e-6)
+    near95=rated_fraction>=.95
+    return dict(
+        spring_nm=spring_nm,rated_fraction=rated_fraction,
+        opposition=opposition,assistance=assistance,
+        near95=near95,near95_opposing=near95&opposition)
+
+
 def hip_roll_action_saturation(xp, raw_action, academy_active):
     """Read-only sampled hip-roll command saturation, Academy vs other roles.
 
@@ -1064,7 +1084,6 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             first_fall_after_lead=false,first_fall_after_both=false,
             first_fall_x_m=zero,first_fall_y_offset_m=zero,
             max_abs_lateral_offset_m=zero)
-        from .joint_diagnostics import hip_roll_load_terms
         # [2,3] are the two real mesh geometries of target cell [1,0].
         target_geoms=tuple(env.carpet_prism_geom_ids[2:4])
         foot_geoms=tuple(int(i) for i in env.ids['foot_geoms'])
