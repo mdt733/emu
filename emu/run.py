@@ -320,7 +320,7 @@ def _validate_cross_source_research_parent(
     import re
     completed=(parent.name == 'final.pkl')
     partial=(parent.name == 'latest.pkl' or bool(re.fullmatch(
-        r'snapshot_step_[0-9]+\\.pkl', parent.name)))
+        r'snapshot_step_[0-9]+\.pkl', parent.name)))
     permitted=(partial if repair_partial_parent else completed)
     if (source != expected_source or source == provenance['commit']
             or not permitted or parent.parent.name != 'checkpoints'):
