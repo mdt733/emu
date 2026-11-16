@@ -110,7 +110,8 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
                          'training_config.json','run_meta.json','fixed_eval.csv',
                          'envelope_summary.json','capability_evidence.json',
                          'capability_field_summary.json','performance.json',
-                         '20m_unattended_gate.json', '40m_unattended_gate.json'):
+                         '20m_unattended_gate.json', '40m_unattended_gate.json',
+                         'recovery_manifest.json', 'foundation_before_repair.csv'):
                 path=root/name
                 if path.is_file() and not path.is_symlink():
                     z.write(path,arcname=name)
