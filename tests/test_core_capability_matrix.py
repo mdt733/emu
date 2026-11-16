@@ -13,7 +13,7 @@ from emu.terrain_carpet_mjx import (
 
 class MatrixExamTests(unittest.TestCase):
     def test_actual_signed_hip_roll_spring_opposition(self):
-        from emu.joint_diagnostics import hip_roll_load_terms
+        from emu.ppo import hip_roll_load_terms
         # +0.2rad hip -> spring drives toward zero (-0.4 Nm).
         # Positive motor torque fights spring; negative motor is assisted.
         x=hip_roll_load_terms(np,
@@ -41,7 +41,7 @@ class MatrixExamTests(unittest.TestCase):
         root=Path(__file__).resolve().parents[1]
         for name in ("scripts/examine_h40_spring_v1_mechanics.py",
                      "scripts/summarize_stair_mechanics.py",
-                     "emu/joint_diagnostics.py"):
+                     "emu/ppo.py"):
             ast.parse((root/name).read_text(encoding="utf-8"))
         if shutil.which("bash"):
             subprocess.run(
