@@ -197,6 +197,58 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert '--academy-height-cap-m .15' in tutor_source
     assert '--repair-partial-parent' not in tutor_source
     assert 'tutor_2m_gate.json' in tutor_source
+    # Next single experiment: resume authenticated 140M explorer,
+    # reward physical two-foot support and forward followthrough rather
+    # than paying additional lead-foot contacts or reinstating gait phases.
+    transfer_runner=runner.parent/"run_h40_stair_transfer_160m_wsl.sh"
+    transfer_src=transfer_runner.read_text(encoding="utf-8")
+    if shutil.which("bash"):
+        subprocess.run(["bash","-n",str(transfer_runner)],check=True)
+    snippets=re.findall(r"<<'PY'\n(.*?)\nPY",transfer_src,re.S)
+    assert len(snippets)>=3
+    for snippet in snippets:
+        compile(snippet,str(transfer_runner),"exec")
+    assert '17f6fb17cc699342f2ff394e1c6eb8d237675023' in transfer_src
+    assert '0324fa18d5e624c7a38a7085050cc2abc964f30e8eb453d00d5b280e6097e039' in transfer_src
+    assert '--steps 142000000' in transfer_src and '--steps 160000000' in transfer_src
+    assert '--science-step-goal-weight .12' in transfer_src
+    assert '--science-bilateral-support-bonus 6' in transfer_src
+    assert '--science-followthrough-bonus 7' in transfer_src
+    assert '--science-step-velocity-relief .55' in transfer_src
+    assert '--science-step-approach-m .22' in transfer_src
+    assert '--retention-share .20' in transfer_src
+    assert '--science-step-finish-on-transfer' not in transfer_src
+    assert '--science-foothold-bonus' not in transfer_src
+    assert '--science-supported-cross-bonus' not in transfer_src
+    assert 'transfer_2m_gate.json' in transfer_src
+    from scripts.compare_h40_stair_transfer_tutor import report as transfer_report
+    tasks=("flat","up_4_40","up_44_60","up_64_80","down_44_80")
+    old_vals=dict(attempts=250,falls=20,lead_top=.55,both_top=.20,
+                  upright_cross=.16,aligned_cross=.016,survival=.56,
+                  fell_before_lead=3,fell_during_transfer=10,
+                  fell_after_both=2,
+                  mean_forward_progress_m=.65,mean_max_lateral_offset_m=.70)
+    new_vals=dict(old_vals)
+    old_groups={k:dict(old_vals) for k in tasks}
+    new_groups={k:dict(new_vals) for k in tasks}
+    report_text,gate=transfer_report(
+        dict(parent=old_groups,tutor=new_groups,
+             delta={k:dict(both_top=0.,aligned_cross=0.) for k in tasks}))
+    assert "two-foot" in report_text.lower() or "both feet" in report_text.lower()
+    assert not gate["champion_candidate"]
+    new_groups["up_44_60"].update(
+        both_top=.35,aligned_cross=.10,survival=.70,lead_top=.55)
+    new_groups["up_4_40"].update(aligned_cross=.45,survival=.95)
+    new_groups["down_44_80"].update(aligned_cross=.48,survival=.90)
+    new_groups["flat"].update(aligned_cross=.54,survival=1.)
+    report_text,gate=transfer_report(dict(
+        parent=old_groups,tutor=new_groups,
+        delta={k:dict(
+            both_top=new_groups[k]["both_top"]-old_groups[k]["both_top"],
+            aligned_cross=new_groups[k]["aligned_cross"]-old_groups[k]["aligned_cross"])
+            for k in tasks}))
+    assert gate["all_gates_pass"]
+    assert gate["champion_candidate"]
     comparator=tutor_runner.parent / "compare_h40_stair_outcome_tutor.py"
     ast.parse(comparator.read_text(encoding="utf-8"))
     from scripts.compare_h40_stair_outcome_tutor import summarize, report
