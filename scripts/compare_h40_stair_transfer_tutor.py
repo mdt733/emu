@@ -170,7 +170,7 @@ def main():
     (args.run/"transfer_comparison.md").write_text(md,encoding="utf-8")
     bundle=args.run/"transfer_results_bundle.zip"
     paths=[
-        args.run/"tutor_comparison.md",args.run/"tutor_comparison.json",
+        args.run/"transfer_comparison.md",args.run/"transfer_comparison.json",
         args.run/"transfer_source_manifest.json",args.run/"transfer_2m_gate.json",
         args.run/"training_config.json",args.run/"run_meta.json",
         args.run/"metrics.csv",args.run/"results.md",
