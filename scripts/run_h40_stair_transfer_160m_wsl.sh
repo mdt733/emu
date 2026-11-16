@@ -32,6 +32,7 @@ from pathlib import Path
 from emu.contracts import ROBOT_XML
 from emu.training_config import TrainingConfig,training_sensor_contract
 from emu.checkpoint_io import load_checkpoint
+from emu.policy_export import build_bundle
 from scripts.v5053_matrix_exam import exam_source_fingerprint
 from scripts.examine_h40_spring_v1_mechanics import immutable_copy
 
@@ -74,6 +75,16 @@ if (int(payload["meta"]["step"])!=140_050_432 or
         payload["meta"].get("robot_model_sha256")!=expected_model or
         (payload["meta"].get("source_provenance") or {}).get("git_commit")!=expected_source):
     raise RuntimeError("Not the complete 140M PPO and optimiser lineage")
+# Bind the FULL optimiser checkpoint's actual actor weights to the
+# user's exported 140M browser policy, not merely matching run metadata.
+# The policy source hashes its NN tensors before export. No bytes are altered.
+expected_nn_sha="c1e205f1c9d401649750fc8a67c661cf6a0d46a27b2ce66a574d89a13d6a629a"
+checkpoint_actor=build_bundle(ckpt)["source"]
+saved_actor=json.loads((origin/actor_name).read_text(encoding="utf-8"))["source"]
+if (checkpoint_actor.get("actor_sha256")!=expected_nn_sha or
+        checkpoint_actor.get("actor_sha256")!=saved_actor.get("actor_sha256") or
+        checkpoint_actor.get("step")!=140_050_432):
+    raise RuntimeError("Full 140M PPO checkpoint policy differs from exported 140M actor")
 for name in ("stairs","flat"):
     directory=origin/"heldout"/name
     m=json.loads((directory/"matrix_summary.json").read_text(encoding="utf-8"))["manifest"]
