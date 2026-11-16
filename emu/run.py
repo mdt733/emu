@@ -300,7 +300,7 @@ def verify_experiment_fork(parent: TrainingConfig, child: TrainingConfig) -> Non
 
 def _validate_cross_source_research_parent(
         parent: Path, *, payload: dict, expected_source: str, expected_sha256: str,
-        provenance: dict) -> None:
+        provenance: dict, repair_partial_parent: bool = False) -> None:
     """Explicitly approve ONE immutable external research ancestor.
 
     Shape, normalizer, optimizer and sensor identity are already checked by
@@ -314,9 +314,20 @@ def _validate_cross_source_research_parent(
             or any(c not in '0123456789abcdef' for c in expected_source)
             or any(c not in '0123456789abcdef' for c in expected_sha256)):
         raise RuntimeError('Research ancestor requires full lower-case source SHA and SHA256')
+    # An explicitly declared post-publication-bug repair may fork the latest
+    # VALID incomplete checkpoint instead of lying that it was 'final.pkl'.
+    # This is NEVER enabled for ordinary research forks or --resume auto.
+    import re
+    completed=(parent.name == 'final.pkl')
+    partial=(parent.name == 'latest.pkl' or bool(re.fullmatch(
+        r'snapshot_step_[0-9]+\\.pkl', parent.name)))
+    permitted=(partial if repair_partial_parent else completed)
     if (source != expected_source or source == provenance['commit']
-            or parent.name != 'final.pkl' or parent.parent.name != 'checkpoints'):
-        raise RuntimeError('Research parent must be completed final.pkl from exact declared earlier source')
+            or not permitted or parent.parent.name != 'checkpoints'):
+        raise RuntimeError(
+            'Research parent requires exact declared source and an unmodified '
+            + ('latest/snapshot incomplete checkpoint' if repair_partial_parent
+               else 'completed final.pkl'))
     digest = hashlib.sha256()
     with parent.open('rb') as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b''):
@@ -330,7 +341,8 @@ def _validate_cross_source_research_parent(
 
 
 def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str,
-                research_parent_source: str = '', research_parent_sha256: str = '') -> tuple[Path | None, bool]:
+                research_parent_source: str = '', research_parent_sha256: str = '',
+                repair_partial_parent: bool = False) -> tuple[Path | None, bool]:
     """Fail closed on incompatible runs, unclean source, and unsafe paths.
 
     Returns (validated checkpoint to resume from, already complete?).
@@ -338,6 +350,10 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str,
     """
     if bool(research_parent_source) != bool(research_parent_sha256):
         raise RuntimeError('Research fork requires BOTH exact source SHA and checkpoint SHA256')
+    if repair_partial_parent and not (research_parent_source and
+                                      research_parent_sha256 and resume not in ('', 'auto')):
+        raise RuntimeError('Partial-source repair requires explicit ancestor path, full Git SHA and checkpoint SHA256')
+
     if research_parent_source and resume in ('', 'auto'):
         raise RuntimeError('Research parent hashes require an explicit external --resume checkpoint')
     root = Path(config.run_dir).resolve()
@@ -424,7 +440,8 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str,
                     'and checkpoint SHA256, or start a new cold training lineage.')
             _validate_cross_source_research_parent(
                 parent, payload=payload, expected_source=research_parent_source,
-                expected_sha256=research_parent_sha256, provenance=provenance)
+                expected_sha256=research_parent_sha256, provenance=provenance,
+                repair_partial_parent=repair_partial_parent)
         elif research_parent_source:
             raise RuntimeError('Research cross-source flags are not allowed for same-source resume')
         # A newly created study is allowed to fork a source-matched
@@ -459,7 +476,8 @@ def train_one(args) -> int:
     parent, completed = inspect_run(
         config, provenance=provenance, resume=args.resume,
         research_parent_source=getattr(args,'research_parent_source',''),
-        research_parent_sha256=getattr(args,'research_parent_sha256',''))
+        research_parent_sha256=getattr(args,'research_parent_sha256',''),
+        repair_partial_parent=bool(getattr(args,'repair_partial_parent',False)))
     if getattr(args, 'check_resume_only', False):
         print(f'RESUME VERIFICATION PASS: {parent or "cold start"}'
               f' (already complete={completed}); no PPO run or output created',
