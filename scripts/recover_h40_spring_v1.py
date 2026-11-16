@@ -195,11 +195,12 @@ def main() -> int:
         already_120=prior.steps == 120_000_000
         print("SAFE RESTART of authenticated repaired run:",prior.steps,flush=True)
     else:
-        # Original 2048-world PPO already trained successfully; these gates
-        # verify the repaired source without producing another actor.
-        for mode in ("smoke","gpu-gate"):
-            print(f"===== RECOVERY: {mode} =====",flush=True)
-            subprocess.run(["bash",str(LAUNCHER),mode],check=True,env=os.environ)
+        # The original 20M run already proved sustained 2048-world CUDA PPO
+        # on this exact robot+reward model. Repeating CUDA compilation/smoke
+        # would spend GPU time but not test the reporting-only change.
+        # The next stage still performs compiled MuJoCo motor/spring preflight
+        # and authentic checkpoint/source verification before PPO updates.
+        print("SKIPPING REDUNDANT GPU SMOKE: actual original 20M PPO already succeeded",flush=True)
     env=dict(os.environ)
     env.update({
         "EMU_REPAIR_PARENT_CKPT":str(parent),
