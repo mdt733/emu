@@ -250,17 +250,23 @@ fi
 STEPS=20000000
 RESUME=()
 if [[ "$MODE" == repair-40m ]]; then
-  # Explicitly source+byte-hash approved fork of the existing incomplete
-  # 19.xM checkpoint into a NEW output directory. Only the repair controller
-  # is authorised to supply these environment variables.
-  : "${EMU_REPAIR_PARENT_CKPT:?repair controller must supply original checkpoint}"
-  : "${EMU_REPAIR_PARENT_SOURCE:?repair controller must supply ancestor Git SHA}"
-  : "${EMU_REPAIR_PARENT_SHA256:?repair controller must supply ancestor bytes SHA256}"
   STEPS=40000000
-  RESUME=(--resume "$EMU_REPAIR_PARENT_CKPT"
-          --research-parent-source "$EMU_REPAIR_PARENT_SOURCE"
-          --research-parent-sha256 "$EMU_REPAIR_PARENT_SHA256"
-          --repair-partial-parent)
+  if [[ -f "$RUN_DIR/training_config.json" ]]; then
+    # A *previous* authentic repair fork may have been interrupted.
+    # Existing run source+recipe and checkpoint are strictly verified by
+    # inspect_run; no cross-source permissions are needed after creation.
+    RESUME=(--resume auto)
+  else
+    # Explicit source+byte-hash approved fork into a NEW output directory.
+    # Only the controller supplies these values; never rewrite parent data.
+    : "${EMU_REPAIR_PARENT_CKPT:?repair controller must supply original checkpoint}"
+    : "${EMU_REPAIR_PARENT_SOURCE:?repair controller must supply ancestor Git SHA}"
+    : "${EMU_REPAIR_PARENT_SHA256:?repair controller must supply ancestor bytes SHA256}"
+    RESUME=(--resume "$EMU_REPAIR_PARENT_CKPT"
+            --research-parent-source "$EMU_REPAIR_PARENT_SOURCE"
+            --research-parent-sha256 "$EMU_REPAIR_PARENT_SHA256"
+            --repair-partial-parent)
+  fi
 fi
 if [[ "$MODE" == extend-40m ]]; then
   STEPS=40000000
