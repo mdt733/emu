@@ -81,7 +81,9 @@ class MatrixExamTests(unittest.TestCase):
                     prefix+"near95_sum_fraction":str(near),
                     prefix+"near95_opposing_sum_fraction":str(opp),
                     prefix+"opposing_sum_fraction":".4",
-                    prefix+"assisting_sum_fraction":".3"})
+                    prefix+"assisting_sum_fraction":".3",
+                    prefix+"near95_at_fall":"False",
+                    prefix+"opposing_at_fall":"False"})
             rows.append(row)
         stats=group_stats(rows)
         expected_near=(.5*10+.1*350)/360
@@ -191,6 +193,11 @@ class MatrixExamTests(unittest.TestCase):
                "first_fall_x_m","first_fall_y_offset_m",
                "max_abs_lateral_offset_m")}
         diag["fall_frame"]=np.array([-1,12,9,-1])
+        for side in ("right","left"):
+            diag[f"hip_{side}_near95_at_fall"]=np.array(
+                [False,True,False,False])
+            diag[f"hip_{side}_opposing_at_fall"]=np.array(
+                [False,True,False,False])
         diag["fell_tilt"]=np.array([0,1,1,0])
         diag["fell_before_lead_foot"]=np.array([0,0,1,0])
         diag["fell_after_lead_before_both"]=np.array([0,1,0,0])
