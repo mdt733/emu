@@ -234,9 +234,26 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
             ck,payload=meta,expected_source=original,
             expected_sha256="f"*64,provenance=provenance,
             repair_partial_parent=True)
-    with pytest.raises(RuntimeError,match="latest/snapshot"):
+    with pytest.raises(RuntimeError,match="best/latest/snapshot"):
         _validate_cross_source_research_parent(
             ck.with_name("recovery.pkl"),payload=meta,expected_source=original,
+            expected_sha256=parent_sha,provenance=provenance,
+            repair_partial_parent=True)
+    # The final frozen exam ran BEFORE terminal CSV failure and saved
+    # fully trained best.pkl weights + optimiser at the exact 20M boundary.
+    # Only a genuine scored/evaluated actor is eligible for this rescue.
+    best=ck.with_name("best.pkl")
+    best.write_bytes(ck.read_bytes())
+    meta_best={"meta":{"source_provenance":{"git_commit":original},
+                       "evaluated_policy":True,"best_eval_score":.157,
+                       "step":20_054_016}}
+    _validate_cross_source_research_parent(
+        best,payload=meta_best,expected_source=original,
+        expected_sha256=parent_sha,provenance=provenance,
+        repair_partial_parent=True)
+    with pytest.raises(RuntimeError,match="best/latest/snapshot"):
+        _validate_cross_source_research_parent(
+            best,payload=meta,expected_source=original,
             expected_sha256=parent_sha,provenance=provenance,
             repair_partial_parent=True)
     import ast
