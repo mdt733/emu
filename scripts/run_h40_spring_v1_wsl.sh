@@ -105,9 +105,16 @@ PY
 
 if [[ "$MODE" == smoke || "$MODE" == gpu-gate ]]; then
   python -m emu.cli doctor --require-gpu
-  WORLDS=128
-  if [[ "$MODE" == gpu-gate ]]; then WORLDS=2048; fi
-  python scripts/smoke_gpu_carpet.py --device cuda --worlds "$WORLDS" --frames 2 --prisms --ppo --full-update
+  # smoke_gpu_carpet.py explicitly reserves --full-update for >=1024
+  # worlds. Test the lightweight MJX+PPO path first, then the real 2048
+  # world/32-frame full PPO update with the unchanged production solver.
+  if [[ "$MODE" == smoke ]]; then
+    python scripts/smoke_gpu_carpet.py \
+      --device cuda --worlds 128 --frames 2 --prisms --ppo
+  else
+    python scripts/smoke_gpu_carpet.py \
+      --device cuda --worlds 2048 --frames 2 --prisms --ppo --full-update
+  fi
   exit 0
 fi
 
