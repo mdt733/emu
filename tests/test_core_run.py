@@ -176,6 +176,44 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert len(re.findall(r"python - <<'PY'",source)) >= 2
     if shutil.which("bash"):
         subprocess.run(["bash","-n",str(runner)],check=True)
+    # The one follow-on Spring V1 lesson is a SINGLE source-pinned fork from
+    # the fully trained 120M final PPO/optimiser. It preserves the two-million
+    # proof gate and actual 4–80mm frozen physical A/B exam.
+    import ast
+    tutor_runner = runner.parent / "run_h40_stair_outcome_tutor_wsl.sh"
+    tutor_source = tutor_runner.read_text(encoding="utf-8")
+    for block in re.findall(r"<<'PY'\n(.*?)\nPY",tutor_source,re.S):
+        compile(block,str(tutor_runner),"exec")
+    assert len(re.findall(r"<<'PY'",tutor_source)) >= 3
+    if shutil.which("bash"):
+        subprocess.run(["bash","-n",str(tutor_runner)],check=True)
+    assert 'ORIGIN_CKPT_SHA="a542722eaf0d' in tutor_source
+    assert '--steps 122000000' in tutor_source
+    assert '--steps 140000000 --resume auto' in tutor_source
+    assert '--science-step-goal-weight .22' in tutor_source
+    assert '--science-step-velocity-relief .55' in tutor_source
+    assert '--science-step-approach-m .22' in tutor_source
+    assert '--science-step-finish-on-transfer' not in tutor_source
+    assert '--academy-height-cap-m .15' in tutor_source
+    assert '--repair-partial-parent' not in tutor_source
+    assert 'tutor_2m_gate.json' in tutor_source
+    comparator=tutor_runner.parent / "compare_h40_stair_outcome_tutor.py"
+    ast.parse(comparator.read_text(encoding="utf-8"))
+    from scripts.compare_h40_stair_outcome_tutor import summarize, report
+    sample=dict(
+        attempts=50,falls=5,lead_top=.4,both_top=.3,upright_cross=.2,
+        aligned_cross=.1,survival=.9,mean_forward_progress_m=.2,
+        mean_max_lateral_offset_m=.3)
+    d=dict(parent={k:sample.copy() for k in (
+                "flat","up_4_40","up_44_60","up_64_80","down_44_80")},
+           tutor={k:sample.copy() for k in (
+                "flat","up_4_40","up_44_60","up_64_80","down_44_80")},
+           delta={k:dict(lead_top=0.,upright_cross=0.) for k in (
+                "flat","up_4_40","up_44_60","up_64_80","down_44_80")})
+    report_md,gate=report(d)
+    assert "44–60" in report_md
+    assert gate["champion_candidate"] is False
+    assert gate["foothold_gain"] is False
     # The launcher must obey smoke_gpu_carpet's --full-update restriction:
     # 128 worlds = small PPO check; 2048 worlds = real full PPO update.
     smoke_command = source.split('if [[ "$MODE" == smoke ]]; then',1)[1]
