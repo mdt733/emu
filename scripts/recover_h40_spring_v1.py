@@ -64,6 +64,22 @@ def check_ancestor_source(source: str) -> None:
     if changed:
         raise RuntimeError("Cannot claim reporting-only repair: "
                            "physics/learning files differ from original source:\n" + changed)
+    # Extra protection: whitelist the *entire* source delta, not merely
+    # selected critical physics/reward files. The genuine failed 20M parent
+    # was at 9b724eb...; subsequent changes are terminal-report repair,
+    # explicit recovery permissions and their tests/launchers ONLY.
+    allowed={
+        "emu/cli.py", "emu/results.py", "emu/run.py", "emu/training.py",
+        "scripts/recover_h40_spring_v1.py",
+        "scripts/recover_h40_spring_v1_wsl.sh",
+        "scripts/run_h40_spring_v1_wsl.sh", "tests/test_core_run.py",
+    }
+    modified=set(git("diff","--name-only",source,now).splitlines())
+    unexpected=modified-allowed
+    if unexpected:
+        raise RuntimeError("Refusing recovery: unreviewed source changes "
+                           "since the actual trained checkpoint: "
+                           +", ".join(sorted(unexpected)))
     if git("status", "--porcelain"):
         raise RuntimeError("Commit/stash local changes before source-pinned recovery")
     if git("branch", "--show-current") != "work/emu-mechanical-feasibility":
