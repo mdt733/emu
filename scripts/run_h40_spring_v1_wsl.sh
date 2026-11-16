@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # H40 spring-v1 with 20M gait nursery -> 40M outcome-only reward, cold start.
-# Usage: bash scripts/run_h40_spring_v1_wsl.sh all|smoke|gpu-gate|plan|train-20m|extend-40m|extend-120m|exam
+# Usage: bash scripts/run_h40_spring_v1_wsl.sh all|smoke|gpu-gate|plan|train-20m|repair-40m|extend-40m|extend-120m|exam
 # One run directory and one trainer, founded on the existing main-style recipe.
 set -euo pipefail
 
 MODE="${1:-}"
 case "$MODE" in
-  all|smoke|gpu-gate|plan|train-20m|extend-40m|extend-120m|exam) ;;
-  *) echo "Usage: bash scripts/run_h40_spring_v1_wsl.sh all|smoke|gpu-gate|plan|train-20m|extend-40m|extend-120m|exam" >&2; exit 2 ;;
+  all|smoke|gpu-gate|plan|train-20m|repair-40m|extend-40m|extend-120m|exam) ;;
+  *) echo "Usage: bash scripts/run_h40_spring_v1_wsl.sh all|smoke|gpu-gate|plan|train-20m|repair-40m|extend-40m|extend-120m|exam" >&2; exit 2 ;;
 esac
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -35,7 +35,7 @@ RUN_DIR="${EMU_SPRING_RUN_DIR:-$HOME/emu-data/runs/h40-spring-v1-outcomes-s735}"
 mkdir -p "$(dirname "$RUN_DIR")"
 
 # Prevent non-source-pinned training or a dirty experimental model.
-if [[ "$MODE" == train-20m || "$MODE" == extend-40m || "$MODE" == extend-120m ]]; then
+if [[ "$MODE" == train-20m || "$MODE" == repair-40m || "$MODE" == extend-40m || "$MODE" == extend-120m ]]; then
   if [[ -n "$(git status --porcelain)" ]]; then
     echo "Refusing training: uncommitted/untracked Git changes." >&2
     exit 1
@@ -249,6 +249,19 @@ fi
 # essential: never resume a historical v1 spring run into this source.
 STEPS=20000000
 RESUME=()
+if [[ "$MODE" == repair-40m ]]; then
+  # Explicitly source+byte-hash approved fork of the existing incomplete
+  # 19.xM checkpoint into a NEW output directory. Only the repair controller
+  # is authorised to supply these environment variables.
+  : "${EMU_REPAIR_PARENT_CKPT:?repair controller must supply original checkpoint}"
+  : "${EMU_REPAIR_PARENT_SOURCE:?repair controller must supply ancestor Git SHA}"
+  : "${EMU_REPAIR_PARENT_SHA256:?repair controller must supply ancestor bytes SHA256}"
+  STEPS=40000000
+  RESUME=(--resume "$EMU_REPAIR_PARENT_CKPT"
+          --research-parent-source "$EMU_REPAIR_PARENT_SOURCE"
+          --research-parent-sha256 "$EMU_REPAIR_PARENT_SHA256"
+          --repair-partial-parent)
+fi
 if [[ "$MODE" == extend-40m ]]; then
   STEPS=40000000
   RESUME=(--resume auto)
