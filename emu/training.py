@@ -70,6 +70,31 @@ from .contracts import ROBOT_XML, VERSION
 RUN_VERSION = f'emu_{VERSION}'
 LOG_PREFIX = f'[{RUN_VERSION}]'
 
+def attach_unified_teaching_report(report: dict, params: dict, *, step: int,
+                                   args: TrainingConfig, governor: RegimeGovernor) -> None:
+    """ONE schema for periodic and final training reports.
+
+    The final checkpoint must never fail because the terminal metrics row
+    forgot a teacher-only field present in the previous CSV header.
+    No PPO, reward, actor, or curriculum state is altered.
+    """
+    for name in ('steady','transition','resilience'):
+        key='regime_frac_'+name
+        report[key]=float(params[key])
+    report['foundation_control_mix']=float(params['foundation_control_mix'])
+    report['gait_guidance_strength']=float(params['gait_guidance_strength'])
+    report['academy_expected_birth_fraction']=float(
+        (1.-params['athletic_rehearsal_frac'])*
+        params['specialist_mix']*params['focus_weight_step']*
+        params['academy_episode_probability'])
+    for name in FOCUS_NAMES:
+        report['focus_alloc_'+name]=float(params['focus_weight_'+name])
+    report['teaching_profile']=teaching_profile(
+        step=step,foundation_steps=args.foundation_steps,
+        foundation_mix=args.foundation_mix,
+        steady_difficulty=governor.params.steady_difficulty).name
+
+
 TRAIN_PERF_TIMER_NAMES = (
     'train_update', 'host_metric_transfer', 'capability_field_update',
     'host_rollout_summary', 'governor_and_params', 'obs_norm_and_sync',
@@ -708,24 +733,9 @@ def train(args: TrainingConfig) -> int:
                   "expansion indefinitely. Retreat is unaffected (driven by fall rate/competence only).", flush=True)
         params = params_with_field(total_steps)
         if args.unified_capability_focus:
-            # The fixed experimental nursery mix may override the ordinary
-            # governor's NEXT-birth regime allocation. Report what worlds
-            # will really sample, never only the governor's unused proposal.
-            for name in ('steady','transition','resilience'):
-                key='regime_frac_'+name
-                report[key]=float(params[key])
-            report['foundation_control_mix']=float(params['foundation_control_mix'])
-            report['gait_guidance_strength']=float(params['gait_guidance_strength'])
-            report['academy_expected_birth_fraction']=float(
-                (1.-params['athletic_rehearsal_frac'])*
-                params['specialist_mix']*params['focus_weight_step']*
-                params['academy_episode_probability'])
-            for name in FOCUS_NAMES:
-                report['focus_alloc_'+name]=float(params['focus_weight_'+name])
-            report['teaching_profile']=teaching_profile(
-                step=total_steps,foundation_steps=args.foundation_steps,
-                foundation_mix=args.foundation_mix,
-                steady_difficulty=governor.params.steady_difficulty).name
+            # Actual NEXT-birth regime/gait schedule, not governor proposals.
+            attach_unified_teaching_report(
+                report, params, step=total_steps, args=args, governor=governor)
         report['rollback_count']=rollback_count
         attach_field_influence(report, params)
         p = env.params_array(params)
@@ -1026,20 +1036,8 @@ def train(args: TrainingConfig) -> int:
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
     params = params_with_field(total_steps)
     if args.unified_capability_focus:
-        for name in ('steady','transition','resilience'):
-            key='regime_frac_'+name
-            report[key]=float(params[key])
-        report['foundation_control_mix']=float(params['foundation_control_mix'])
-        report['academy_expected_birth_fraction']=float(
-            (1.-params['athletic_rehearsal_frac'])*
-            params['specialist_mix']*params['focus_weight_step']*
-            params['academy_episode_probability'])
-        for name in FOCUS_NAMES:
-            report['focus_alloc_'+name]=float(params['focus_weight_'+name])
-        report['teaching_profile']=teaching_profile(
-            step=total_steps,foundation_steps=args.foundation_steps,
-            foundation_mix=args.foundation_mix,
-            steady_difficulty=governor.params.steady_difficulty).name
+        attach_unified_teaching_report(
+            report, params, step=total_steps, args=args, governor=governor)
     report['rollback_count']=rollback_count
     attach_field_influence(report, params)
     elapsed = time.time() - start
