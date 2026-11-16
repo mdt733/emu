@@ -155,6 +155,8 @@ def main(argv=None) -> int:
                    help='explicit cross-source fork only: full 40-char parent Git SHA (requires parent SHA256)')
     q.add_argument('--research-parent-sha256',default='',
                    help='explicit cross-source fork only: SHA256 of immutable parent final.pkl')
+    q.add_argument('--repair-partial-parent',action='store_true',
+                   help='explicit source- and byte-hash-pinned recovery from incomplete latest/snapshot after final report publication failure; never auto-resume')
     q.add_argument('--check-resume-only',action='store_true',
                    help='validate source/parent/checkpoint now, exit before any PPO training')
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
