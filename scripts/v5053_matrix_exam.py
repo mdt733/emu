@@ -197,6 +197,18 @@ def reduce_results(trials:list[Trial],result:dict[str,np.ndarray]):
                     x["fell_after_lead_before_both"]) for x in records),
                 fell_after_both_feet=sum(bool(x["fell_after_both_feet"])
                                           for x in records),
+                fell_near95_either_hip=sum(
+                    x["fall_frame"]>=0 and (
+                        bool(x["hip_right_near95_at_fall"]) or
+                        bool(x["hip_left_near95_at_fall"]))
+                    for x in records),
+                fell_near95_fighting_spring=sum(
+                    x["fall_frame"]>=0 and (
+                        (bool(x["hip_right_near95_at_fall"]) and
+                         bool(x["hip_right_opposing_at_fall"])) or
+                        (bool(x["hip_left_near95_at_fall"]) and
+                         bool(x["hip_left_opposing_at_fall"])))
+                    for x in records),
                 fall_lateral_offset_abs_mean_m=round(float(np.mean([
                     abs(x["first_fall_y_offset_m"]) for x in records
                     if x["fall_frame"]>=0])),4) if any(
