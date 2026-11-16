@@ -16,6 +16,12 @@ from pathlib import Path
 import shutil
 import subprocess
 
+# The physical profile is resolved during emu.contracts IMPORT, so it must
+# be set BEFORE importing anything from emu (including the saved model hash).
+if os.environ.get("EMU_PHYSICAL_PROFILE") not in (None, "h40-spring-v1"):
+    raise RuntimeError("Do not run partial recovery under another robot profile")
+os.environ["EMU_PHYSICAL_PROFILE"] = "h40-spring-v1"
+
 from emu.contracts import ROBOT_XML
 from emu.training_config import (
     TrainingConfig, training_sensor_contract,
@@ -57,7 +63,7 @@ def check_ancestor_source(source: str) -> None:
     changed = git("diff", "--name-only", source, now, "--", *UNCHANGED_SOURCE)
     if changed:
         raise RuntimeError("Cannot claim reporting-only repair: "
-                           "physics/learning files differ from original source:\\n" + changed)
+                           "physics/learning files differ from original source:\n" + changed)
     if git("status", "--porcelain"):
         raise RuntimeError("Commit/stash local changes before source-pinned recovery")
     if git("branch", "--show-current") != "work/emu-mechanical-feasibility":
@@ -167,7 +173,7 @@ def main() -> int:
     print("===== RECOVERY: resume PPO to 40M =====",flush=True)
     subprocess.run(["bash",str(LAUNCHER),"repair-40m"],check=True,env=env)
     (CHILD/"recovery_manifest.json").write_text(
-        json.dumps(manifest,indent=2,sort_keys=True)+"\\n",encoding="utf-8")
+        json.dumps(manifest,indent=2,sort_keys=True)+"\n",encoding="utf-8")
     shutil.copy2(ORIGIN/"metrics.csv",CHILD/"foundation_before_repair.csv")
     print("===== RECOVERY: 40M→120M =====",flush=True)
     subprocess.run(["bash",str(LAUNCHER),"extend-120m"],check=True,env=os.environ)
