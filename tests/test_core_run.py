@@ -185,6 +185,66 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert "--full-update" not in smoke_command
     assert "--worlds 2048" in full_command
     assert "--full-update" in full_command
+    # The terminal metrics bug was caused by two different report schemas.
+    # Periodic AND final report sites must both call one common function.
+    from emu.training import attach_unified_teaching_report
+    from types import SimpleNamespace
+    import inspect
+    src = inspect.getsource(__import__("emu.training",fromlist=["train"]).train)
+    assert src.count("attach_unified_teaching_report(") == 2
+    p = dict(regime_frac_steady=.8,regime_frac_transition=.1,
+             regime_frac_resilience=.1,foundation_control_mix=0.,
+             gait_guidance_strength=.75,
+             athletic_rehearsal_frac=.1,specialist_mix=.5,
+             focus_weight_step=.25,academy_episode_probability=.2)
+    for name in ("command","resilience","slope","step","transition","control"):
+        p["focus_weight_"+name]=.25 if name=="step" else .15
+    report={}
+    attach_unified_teaching_report(
+        report,p,step=25_000_000,
+        args=SimpleNamespace(foundation_steps=20_000_000,foundation_mix="main"),
+        governor=SimpleNamespace(params=SimpleNamespace(steady_difficulty=.2)))
+    assert report["gait_guidance_strength"] == .75
+    assert report["foundation_control_mix"] == 0.
+    assert report["academy_expected_birth_fraction"] == pytest.approx(.0225)
+    assert report["teaching_profile"] == "growth"
+
+    # Normal cross-source experiments STILL insist on a published final.pkl.
+    # Only an explicit byte+source-pinned repair flag permits an incomplete
+    # latest/snapshot ancestor; nobody can quietly bypass source provenance.
+    from emu.run import _validate_cross_source_research_parent
+    import hashlib
+    ck = tmp_path/"repair-origin"/"checkpoints"/"latest.pkl"
+    ck.parent.mkdir(parents=True,exist_ok=True)
+    ck.write_bytes(b"validated ancestor bytes for permission test")
+    parent_sha=hashlib.sha256(ck.read_bytes()).hexdigest()
+    original="a"*40
+    meta={"meta":{"source_provenance":{"git_commit":original}}}
+    provenance={"commit":"b"*40}
+    with pytest.raises(RuntimeError,match="completed final.pkl"):
+        _validate_cross_source_research_parent(
+            ck,payload=meta,expected_source=original,
+            expected_sha256=parent_sha,provenance=provenance)
+    _validate_cross_source_research_parent(
+        ck,payload=meta,expected_source=original,
+        expected_sha256=parent_sha,provenance=provenance,
+        repair_partial_parent=True)
+    with pytest.raises(RuntimeError,match="SHA256 changed"):
+        _validate_cross_source_research_parent(
+            ck,payload=meta,expected_source=original,
+            expected_sha256="f"*64,provenance=provenance,
+            repair_partial_parent=True)
+    with pytest.raises(RuntimeError,match="latest/snapshot"):
+        _validate_cross_source_research_parent(
+            ck.with_name("recovery.pkl"),payload=meta,expected_source=original,
+            expected_sha256=parent_sha,provenance=provenance,
+            repair_partial_parent=True)
+    import ast
+    ast.parse((runner.parent/"recover_h40_spring_v1.py").read_text(encoding="utf-8"))
+    if shutil.which("bash"):
+        subprocess.run(
+            ["bash","-n",str(runner.parent/"recover_h40_spring_v1_wsl.sh")],
+            check=True)
     # Keep 24 core tests: this UI is another assertion of the *existing*
     # public CLI contract, not a new training experiment/test family.
     _check_readonly_dashboard(tmp_path)
