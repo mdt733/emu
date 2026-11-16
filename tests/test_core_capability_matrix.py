@@ -12,6 +12,24 @@ from emu.terrain_carpet_mjx import (
 
 
 class MatrixExamTests(unittest.TestCase):
+    def test_actual_signed_hip_roll_spring_opposition(self):
+        from emu.joint_diagnostics import hip_roll_load_terms
+        # +0.2rad hip -> spring drives toward zero (-0.4 Nm).
+        # Positive motor torque fights spring; negative motor is assisted.
+        x=hip_roll_load_terms(np,
+            np.array([.97,-.97,0.]),np.array([.2,.2,.2]),
+            2.,0.,.980665)
+        np.testing.assert_allclose(x["spring_nm"],[-.4,-.4,-.4])
+        np.testing.assert_array_equal(x["near95"],[True,True,False])
+        np.testing.assert_array_equal(x["opposition"],[True,False,False])
+        np.testing.assert_array_equal(x["assistance"],[False,True,False])
+        np.testing.assert_array_equal(x["near95_opposing"],[True,False,False])
+        # At mechanical +25deg: spring assists a motor pulling inward.
+        y=hip_roll_load_terms(np,np.array([-.3]),np.deg2rad([25.]),
+                              2.,0.,.980665)
+        self.assertAlmostEqual(float(y["spring_nm"][0]),-.87266463,places=6)
+        self.assertTrue(bool(y["assistance"][0]))
+
     def test_ten_capabilities_twenty_levels_ten_trials(self):
         a=assignments(2048)
         self.assertEqual(len(a),2048)
@@ -104,6 +122,31 @@ class MatrixExamTests(unittest.TestCase):
         self.assertAlmostEqual(row["completion_rate"],1/3,places=4)
         self.assertLess(row["completion_wilson95_lo"],1/3)
         self.assertGreater(row["completion_wilson95_hi"],1/3)
+        # Verify diagnostic bins report first-fall stages and signed
+        # motor/spring opposition without treating a reward flag as success.
+        diag={k:np.zeros(4,dtype=float) for k in
+              ("fell_height","fell_tilt","fell_before_lead_foot",
+               "fell_after_lead_before_both","fell_after_both_feet",
+               "first_fall_x_m","first_fall_y_offset_m",
+               "max_abs_lateral_offset_m")}
+        diag["fall_frame"]=np.array([-1,12,9,-1])
+        diag["fell_tilt"]=np.array([0,1,1,0])
+        diag["fell_before_lead_foot"]=np.array([0,0,1,0])
+        diag["fell_after_lead_before_both"]=np.array([0,1,0,0])
+        for side in ("right","left"):
+            for name in (
+                "motor_abs_fraction_sum_mean","spring_abs_nm_sum_mean",
+                "roll_angle_abs_deg_sum_mean","near95_sum_fraction",
+                "opposing_sum_fraction","assisting_sum_fraction",
+                "near95_opposing_sum_fraction","near95_opposed_conditional"):
+                diag[f"hip_{side}_{name}"]=np.array([.25,.5,.75,.0])
+        detailed,binned=reduce_results(a,{**result,**diag})
+        self.assertEqual(binned[0]["fell_total"],2)
+        self.assertEqual(binned[0]["fell_before_lead_foot"],1)
+        self.assertEqual(binned[0]["fell_after_lead_before_both"],1)
+        self.assertAlmostEqual(
+            binned[0]["hip_right_near95_sum_fraction"],.5,places=4)
+        self.assertEqual(len(detailed),3)
         self.assertEqual(wilson_95(0,0),(0.,0.))
         flat_records=assignments(4,mode="flat",trials_per_level=3)
         flat_result={k:np.array(v,copy=True) for k,v in result.items()}
