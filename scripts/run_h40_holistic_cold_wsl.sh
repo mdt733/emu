@@ -96,6 +96,52 @@ if [[ ! -f "$CONFIG" ]]; then
   "$PY" scripts/smoke_gpu_carpet.py --device cuda \
        --worlds 2048 --frames 2 --prisms --ppo --full-update
 fi
+# Before escalating from the foundation / gait-fade stages, require
+# evidence that the freshly initialized gait is physically viable. Unlike
+# training reward, this gate remains meaningful across changing economics.
+check_early_viability() {
+  if [[ "$EMU_COLD_AGE" != 20 && "$EMU_COLD_AGE" != 40 ]]; then
+    return 0
+  fi
+  "$PY" - <<'PY'
+import csv,json,math,os
+from pathlib import Path
+root=Path(os.environ["EMU_COLD_RUN_DIR"])
+age=int(os.environ["EMU_COLD_AGE"])
+stage=root/"stages"/f"{age}m"
+manifest=json.loads((stage/"stage_manifest.json").read_text(encoding="utf-8"))
+actual=int(manifest["actual_step"])
+with (root/"metrics.csv").open(newline="",encoding="utf-8") as stream:
+    rows=list(csv.DictReader(stream))
+matching=[row for row in rows if int(float(row["step"]))==actual]
+if not matching:
+    raise RuntimeError(f"Missing trained {age}M metrics row for actual step {actual}")
+row=matching[-1]
+names=("fall_rate","ep_len_mean","support","nan_grad_skips_total")
+v={name:float(row[name]) for name in names}
+bad=[name+" is not finite" for name,value in v.items()
+     if not math.isfinite(value)]
+if not bad:
+    if not 0.<=v["fall_rate"]<.85: bad.append("fall fraction >=85%")
+    if v["ep_len_mean"]<100.: bad.append("episode mean <100 frames")
+    if v["support"]<.15: bad.append("foot support below 15%")
+    if v["nan_grad_skips_total"]>10.: bad.append("too many skipped PPO gradients")
+result=dict(age_million=age,actual_step=actual,source_git_commit=manifest["source_git_commit"],
+            training_seed=manifest["training_seed"],metrics=v,
+            passed=not bad,blockers=bad,
+            caveat="Gross-collapse safety gate; NOT a reliable stair exam or guarantee of competence")
+target=stage/"viability_gate.json"
+if target.is_file():
+    if json.loads(target.read_text(encoding="utf-8"))!=result:
+        raise RuntimeError(f"Historical {age}M viability gate differs from current metrics")
+else:
+    target.write_text(json.dumps(result,indent=2)+"\n",encoding="utf-8")
+print("COLD GROWTH VIABILITY:",json.dumps(result),flush=True)
+if bad:
+    raise RuntimeError("Do not spend another training stage on collapsed learner: "+
+                       "; ".join(bad))
+PY
+}
 for AGE in 20 40 120 140 160; do
   export EMU_COLD_AGE="$AGE"
   TARGET=$((AGE * 1000000))
@@ -120,6 +166,7 @@ for name,field in (("final.pkl","checkpoint_sha256"),
         raise RuntimeError(f"Frozen stage bytes corrupted: {p/name}")
 print("REUSING VERIFIED COLD STAGE:",p,flush=True)
 PY
+    check_early_viability
     continue
   fi
   OLD_TARGET=""
@@ -201,6 +248,7 @@ if path.exists() and json.loads(path.read_text(encoding="utf-8"))!=manifest:
 path.write_text(json.dumps(manifest,indent=2)+"\n",encoding="utf-8")
 print("FROZEN SOURCE-PINNED COLD STAGE:",out,flush=True)
 PY
+  check_early_viability
 done
 
 # Independently test the exact physical terrain (not Academy reward flags)
