@@ -127,6 +127,38 @@ class CoreStairPhysicsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"holistic stage"):
             cold.params_array(dict(base,holistic_goal_weight=.50))
 
+    def test_stair_success_preserves_continuation_not_fall_penalty(self):
+        from emu.ppo import (episode_terminal_mask, stair_terminal_credit_stats,
+                             PPO_GAMMA)
+        # Genuine climbing success ends the nursery lesson, but should not
+        # be valued as a fatal loss of 300+ expected future reward.
+        fell=np.array([0.,1.,0.,0.],np.float32)
+        goal=np.array([0.,0.,1.,0.],np.float32)
+        finished=np.array([1.,0.,0.,0.],np.float32)
+        strict=episode_terminal_mask(
+            np,fell,goal,finished,success_as_truncation=False)
+        late=episode_terminal_mask(
+            np,fell,goal,finished,success_as_truncation=True)
+        np.testing.assert_array_equal(strict,[1.,1.,1.,0.])
+        np.testing.assert_array_equal(late,[0.,1.,0.,0.])
+
+        reward=np.array([11.6],np.float32)
+        value=np.array([330.],np.float32)
+        next_value=np.array([330.],np.float32)
+        old=stair_terminal_credit_stats(
+            np,np.array([-318.4],np.float32),reward,value,
+            np.array([1.],np.float32),
+            bootstrap_value=next_value,terminal=np.array([1.],np.float32))
+        new=stair_terminal_credit_stats(
+            np,np.array([8.3],np.float32),reward,value,
+            np.array([1.],np.float32),
+            bootstrap_value=next_value,terminal=np.array([0.],np.float32))
+        self.assertAlmostEqual(float(old["stair_credit_finish_td"]),-318.4,places=4)
+        self.assertGreater(float(new["stair_credit_finish_td"]),0.)
+        self.assertAlmostEqual(float(new["stair_credit_finish_td"]),
+                               11.6+PPO_GAMMA*330.-330.,places=3)
+        self.assertAlmostEqual(float(new["stair_credit_finish_bootstrap_value"]),330.)
+
     def test_stair_freedom_keeps_physical_proof_but_not_lane_discipline(self):
         from emu.step_goal import (
             signed_forward_progress, signed_distance_progress,
