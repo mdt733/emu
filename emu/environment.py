@@ -1540,7 +1540,7 @@ class EmuMJXEnv(TaskSampler):
         staged=slope[19:24]
         if (not np.isfinite(staged).all() or
                 np.any(staged<0.) or
-                staged[0]>.22+1e-6 or staged[1]>.55+1e-6 or
+                staged[0]>.22+1e-6 or staged[1]>1.0+1e-6 or
                 staged[2]>.35+1e-6 or
                 staged[3]>6.+1e-6 or staged[4]>7.+1e-6):
             raise ValueError('holistic stage teacher outside pinned physics budget')
