@@ -343,6 +343,7 @@ class StairCreditAudit:
 
     CREDIT_FIELDS = (
         'stair_credit_finish_reward', 'stair_credit_finish_value',
+        'stair_credit_finish_bootstrap_value',
         'stair_credit_finish_td', 'stair_credit_finish_adv_raw',
         'stair_credit_finish_adv_normalised',
         'stair_credit_finish_negative_fraction',
@@ -936,6 +937,7 @@ def augment_rollout_row(
         'ppo_stair_credit_finish_events': 'stair_credit_finish_events',
         'ppo_stair_credit_finish_reward': 'stair_credit_finish_reward',
         'ppo_stair_credit_finish_value': 'stair_credit_finish_value',
+        'ppo_stair_credit_finish_bootstrap_value': 'stair_credit_finish_bootstrap_value',
         'ppo_stair_credit_finish_td': 'stair_credit_finish_td',
         'ppo_stair_credit_finish_adv_raw': 'stair_credit_finish_adv_raw',
         'ppo_stair_credit_finish_adv_normalised': 'stair_credit_finish_adv_normalised',
