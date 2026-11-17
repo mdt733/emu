@@ -74,20 +74,21 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
     valid_alive = 1.0 - m['terminal']
     command_tracking = _command_tracking(m, is_transition, is_resilience, jnp,
         temporal_vx=temporal_vx)
-    if science_step_velocity_relief > 0.:
-        # One teacher-only concession to stair negotiation: the Academy
-        # policy may temporarily slow down to load/swing the leading foot.
-        # Never excuse lateral/yaw/pitch error or ballistic forward escape.
-        vy_err=m['vy']-m['cmd_vy']
-        yaw_err=m['yaw_rate']-m['cmd_yaw']
-        pitch_err=m['body_pitch']-m['cmd_pitch']
-        runaway=jnp.maximum(0.,m['vx']-m['cmd_vx']-.25)
-        target=jnp.exp(-(14.*vy_err*vy_err+4.5*yaw_err*yaw_err+
-                         18.*pitch_err*pitch_err+45.*runaway*runaway))
-        relaxed=(1.-science_step_velocity_relief)*command_tracking+(
-            science_step_velocity_relief*target)
-        command_tracking=jnp.where(m['science_step_goal_active']>.5,
-                                   relaxed,command_tracking)
+    # Dynamic JAX teacher scalar: evaluate both branches and select only
+    # the Academy command reward. Zero relief preserves the ordinary score.
+    # One teacher-only concession to stair negotiation: the Academy
+    # policy may temporarily slow down to load/swing the leading foot.
+    # Never excuse lateral/yaw/pitch error or ballistic forward escape.
+    vy_err=m['vy']-m['cmd_vy']
+    yaw_err=m['yaw_rate']-m['cmd_yaw']
+    pitch_err=m['body_pitch']-m['cmd_pitch']
+    runaway=jnp.maximum(0.,m['vx']-m['cmd_vx']-.25)
+    target=jnp.exp(-(14.*vy_err*vy_err+4.5*yaw_err*yaw_err+
+                     18.*pitch_err*pitch_err+45.*runaway*runaway))
+    relaxed=(1.-science_step_velocity_relief)*command_tracking+(
+        science_step_velocity_relief*target)
+    command_tracking=jnp.where(m['science_step_goal_active']>.5,
+                               relaxed,command_tracking)
     (upright_height, feet_only_contact, stance_anti_slip,
      swing_clearance, servo_smoothness, joint_safety) = _physical_qualities(
         m, jnp, phase_sync_strength=science_phase_sync_strength,
@@ -172,24 +173,24 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
     # oscillating around one location cannot accumulate positive distance.
     # The new goal target is advanced only by independently verified top
     # contact / new tile confirmation, not by trainer reward flags.
-    if science_step_goal_weight > 0.:
-        delta=jnp.clip(m['science_step_goal_delta_m']/.012,-1.,1.)
-        yaw_error=m['yaw_rate']-m['cmd_yaw']
-        upright=jnp.clip(m['gravity_z'],0.,1.)
-        # Make distance changes a genuine signed potential:
-        # backwards motion receives full negative credit even when airborne,
-        # unsupported or slipping. Otherwise bouncing off support could
-        # farm positive approach while escaping its equal-distance retreat.
-        safe_progress=(jnp.clip(m['support'],0.,1.)*
-                       (1.-jnp.clip(m['bad_contact'],0.,1.))*
-                       jnp.exp(-6.*jnp.maximum(0.,m['stance_slip']))*
-                       jnp.exp(-4.*yaw_error*yaw_error)*upright)
-        signed_delta=jnp.where(delta>0.,delta*safe_progress,delta)
-        goal_progress=(science_step_goal_weight*
-                       m['science_step_goal_active']*valid_alive*
-                       signed_delta)
-        reward=reward+goal_progress
-        payments['goal_progress']=goal_progress
+    # Pure signed potential, dynamically zero until the 120M stage.
+    delta=jnp.clip(m['science_step_goal_delta_m']/.012,-1.,1.)
+    yaw_error=m['yaw_rate']-m['cmd_yaw']
+    upright=jnp.clip(m['gravity_z'],0.,1.)
+    # Make distance changes a genuine signed potential:
+    # backwards motion receives full negative credit even when airborne,
+    # unsupported or slipping. Otherwise bouncing off support could
+    # farm positive approach while escaping its equal-distance retreat.
+    safe_progress=(jnp.clip(m['support'],0.,1.)*
+                   (1.-jnp.clip(m['bad_contact'],0.,1.))*
+                   jnp.exp(-6.*jnp.maximum(0.,m['stance_slip']))*
+                   jnp.exp(-4.*yaw_error*yaw_error)*upright)
+    signed_delta=jnp.where(delta>0.,delta*safe_progress,delta)
+    goal_progress=(science_step_goal_weight*
+                   m['science_step_goal_active']*valid_alive*
+                   signed_delta)
+    reward=reward+goal_progress
+    payments['goal_progress']=goal_progress
     motor_payment = payments.get('motor_cost', jnp.zeros_like(valid_alive))
     return reward, {**terms, **{f'weighted_{name}': value for name, value in payments.items()},
                     'weighted_motor_cost': motor_payment}
