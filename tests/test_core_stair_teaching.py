@@ -122,6 +122,63 @@ class CoreStairPhysicsTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"holistic stage"):
             cold.params_array(dict(base,holistic_goal_weight=.50))
 
+    def test_stair_freedom_keeps_physical_proof_but_not_lane_discipline(self):
+        from emu.step_goal import (
+            signed_forward_progress, signed_distance_progress,
+            short_climb_quality)
+        from emu.capability_focus import holistic_stair_stage
+
+        # No free-lateral behaviour before the final transfer lesson.
+        self.assertEqual(holistic_stair_stage(139_999_999).velocity_relief,.55)
+        self.assertEqual(holistic_stair_stage(140_000_000).velocity_relief,1.0)
+
+        goal=np.array([[1.60,.50]])
+        before=np.array([[.82,.50]])
+        after=np.array([[.92,.90]])
+        # Moving towards the REAL +X lip earns the same stair progress
+        # despite the sideways detour; lateral movement alone earns zero.
+        self.assertAlmostEqual(float(signed_forward_progress(
+            np,goal,before,after)[0]),.02)
+        side=np.array([[.82,.90]])
+        self.assertAlmostEqual(float(signed_forward_progress(
+            np,goal,before,side)[0]),0.)
+        back=np.array([[.72,.90]])
+        self.assertAlmostEqual(float(signed_forward_progress(
+            np,goal,before,back)[0]),-.02)
+        self.assertLess(float(signed_distance_progress(
+            np,goal,before,after)[0]),0.)
+
+        xy=np.array([[1.25,.90]])  # within the actual target 1m tile
+        theta=np.array([np.pi/2])  # deliberately sideways at the finish
+        gravity=np.array([.95])
+        support=np.array([.7])
+        bad=np.array([0.])
+        transferred=np.array([True])
+        lip=np.array([.05])
+        normal=short_climb_quality(
+            np,goal,xy,theta,gravity,support,bad,transferred,lip)
+        free=short_climb_quality(
+            np,goal,xy,theta,gravity,support,bad,transferred,lip,
+            freeform=True)
+        self.assertFalse(bool(normal[0]))
+        self.assertTrue(bool(free[0]))
+        # Freestyle NEVER excuses missing second-foot proof, a fall, a
+        # sidewall contact, or a body that never crossed the lip.
+        for kwargs in (
+            dict(transfer_verified=np.array([False])),
+            dict(gravity_z=np.array([.50])),
+            dict(bad_contact=np.array([1.])),
+            dict(xy=np.array([[.98,.90]])),
+        ):
+            values=dict(xy=xy,gravity_z=gravity,bad_contact=bad,
+                        transfer_verified=transferred)
+            values.update(kwargs)
+            result=short_climb_quality(
+                np,goal,values["xy"],theta,values["gravity_z"],support,
+                values["bad_contact"],values["transfer_verified"],lip,
+                freeform=True)
+            self.assertFalse(bool(result[0]),kwargs)
+
     def test_sync_off_reduces_only_phase_payment(self):
         m=dict(cmd_pitch=np.ones(1)*0.,height_error=np.zeros(1),
                attitude_quality=np.ones(1),foot_mid_cone=np.ones(1),
