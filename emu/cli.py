@@ -72,6 +72,8 @@ def main(argv=None) -> int:
                    help='required: eight true convex triangular-prism MJX colliders (GPU gate required)')
     q.add_argument('--carpet-transition-cap-deg',type=float,default=3.0,
                    help='maximum local slope-angle change between 1m tiles')
+    q.add_argument('--holistic-cold-curriculum',action='store_true',
+                   help='single fresh 0->160M age-staged Spring V1 curriculum: gait fade, signed stair commitment, independent UP/DOWN caps, transfer and retention')
     q.add_argument('--foundation-steps',type=int,choices=(10000000,20000000),default=20000000,
                    help='cold foundation length: experiment at 10M or reference 20M')
     q.add_argument('--fixed-eval-every-steps',type=int,default=60000000,
