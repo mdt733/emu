@@ -23,15 +23,14 @@ export EMU_UNIFIED_CONTINUOUS=cold-growth-approved
 
 SOURCE_SHA=22266821bdbfc82a529ef708e5171c82c6c9f29c
 SOURCE_RUN="${EMU_FREEDOM_SOURCE_RUN:-$HOME/emu-data/runs/h40-holistic-cold-s735}"
-# Pilot is an independent 5M PPO fork with the same parent, not a silent
-# change to the planned full 20M comparison. It cannot overwrite either.
+# One 140M-parent learner, with a 145M pilot checkpoint before optional
+# 160M continuation. Never retrain the same 5M or edit the original.
+EXP_ROOT="${EMU_FREEDOM_ROOT:-$HOME/emu-data/runs/h40-stair-freedom-140to160-s735}"
 if [[ "$MODE" == pilot ]]; then
-  EXP_ROOT="${EMU_FREEDOM_ROOT:-$HOME/emu-data/runs/h40-stair-freedom-pilot-145m-s735}"
   TRAIN_TARGET=145000000
   AGE=145
   CANDIDATE=pilot145M
 else
-  EXP_ROOT="${EMU_FREEDOM_ROOT:-$HOME/emu-data/runs/h40-stair-freedom-140to160-s735}"
   TRAIN_TARGET=160000000
   AGE=160
   CANDIDATE=freedom160M
@@ -107,6 +106,28 @@ if [[ "$MODE" == all || "$MODE" == run || "$MODE" == pilot ]]; then
   fi
   "$PY" -m emu.cli train "${COMMON[@]}" --steps "$TRAIN_TARGET" "${RESUME[@]}" --check-resume-only
   "$PY" -m emu.cli train "${COMMON[@]}" --steps "$TRAIN_TARGET" "${RESUME[@]}"
+  # Preserve the complete PPO/optimizer snapshot of the pilot before any
+  # later same-source target extension overwrites checkpoints/final.pkl.
+  if [[ "$MODE" == pilot ]]; then
+    export SOURCE_CHECKPOINT="$RUN_DIR/checkpoints/final.pkl"
+    export STAGE_CHECKPOINT="$RUN_DIR/stages/145m/final.pkl"
+    "$PY" - <<'PY'
+import hashlib,os,shutil
+from pathlib import Path
+src=Path(os.environ["SOURCE_CHECKPOINT"])
+dst=Path(os.environ["STAGE_CHECKPOINT"])
+dst.parent.mkdir(parents=True,exist_ok=True)
+if not dst.exists():
+    tmp=dst.with_name("."+dst.name+".copying")
+    if tmp.exists(): raise RuntimeError("Interrupted pilot freeze, inspect "+str(tmp))
+    shutil.copy2(src,tmp)
+    os.replace(tmp,dst)
+    dst.chmod(0o444)
+if hashlib.sha256(src.read_bytes()).digest()!=hashlib.sha256(dst.read_bytes()).digest():
+    raise RuntimeError("Pilot checkpoint changed after freezing")
+print("Immutable pilot optimizer checkpoint:",dst,flush=True)
+PY
+  fi
   if [[ "$MODE" == run ]]; then
     echo "Training complete. Next: bash scripts/run_h40_stair_freedom_wsl.sh exam"
     exit 0
@@ -122,7 +143,7 @@ if [[ ! -f "$ACTOR" ]]; then
   "$PY" -m emu.cli export-policy "$CHECKPOINT" "$ACTOR"
 fi
 for task in stairs flat; do
-  OUT="$RUN_DIR/heldout/$task"
+  OUT="$RUN_DIR/heldout/${AGE}m/$task"
   if [[ -f "$OUT/matrix_summary.json" && -f "$OUT/matrix_worlds.csv" ]]; then
     echo "Reusing completed $task examination; do not overwrite its evidence."
     continue
@@ -151,8 +172,9 @@ def read(path):
     with path.open(newline="",encoding="utf-8") as f: return list(csv.DictReader(f))
 def stages(root,age):
     if age=="new":
-        return (read(root/"heldout/stairs/matrix_worlds.csv"),
-                read(root/"heldout/flat/matrix_worlds.csv"))
+        age=os.environ["AGE"]
+        return (read(root/f"heldout/{age}m/stairs/matrix_worlds.csv"),
+                read(root/f"heldout/{age}m/flat/matrix_worlds.csv"))
     return (read(root/f"heldout/{age}m/stairs/matrix_worlds.csv"),
             read(root/f"heldout/{age}m/flat/matrix_worlds.csv"))
 def bands(stairs,flat):
@@ -210,11 +232,11 @@ lines += [f"- {'PASS' if passed else 'FAIL'}: {key}" for key,passed in threshold
 lines+=["","All per-world physical proof, strict lane metrics, lateral offsets and survival are in the CSVs.",
          "One parent seed, one exam seed; do not promote to main without independent cold-seed replication.",""]
 (root/"comparison.md").write_text("\n".join(lines),encoding="utf-8")
-bundle=root/"stair_freedom_results.zip"
+bundle=root/f"stair_freedom_{os.environ['AGE']}m_results.zip"
 files=["comparison.md","comparison.json",
        f"experiment/actor-{os.environ['AGE']}m.emupolicy","experiment/training_config.json",
        "experiment/run_meta.json"]
-files += [f"experiment/heldout/{kind}/{filename}"
+files += [f"experiment/heldout/{os.environ['AGE']}m/{kind}/{filename}"
           for kind in ("stairs","flat")
           for filename in ("matrix_worlds.csv","matrix_curve.csv","matrix_summary.json")]
 with zipfile.ZipFile(bundle,"w",zipfile.ZIP_DEFLATED) as z:
