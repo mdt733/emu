@@ -170,6 +170,7 @@ class TrainingConfig:
     # 0 reproduces protected main reward shaping; experimental 20M fades
     # gait-specific teaching across 20M→40M without changing PPO/sensors.
     gait_guidance_fade_steps: int = 0
+    holistic_cold_curriculum: bool = False  # one random-init 0-160M source-pinned teacher, no historical PPO parent
     foundation_mix: str = 'main'  # main, command-heavy, curious
     fixed_eval_every_steps: int = EVAL_EVERY_STEPS
     teaching_schedule: str = 'balanced'  # balanced, staged, terrain-early
