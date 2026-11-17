@@ -95,13 +95,13 @@ class HolisticStairStage(NamedTuple):
 
 
 def holistic_stair_stage(step: int) -> HolisticStairStage:
-    """The full 0->160M teacher recipe, independently of any saved actor.
+    """The experimental 0->180M teacher recipe, independently of any saved actor.
 
     0-20M: original stand/walk foundation (gait guidance retained)
     20-40M: gait guidance fades separately to zero
     40-120M: outcomes and earned real-prism STEP/UP/DOWN schooling
-    120-140M: learn to approach and try a signed physical lip
-    140-160M: learn verified two-foot transfer and forward follow-through
+    120-160M: keep learning to approach and commit to a signed physical lip
+    160-180M: learn verified two-foot transfer and forward follow-through
 
     Downhill remains a first-class separate school. Mature uphill learning
     deliberately concentrates <=55mm; independent 56-80mm exams remain
@@ -116,7 +116,7 @@ def holistic_stair_stage(step: int) -> HolisticStairStage:
         phase=("foundation" if step < 20_000_000 else
                "gait_fade" if step < 40_000_000 else "outcome_school")
         return HolisticStairStage(phase,0.,0.,0.,0.,0.,.15,.055,.080)
-    if step < 140_000_000:
+    if step < 160_000_000:
         return HolisticStairStage(
             "commitment",.22,.55,.22,0.,0.,.15,.055,.080)
     return HolisticStairStage(

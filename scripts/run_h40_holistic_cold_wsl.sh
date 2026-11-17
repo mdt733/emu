@@ -53,7 +53,8 @@ for step in ages:
 if not (holistic_stair_stage(20_000_000).name=="gait_fade"
         and holistic_stair_stage(40_000_000).name=="outcome_school"
         and holistic_stair_stage(120_000_000).name=="commitment"
-        and holistic_stair_stage(140_000_000).name=="transfer_retention"):
+        and holistic_stair_stage(140_000_000).name=="commitment"
+        and holistic_stair_stage(160_000_000).name=="transfer_retention"):
     raise RuntimeError("Frozen teacher stage boundaries changed")
 print("ONE COLD SOURCE:",os.environ["EMU_COLD_SOURCE"])
 PY
@@ -240,7 +241,7 @@ manifest=dict(source_git_commit=source,target_steps=age*1_000_000,
               no_historical_model_loaded=True,
               curriculum_stage=(
                   "foundation" if age<=20 else "gait_fade" if age<=40
-                  else "outcomes" if age<=120 else "commitment" if age<=140
+                  else "outcomes" if age<=120 else "commitment" if age<=160
                   else "transfer_retention"))
 path=out/"stage_manifest.json"
 if path.exists() and json.loads(path.read_text(encoding="utf-8"))!=manifest:

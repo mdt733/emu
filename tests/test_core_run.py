@@ -172,17 +172,21 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert OBS_DIM==360
     assert [holistic_stair_stage(n).name for n in (
         0,20_000_000,40_000_000,119_999_999,
-        120_000_000,139_999_999,140_000_000,160_000_000)
+        120_000_000,139_999_999,140_000_000,
+        159_999_999,160_000_000,180_000_000)
     ]==[
         "foundation","gait_fade","outcome_school","outcome_school",
-        "commitment","commitment","transfer_retention","transfer_retention"]
+        "commitment","commitment","commitment","commitment",
+        "transfer_retention","transfer_retention"]
     for n in (0,20_000_000,40_000_000,119_999_999):
         st=holistic_stair_stage(n)
         assert st.goal_weight==0. and st.velocity_relief==0.
         assert st.bilateral_bonus==st.followthrough_bonus==0.
         assert st.approach_m==0.
     commitment=holistic_stair_stage(120_000_000)
-    transfer=holistic_stair_stage(140_000_000)
+    assert holistic_stair_stage(159_999_999).retention_share==.15
+    assert holistic_stair_stage(159_999_999).bilateral_bonus==0.
+    transfer=holistic_stair_stage(160_000_000)
     assert (commitment.goal_weight,commitment.velocity_relief,
             commitment.approach_m)==pytest.approx((.22,.55,.22))
     assert (transfer.goal_weight,transfer.velocity_relief,

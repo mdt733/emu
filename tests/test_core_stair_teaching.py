@@ -103,7 +103,8 @@ class CoreStairPhysicsTests(unittest.TestCase):
                   academy_episode_probability=1.,
                   academy_height_up_m=.02,academy_height_down_m=.02)
         from emu.capability_focus import holistic_stair_stage
-        for age in (119_999_999,120_000_000,140_000_000):
+        for age in (119_999_999,120_000_000,140_000_000,
+                    159_999_999,160_000_000):
             stage=holistic_stair_stage(age)
             params=dict(base,
                 holistic_goal_weight=stage.goal_weight,

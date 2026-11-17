@@ -461,7 +461,7 @@ def train(args: TrainingConfig) -> int:
             weights=list(attention_weights(
                 schedule=args.teaching_schedule,step=step,
                 foundation_steps=args.foundation_steps))
-            # After 140M explicitly rehearse ordinary/command skills.
+            # After 160M graduation, explicitly rehearse ordinary/command skills.
             retention=(holistic_stair_stage(step).retention_share
                        if args.holistic_cold_curriculum
                        else args.retention_share)
@@ -926,10 +926,32 @@ def train(args: TrainingConfig) -> int:
                 {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale, **obs_meta}, obs_norm,
                 curriculum_state=governor.state_dict(), health_state=health.state_dict(),
                 field_state=field.state_dict(), step=total_steps,
-                keep=max(0, int(SNAPSHOT_KEEP)))
+                # Keep 140-180M research snapshots without touching examiner-fingerprinted
+                # training_config.py or altering the policy/optimizer update.
+                keep=max(0, int(SNAPSHOT_KEEP),
+                         24 if (args.holistic_cold_curriculum
+                                and args.steps >= 180_000_000) else 0))
             perf.add('checkpoint_snapshot_device_get', snap_timing['device_get_s'])
             perf.add('checkpoint_snapshot_pickle_write', snap_timing['pickle_write_s'])
             perf.add('checkpoint_snapshot_total', snap_timing['total_s'])
+
+        # Pre-transfer milestone: the first 160M boundary follows a
+        # commitment PPO rollout; the NEXT update sees transfer rewards.
+        # Checkpointing here does not reset episodes or change PPO dynamics.
+        if (args.holistic_cold_curriculum and args.steps >= 180_000_000
+                and total_steps - args.envs * ROLLOUT_STEPS < 160_000_000 <= total_steps):
+            boundary = run_dir / 'checkpoints' / 'milestone_160m.pkl'
+            saved = save_checkpoint(
+                boundary, state,
+                {'step': total_steps, 'run_name': run_name,
+                 'lr_scale': lr_scale, 'milestone': 'pre_transfer_160m',
+                 **obs_meta},
+                {'mean': obs_mean, 'var': obs_var, 'count': obs_count},
+                curriculum_state=governor.state_dict(),
+                health_state=health.state_dict(), field_state=field.state_dict(),
+                require_finite_state=True)
+            if not saved.get('saved', 0.0):
+                raise RuntimeError('160M pre-transfer milestone is nonfinite')
 
         # Freeze provenance for the rollout we are ABOUT to collect. The
         # next loop iteration's row must be attributed to these exact values,
