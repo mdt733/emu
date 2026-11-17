@@ -80,18 +80,12 @@ def evaluate(root:Path):
     if not source or len(source)!=40:
         raise RuntimeError("Not one fully recorded source-pinned training run")
     configs=json.loads((root/"training_config.json").read_text(encoding="utf-8"))
+    seed=int(configs["seed"])
     if (not configs.get("holistic_cold_curriculum") or
             int(configs["steps"])!=160_000_000 or
-            configs["seed"]!=735 or configs["envs"]!=2048 or
-            configs["physical_profile"]!="h40-spring-v1" or
-            configs.get("resume") not in ("","auto")):
-        # The trainer stores auto or a normalized same-run internal parent
-        # when resuming. Checkpoint/manifests below bind the actual lineage.
-        if not (configs.get("holistic_cold_curriculum") and
-                int(configs["steps"])==160_000_000 and
-                configs["seed"]==735 and configs["envs"]==2048 and
-                configs["physical_profile"]=="h40-spring-v1"):
-            raise RuntimeError("Not the expected fully cold H40 curriculum")
+            seed<0 or configs["envs"]!=2048 or
+            configs["physical_profile"]!="h40-spring-v1"):
+        raise RuntimeError("Not the expected fully cold H40 curriculum")
     exam={}
     categories={}
     for age in AGES:
@@ -99,6 +93,7 @@ def evaluate(root:Path):
         manifest=json.loads((stage/"stage_manifest.json").read_text(encoding="utf-8"))
         if (manifest["source_git_commit"]!=source or
                 manifest["target_steps"]!=age*1_000_000 or
+                int(manifest["training_seed"])!=seed or
                 manifest["physical_model_sha256"]!=MODEL_SHA or
                 sha(stage/"final.pkl")!=manifest["checkpoint_sha256"] or
                 sha(stage/"actor.emupolicy")!=manifest["actor_sha256"] or
@@ -171,7 +166,7 @@ def evaluate(root:Path):
         single_ppo_optimizer_lineage=True,
         physical_model_sha256=MODEL_SHA,
         independent_exam_source_sha256=expected_exam,
-        training_seed=735,exam_seed=1701,
+        training_seed=seed,exam_seed=1701,
         no_historical_actor_loaded=True,
         caveat="A single cold 0-160M seed reproduces an executable process, not statistically reliable seed-to-seed ability; run a second seed next"),
         stages=categories,
