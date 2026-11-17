@@ -94,8 +94,10 @@ if [[ "$MODE" == plan ]]; then
   exit 0
 fi
 if [[ "$MODE" == all || "$MODE" == run || "$MODE" == pilot ]]; then
-  if [[ -f "$RUN_DIR/training_config.json" ]]; then
+  if [[ -f "$RUN_DIR/training_config.json" && -f "$RUN_DIR/run_meta.json" ]]; then
     # Resume of THIS source, never transplant the external ancestor twice.
+    # If driver setup failed after writing only config/console.log, retry
+    # using the same authenticated external parent instead of --resume auto.
     RESUME=(--resume auto)
   else
     RESUME=(--resume "$PARENT"
@@ -103,6 +105,7 @@ if [[ "$MODE" == all || "$MODE" == run || "$MODE" == pilot ]]; then
             --research-parent-sha256 "$PARENT_HASH")
     "$PY" -m pytest -q tests/test_core_stair_teaching.py
     "$PY" scripts/smoke_gpu_carpet.py --device cuda --worlds 128 --frames 2 --prisms --ppo
+    "$PY" scripts/smoke_gpu_carpet.py --device cuda --worlds 2048 --frames 2 --prisms --ppo --full-update
   fi
   "$PY" -m emu.cli train "${COMMON[@]}" --steps "$TRAIN_TARGET" "${RESUME[@]}" --check-resume-only
   "$PY" -m emu.cli train "${COMMON[@]}" --steps "$TRAIN_TARGET" "${RESUME[@]}"
