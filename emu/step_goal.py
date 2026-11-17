@@ -28,6 +28,17 @@ def signed_distance_progress(xp, goal_xy, before_xy, after_xy):
     return xp.clip(before-after,-.02,.02)
 
 
+def signed_forward_progress(xp, goal_xy, before_xy, after_xy):
+    """Stair-only +X potential: sideways detours neither pay nor punish.
+
+    Credit stops at the original fixed goal X; backtracking repays progress.
+    A forward-only metric prevents a 90-degree turn from being called failure.
+    """
+    before=xp.maximum(0.,goal_xy[:,0]-before_xy[:,0])
+    after=xp.maximum(0.,goal_xy[:,0]-after_xy[:,0])
+    return xp.clip(before-after,-.02,.02)
+
+
 
 # Short nursery mission: prove the first real lip, then move on to the next
 # birth. A strict 60cm park-and-hold is a separate (harder) capability.
@@ -38,7 +49,7 @@ CLIMB_STABLE_FRAMES = 3
 
 
 def short_climb_quality(xp, goal_xy, xy, heading_rad, gravity_z, support,
-                        bad_contact, transfer_verified, birth_lip_m):
+                        bad_contact, transfer_verified, birth_lip_m, *, freeform=False):
     """First signed prism lip: BOTH feet verified, upright beyond the edge.
 
     `transfer_verified` is established by five independent real-top contact
@@ -48,11 +59,14 @@ def short_climb_quality(xp, goal_xy, xy, heading_rad, gravity_z, support,
     """
     edge_x=goal_xy[:,0]-DESTINATION_AFTER_LIP_M
     heading=xp.abs(xp.arctan2(xp.sin(heading_rad),xp.cos(heading_rad)))
+    lane_ok=((xp.abs(xy[:,1]-goal_xy[:,1])<=CLIMB_Y_TOL_M) &
+             (heading<=CLIMB_HEADING_TOL_RAD))
+    # Freeform school retains true assigned-tile, two-foot and health gates;
+    # it does not require a textbook heading within that physical tile.
     return (transfer_verified & (xp.abs(birth_lip_m)>.0015) &
             (xy[:,0]>=edge_x+CLIMB_AFTER_LIP_M) &
             (xy[:,0]<edge_x+TILE_M) &
-            (xp.abs(xy[:,1]-goal_xy[:,1])<=CLIMB_Y_TOL_M) &
-            (heading<=CLIMB_HEADING_TOL_RAD) &
+            (freeform | lane_ok) &
             (gravity_z>=.80) & (support>=.5) & (bad_contact<.5))
 
 def arrival_quality(xp, goal_xy, xy, heading_rad, gravity_z, support,
