@@ -182,6 +182,41 @@ def one_run_config(args) -> TrainingConfig:
     approach=science_args['science_step_approach_m']
     if 0. < approach < .15:
         raise ValueError('science-step-approach-m must be zero or >=0.15m')
+    holistic=bool(getattr(args,'holistic_cold_curriculum',False))
+    if holistic:
+        # This recipe can be reproduced with NO previous weights. Do not
+        # permit custom teacher knobs to silently defeat the age schedule.
+        if (selected_profile()!=RESEARCH_PROFILE or not unified or
+                not academy_stream or not terrain_carpet_prisms or
+                foundation_steps!=20_000_000 or growth_recipe!='main-mature' or
+                terrain_lesson!='coherent-careful' or
+                teaching_schedule!='terrain-early' or
+                force_program!='gentle' or
+                not math.isclose(athletic_share,.10,abs_tol=1e-9) or
+                not math.isclose(retention_share,.15,abs_tol=1e-9) or
+                not math.isclose(academy_share,.40,abs_tol=1e-9) or
+                finish_on_transfer):
+            raise ValueError(
+                'holistic cold curriculum requires Spring V1 H40, 20M foundation, '
+                'main-mature/terrain-early/coherent-careful/gentle, '
+                'Academy 40%, fast rehearsal 10%, base retention 15%, '
+                'and no early stair finish')
+        scheduled={
+            'science_step_goal_weight':.22,
+            'science_step_velocity_relief':.55,
+            'science_step_approach_m':.22,
+            'science_bilateral_support_bonus':6.,
+            'science_followthrough_bonus':7.,
+        }
+        if any(science_args[name]!=0. for name in scheduled):
+            raise ValueError(
+                'holistic stage rewards are sourced only from the pinned '
+                'curriculum; remove explicit --science-step-* overrides')
+        if any(science_args[name]!=0. for name in (
+                'science_supported_cross_bonus','science_foothold_bonus',
+                'science_sensor_teacher_bonus')):
+            raise ValueError('holistic cold curriculum has no lead-foot or sensor bonus')
+        science_args.update(scheduled)
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
                    physical_profile=selected_profile(),
                    solver_iterations=solver_iterations,
@@ -190,6 +225,7 @@ def one_run_config(args) -> TrainingConfig:
                    terrain_step_max_m=terrain_max, unified_capability_focus=unified,
                    foundation_steps=foundation_steps, foundation_mix=foundation_mix,
                    gait_guidance_fade_steps=gait_guidance_fade_steps,
+                   holistic_cold_curriculum=holistic,
                    teaching_schedule=teaching_schedule,
                    velocity_i_ramp_s=velocity_i_ramp_s,
                    velocity_i_multiplier=velocity_i_multiplier,
