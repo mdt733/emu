@@ -1540,8 +1540,9 @@ class EmuMJXEnv(TaskSampler):
         staged=slope[19:24]
         if (not np.isfinite(staged).all() or
                 np.any(staged<0.) or
-                staged[0]>.22 or staged[1]>.55 or staged[2]>.35 or
-                staged[3]>6. or staged[4]>7.):
+                staged[0]>.22+1e-6 or staged[1]>.55+1e-6 or
+                staged[2]>.35+1e-6 or
+                staged[3]>6.+1e-6 or staged[4]>7.+1e-6):
             raise ValueError('holistic stage teacher outside pinned physics budget')
         if not self.holistic_cold_curriculum and np.any(staged!=0.):
             raise ValueError('holistic teacher packet requires explicit cold curriculum')
