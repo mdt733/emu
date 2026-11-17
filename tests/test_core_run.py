@@ -326,7 +326,6 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     # 160M PPO/exams succeeded, but this final packaging step was previously
     # untested and failed only AFTER the 4000 physical trials finished.
     import zipfile
-    from unittest.mock import patch
     import scripts.compare_h40_stair_transfer_tutor as transfer_mod
     fake_run=tmp_path/"transfer-zip-smoke"
     fake_parent=tmp_path/"frozen-140m-exam"
