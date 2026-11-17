@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # One controlled 140M -> 160M research fork. Original cold-run checkpoints untouched.
-# Usage: bash scripts/run_h40_stair_freedom_wsl.sh [plan|pilot|run|exam|all]
+# Usage: bash scripts/run_h40_stair_freedom_wsl.sh [plan|pilot|credit-pilot|run|exam|all]
 set -euo pipefail
 MODE="${1:-pilot}"
-case "$MODE" in plan|pilot|run|exam|all) ;; *) echo "Use plan|pilot|run|exam|all" >&2; exit 2;; esac
+case "$MODE" in plan|pilot|credit-pilot|run|exam|all) ;; *) echo "Use plan|pilot|credit-pilot|run|exam|all" >&2; exit 2;; esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -26,7 +26,13 @@ SOURCE_RUN="${EMU_FREEDOM_SOURCE_RUN:-$HOME/emu-data/runs/h40-holistic-cold-s735
 # One 140M-parent learner, with a 145M pilot checkpoint before optional
 # 160M continuation. Never retrain the same 5M or edit the original.
 EXP_ROOT="${EMU_FREEDOM_ROOT:-$HOME/emu-data/runs/h40-stair-freedom-140to160-s735}"
-if [[ "$MODE" == pilot ]]; then
+if [[ "$MODE" == credit-pilot ]]; then
+  # New 140M fork; do NOT resume, overwrite, or reinterpret old 145M pilot.
+  EXP_ROOT="${EMU_FREEDOM_ROOT:-$HOME/emu-data/runs/h40-stair-credit-140to145-s735}"
+  TRAIN_TARGET=145000000
+  AGE=145
+  CANDIDATE=credit145M
+elif [[ "$MODE" == pilot ]]; then
   TRAIN_TARGET=145000000
   AGE=145
   CANDIDATE=pilot145M
@@ -93,7 +99,7 @@ if [[ "$MODE" == plan ]]; then
   echo "Plan complete; no training started."
   exit 0
 fi
-if [[ "$MODE" == all || "$MODE" == run || "$MODE" == pilot ]]; then
+if [[ "$MODE" == all || "$MODE" == run || "$MODE" == pilot || "$MODE" == credit-pilot ]]; then
   if [[ -f "$RUN_DIR/training_config.json" && -f "$RUN_DIR/run_meta.json" ]]; then
     # Resume of THIS source, never transplant the external ancestor twice.
     # If driver setup failed after writing only config/console.log, retry
@@ -111,7 +117,7 @@ if [[ "$MODE" == all || "$MODE" == run || "$MODE" == pilot ]]; then
   "$PY" -m emu.cli train "${COMMON[@]}" --steps "$TRAIN_TARGET" "${RESUME[@]}"
   # Preserve the complete PPO/optimizer snapshot of the pilot before any
   # later same-source target extension overwrites checkpoints/final.pkl.
-  if [[ "$MODE" == pilot ]]; then
+  if [[ "$MODE" == pilot || "$MODE" == credit-pilot ]]; then
     export SOURCE_CHECKPOINT="$RUN_DIR/checkpoints/final.pkl"
     export STAGE_CHECKPOINT="$RUN_DIR/stages/145m/final.pkl"
     "$PY" - <<'PY'
@@ -213,7 +219,7 @@ thresholds={
     "flat_strict_at_least_45pct":rows[candidate]["flat"]["objective"]>=.45,
     "up_64_80_survival_at_least_55pct":rows[candidate]["up_64_80"]["survival"]>=.55,
 }
-out={"experiment":f"140M->{os.environ['AGE']}M late-stage stair freedom; same seed, frozen parent",
+out={"experiment":f"140M->{os.environ['AGE']}M late-stage stair freedom + {os.environ['CANDIDATE']} credit recipe; same seed, frozen parent",
      "parent_source":os.environ["SOURCE_SHA"],
      "branch_source":os.popen("git rev-parse HEAD").read().strip(),
      "objective":"No lane/yaw requirement for stairs only; flat remains strict",
@@ -235,10 +241,11 @@ lines += [f"- {'PASS' if passed else 'FAIL'}: {key}" for key,passed in threshold
 lines+=["","All per-world physical proof, strict lane metrics, lateral offsets and survival are in the CSVs.",
          "One parent seed, one exam seed; do not promote to main without independent cold-seed replication.",""]
 (root/"comparison.md").write_text("\n".join(lines),encoding="utf-8")
-bundle=root/f"stair_freedom_{os.environ['AGE']}m_results.zip"
+bundle=root/("stair_credit_145m_results.zip" if candidate=="credit145M"
+             else f"stair_freedom_{os.environ['AGE']}m_results.zip")
 files=["comparison.md","comparison.json",
        f"experiment/actor-{os.environ['AGE']}m.emupolicy","experiment/training_config.json",
-       "experiment/run_meta.json"]
+       "experiment/run_meta.json","experiment/metrics.csv"]
 files += [f"experiment/heldout/{os.environ['AGE']}m/{kind}/{filename}"
           for kind in ("stairs","flat")
           for filename in ("matrix_worlds.csv","matrix_curve.csv","matrix_summary.json")]
