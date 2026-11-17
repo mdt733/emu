@@ -119,6 +119,11 @@ class CoreStairPhysicsTests(unittest.TestCase):
             self.assertEqual(stepped.obs.shape,(2,360))
             self.assertIn("academy_transfer_new",stepped.metrics)
             self.assertIn("academy_followthrough_new",stepped.metrics)
+        # Post-140M freedom is a deliberate full [0,1] reward-relief
+        # setting; the physical/actor contract must accept 1.0, not >1.
+        cold.params_array(dict(base,holistic_velocity_relief=1.0))
+        with self.assertRaisesRegex(ValueError,"holistic stage"):
+            cold.params_array(dict(base,holistic_velocity_relief=1.01))
         with self.assertRaisesRegex(ValueError,"holistic stage"):
             cold.params_array(dict(base,holistic_goal_weight=.50))
 
