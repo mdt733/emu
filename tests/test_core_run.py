@@ -226,7 +226,7 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     root=Path(__file__).resolve().parents[1]
     cold_runner=root/"scripts/run_h40_holistic_cold_wsl.sh"
     cold_src=cold_runner.read_text(encoding="utf-8")
-    for code in re.findall(r"<<'PY'\\n(.*?)\\nPY",cold_src,re.S):
+    for code in re.findall(r"<<'PY'\n(.*?)\nPY",cold_src,re.S):
         compile(code,str(cold_runner),"exec")
     assert len(re.findall(r"<<'PY'",cold_src))>=3
     if shutil.which("bash"):
