@@ -1,6 +1,6 @@
 # EMU — retained research findings
 
-**Current source:** [H40 handover](../handover.md). This is a concise **evidence ledger**, not a second set of runbooks. The full 2026 experiments, source, commands, reports and discarded proposals remain in [the pre-cleanup Git snapshot](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs) and their original PRs. Each result below identifies **its own** physics, source, seeds and exam fixtures. Historical v50xx results must **not** be treated as H40's measured capability; the matched frozen-H40 CUDA study below is the current measured stair baseline.
+**Current source:** [H40 handover](../handover.md). This is a concise **evidence ledger**, not a second set of runbooks. The full 2026 experiments, source, commands, reports and discarded proposals remain in [the pre-cleanup Git snapshot](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs) and their original PRs. Each result below identifies **its own** physics, source, seeds and exam fixtures. Historical v50xx results must **not** be treated as H40's measured capability; the 11 November H40 public baseline and later Spring V1 experiments below are separate source-specific physical studies, not proven results of the candidate cold system.
 
 ## H40 2,000 same-world frozen-actor signed stair vs flat — 11 November 2026
 
@@ -38,6 +38,25 @@ An earlier **64-world CUDA smoke** (one trial per height/sign) validated executi
 The owner-approved H40 mainline is the **120,061,952-step**, seed-735, 40 cm / six chassis-mounted C018 / rated-torque model with a 45°×45°, 70°-down 4×4 sensor and four rolling 1 m tiles. Frozen training SHA: `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`. Its exact trained `showcase/champion.emupolicy` and checkpoint SHA live in the [handover](../handover.md) and [release readiness](RELEASE_READINESS.md).
 
 The owner reports pleasing viewer walking and slopes approaching 15°; these are **qualitative**. A **matched 2000-pair signed MJX step-vs-flat physical exam is now measured**, with nearly flat-equivalent controlled continuation up to +27.5mm and a sharp first-upper-foothold loss at +30–32.5mm; see results above. Repeatable high-step ascent, full command/slope/recovery/effort envelope, actual hardware actuation, remote knee transmission losses, motor thermal behaviour, battery sag and mass **remain unproven**. Retired experiments cannot be ranked as if they shared the same robot, sensor, reward, evaluation and physics.
+
+## Spring V1 incremental stair teaching, 140M → 160M (November 2026)
+
+This later Spring V1 model is **not** the approved public 120M actor above. On the same physical Spring V1 model (XML SHA `7085b1732fe6b876b27ef9b485853d0127c70f6e1c1a9b52b57af82c34de6cfd`), 2,000 real-prism stair attempts and 2,000 matched flat attempts per frozen actor, 350 first-life frames, exam seed 1701 and **zero PPO updates**, yielded:
+
+| Independently verified outcome | 140M explorer | 160M transfer tutor |
+|---|---:|---:|
+| UP 4–40mm controlled crossing | 29.8% | **38.6%** |
+| UP 44–60mm leading foot supported | 55.2% | **87.2%** |
+| UP 44–60mm both feet supported | 20.0% | **34.4%** |
+| UP 44–60mm controlled crossing | 1.6% | **8.8%** |
+| UP 44–60mm survival | **55.6%** | 47.2% |
+| UP 64–80mm survival | **88.0%** | 23.2% |
+| DOWN 44–80mm controlled crossing | **50.0%** | 27.2% |
+| Flat controlled crossing / survival | 54.3% / 100% | **55.5% / 100%** |
+
+This is a **warm continuation**, not independent replication from fresh random weights. It proved the difference between achieving first upper foothold, authentic bilateral support and a controlled crossing; it also exposed a costly lesson: increased tall-UP engagement can erase DOWN control and harder-UP survival even as flat walking stays excellent. See [source-pinned teacher PR #93](https://github.com/mdt733/emu/pull/93) and [160M comparison PR #94](https://github.com/mdt733/emu/pull/94).
+
+The subsequent [holistic cold-training system](https://github.com/mdt733/emu/pull/95) deliberately limits *uphill Academy training* to 55mm, maintains a separate 80mm downhill school and increases control rehearsal. **It has not earned a capability claim until a genuinely cold 0→160M actor passes the same held-out physical examinations and another seed replicates the outcome.** Full reference actors and trial ZIPs are outside Git; these findings stay, not their one-off launch scripts.
 
 ## Recovery instead of permanent experiment runbooks
 
