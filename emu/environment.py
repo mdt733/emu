@@ -2040,6 +2040,8 @@ class EmuMJXEnv(TaskSampler):
         # In the freestyle 140M+ stage, only a verified first-lip
         # two-foot completion (or a failed episode) yields frontier evidence.
         # Earlier cold stages keep their original crossing-based school.
+        free_stairs=(self.holistic_cold_curriculum &
+                     (params[P.holistic_velocity_relief]>=.999))
         finish_evidence=(self.science_step_finish_on_transfer | free_stairs)
         academy_verdict_height=jnp.where(
             finish_evidence,
