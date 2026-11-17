@@ -1,33 +1,29 @@
-# EMU maintenance contract
+# EMU maintenance — one supported system
 
-The [core skeleton](CORE_SKELETON.md) owns architecture; the [H40 handover](../handover.md) owns the current baseline and release boundary.
+These rules keep EMU understandable as a small-team project. Git history and result ZIPs are the archive; current source code is **not** an anthology of every research variant.
 
-## One authority per concept
+## Clear ownership
 
-- **Hardware:** `robot.xml` defines six powered joints, two passive shins, springs and motor limits; `physical_variants.py` deterministically generates only the default H40. The retired height/spring profile sweep lives in Git history.
-- **Physics:** `environment.py` steps one true-prism MJX world; `terrain_carpet_mjx.py` and `carpet_prism_mjx.py` own terrain; `domain_randomization.py` owns manufacturing spread.
-- **Actor:** `contracts.py` fixes the 360-field observation and six actions; `ppo.py` owns the single actor/critic and optimiser.
-- **Teacher:** `rewards.py` pays, `curriculum.py` selects challenge, `capability_focus.py` allocates six cohorts, `capability_field.py` aggregates evidence. There are not six independent networks.
-- **Run and evidence:** `run.py`, `training.py`, `checkpoint_io.py`, `evaluation.py`, `prism_exam.py`, `results.py` retain source identity and distinguish learning from held-out physical exams.
-- **Viewer:** `policy_export.py`, `viewer_server.py`, and `viewer_src/` deliver inference. The illustrative browser carpet is **not** an exact MJX terrain replay.
+- `robot.xml` and `physical_variants.py` define H40 geometry and mechanics. `contracts.py` fixes **one 360-input, six-output actor** and ToF geometry.
+- `environment.py` owns MJX world physics and physical event measurements. Terrain meshes stay in `terrain_carpet_mjx.py` / `carpet_prism_mjx.py`; not duplicate box approximations.
+- `ppo.py` owns one actor/critic optimiser. `rewards.py` pays physical outcomes; `capability_focus.py` / `curriculum.py` choose age stages and competency-based challenges. Six specialists are lesson allocations, **not six networks**.
+- `run.py`, `training.py` and `checkpoint_io.py` protect source-pinned PPO training/resume. `evaluation.py`, `prism_exam.py`, matrix exam and result summariser read frozen policies without learning.
+- `policy_export.py` and `viewer_src/` serve only a validated actor. `console_dashboard.py` is read-only.
 
-## Cleanup rules
+## Rules for changes
 
-1. **One implementation.** Do not leave alternate simulator geometries, duplicate learner paths or experimental flags after an experiment is resolved. Git is the historical archive.
-2. **One run identity.** Full checkpoints include optimiser, normalization, teacher/health and source/model/observation identity. A different XML or sensor geometry requires a genuinely new run.
-3. **Freeze trained lineage.** H40 120M is the `main` baseline. Preserve its exact source commit `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`, full `final.pkl`, training logs and actor export. Historical v5058/v5059 experiments remain in Git. A new robot/sensor/actuator variant requires a distinct cold start and matched exams, never silent checkpoint reuse.
-4. **Tests prove boundaries.** At most 24 core pytest cases, plus real MJX prism checks, GPU PPO/checkpoint smoke and browser tests. Keep tests for failure modes; retire superseded per-version test scaffolding.
-5. **Evidence before capability claims.** Owner approval made H40 the software mainline despite unresolved steps. Training reward, curriculum frontiers and viewer animation are not held-out capability. For future improvements, measure physically supported motion, command tracking, torque saturation, solver parity, falls and recovery.
-6. **No stale roadmap or documentation sprawl.** The eight canonical pages in `docs/` are maintained by `scripts/audit_core_dependencies.py`. `README.md` and `handover.md` sit at the root. New experiments add concise measured findings to `docs/RESEARCH_FINDINGS.md` and preserve full original reports at source-pinned Git commits, **not** as permanent versioned runbooks. Expanding the eight-page allowlist requires an explicit reviewed ownership decision.
+1. **One focused development branch per experiment**, not a branch per reward weight; small commits are fine. Preserve `main` until capability is demonstrated.
+2. **Never edit code underneath a running checkpoint's source SHA** or silently resume a different physical model or sensor contract. A cleaned project has a different commit identity even if training-critical files are identical.
+3. **One canonical cold command**: `bash scripts/run_h40_holistic_cold_wsl.sh all`. It starts random weights, not any archived actor. Keep one read-only exam and viewer workflow, not versioned repair/tutor launchers.
+4. **Delete historical experiment files from the proposed main working tree** after carrying forward only durable science and useful tests. Retain the completed PRs, SHA-pinned runs and ZIP evidence in Git/results storage.
+5. **Test the scientific boundaries**: 360 observation contract, rated motor/spring physics, real MJX top-contact detection, two-foot transfer, signed downhill as well as uphill, no phase reward after fade, PPO lifecycle, clean resume, examiner invariance, browser policy export. CI and a CUDA PPO smoke validate software; independent fixed trials and a second seed support competence/reproducibility.
+6. **No automatic source or showcase promotion.** A new `main` needs user review and preserved evidence. Public GitHub Pages has a separate strict approval file and workflow.
+7. **Avoid documentation sprawl.** Keep one short README, architecture, installer, physical-quality spec, viewer guide, release guide, one condensed research findings page, docs index and a concise `handover.md`. Historical roadmaps belong in Git/issues, not duplicate source files.
 
-Quick validation: `bash scripts/check.sh --quick`; full Python/browser checks: `bash scripts/check.sh --full`. Both always validate the checked-in H40 actor. The separate GitHub Pages approval is verified only when `showcase/release_approval.json` exists, and Pages itself **always** requires it. Real CPU/MJX contact CI and operator-side GPU acceptance are separate; a passing unit test is not proof of CUDA or real hardware.
+## Release versus physical hardware
 
-### Current hardware placement contract
+The simulated H40 has six chassis-mounted servo motors, knee actuation through a modelled joint but an incompletely measured transmission, rated torque caps and provisional carbon limbs/springs. **There is no complete validated CAD/parts BOM/wiring/calibration package.** This repository can reproduce a *simulated* robot, policy and examiner; physical rebuild instructions will need hardware drawings and measurements rather than invented dimensions.
 
-**All six servo motors are mounted in the chassis.** The two knee drives
-act through an unmodelled transmission. No explicit knee-mounted motors,
-motor masses, fake viewer braces or height-dependent chassis translations.
-A source change to `robot.xml` changes the generated H40 physical model
-and demands new checkpoint ancestry. Retain 24 tests plus physical CPU/GPU
-acceptance. Nominal h40 ~506g is a measured-value TODO, not a certified
-parts BOM.
+For development: `bash scripts/check.sh --quick` or `bash scripts/check.sh --full`; check `emu doctor --require-gpu` and a real 2,048-world GPU PPO smoke before a long cold train.
+
+Handover: [../handover.md](../handover.md) · [Architecture](CORE_SKELETON.md) · [Physical quality](PHYSICAL_QUALITY.md) · [Research evidence](RESEARCH_FINDINGS.md).

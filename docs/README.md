@@ -1,20 +1,16 @@
-# EMU documentation — current H40 mainline
+# EMU documentation
 
-The maintained entry points are the [core skeleton](CORE_SKELETON.md), [H40 handover](../handover.md), and [install/recovery guide](INSTALL.md). These are the source of truth, not historical experiment notes.
+The supported project is a **single H40 robot, 360-input actor, PPO learner, holistic cold-start curriculum, independent real-prism examination, and browser viewer**. The checked-in champion may be older than the best experimental actor; source promotion and public showcase publication are deliberately separate.
 
-| Question | Canonical page |
+| Need | Canonical document |
 | --- | --- |
-| What is the 40 cm robot, sensor, world, actor and learning loop? | [Core skeleton](CORE_SKELETON.md) |
-| Which checkpoint/policy and source are the current baseline? | [H40 handover](../handover.md) |
-| How to install, run, verify, or safely realign a diverged local checkout? | [Install and recovery](INSTALL.md) |
-| Which code and tests remain supported? | [Maintenance](MAINTENANCE.md) |
-| What actually counts as physical competence? | [Physical quality](PHYSICAL_QUALITY.md) |
-| What is live in the browser versus the MJX trainer? | [Playground](PLAYGROUND.md) |
-| What still separates source promotion from GitHub Pages publication? | [Release readiness](RELEASE_READINESS.md) |
-| What did earlier experiments actually prove or disprove? | [Research findings](RESEARCH_FINDINGS.md) |
+| Understand components and sensor/teacher boundaries | [Core skeleton](CORE_SKELETON.md) |
+| Install on Windows/WSL, recover a source-pinned run safely | [Installation](INSTALL.md) |
+| What counts as reliable balancing, stairs and recovery | [Physical quality](PHYSICAL_QUALITY.md) |
+| Explore Meadow, physical physics limitations and sensor lab | [Playground](PLAYGROUND.md) |
+| Coding, branch and cleanup rules | [Maintenance](MAINTENANCE.md) |
+| Approve and publish a validated browser policy | [Release readiness](RELEASE_READINESS.md) |
+| Evidence from older hypotheses and measured regressions | [Research findings](RESEARCH_FINDINGS.md) |
+| Where we are now and what remains | [Current handover](../handover.md) |
 
-**Current source:** H40 120M was promoted to `main` via [PR #53](https://github.com/mdt733/emu/pull/53), commit `1b796144b128b326be1ac54f6a289ad87857cde6`. The policy is checked into `showcase/champion.emupolicy`; its original training checkpoint SHA-256 and strict release approval are recorded. Actual GitHub Pages publication remains a separate manual workflow.
-
-**Known limitation:** the owner reports a good gait and about 15° slopes in the viewer, but robust stair traversal and held-out equivalent MJX physical exams remain open.
-
-Older experiment writeups are historical evidence only; Git preserves their original source and PR discussions. Do not execute an old experiment launcher as if it were a current training recipe.
+The one training recipe and quick commands are in the [root README](../README.md). Training and exam results belong under `~/emu-data/`, not in the source tree. Git and result ZIPs preserve finished experiments; there are no permanent per-iteration runbooks.

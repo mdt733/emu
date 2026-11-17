@@ -1,46 +1,24 @@
-# EMU release readiness — H40 120M
+# EMU release readiness — source, actor and hardware are separate
 
-**As of 10 November 2026:** H40 is the **current source and inference actor on `main`**, promoted in [PR #53](https://github.com/mdt733/emu/pull/53) (commit `1b796144b128b326be1ac54f6a289ad87857cde6`). That merge is **not** a claim of hardware readiness, reliable stair climbing or a GitHub Pages deployment.
+**The checked-in public demonstration is still the previously approved 120M H40 actor** at `showcase/champion.emupolicy`. The holistic 0→160M curriculum is a candidate training source. It is not itself a demonstrated 160M success, a new approved actor, or validated real hardware.
 
-The public playground is a **separate manual release decision**. Its [workflow](../.github/workflows/emu-playground.yml) only deploys after `scripts/verify_showcase_release.py` finds an exact policy/approval pair. The manual dispatch succeeded on 10 November 2026; the remaining release task is independent verification of the actual deployed site.
+## Source promotion gate
 
-## The one candidate
+Before a cleaned branch enters `main`, require:
 
-| Identity | Recorded value |
-|---|---|
-| Robot / source profile | 40 cm H40, six chassis-mounted C018 servos, rated ±0.980665 N·m limit |
-| Original training commit | `301d18b7b1cd1b165e6578fc53f9f8cda94fb680` |
-| Run / seed / age | `h40-1m-tof70-120m-s735` / 735 / **120,061,952** steps |
-| Committed actor | `showcase/champion.emupolicy` |
-| Actor SHA-256 | `d4e35f814baef5e46afa6e96e942c86ab100ef25a4ae1913c76bbdb22615e673` |
-| Policy SHA-256 | `178c201af661d3172d701a7d1d8a7711f9b2106e1f7058bc4902aa9c64a37c7a` |
-| Policy Git blob | `eef79b1010f2a9561d0b72dd7aae3e0fcef512ae` |
-| Sensor contract SHA-256 | `d8f559641d240f6eb4bd54a3dc7e96f414994682ebc1b478209df202cc903995` |
+1. The original cold-run SHA and complete 20/40/120/140/160M checkpoint/actor records remain archived and untampered.
+2. Training-critical modules have demonstrably identical Git blob hashes to the source that trained the candidate, or changes have separately passed physical/reward/sensor and PPO parity tests. A different Git commit is still a different *checkpoint provenance*.
+3. Clean WSL installation, CPU true-prism physics tests, 2,048-world CUDA PPO smoke and checkpoint/export/resume checks work without archived policies or secret local file paths.
+4. The fresh seed-735 actor has credible independent uphill and downhill 4–80mm results **and** retains flat, command, slope and resilience competence. Treat failure to maintain downhill as a failed gate even if uphill improves.
+5. Ideally the same frozen curriculum/source reproduces broadly similar capabilities at a **second random seed**. Network weights need not be byte-identical.
+6. Explicit owner approval for one curated `main` PR, not five historical experimental PRs merged wholesale.
 
-The owner reports a pleasing fast gait and approximately 15° slopes in the **viewer**. These are qualitative observations. A properly matched independent MJX physical exam, robust signed step crossing, heading/command fidelity and real 12V actuator/remote transmission validation remain **unproven**. An old actor's independent 2 cm step success must not be transferred to H40.
+## Public actor publication gate
 
-## Source and browser gates
+Merging training source does **not** replace the browser champion. Separately review the new `.emupolicy`, its full PPO source checkpoint, model/sensor contract, independently measured capabilities and matching `showcase/release_approval.json`. Run `python scripts/verify_showcase_release.py` and the separate approved GitHub Pages workflow; review the browser rendering and ToF interpretation. Do not auto-publish or overwrite `showcase/champion.emupolicy` during research cleanup.
 
-- [x] Source, current H40 actor bytes and documentation entered `main` via [PR #53](https://github.com/mdt733/emu/pull/53).
-- [x] PR Python/CPU MJX and browser CI passed, including the retained **24** core Python cases.
-- [x] 120M inference-only export retains the exact robot XML and sensor contract. Full training state is retained on the operator's computer, **not** inside this repository.
-- [ ] Independently run a matched physical exam for all meaningful step/grade/command/recovery claims. This is a **capability validation**, not an excuse to label viewer evidence as real-world proof.
+## Physical hardware boundary
 
-## Public GitHub Pages gate (workflow passed; live-browser review outstanding)
+Simulated competence, MJX eight-prism contacts and a pretty WASM viewer cannot certify actuator thermals, physical spring preload, actual ToF zone calibration, collision parity or reliable stair traversal on hardware. A real-robot release also requires measured torque/geometry/BOM/wiring, fault handling and safe experimental hardware testing.
 
-- [x] The new actor bytes are committed unmodified.
-- [x] Operator measured the original full `final.pkl` SHA-256 on the training computer: `632c09788613e0e5fdc077637efd0a4bf4fc1be7ae0c07dc3662087c6c12970b` (checkpoint file itself remains private/off GitHub).
-- [x] Created strict schema-1 `showcase/release_approval.json` from the operator's checkpoint checksum and exact existing policy, with the actor/sensor/training-source/Git blob identities verified.
-- [x] Source/browser CI prepared and verified the approved actor and compiled `dist` assets at `79c9f43` ([successful workflow](https://github.com/mdt733/emu/actions/runs/42794505755)); strict `showcase/release_approval.json` validation remains enabled.
-- [x] The protected **manual** GitHub Pages workflow was explicitly dispatched from `main` at `79c9f43` and [reported success on 10 November 2026](https://github.com/mdt733/emu/actions/runs/42794739700). A source merge alone never publishes an actor.
-- [ ] Independently open the deployed GitHub Pages site and check its actual H40 actor identity, gait and mobile/desktop interactions; successful Actions are **not** equivalent to a human browser check.
-
-With approval checked in, `bash scripts/check.sh --quick` and `--full` validate both the physical actor and its immutable release manifest. Source/PR CI also verifies the final static website; publication itself remains **manual**.
-
-The frozen training source, complete checkpoint, results and stats are not altered by viewer-only commits or docs maintenance. A new step-solving experiment must use a new source-pinned branch and its own checkpoints rather than silently rewriting H40.
-
-## Measured quality for future challengers
-
-Use [physical quality](PHYSICAL_QUALITY.md) as the independent examiner definition: useful forward/reverse/lateral/yaw movement, heading and route, energy per *useful supported* metre, legitimate signed step up/down, slopes/camber and disturbance recovery. Report real contact and continued commanded progress beyond a lip, not merely terrain requests or curriculum reward. Compare paired tasks only under compatible physics/geometry/sensors and report misses as misses.
-
-The [old October/early-November release checklist](https://github.com/mdt733/emu/blob/6152cdc266c39b1cc7a7c5cc07bced53ee50be12/docs/RELEASE_READINESS.md) preserves the detailed v5032/v5048 results, old release exceptions and prior decisions. It is **historical evidence**, not current instructions.
+[Core skeleton](CORE_SKELETON.md) · [Physical quality](PHYSICAL_QUALITY.md) · [Research findings](RESEARCH_FINDINGS.md) · [Current handover](../handover.md).
