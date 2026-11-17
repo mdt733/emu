@@ -67,16 +67,35 @@ def hip_roll_action_saturation(xp, raw_action, academy_active):
     return out
 
 
-def stair_terminal_credit_stats(xp, advantage, reward, value, finished):
-    """Pre-update PPO credit at genuine short-climb terminal transitions.
+def episode_terminal_mask(xp, fell, goal_completed, short_finished, *, success_as_truncation):
+    """Retain physical falls as absorbing; treat achieved lessons as truncated.
+
+    Only the 140M+ isolated stair-credit fork opts in. A successful supported
+    first-lip climb is a curriculum boundary, NOT a death. Its pre-reset
+    physical next state has a continuation value, like an ordinary time
+    limit. Crucially, done still interrupts GAE at the reset boundary.
+    """
+    absorbing = xp.maximum(fell, xp.maximum(goal_completed, short_finished))
+    return xp.where(success_as_truncation, fell, absorbing)
+
+
+def stair_terminal_credit_stats(xp, advantage, reward, value, finished,
+                                *, bootstrap_value=None, terminal=None):
+    """Pre-update PPO credit at genuine short-climb completion transitions.
 
     The actor is optimised with BATCH-NORMALISED advantages, not reward alone.
     A positive +8 completion payment can still produce a negative advantage
     when the critic values the continuing per-frame reward more highly.
+    The TD now includes whatever real continuation bootstrap PPO used,
+    not the old absorbing-terminal shortcut (reward-value).
     This diagnostic uses the SAME pre-update GAE and normalisation as PPO;
     it changes neither optimisation nor the environment. A -1 measurement
     means no completed stair event in this rollout, not a negative score.
     """
+    if bootstrap_value is None:
+        bootstrap_value = xp.zeros_like(value)
+    if terminal is None:
+        terminal = xp.ones_like(value)
     matched = finished > .5
     count = xp.sum(matched.astype(advantage.dtype))
     denom = xp.maximum(count, 1.)
@@ -91,8 +110,10 @@ def stair_terminal_credit_stats(xp, advantage, reward, value, finished):
         'stair_credit_finish_events': count,
         'stair_credit_finish_reward': conditional_mean(reward),
         'stair_credit_finish_value': conditional_mean(value),
-        # On a genuine absorbing terminal, delta = reward - V(s).
-        'stair_credit_finish_td': conditional_mean(reward - value),
+        'stair_credit_finish_bootstrap_value': conditional_mean(
+            bootstrap_value * (1. - terminal)),
+        'stair_credit_finish_td': conditional_mean(
+            reward + PPO_GAMMA * bootstrap_value * (1. - terminal) - value),
         'stair_credit_finish_adv_raw': conditional_mean(advantage),
         'stair_credit_finish_adv_normalised': conditional_mean(normalised),
         'stair_credit_finish_negative_fraction': conditional_mean(
@@ -378,13 +399,18 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 'value': value,
                 'reward': out.reward,
                 'done': out.done,
-                # True physical falls AND task-goal completions are
-                # absorbing terminals (bootstrap V=0). Ordinary timeout
-                # remains a truncation, retaining exact value bootstrap.
-                'terminal': jnp.maximum(
-                    out.metrics['episode_fell'],
-                    jnp.maximum(out.metrics['academy_goal_complete_new'],
-                                out.metrics['academy_finish_new'])),
+                # True physical falls remain absorbing (V=0). In the
+                # isolated 140M+ stair-credit fork, genuine successful
+                # climb completions are curriculum truncations, retaining
+                # V(s') on the actual physical upper tile. Done still
+                # cuts the GAE trace before the new random Academy birth.
+                'terminal': episode_terminal_mask(
+                    jnp, out.metrics['episode_fell'],
+                    out.metrics['academy_goal_complete_new'],
+                    out.metrics['academy_finish_new'],
+                    success_as_truncation=(
+                        env.holistic_cold_curriculum &
+                        (curriculum_params[P.holistic_velocity_relief]>=.999))),
                 'bootstrap_obs': out.bootstrap_obs,
                 'metrics': out.metrics,
             }
@@ -401,7 +427,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
     def compute_gae(traj, next_values):
         """GAE with exact time-limit bootstrapping. `next_values[t]` is
         V(s_{t+1}) from the pre-reset physical state exposed by environment.py.
-        A true fall zeros bootstrap; a timeout does not. Any episode boundary
+        A true fall zeros bootstrap; a timeout or 140M+ supported successful
+        climb retains the upper-tile continuation value. Any episode boundary
         still resets the eligibility trace so advantages never bleed across
         auto-reset episodes."""
         rewards = traj['reward']
@@ -617,7 +644,9 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         # and after it, using the exact batch PPO will optimise on.
         aux_mean.update(stair_terminal_credit_stats(
             jnp, raw_adv, traj['reward'].reshape((batch_size,)), raw_val,
-            traj['metrics']['academy_finish_new'].reshape((batch_size,))))
+            traj['metrics']['academy_finish_new'].reshape((batch_size,)),
+            bootstrap_value=next_values.reshape((batch_size,)),
+            terminal=traj['terminal'].reshape((batch_size,))))
         new_state = PPOState(params, opt_state, state.env_state, state.obs, key)
         rollout_metrics = traj['metrics']
         # Mean exploration std, so a run can show directly whether
