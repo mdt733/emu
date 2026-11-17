@@ -1652,10 +1652,15 @@ class EmuMJXEnv(TaskSampler):
         step_focus=(state.specialist_active & (state.focus_id==STEP))
         # Fixed birth-to-destination goal: 60cm beyond first +X prism
         # boundary. No moving carrot, reset on every episode birth only.
-        from .step_goal import signed_distance_progress
-        goal_delta=signed_distance_progress(
-            jnp,state.academy_goal_xy,
-            state.data.qpos[:,:2],data.qpos[:,:2])
+        from .step_goal import signed_distance_progress, signed_forward_progress
+        free_stairs=(self.holistic_cold_curriculum &
+                     (params[P.holistic_velocity_relief]>=.999))
+        goal_delta=jnp.where(
+            step_focus & state.academy_active & free_stairs,
+            signed_forward_progress(jnp,state.academy_goal_xy,
+                                    state.data.qpos[:,:2],data.qpos[:,:2]),
+            signed_distance_progress(jnp,state.academy_goal_xy,
+                                     state.data.qpos[:,:2],data.qpos[:,:2]))
         metrics={**metrics,
                  'science_step_focus':step_focus.astype(jnp.float32),
                  # These TWO teacher-only fields never reach the actor.
@@ -1848,14 +1853,15 @@ class EmuMJXEnv(TaskSampler):
             short=short_climb_quality(
                 jnp,state.academy_goal_xy,data.qpos[:,:2],heading,
                 metrics['gravity_z'],metrics['support'],metrics['bad_contact'],
-                goal_transfer_ready,state.academy_birth_lip_m)
+                goal_transfer_ready,state.academy_birth_lip_m,
+                freeform=free_stairs)
             # At least one foot must STILL be physically supported
             # on the verified upper tile when we declare completion.
             short=(short & jnp.any(academy['goal_top_feet'],axis=1) &
                    goal_lip_armed & in_goal_tile &
                    state.academy_active & step_focus &
                    ~terminal_fail & ~timeout &
-                   self.science_step_finish_on_transfer)
+                   (self.science_step_finish_on_transfer | free_stairs))
             finish_streak=jnp.where(
                 short,state.academy_finish_streak+1,0)
             finish_new=finish_streak>=CLIMB_STABLE_FRAMES
@@ -3429,15 +3435,21 @@ class EmuMJXEnv(TaskSampler):
                                     state.academy_progress_heading_rad)
         angle=yaw-progress_heading
         heading_error=jnp.abs(jnp.arctan2(jnp.sin(angle),jnp.cos(angle)))
+        free_stairs=(self.holistic_cold_curriculum &
+                     (params[P.holistic_velocity_relief]>=.999))
         follow_active=jnp.where(
             confirmed,False,
             jnp.where(new_transfer,True,
                       state.academy_progress_active &
-                      (heading_error<=.35) & ~done))
-        travel=jnp.sum(
+                      (free_stairs | (heading_error<=.35)) & ~done))
+        projected_travel=jnp.sum(
             (data.qpos[:,:2]-progress_origin) *
             jnp.stack((jnp.cos(progress_heading),
                        jnp.sin(progress_heading)),axis=1),axis=1)
+        # The assigned first lip is in global +X. Do not pay for sidestepping
+        # 50cm without moving over the lip, or require the original yaw.
+        travel=jnp.where(free_stairs,data.qpos[:,0]-progress_origin[:,0],
+                         projected_travel)
         fresh_paid=jnp.where(confirmed,False,state.academy_progress_paid)
         new_progress=(follow_active & ~fresh_paid &
                       (travel>=.50) & (metrics['cmd_vx']>=.05) &
