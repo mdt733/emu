@@ -735,3 +735,26 @@ def test_current_360_checkpoint_roundtrip_rejects_sensor_drift(tmp_path):
         load_checkpoint(file,expected_observation_schema=OBS_SCHEMA_TERRAIN,
                         expected_sensor_contract=corrupted)
 
+
+def test_commitment_180m_runner_is_source_pinned_and_parseable():
+    """Catch bash/heredoc transcription failures before using the 2048-world GPU."""
+    import re
+    import shutil
+    import subprocess
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    runner = root / "scripts/run_h40_commitment_180m_wsl.sh"
+    script = runner.read_text(encoding="utf-8")
+    blocks = re.findall(r"<<'PY'\n(.*?)\nPY", script, re.S)
+    assert len(blocks) == 3
+    for code in blocks:
+        compile(code, str(runner), "exec")
+    assert 'work/emu-commitment-180m' in script
+    assert '--research-parent-source "$SOURCE_SHA"' in script
+    assert '--research-parent-sha256 "$PARENT_HASH"' in script
+    assert 'milestone_160m.pkl' in script
+    assert '180000000' in script
+    assert 'snapshot_step_' in script
+    if shutil.which("bash"):
+        subprocess.run(["bash", "-n", str(runner)], check=True)
