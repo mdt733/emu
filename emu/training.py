@@ -382,7 +382,20 @@ def train(args: TrainingConfig) -> int:
             # v5054-trained actor must NOT silently empty its curriculum.
             # Cross-source preservation requires the parent's saved training
             # recipe to prove matching active step-lesson semantics.
-            if (args.science_step_finish_on_transfer and
+            # This 140M research fork changes Academy success from a
+            # single supported crossing to a completed, upright first-lip
+            # two-foot transfer. Keep earned height frontiers, but never mix
+            # the old near/easy evidence window into the new verdict.
+            new_freestyle_verdict=(
+                args.holistic_cold_curriculum and
+                holistic_stair_stage(resumed_step).velocity_relief>=.999 and
+                ancestor_sha != source_provenance_from_env().get('git_commit'))
+            if new_freestyle_verdict:
+                governor.academy_evidence = governor._empty_academy_evidence()
+                print(f'{LOG_PREFIX} experimental stair freedom: reset stale '
+                      'Academy outcome evidence; earned UP/DOWN heights retained',
+                      flush=True)
+            elif (args.science_step_finish_on_transfer and
                     ancestor_sha != source_provenance_from_env().get('git_commit')):
                 safe_evidence_fork = False
                 if args.resume and args.resume.lower() != 'auto':
