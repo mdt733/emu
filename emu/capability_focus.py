@@ -101,7 +101,7 @@ def holistic_stair_stage(step: int) -> HolisticStairStage:
     20-40M: gait guidance fades separately to zero
     40-120M: outcomes and earned real-prism STEP/UP/DOWN schooling
     120-140M: learn to approach and try a signed physical lip
-    140-160M: learn verified two-foot transfer and forward follow-through
+    140-160M: freer stair negotiation, verified two-foot transfer and follow-through
 
     Downhill remains a first-class separate school. Mature uphill learning
     deliberately concentrates <=55mm; independent 56-80mm exams remain
@@ -120,7 +120,7 @@ def holistic_stair_stage(step: int) -> HolisticStairStage:
         return HolisticStairStage(
             "commitment",.22,.55,.22,0.,0.,.15,.055,.080)
     return HolisticStairStage(
-        "transfer_retention",.10,.55,.22,6.,7.,.25,.055,.080)
+        "transfer_retention",.10,1.0,.22,6.,7.,.25,.055,.080)
 
 
 NONFOCUS_STRENGTH = 0.50
