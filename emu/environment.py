@@ -2037,11 +2037,15 @@ class EmuMJXEnv(TaskSampler):
         # A lip's height and severity *reference* must come from the same
         # encounter. Reclassifying an old 3mm attempt against a newly-grown
         # 4mm frontier biases the promotion denominator.
+        # In the freestyle 140M+ stage, only a verified first-lip
+        # two-foot completion (or a failed episode) yields frontier evidence.
+        # Earlier cold stages keep their original crossing-based school.
+        finish_evidence=(self.science_step_finish_on_transfer | free_stairs)
         academy_verdict_height=jnp.where(
-            self.science_step_finish_on_transfer,
+            finish_evidence,
             state.academy_birth_lip_m,academy['verdict_height_m'])
         academy_ref=jnp.where(
-            self.science_step_finish_on_transfer,
+            finish_evidence,
             state.academy_birth_frontier_m,
             academy['verdict_frontier_m'])
         academy_ref=jnp.where(
@@ -2199,7 +2203,7 @@ class EmuMJXEnv(TaskSampler):
             ).astype(jnp.float32),
             'academy_cross_up':academy['up_new'].astype(jnp.float32),
             'academy_lip_attempt_new':jnp.where(
-                self.science_step_finish_on_transfer,
+                finish_evidence,
                 done & state.academy_active &
                 (jnp.abs(state.academy_birth_lip_m)>.0015),
                 academy['attempt_new']).astype(jnp.float32),
@@ -2210,12 +2214,12 @@ class EmuMJXEnv(TaskSampler):
                                        ('easy',academy_easy))
                 for outcome,verdict in (
                     ('attempts',jnp.where(
-                        self.science_step_finish_on_transfer,
+                        finish_evidence,
                         done & state.academy_active &
                         (jnp.abs(state.academy_birth_lip_m)>.0015),
                         academy['attempt_new'])),
                     ('successes',jnp.where(
-                        self.science_step_finish_on_transfer,
+                        finish_evidence,
                         academy['finish_new'],academy['cross_new'])))
                 for direction,direction_mask in (
                     ('up',academy_verdict_height>.0015),
