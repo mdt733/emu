@@ -81,7 +81,11 @@ from .contracts import (
 # its JIT shape cannot vary between training and the frozen examiner.
 FOOT_BODIES = ['r_foot', 'l_foot']
 BAD_BODIES = ['torso', 'r_thigh', 'l_thigh', 'r_shin', 'l_shin']
-TARGET_SPAN = np.array([0.38, 0.48, 0.58, 0.38, 0.48, 0.58], dtype=np.float32)
+# Frozen champion retains its exact 6-target scaling. Opt-in cold-start
+# H40 spring-v1 research gets the requested full motor-joint target ROM.
+# This is resolved once at process import and pinned by generated robot XML.
+from .physical_variants import target_span_rad
+TARGET_SPAN = np.array(target_span_rad(), dtype=np.float32)
 RESET_JOINT_NOISE = 0.004
 RESET_QVEL_NOISE = 0.003
 RESET_FORWARD_VELOCITY_BLEND = 1.0
@@ -1011,6 +1015,7 @@ class EmuMJXEnv(TaskSampler):
                  science_step_velocity_relief: float = 0.0,
                  science_step_approach_m: float = 0.0,
                  science_step_finish_on_transfer: bool = False,
+                 holistic_cold_curriculum: bool = False,
                  academy_stream: bool = False,
                  terrain_carpet: bool = False,
                  carpet_transition_cap_deg: float = 3.0,
@@ -1099,6 +1104,7 @@ class EmuMJXEnv(TaskSampler):
         if science_step_finish_on_transfer and not academy_stream:
             raise ValueError("step finish requires streamed real-prism Academy")
         self.science_step_finish_on_transfer=science_step_finish_on_transfer
+        self.holistic_cold_curriculum=bool(holistic_cold_curriculum)
         self.science_gate_mode=science_gate_mode
         self.observation_schema = observation_schema
         self.base_obs_fields = actor_observation_fields(observation_schema)
@@ -1525,8 +1531,21 @@ class EmuMJXEnv(TaskSampler):
             np.any(slope[16:18]<.001) or
             np.any(slope[16:18]>self.academy_height_cap_m)):
             raise ValueError('Academy UP/DOWN lip frontiers exceed physical compiled cap')
+        if not np.isfinite(slope[18]) or not 0. <= slope[18] <= 1.:
+            raise ValueError('gait guidance strength must be within [0,1]')
         if not np.all(np.isfinite(slope[~np.isnan(slope)])):
             raise ValueError('invalid physical terrain override')
+        # Five added teacher-only scalars. Every already-deployed actor
+        # channel and historical physical task offset stays untouched.
+        staged=slope[19:24]
+        if (not np.isfinite(staged).all() or
+                np.any(staged<0.) or
+                staged[0]>.22+1e-6 or staged[1]>.55+1e-6 or
+                staged[2]>.35+1e-6 or
+                staged[3]>6.+1e-6 or staged[4]>7.+1e-6):
+            raise ValueError('holistic stage teacher outside pinned physics budget')
+        if not self.holistic_cold_curriculum and np.any(staged!=0.):
+            raise ValueError('holistic teacher packet requires explicit cold curriculum')
         packed=np.concatenate((packed,slope))
         assert packed.shape[0] == UNIFIED_TASK_PARAM_DIM
         return jnp.asarray(packed, dtype=jnp.float32)
@@ -1678,11 +1697,16 @@ class EmuMJXEnv(TaskSampler):
             motor_guidance_weight=self.motor_guidance_weight,
             allow_zero_command_balance=self.stillness_birth_frac > 0.,
             science_gate_mode=self.science_gate_mode,
+            gait_guidance_strength=params[P.gait_guidance_strength],
             science_phase_sync_strength=self.science_phase_sync_strength,
             science_crouch_allowance_m=self.science_crouch_allowance_m,
             science_stride_efficiency_weight=self.science_stride_efficiency_weight,
-            science_step_goal_weight=self.science_step_goal_weight,
-            science_step_velocity_relief=self.science_step_velocity_relief,
+            science_step_goal_weight=(
+                params[P.holistic_goal_weight] if self.holistic_cold_curriculum
+                else self.science_step_goal_weight),
+            science_step_velocity_relief=(
+                params[P.holistic_velocity_relief] if self.holistic_cold_curriculum
+                else self.science_step_velocity_relief),
             motor_guidance_per_world=(jnp.where(
                     state.academy_active,0.,
                     control_effort_weights(jnp,
@@ -1738,13 +1762,21 @@ class EmuMJXEnv(TaskSampler):
                 self.science_followthrough_bonus > 0. or
                 self.science_sensor_teacher_bonus > 0.):
             true_lip=(academy['ordinary_step_new'] | academy['cross_new'])
+            bilateral_weight=(
+                params[P.holistic_bilateral_bonus]
+                if self.holistic_cold_curriculum
+                else self.science_bilateral_support_bonus)
+            followthrough_weight=(
+                params[P.holistic_followthrough_bonus]
+                if self.holistic_cold_curriculum
+                else self.science_followthrough_bonus)
             extra=(self.science_supported_cross_bonus*
                    true_lip.astype(jnp.float32) +
                    self.science_foothold_bonus*
                    academy['foothold_new'].astype(jnp.float32) +
-                   self.science_bilateral_support_bonus*
+                   bilateral_weight*
                    academy['transfer_new'].astype(jnp.float32) +
-                   self.science_followthrough_bonus*
+                   followthrough_weight*
                    academy['progress_new'].astype(jnp.float32))
             if self.science_sensor_teacher_bonus > 0.:
                 sensor_now=self._sensor_readout(state.sensor_state,
@@ -1768,6 +1800,9 @@ class EmuMJXEnv(TaskSampler):
         goal_foot_seen=state.academy_goal_foot_seen
         goal_stable_streak=state.academy_goal_stable_streak
         goal_completed=state.academy_goal_completed
+        goal_weight=(params[P.holistic_goal_weight]
+                     if self.holistic_cold_curriculum
+                     else self.science_step_goal_weight)
         if self.science_step_goal_weight > 0. or self.science_step_finish_on_transfer:
             from .step_goal import (
                 arrival_quality, stable_arrival, short_climb_quality,
@@ -1802,7 +1837,7 @@ class EmuMJXEnv(TaskSampler):
                 goal_transfer_ready)
             strict=(strict & state.academy_active & step_focus &
                     ~terminal_fail & ~timeout)
-            strict=strict & (self.science_step_goal_weight>0.)
+            strict=strict & (goal_weight>0.)
             goal_stable_streak,goal_new=stable_arrival(
                 jnp,strict,goal_stable_streak,goal_completed)
             goal_completed=goal_completed|goal_new
@@ -1827,7 +1862,7 @@ class EmuMJXEnv(TaskSampler):
             # Success is a TRUE absorbing PPO terminal, not a timeout.
             # A separate sparse payment distinguishes partial foothold
             # shaping from the completed whole-foot transfer lesson.
-            bonus=(20.*self.science_step_goal_weight*
+            bonus=(20.*goal_weight*
                    goal_new.astype(jnp.float32) +
                    8.*finish_new.astype(jnp.float32))
             reward=reward+bonus
@@ -2918,17 +2953,18 @@ class EmuMJXEnv(TaskSampler):
             keys,params,focus_id,specialist_active,
             task[:,T.athletic_rehearsal])
         if self.science_step_approach_m > 0.:
-            # Academic stair nursery: Academy-only births land a fixed safe
-            # distance BEFORE the next authentic 1m prism seam. The
-            # physical profile (including its signed up/down lip), ToF and
-            # foot contacts are then recomputed from the new birth position
-            # by the ordinary _carpet_birth + MJX forward path.
-            # Other roles and the reset RNG are strictly unchanged.
+            # Before 120M the cold learner keeps the original Academy
+            # approaches; at 120M the same one actor gets concentrated
+            # first-lip practice without changing physics or birth RNG.
             from .terrain_carpet_mjx import academy_near_lip_spawn_x
+            approach=(params[P.holistic_approach_m]
+                      if self.holistic_cold_curriculum
+                      else self.science_step_approach_m)
             near_x=academy_near_lip_spawn_x(
-                jnp,data.qpos[:,0],self.science_step_approach_m)
+                jnp,data.qpos[:,0],jnp.maximum(.15,approach))
+            eligible=(academy_active & (approach>.0))
             data=data.replace(qpos=data.qpos.at[:,0].set(
-                jnp.where(academy_active,near_x,data.qpos[:,0])))
+                jnp.where(eligible,near_x,data.qpos[:,0])))
         birth_root_z=data.qpos[:,2]
         data,carpet=self._carpet_birth(
             data,keys,params,focus_id,specialist_active,task,
@@ -3632,6 +3668,20 @@ class EmuMJXEnv(TaskSampler):
         motor_roll_r = jnp.abs(data.actuator_force[:, 0])
         motor_roll_l = jnp.abs(data.actuator_force[:, 3])
         hip_roll_motor = dict(
+            # Actual signed motor and passive torque, same POST-integrated
+            # frame as the physical exam metrics, BEFORE terminal reset.
+            hip_roll_motor_torque_nm_right=data.actuator_force[:,0],
+            hip_roll_motor_torque_nm_left=data.actuator_force[:,3],
+            hip_roll_angle_rad_right=data.qpos[:,self.spring_qpos[0]],
+            hip_roll_angle_rad_left=data.qpos[:,self.spring_qpos[3]],
+            hip_roll_spring_torque_nm_right=(
+                -self.spring_stiffness[0] *
+                (data.qpos[:,self.spring_qpos[0]] -
+                 self.spring_reference[0])),
+            hip_roll_spring_torque_nm_left=(
+                -self.spring_stiffness[3] *
+                (data.qpos[:,self.spring_qpos[3]] -
+                 self.spring_reference[3])),
             hip_roll_motor_load_frac_right=(
                 motor_roll_r / jnp.maximum(self.servo_actuator_torque_limit_nm[..., 0], 1e-6)),
             hip_roll_motor_load_frac_left=(
