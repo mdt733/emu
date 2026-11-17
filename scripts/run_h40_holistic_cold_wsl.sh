@@ -23,7 +23,11 @@ export EMU_PHYSICAL_PROFILE=h40-spring-v1
 export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 export EMU_UNIFIED_CONTINUOUS=cold-growth-approved
-export EMU_COLD_RUN_DIR="${EMU_COLD_RUN_DIR:-$HOME/emu-data/runs/h40-holistic-cold-s735}"
+export EMU_COLD_SEED="${EMU_COLD_SEED:-735}"
+[[ "$EMU_COLD_SEED" =~ ^[0-9]+$ ]] || {
+  echo "EMU_COLD_SEED must be a non-negative decimal integer" >&2; exit 1;
+}
+export EMU_COLD_RUN_DIR="${EMU_COLD_RUN_DIR:-$HOME/emu-data/runs/h40-holistic-cold-s$EMU_COLD_SEED}"
 export EMU_COLD_SOURCE="$(git rev-parse HEAD)"
 # Existing proven physical system: same 360-input observation, 150 N/m
 # knee support, 2 N.m/rad hip centring, real signed 8-prism collider.
@@ -55,7 +59,7 @@ print("ONE COLD SOURCE:",os.environ["EMU_COLD_SOURCE"])
 PY
 COMMON=(
   --profile sim2real --run-dir "$EMU_COLD_RUN_DIR"
-  --envs 2048 --seed 735 --device cuda
+  --envs 2048 --seed "$EMU_COLD_SEED" --device cuda
   --terrain-actor --terrain-step-max-m .08
   --unified-capabilities --terrain-carpet --carpet-prisms
   --holistic-cold-curriculum
@@ -105,7 +109,9 @@ from pathlib import Path
 p=Path(os.environ["EMU_COLD_RUN_DIR"])/"stages"/(os.environ["EMU_COLD_AGE"]+"m")
 m=json.loads((p/"stage_manifest.json").read_text(encoding="utf-8"))
 if (m["source_git_commit"]!=os.environ["EMU_COLD_SOURCE"] or
-        m["target_steps"]!=int(os.environ["EMU_COLD_AGE"])*1_000_000):
+        m["target_steps"]!=int(os.environ["EMU_COLD_AGE"])*1_000_000 or
+        m["training_seed"]!=int(os.environ["EMU_COLD_SEED"])):
+
     raise RuntimeError("Stage source/target changed; cannot resume")
 for name,field in (("final.pkl","checkpoint_sha256"),
                    ("actor.emupolicy","actor_sha256")):
@@ -177,6 +183,7 @@ if not export.exists():
     subprocess.run([str(Path.cwd()/".venv/bin/python"),"-m","emu.cli",
                     "export-policy",str(origin),str(export)],check=True)
 manifest=dict(source_git_commit=source,target_steps=age*1_000_000,
+              training_seed=int(os.environ["EMU_COLD_SEED"]),
               actual_step=step,
               parent_checkpoint=None if age==20 else "same learner previous stage",
               checkpoint_sha256=hashlib.sha256((out/"final.pkl").read_bytes()).hexdigest(),
