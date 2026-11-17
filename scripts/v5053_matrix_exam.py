@@ -55,7 +55,8 @@ class Trial:
     initial_kick_mps: float
 
 
-def trial_spec(kind: str, level: int, levels: int, replicate: int, world: int) -> Trial:
+def trial_spec(kind: str, level: int, levels: int, replicate: int, world: int,
+               *, max_step_m: float = .05) -> Trial:
     if kind not in (*KINDS,"flat_control") or not 1<=level<=levels:
         raise ValueError("unknown trial kind/level")
     f=level/levels
@@ -83,19 +84,22 @@ def trial_spec(kind: str, level: int, levels: int, replicate: int, world: int) -
         grade=-12.*f
     elif kind=="step_up":
         vx=.25
-        step=.05*f
+        step=max_step_m*f
     elif kind=="flat_control":
         vx=.25
     elif kind=="step_down":
         vx=.25
-        step=-.05*f
+        step=-max_step_m*f
     return Trial(world,kind,level,replicate,vx,vy,yaw,step,grade,kick)
 
 
 def assignments(worlds: int, *, mode: str="balanced", levels: int=20,
-                trials_per_level: int|None=None) -> list[Trial]:
+                trials_per_level: int|None=None,
+                max_step_m: float = .05) -> list[Trial]:
     if mode not in ("balanced","stairs","stairs_up","stairs_down","flat") or not 1<=levels<=40 or worlds<2:
         raise ValueError("invalid matrix mode/geometry")
+    if not np.isfinite(max_step_m) or not 0.001<=max_step_m<=.08:
+        raise ValueError("max_step_m must be between 0.001 and 0.08m")
     if mode=="flat":
         levels=1  # A zero-height seam, exactly matched to the stair commands.
     trials=(10 if mode=="balanced" else 50 if mode=="stairs" else 100)
@@ -119,7 +123,8 @@ def assignments(worlds: int, *, mode: str="balanced", levels: int=20,
     for kind in kinds:
         for level in range(1,levels+1):
             for rep in range(trials):
-                result.append(trial_spec(kind,level,levels,rep,len(result)))
+                result.append(trial_spec(kind,level,levels,rep,len(result),
+                                         max_step_m=max_step_m))
     # Unused worlds stay in batch as explicitly labelled filler; never
     # enter the registered challenge's success denominator.
     while len(result)<worlds:
@@ -177,8 +182,60 @@ def reduce_results(trials:list[Trial],result:dict[str,np.ndarray]):
                          if x["first_both_foot_frame"]>=0]
         first_contact_frames=[x["first_both_foot_frame"] for x in records
                               if x["first_both_foot_frame"]>=0]
+        # New read-only audit of actual signed motor/spring force. These
+        # columns quantify whether saturation is spent opposing centring
+        # spring torque, separately from the gait's terrain survival.
+        mechanics={}
+        if "hip_right_motor_abs_fraction_sum_mean" in records[0]:
+            mechanics.update(
+                fell_total=sum(x["fall_frame"]>=0 for x in records),
+                fell_height=sum(bool(x["fell_height"]) for x in records),
+                fell_tilt=sum(bool(x["fell_tilt"]) for x in records),
+                fell_before_lead_foot=sum(bool(x["fell_before_lead_foot"])
+                                          for x in records),
+                fell_after_lead_before_both=sum(bool(
+                    x["fell_after_lead_before_both"]) for x in records),
+                fell_after_both_feet=sum(bool(x["fell_after_both_feet"])
+                                          for x in records),
+                fell_near95_either_hip=sum(
+                    x["fall_frame"]>=0 and (
+                        bool(x["hip_right_near95_at_fall"]) or
+                        bool(x["hip_left_near95_at_fall"]))
+                    for x in records),
+                fell_near95_fighting_spring=sum(
+                    x["fall_frame"]>=0 and (
+                        (bool(x["hip_right_near95_at_fall"]) and
+                         bool(x["hip_right_opposing_at_fall"])) or
+                        (bool(x["hip_left_near95_at_fall"]) and
+                         bool(x["hip_left_opposing_at_fall"])))
+                    for x in records),
+                fall_lateral_offset_abs_mean_m=round(float(np.mean([
+                    abs(x["first_fall_y_offset_m"]) for x in records
+                    if x["fall_frame"]>=0])),4) if any(
+                    x["fall_frame"]>=0 for x in records) else 0.,
+                max_abs_lateral_offset_mean_m=round(float(np.mean([
+                    x["max_abs_lateral_offset_m"] for x in records])),4))
+            for side in ("right","left"):
+                for key in (
+                    "motor_abs_fraction_sum_mean",
+                    "spring_abs_nm_sum_mean",
+                    "roll_angle_abs_deg_sum_mean",
+                    "near95_sum_fraction",
+                    "opposing_sum_fraction",
+                    "assisting_sum_fraction",
+                    "near95_opposing_sum_fraction",
+                ):
+                    k=f"hip_{side}_{key}"
+                    mechanics[k]=round(float(np.mean(
+                        [x[k] for x in records])),5)
+                cond=f"hip_{side}_near95_opposed_conditional"
+                applicable=[float(x[cond]) for x in records
+                            if float(x[cond])>=0.]
+                mechanics[cond]=round(float(np.mean(applicable)),5
+                                     ) if applicable else None
         rows.append(dict(
             kind=kind,level=level,worlds=n,
+            **mechanics,
             requested_step_mm=round(records[0]["exact_step_m"]*1000.,4),
             measured_step_mm_mean=round(float(np.mean(
                 [x["actual_lip_m"]*1000. for x in records])),4),
@@ -219,7 +276,7 @@ def save_csv(path:Path,rows:list[dict]):
 def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
                worlds:int=2048,horizon:int=350,seed:int=1701,
                levels:int=20,trials_per_level:int|None=None,
-               device:str="cuda"):
+               max_step_m:float=.05,device:str="cuda"):
     from emu.contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN
     from emu.policy_export import load_exported_actor_for_exam
     from emu.ppo import make_trainer,configure_jax,require_backend
@@ -232,7 +289,8 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     if mode=="flat":
         levels=1
     trials=assignments(worlds,mode=mode,levels=levels,
-                       trials_per_level=trials_per_level)
+                       trials_per_level=trials_per_level,
+                       max_step_m=max_step_m)
     policy=policy.expanduser().resolve()
     output=output.expanduser().resolve()
     if not policy.is_file() or policy.suffix!=".emupolicy":
@@ -322,7 +380,15 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     save_csv(output/"matrix_worlds.csv",detail)
     save_csv(output/"matrix_curve.csv",curves)
     manifest=dict(
-        schema="h40_true_prism_heterogeneous_matrix_v4",
+        schema="h40_true_prism_heterogeneous_matrix_v5_signed_joint_diagnostics",
+        diagnostic_semantics=dict(
+            sampling="first-life POST-integrated metrics before terminal reset; no training or reward access",
+            spring_torque_nm="-stiffness * (hip_roll_angle_rad - spring_reference_rad)",
+            motor_opposes_spring="actual_motor_torque_nm * passive_spring_torque_nm < -1e-6",
+            motor_assisted_by_spring="actual_motor_torque_nm * passive_spring_torque_nm > 1e-6",
+            near_rated_limit="abs(actual_motor_torque_nm) / compiled_rated_limit_nm >= 0.95",
+            falls="first death only; height/tilt may overlap; first upper-foot contact and both-foot support gates",
+            lateral="relative to target lane centre 0.5m"),
         exam_source_sha256=exam_source_fingerprint(),
         policy_sha256=actor['artifact_sha256'],
         actor_sha256=actor['source']['actor_sha256'],
@@ -330,6 +396,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
         actor_training_source=actor["source"],
         seed=seed,worlds=worlds,assigned_worlds=len(detail),
         horizon=horizon,mode=mode,levels=levels,
+        max_step_m=max_step_m,
         trials_per_level=trials_per_level if trials_per_level is not None
                            else (10 if mode=="balanced" else 50 if mode=="stairs" else 100),
         device=jax.default_backend(),wall_seconds=round(wall,3),
@@ -583,6 +650,8 @@ def main(argv=None):
     p.add_argument("--horizon",type=int,default=350)
     p.add_argument("--seed",type=int,default=1701)
     p.add_argument("--levels",type=int,default=20)
+    p.add_argument("--max-step-m",type=float,default=.05,
+                   help="maximum signed stair fixture height in metres; default .05, max .08")
     p.add_argument("--trials-per-level",type=int,default=None)
     p.add_argument("--device",choices=("cpu","cuda"),default="cuda")
     a=p.parse_args(argv)
