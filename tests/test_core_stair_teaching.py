@@ -141,6 +141,17 @@ class CoreStairPhysicsTests(unittest.TestCase):
             np,fell,goal,finished,success_as_truncation=True)
         np.testing.assert_array_equal(strict,[1.,1.,1.,0.])
         np.testing.assert_array_equal(late,[0.,1.,0.,0.])
+        # Exercise the stage flag as a traced JAX scalar inside jit; no
+        # Python branching on an abstract curriculum parameter is allowed.
+        import jax
+        import jax.numpy as jnp
+        classify=jax.jit(lambda stage: episode_terminal_mask(
+            jnp,jnp.asarray(fell),jnp.asarray(goal),jnp.asarray(finished),
+            success_as_truncation=(stage>=.999)))
+        np.testing.assert_array_equal(np.asarray(jax.device_get(
+            classify(jnp.asarray(.55)))),strict)
+        np.testing.assert_array_equal(np.asarray(jax.device_get(
+            classify(jnp.asarray(1.0)))),late)
 
         reward=np.array([11.6],np.float32)
         value=np.array([330.],np.float32)
