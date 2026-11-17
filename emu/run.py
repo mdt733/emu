@@ -187,7 +187,7 @@ def one_run_config(args) -> TrainingConfig:
         # This recipe can be reproduced with NO previous weights. Do not
         # permit custom teacher knobs to silently defeat the age schedule.
         if (selected_profile()!=RESEARCH_PROFILE or not unified or
-                not academy_stream or not terrain_carpet_prisms or
+                not academy_stream or not carpet_prisms or
                 foundation_steps!=20_000_000 or growth_recipe!='main-mature' or
                 terrain_lesson!='coherent-careful' or
                 teaching_schedule!='terrain-early' or
