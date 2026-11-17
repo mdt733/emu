@@ -76,15 +76,19 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
         temporal_vx=temporal_vx)
     # Dynamic JAX teacher scalar: evaluate both branches and select only
     # the Academy command reward. Zero relief preserves the ordinary score.
-    # One teacher-only concession to stair negotiation: the Academy
-    # policy may temporarily slow down to load/swing the leading foot.
-    # Never excuse lateral/yaw/pitch error or ballistic forward escape.
+    # Stair-only concession: before 140M only forward velocity is relaxed.
+    # Once the transferred-foot lesson starts, allow sideways and turning
+    # manoeuvres without teaching command/resilience/flat worlds to drift.
+    # Preserve body pitch and ballistic overspeed protection.
     vy_err=m['vy']-m['cmd_vy']
     yaw_err=m['yaw_rate']-m['cmd_yaw']
     pitch_err=m['body_pitch']-m['cmd_pitch']
     runaway=jnp.maximum(0.,m['vx']-m['cmd_vx']-.25)
-    target=jnp.exp(-(14.*vy_err*vy_err+4.5*yaw_err*yaw_err+
-                     18.*pitch_err*pitch_err+45.*runaway*runaway))
+    guided_target=jnp.exp(-(14.*vy_err*vy_err+4.5*yaw_err*yaw_err+
+                            18.*pitch_err*pitch_err+45.*runaway*runaway))
+    freestyle=(science_step_velocity_relief>=.999)
+    free_target=jnp.exp(-(18.*pitch_err*pitch_err+45.*runaway*runaway))
+    target=jnp.where(freestyle,free_target,guided_target)
     relaxed=(1.-science_step_velocity_relief)*command_tracking+(
         science_step_velocity_relief*target)
     command_tracking=jnp.where(m['science_step_goal_active']>.5,
@@ -184,7 +188,7 @@ def training_reward(m, regime, *, xp, motor_guidance_weight=0.0,
     safe_progress=(jnp.clip(m['support'],0.,1.)*
                    (1.-jnp.clip(m['bad_contact'],0.,1.))*
                    jnp.exp(-6.*jnp.maximum(0.,m['stance_slip']))*
-                   jnp.exp(-4.*yaw_error*yaw_error)*upright)
+                   jnp.where(freestyle,1.,jnp.exp(-4.*yaw_error*yaw_error))*upright)
     signed_delta=jnp.where(delta>0.,delta*safe_progress,delta)
     goal_progress=(science_step_goal_weight*
                    m['science_step_goal_active']*valid_alive*
