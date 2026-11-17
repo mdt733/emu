@@ -2261,7 +2261,7 @@ class EmuMJXEnv(TaskSampler):
                 done & state.academy_active &
                 stepped.academy_goal_transfer_ready).astype(jnp.float32),
             'academy_episode_complete':jnp.where(
-                self.science_step_finish_on_transfer,
+                finish_evidence,
                 academy['finish_new'],
                 done & ~terminal_fail & state.academy_active &
                 (academy['crossings']>0)).astype(jnp.float32),
