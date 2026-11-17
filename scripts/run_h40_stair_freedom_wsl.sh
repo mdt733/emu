@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # One controlled 140M -> 160M research fork. Original cold-run checkpoints untouched.
-# Usage: bash scripts/run_h40_stair_freedom_wsl.sh [plan|run|exam|all]
+# Usage: bash scripts/run_h40_stair_freedom_wsl.sh [plan|pilot|run|exam|all]
 set -euo pipefail
-MODE="${1:-all}"
-case "$MODE" in plan|run|exam|all) ;; *) echo "Use plan|run|exam|all" >&2; exit 2;; esac
+MODE="${1:-pilot}"
+case "$MODE" in plan|pilot|run|exam|all) ;; *) echo "Use plan|pilot|run|exam|all" >&2; exit 2;; esac
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
@@ -23,10 +23,22 @@ export EMU_UNIFIED_CONTINUOUS=cold-growth-approved
 
 SOURCE_SHA=22266821bdbfc82a529ef708e5171c82c6c9f29c
 SOURCE_RUN="${EMU_FREEDOM_SOURCE_RUN:-$HOME/emu-data/runs/h40-holistic-cold-s735}"
-EXP_ROOT="${EMU_FREEDOM_ROOT:-$HOME/emu-data/runs/h40-stair-freedom-140to160-s735}"
+# Pilot is an independent 5M PPO fork with the same parent, not a silent
+# change to the planned full 20M comparison. It cannot overwrite either.
+if [[ "$MODE" == pilot ]]; then
+  EXP_ROOT="${EMU_FREEDOM_ROOT:-$HOME/emu-data/runs/h40-stair-freedom-pilot-145m-s735}"
+  TRAIN_TARGET=145000000
+  AGE=145
+  CANDIDATE=pilot145M
+else
+  EXP_ROOT="${EMU_FREEDOM_ROOT:-$HOME/emu-data/runs/h40-stair-freedom-140to160-s735}"
+  TRAIN_TARGET=160000000
+  AGE=160
+  CANDIDATE=freedom160M
+fi
 PARENT_DIR="$EXP_ROOT/parent-140m"
 RUN_DIR="$EXP_ROOT/experiment"
-export SOURCE_RUN EXP_ROOT PARENT_DIR RUN_DIR SOURCE_SHA
+export SOURCE_RUN EXP_ROOT PARENT_DIR RUN_DIR SOURCE_SHA CANDIDATE AGE TRAIN_TARGET
 
 # Stage the original immutable 140M learner under checkpoints/ so the
 # existing strict cross-source fork verifier can authenticate it.
@@ -77,12 +89,12 @@ COMMON=(
   --fixed-eval-every-steps 60000000
 )
 echo "===== SOURCE-PINNED FREESTYLE STAIR FORK PLAN ====="
-"$PY" -m emu.cli train "${COMMON[@]}" --steps 160000000 --plan
+"$PY" -m emu.cli train "${COMMON[@]}" --steps "$TRAIN_TARGET" --plan
 if [[ "$MODE" == plan ]]; then
   echo "Plan complete; no training started."
   exit 0
 fi
-if [[ "$MODE" == all || "$MODE" == run ]]; then
+if [[ "$MODE" == all || "$MODE" == run || "$MODE" == pilot ]]; then
   if [[ -f "$RUN_DIR/training_config.json" ]]; then
     # Resume of THIS source, never transplant the external ancestor twice.
     RESUME=(--resume auto)
@@ -93,8 +105,8 @@ if [[ "$MODE" == all || "$MODE" == run ]]; then
     "$PY" -m pytest -q tests/test_core_stair_teaching.py
     "$PY" scripts/smoke_gpu_carpet.py --device cuda --worlds 128 --frames 2 --prisms --ppo
   fi
-  "$PY" -m emu.cli train "${COMMON[@]}" --steps 160000000 "${RESUME[@]}" --check-resume-only
-  "$PY" -m emu.cli train "${COMMON[@]}" --steps 160000000 "${RESUME[@]}"
+  "$PY" -m emu.cli train "${COMMON[@]}" --steps "$TRAIN_TARGET" "${RESUME[@]}" --check-resume-only
+  "$PY" -m emu.cli train "${COMMON[@]}" --steps "$TRAIN_TARGET" "${RESUME[@]}"
   if [[ "$MODE" == run ]]; then
     echo "Training complete. Next: bash scripts/run_h40_stair_freedom_wsl.sh exam"
     exit 0
@@ -105,7 +117,7 @@ fi
 # labelled stair worlds and same 2,000 matched flat worlds as original run.
 CHECKPOINT="$RUN_DIR/checkpoints/final.pkl"
 [[ -f "$CHECKPOINT" ]] || { echo "No completed experimental checkpoint: $CHECKPOINT" >&2; exit 1; }
-ACTOR="$RUN_DIR/actor-160m.emupolicy"
+ACTOR="$RUN_DIR/actor-${AGE}m.emupolicy"
 if [[ ! -f "$ACTOR" ]]; then
   "$PY" -m emu.cli export-policy "$CHECKPOINT" "$ACTOR"
 fi
@@ -156,7 +168,8 @@ def fraction(rows,key):
     if not rows: raise RuntimeError("Missing independent worlds for "+key)
     return sum(r[key].lower()=="true" for r in rows)/len(rows)
 rows={}
-for label,folder,age in (("140M",base,140),("160M",base,160),("freedom160M",new,"new")):
+candidate=os.environ["CANDIDATE"]
+for label,folder,age in (("140M",base,140),("160M",base,160),(candidate,new,"new")):
     stair,flat=stages(folder,age)
     groups=bands(stair,flat)
     rows[label]={}
@@ -169,34 +182,37 @@ for label,folder,age in (("140M",base,140),("160M",base,160),("freedom160M",new,
             survival=fraction(subset,"survived"),
             mean_lateral_m=sum(float(r["max_abs_lateral_offset_m"]) for r in subset)/len(subset))
 thresholds={
-    "up_44_60_upright_at_least_50pct":rows["freedom160M"]["up_44_60"]["objective"]>=.50,
-    "up_64_80_upright_at_least_20pct":rows["freedom160M"]["up_64_80"]["objective"]>=.20,
-    "down_44_80_upright_at_least_60pct":rows["freedom160M"]["down_44_80"]["objective"]>=.60,
-    "flat_strict_at_least_45pct":rows["freedom160M"]["flat"]["objective"]>=.45,
-    "up_64_80_survival_at_least_55pct":rows["freedom160M"]["up_64_80"]["survival"]>=.55,
+    "up_44_60_upright_at_least_50pct":rows[candidate]["up_44_60"]["objective"]>=.50,
+    "up_64_80_upright_at_least_20pct":rows[candidate]["up_64_80"]["objective"]>=.20,
+    "down_44_80_upright_at_least_60pct":rows[candidate]["down_44_80"]["objective"]>=.60,
+    "flat_strict_at_least_45pct":rows[candidate]["flat"]["objective"]>=.45,
+    "up_64_80_survival_at_least_55pct":rows[candidate]["up_64_80"]["survival"]>=.55,
 }
-out={"experiment":"140M->160M late-stage stair freedom; same seed, frozen parent",
+out={"experiment":f"140M->{os.environ['AGE']}M late-stage stair freedom; same seed, frozen parent",
      "parent_source":os.environ["SOURCE_SHA"],
      "branch_source":os.popen("git rev-parse HEAD").read().strip(),
      "objective":"No lane/yaw requirement for stairs only; flat remains strict",
-     "stages":rows,"gates":thresholds,"all_gates_pass":all(thresholds.values())}
+     "stages":rows,"gates":thresholds,
+     "all_gates_pass":all(thresholds.values()) if candidate=="freedom160M" else None,
+     "pilot_not_a_promotion_test":candidate!="freedom160M"}
 (root/"comparison.json").write_text(json.dumps(out,indent=2)+"\n",encoding="utf-8")
-lines=["# H40 Stair freedom: same 140M parent, +20M PPO", "",
+lines=[f"# H40 Stair freedom: same 140M parent, +{int(os.environ['AGE'])-140}M PPO", "",
        "Stairs use upright five-frame two-foot crossing; flat uses strict lane/heading control.",
        "No credit for a lead foot alone. Original 140M/160M held-out worlds are unchanged.","",
-       "| Physical goal | Original 140M | Original 160M | Freestyle 160M |",
+       f"| Physical goal | Original 140M | Original 160M | Freestyle {os.environ['AGE']}M |",
        "|---|---:|---:|---:|"]
 for task in ("flat","up_4_40","up_44_60","up_64_80","down_4_40","down_44_80"):
-    cells=[f"{rows[stage][task]['objective']:.1%}" for stage in ("140M","160M","freedom160M")]
+    cells=[f"{rows[stage][task]['objective']:.1%}" for stage in ("140M","160M",candidate)]
     lines.append("| "+task+" | "+" | ".join(cells)+" |")
-lines+=["","## Prespecified retention and exploration gates",""]
+lines+=["","## Prespecified retention and exploration gates",
+        "Exploratory only at 145M: gates do NOT authorise promotion." if candidate!="freedom160M" else "Full 160M criteria.",""]
 lines += [f"- {'PASS' if passed else 'FAIL'}: {key}" for key,passed in thresholds.items()]
 lines+=["","All per-world physical proof, strict lane metrics, lateral offsets and survival are in the CSVs.",
          "One parent seed, one exam seed; do not promote to main without independent cold-seed replication.",""]
 (root/"comparison.md").write_text("\n".join(lines),encoding="utf-8")
 bundle=root/"stair_freedom_results.zip"
 files=["comparison.md","comparison.json",
-       "experiment/actor-160m.emupolicy","experiment/training_config.json",
+       f"experiment/actor-{os.environ['AGE']}m.emupolicy","experiment/training_config.json",
        "experiment/run_meta.json"]
 files += [f"experiment/heldout/{kind}/{filename}"
           for kind in ("stairs","flat")
