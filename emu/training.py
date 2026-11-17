@@ -85,7 +85,7 @@ def attach_unified_teaching_report(report: dict, params: dict, *, step: int,
     report['gait_guidance_strength']=float(params['gait_guidance_strength'])
     report['holistic_stage']=(
         holistic_stair_stage(step).name
-        if args.holistic_cold_curriculum else 'disabled')
+        if getattr(args,'holistic_cold_curriculum',False) else 'disabled')
     for name in ('holistic_goal_weight','holistic_velocity_relief',
                  'holistic_approach_m','holistic_bilateral_bonus',
                  'holistic_followthrough_bonus'):
@@ -169,7 +169,7 @@ def env_kwargs_from_args(args) -> dict:
         science_step_velocity_relief=args.science_step_velocity_relief,
         science_step_approach_m=args.science_step_approach_m,
         science_step_finish_on_transfer=args.science_step_finish_on_transfer,
-        holistic_cold_curriculum=args.holistic_cold_curriculum,
+        holistic_cold_curriculum=getattr(args,'holistic_cold_curriculum',False),
         academy_stream=args.academy_stream,
         terrain_carpet=args.terrain_carpet,
         terrain_carpet_prisms=args.terrain_carpet_prisms,
