@@ -426,7 +426,7 @@ def capture_representative_traces(trace: dict, rows: list[dict],
     A single failed world is not representative when drift spans metres.
     Preserve unique worlds only; never include post-terminal reset states.
     """
-    field = ("bounded_standing_pass" if scenario.category == "balance"
+    field = ("zero_command_balance_pass" if scenario.category == "balance"
              else "locomotion_mission_pass")
     error_field = ("max_radius_m" if scenario.category == "balance"
                    else "final_trajectory_error_m")
@@ -438,6 +438,15 @@ def capture_representative_traces(trace: dict, rows: list[dict],
     if failing:
         candidates.append(("fail", min(failing, key=lambda r: (
             r["first_life_frames"], r["world"]))))
+    # A robot may pass dynamic balance while failing station keeping.
+    # Preserve a separate example of that *different* outcome.
+    if scenario.category == "balance":
+        station_fails = [r for r in rows if
+                         r["bounded_standing_pass"] is False]
+        if station_fails:
+            candidates.append(("station_keeping_fail",
+                               max(station_fails, key=lambda r: (
+                                   r["max_radius_m"], -r["world"]))))
     if rows:
         candidates += [
             ("best_error", min(rows, key=lambda r: (
