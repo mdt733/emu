@@ -24,7 +24,11 @@ from .contracts import CONTROL_DT
 SCHEMA = "emu_physical_capability_v1"
 # Proposed gates. Do not label an actor a champion until both reference policies
 # calibrate these thresholds and the MJX/browser parity experiment is complete.
-GATES_REVISION = "provisional-1"
+GATES_REVISION = "provisional-2"
+# Basic dynamic balance must not require a world-position controller that
+# the frozen 360-input H40 actor was never given. Reserve radius and absolute
+# heading limits for a *different* station-keeping skill, still measured.
+ZERO_COMMAND_BALANCE_MAX_MEAN_SPEED_MPS = 0.10
 STAND_MAX_RADIUS_M = 0.20
 STAND_MAX_HEADING_RAD = 0.35
 STAND_P95_TILT_DEG = 20.0
@@ -157,6 +161,8 @@ def score_first_life(trace: dict, scenario: Scenario,
         if contacts.shape != (n, 2):
             raise ValueError("need one physical contact signal per foot")
         support = np.any(contacts, axis=1)
+        horizontal_speed = np.linalg.norm(dx, axis=1)
+        mean_horizontal_speed = _safe_mean(horizontal_speed)
         # Two consecutive airborne frames followed by two supported frames:
         # concrete touchdown evidence, not a nominal learned gait phase.
         touchdowns = sum(int(np.count_nonzero(
@@ -190,8 +196,23 @@ def score_first_life(trace: dict, scenario: Scenario,
                   "timeout" if timeout and ended else
                   "other_terminal" if ended else "horizon_survived")
         survived = bool(not ended and not fell_first)
-        # Both surviving and bounded are required. A moving robot is not a
-        # standing robot simply because its head remains above the ground.
+        # Dynamic zero-command balance and absolute station-keeping are
+        # different capabilities. Do not penalize slow accumulation of XY
+        # or yaw bias in the basic balance gate when the policy receives
+        # no absolute XY position target.
+        balance_failures = []
+        if not survived:
+            balance_failures.append("terminal")
+        if mean_horizontal_speed > ZERO_COMMAND_BALANCE_MAX_MEAN_SPEED_MPS:
+            balance_failures.append("excessive_average_horizontal_motion")
+        if float(np.percentile(tilt, 95)) > STAND_P95_TILT_DEG:
+            balance_failures.append("torso_tilt")
+        if _safe_mean(support) < MIN_FOOT_SUPPORT_FRACTION:
+            balance_failures.append("insufficient_foot_contact")
+        if _safe_mean(bad > .5) > MAX_BAD_CONTACT_FRACTION:
+            balance_failures.append("bad_contacts")
+        # The historical bounded gate is retained without changing its
+        # definition, but explicitly named a STATION-KEEPING test.
         standing_failures = []
         if not survived:
             standing_failures.append("terminal")
@@ -205,7 +226,8 @@ def score_first_life(trace: dict, scenario: Scenario,
             standing_failures.append("insufficient_foot_contact")
         if _safe_mean(bad > .5) > MAX_BAD_CONTACT_FRACTION:
             standing_failures.append("bad_contacts")
-        balance_ok = not standing_failures
+        station_keeping_ok = not standing_failures
+        balance_ok = not balance_failures
         # Crossing times identify *when* stationary balance was lost even
         # if the robot stayed upright to the end of the horizon.
         radius_breach = np.flatnonzero(displacement[1:] > STAND_MAX_RADIUS_M)
@@ -277,6 +299,10 @@ def score_first_life(trace: dict, scenario: Scenario,
             terminal_frame=(n if ended else None),
             max_radius_m=float(np.max(displacement)),
             final_drift_m=float(displacement[-1]),
+            mean_horizontal_speed_mps=mean_horizontal_speed,
+            p95_horizontal_speed_mps=float(np.percentile(horizontal_speed, 95)),
+            peak_horizontal_speed_mps=float(np.max(horizontal_speed)),
+            final_drift_rate_mps=float(displacement[-1] / (n * dt)),
             max_heading_drift_rad=float(np.max(np.abs(
                 headings - headings[0]))),
             time_to_radius_breach_s=(
@@ -298,8 +324,13 @@ def score_first_life(trace: dict, scenario: Scenario,
             final_trajectory_error_m=float(path_error[-1]),
             positive_motor_shaft_work_j=drive_energy,
             positive_motor_shaft_power_w=drive_energy / (n * dt),
-            bounded_standing_pass=(
+            zero_command_balance_pass=(
                 balance_ok if scenario.category == "balance" else None),
+            balance_failure_reasons=(
+                ",".join(balance_failures)
+                if scenario.category == "balance" else None),
+            bounded_standing_pass=(
+                station_keeping_ok if scenario.category == "balance" else None),
             standing_failure_reasons=(
                 ",".join(standing_failures)
                 if scenario.category == "balance" else None),
@@ -343,6 +374,9 @@ def summarize(rows: list[dict], *, expected_worlds: int) -> list[dict]:
         standing_passes = (sum(bool(r["bounded_standing_pass"])
                                for r in group)
                            if group[0]["category"] == "balance" else None)
+        balance_passes = (sum(bool(r["zero_command_balance_pass"])
+                              for r in group)
+                          if group[0]["category"] == "balance" else None)
         mission_passes = (sum(bool(r["locomotion_mission_pass"])
                               for r in group)
                           if group[0]["category"] != "balance" else None)
@@ -352,8 +386,11 @@ def summarize(rows: list[dict], *, expected_worlds: int) -> list[dict]:
             full_survival_fraction=survival / len(group),
             full_survival_wilson95_lo=lo,
             full_survival_wilson95_hi=hi,
+            zero_command_balance_passes=balance_passes,
             bounded_standing_passes=standing_passes,
             locomotion_mission_passes=mission_passes,
+            mean_horizontal_speed_mps=_safe_mean(np.asarray(
+                [r["mean_horizontal_speed_mps"] for r in group])),
             mean_first_life_s=_safe_mean(np.asarray(
                 [r["observed_seconds"] for r in group])),
             mean_vx_mae_mps=_safe_mean(np.asarray(
@@ -457,16 +494,18 @@ def save_evidence(path: Path, manifest: dict, rows: list[dict],
     md = ["# EMU physical capability exam v1", "",
           "Frozen, first-life MJX evaluation. No training; no reset credit.",
           "All thresholds provisional until reference-robot calibration.", "",
-          "| Scenario | Full survival | Standing gate | Mission gate | Mean vx MAE | Mean trajectory error |",
+          "| Scenario | Full survival | Balance | Station keeping | Mission | Mean horizontal speed |",
           "|---|---:|---:|---:|---:|---:|"]
     for s in summary:
         gate = (str(s["bounded_standing_passes"]) + "/" + str(s["trials"])
                 if s["bounded_standing_passes"] is not None else "—")
+        balance = (str(s["zero_command_balance_passes"]) + "/" + str(s["trials"])
+                   if s["zero_command_balance_passes"] is not None else "—")
         mission = (str(s["locomotion_mission_passes"]) + "/" + str(s["trials"])
                    if s["locomotion_mission_passes"] is not None else "—")
         md.append(f'| {s["scenario"]} | {s["full_survivals"]}/{s["trials"]} '
-                  f'| {gate} | {mission} | {s["mean_vx_mae_mps"]:.3f} m/s '
-                  f'| {s["mean_final_trajectory_error_m"]:.3f} m |')
+                  f'| {balance} | {gate} | {mission} | '
+                  f'{s["mean_horizontal_speed_mps"]:.3f} m/s |')
     md += ["", "Only scenarios actually present in this ZIP were measured.",
            "No composite champion ranking is assigned.", ""]
     partial = path.with_name(path.name + ".partial")
@@ -633,6 +672,9 @@ def run(*, policy: Path, output: Path, worlds: int = 8, seed: int = 1701,
         motor_work="positive servo shaft drive work, not battery energy",
         wall_seconds=round(time.perf_counter()-started, 3),
         gate_values=dict(
+            zero_command_balance_mean_horizontal_speed_max_mps=(
+                ZERO_COMMAND_BALANCE_MAX_MEAN_SPEED_MPS),
+            station_keeping_radius_m=STAND_MAX_RADIUS_M,
             stand_radius_m=STAND_MAX_RADIUS_M,
             heading_rad=STAND_MAX_HEADING_RAD,
             p95_tilt_deg=STAND_P95_TILT_DEG,
