@@ -1075,7 +1075,20 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
              goal_line,goal_line_both,goal_window_both,
              goal_window_heading,goal_window_safe,goal_window_all,
              x_window_any,x_window_both,first_both_frame,first_both_x,
-             open_streak,lane_streak,open_cross,lane_cross)=carry
+             open_streak,lane_streak,open_cross,lane_cross,
+             motion_sum,abs_yaw_sum,bad_sum,min_gravity,
+             slip_sum,energy_sum,tail_motion,tail_yaw,tail_frames,
+             quiet_streak,quiet_max,transition_a,transition_b,
+             transition_c)=carry
+            # Each world can run its own signed forward / stop / reverse
+            # command without a separate GPU compile or long trace.
+            cmd_now=jnp.where(
+                (programs==1)[:,None],
+                jnp.stack((
+                    jnp.where(i<a_end,commands[:,0],
+                              jnp.where(i<b_end,0.,-.8*commands[:,0])),
+                    jnp.zeros((n,)),jnp.zeros((n,))),axis=1),
+                commands)
             # Maintain *different* operator instructions in the same
             # JAX program; bypass random command resampling without
             # changing the actual deployable observation format.
@@ -1083,21 +1096,21 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             # operator commands stay fixed, while the actor sees the
             # effective I-corrected demand from the previous MJX step.
             xy_policy=(es.task[:,[T.vx,T.vy]]
-                       if env.velocity_i_multiplier>1. else commands[:,:2])
+                       if env.velocity_i_multiplier>1. else cmd_now[:,:2])
             task=(es.task.at[:,T.vx].set(xy_policy[:,0])
                          .at[:,T.vy].set(xy_policy[:,1])
-                         .at[:,T.yaw].set(commands[:,2]))
+                         .at[:,T.yaw].set(cmd_now[:,2]))
             hist=(es.hist.at[:,-1,cmd_idx[0]].set(xy_policy[:,0])
                          .at[:,-1,cmd_idx[1]].set(xy_policy[:,1])
-                         .at[:,-1,cmd_idx[2]].set(commands[:,2]))
+                         .at[:,-1,cmd_idx[2]].set(cmd_now[:,2]))
             current=es._replace(
                 task=task,hist=hist,
-                cmd_target=es.cmd_target.at[:,:3].set(commands),
-                cmd_ramp_from=es.cmd_ramp_from.at[:,:3].set(commands),
+                cmd_target=es.cmd_target.at[:,:3].set(cmd_now),
+                cmd_ramp_from=es.cmd_ramp_from.at[:,:3].set(cmd_now),
                 cmd_ramp_frac=jnp.ones_like(es.cmd_ramp_frac),
                 cmd_ramp_speed=jnp.zeros_like(es.cmd_ramp_speed),
                 cmd_hold_left=jnp.full_like(es.cmd_hold_left,1000000000),
-                raw_velocity_command=commands[:,:2])
+                raw_velocity_command=cmd_now[:,:2])
             ob=hist.reshape((n,obs_dim))
             action=jnp.clip(mlp(params['pi'],
                 normalize_obs(ob,obs_mean,obs_std,obs_norm_mask)),-1.,1.)
@@ -1187,12 +1200,12 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             live_next=live & ~(out.done>.5)
             valid_frames=valid_frames+live.astype(jnp.int32)
             w=live.astype(jnp.float32)
-            speed_error=speed_error+w*jnp.abs(m['vx']-commands[:,0])
-            yaw_error=yaw_error+w*jnp.abs(m['yaw_rate']-commands[:,2])
+            speed_error=speed_error+w*jnp.abs(m['vx']-cmd_now[:,0])
+            yaw_error=yaw_error+w*jnp.abs(m['yaw_rate']-cmd_now[:,2])
             support_sum=support_sum+w*m['support']
             gravity_sum=gravity_sum+w*m['gravity_z']
             lateral_sum=lateral_sum+w*jnp.abs(
-                m['vy']-commands[:,1])
+                m['vy']-cmd_now[:,1])
             still_motion=still_motion+w*jnp.abs(m['vx'])
             return (out.state,live_next,fall_frame,lead_seen,
                     foot_streak,feet_seen,stable_streak,complete,
