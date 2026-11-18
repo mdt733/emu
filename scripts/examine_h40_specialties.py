@@ -13,6 +13,7 @@ from dataclasses import asdict, dataclass
 from hashlib import sha256
 import io
 import json
+import os
 from pathlib import Path
 import platform
 import tempfile
@@ -361,6 +362,13 @@ def run(*, policy: Path, output: Path, worlds: int = DEFAULT_WORLDS,
     import jax
     import jax.numpy as jnp
     import jaxlib
+    # Persistent XLA cache survives process restarts. The same 2048x600
+    # compiled kernel can be reused for many source-matched checkpoints;
+    # JAX keys cache entries by program, jaxlib and GPU configuration.
+    cache_dir = Path(os.environ.get(
+        "JAX_COMPILATION_CACHE_DIR", "~/.cache/emu/jax-pulse")).expanduser()
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    jax.config.update("jax_compilation_cache_dir", str(cache_dir.resolve()))
     require_backend(device == "cpu")
     train, control, sensor = (actor["training"], actor["control"],
                               actor["sensor_settings"])
@@ -450,6 +458,7 @@ def run(*, policy: Path, output: Path, worlds: int = DEFAULT_WORLDS,
         measured_world_steps_per_s=round(worlds*horizon/max(wall, .001), 1),
         true_physics="eight convex prisms on four 1m source tiles",
         training_updates=0, first_life_only=True, gpu_trace_export=False,
+        persistent_jax_compilation_cache=True,
         recovery="initial signed velocity kick, final 2s quiet, 1s stable streak",
         transitions="same-world velocity commands change after 1/3 and 2/3 of horizon",
         caveats="No 60s endurance, station keeping, timed forces or sequential stairs")
