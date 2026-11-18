@@ -311,6 +311,16 @@ def write_zip(output: Path, manifest: dict, rows: list[dict],
     md.extend(("", "Each severity and direction is recorded separately.",
                "The station-keeping, long endurance, timed pushes and stairs "
                "are separate examinations.", ""))
+    # One-row format allows quick concatenation across immutable
+    # checkpoints without parsing 2048 worlds or six nested JSON groups.
+    pulse = dict(actor_step=manifest["actor_step"],
+                 seed=manifest["seed"], worlds=manifest["worlds"],
+                 horizon_frames=manifest["horizon_frames"],
+                 mjx_compute_wall_s=manifest["mjx_compute_wall_s"])
+    for line in headline:
+        key = line["specialty"]
+        pulse[key+"_pass_fraction"] = line["pass_fraction"]
+        pulse[key+"_survival_fraction"] = line["survived"]/line["attempted"]
     partial = output.with_name(output.name+".partial")
     try:
         with zipfile.ZipFile(partial, "w", zipfile.ZIP_DEFLATED) as z:
@@ -320,6 +330,8 @@ def write_zip(output: Path, manifest: dict, rows: list[dict],
                 indent=2)+"\n")
             z.writestr("summary.md", "\n".join(md))
             z.writestr("worlds.csv", _csv(rows))
+            z.writestr("curves.csv", _csv(curves))
+            z.writestr("pulse.csv", _csv([pulse]))
         partial.replace(output)
     finally:
         partial.unlink(missing_ok=True)
