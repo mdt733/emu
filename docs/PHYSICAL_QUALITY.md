@@ -243,9 +243,10 @@ operator's desired trajectory.
 
 **Basic dynamic balance:** For the full 60 seconds, require no terminal/fall,
 95th-percentile tilt ≤20°, foot contact in ≥75% of frames, bad contact in
-≤5%, and mean physical horizontal speed ≤0.10m/s. This tests whether an
-actively correcting, dynamically unstable biped stays safe and approximately
-still when asked for zero vx/vy/yaw. The score reports peak and 95th-percentile
+≤5%, mean physical horizontal speed ≤0.10m/s, and mean absolute
+yaw rate ≤0.15rad/s. This tests whether an actively correcting, dynamically
+unstable biped stays safe and approximately still when asked for zero vx/vy/yaw.
+The score reports peak and 95th-percentile
 speed without treating brief corrective steps as automatic failures.
 **Slow accumulated displacement or heading error is not a basic balance
 failure.** These provisional limits must still be calibrated.
