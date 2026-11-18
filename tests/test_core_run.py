@@ -365,6 +365,31 @@ def _check_readonly_dashboard(tmp_path):
                      "--once","--plain"]) == 0
     assert source.read_bytes()==before
 
+    # Switching Git branches must never leave a stale compiled Meadow visible.
+    # This is a pure stdlib fingerprint check, not a Node build or PPO update.
+    from emu.viewer_server import (
+        VIEWER_SOURCE_STAMP, viewer_source_fingerprint,
+        viewer_build_is_current)
+    viewer_src=tmp_path/"viewer-source"
+    viewer_src.mkdir()
+    (viewer_src/"main.js").write_text("old Meadow", encoding="utf-8")
+    viewer_dist=tmp_path/"viewer-dist"
+    viewer_dist.mkdir()
+    (viewer_dist/"index.html").write_text("<html/>", encoding="utf-8")
+    assert not viewer_build_is_current(viewer_dist, viewer_src)
+    (viewer_dist/VIEWER_SOURCE_STAMP).write_text(
+        viewer_source_fingerprint(viewer_src)+"\\n", encoding="ascii")
+    assert viewer_build_is_current(viewer_dist, viewer_src)
+    # Generated build content and installed npm dependencies are excluded.
+    (viewer_src/"dist").mkdir()
+    (viewer_src/"dist"/"app.js").write_text("built JS")
+    (viewer_src/"node_modules").mkdir()
+    (viewer_src/"node_modules"/"test.js").write_text("dependency")
+    assert viewer_build_is_current(viewer_dist, viewer_src)
+    # The actual source changes across branch checkouts, so the stamp expires.
+    (viewer_src/"main.js").write_text("new Meadow", encoding="utf-8")
+    assert not viewer_build_is_current(viewer_dist, viewer_src)
+
 
 def test_actual_evaluator_uses_prisms_not_boxes(tmp_path, monkeypatch):
     import emu.evaluation as evaluate
