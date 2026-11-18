@@ -56,7 +56,7 @@ This later Spring V1 model is **not** the approved public 120M actor above. On t
 
 This is a **warm continuation**, not independent replication from fresh random weights. It proved the difference between achieving first upper foothold, authentic bilateral support and a controlled crossing; it also exposed a costly lesson: increased tall-UP engagement can erase DOWN control and harder-UP survival even as flat walking stays excellent. See [source-pinned teacher PR #93](https://github.com/mdt733/emu/pull/93) and [160M comparison PR #94](https://github.com/mdt733/emu/pull/94).
 
-The subsequent [holistic cold-training system](https://github.com/mdt733/emu/pull/95) deliberately limits *uphill Academy training* to 55mm, maintains a separate 80mm downhill school and increases control rehearsal. **It has not earned a capability claim until a genuinely cold 0→160M actor passes the same held-out physical examinations and another seed replicates the outcome.** Full reference actors and trial ZIPs are outside Git; these findings stay, not their one-off launch scripts.
+The subsequent [holistic cold-training system](https://github.com/mdt733/emu/pull/95) deliberately limits *uphill Academy training* to 55mm, maintains a separate 80mm downhill school and increases control rehearsal. **A genuinely cold seed-735 140M actor has now passed independent physical exams across three evaluation seeds; independent training-seed reproducibility is still unproven.** Full reference actors and trial ZIPs are outside Git; these findings stay, not their one-off launch scripts.
 
 ## Recovery instead of permanent experiment runbooks
 
@@ -66,3 +66,20 @@ The subsequent [holistic cold-training system](https://github.com/mdt733/emu/pul
 - All 18 retired pages are recoverable from the [source-pinned old docs tree](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs). GPU data and the original run bundles are not embedded in this repository.
 
 **Rule for future studies:** one concise measured result in this ledger, plus a source-pinned commit/run and the relevant externally retained evidence. Remove one-off run instructions and inactive branches when a study ends. Git is the archive, not the working tree.
+
+## New development reference: 140M cold Spring V1, 18 November 2026
+
+The original single-learner PPO run reached **140,050,432** environment steps, training seed **735**, source **`22266821bdbfc82a529ef708e5171c82c6c9f29c`**. Its frozen complete optimizer/normalizer/governor state, actor and stage provenance are stored off Git at `~/emu-data/runs/h40-holistic-cold-s735/stages/140m/`.
+
+Using 2,000 first-life true-prism stair trials plus 2,000 matched flat trials per evaluation seed, the **means across independent evaluation seeds 1701, 1711 and 1729** were:
+
+| Physical objective | Original 140M | Original 160M | Later 175M |
+| --- | ---: | ---: | ---: |
+| Flat directed control | **57.4%** | 7.2% | 12.3% |
+| Uphill 44–60mm | 50.5% | 52.7% | **62.9%** |
+| Uphill 64–80mm | 19.1% | 22.4% | **43.6%** |
+| Downhill 44–80mm | **71.6%** | 63.0% | 54.7% |
+
+Later policies learned harder climbs but often lost directional control and downhill competence. This selects **140M as the balanced development reference**, not as proven maximal stair performance. All three exam seeds share *one training seed*; no claim of repeatable training across independent random initialisations. No verified reliable multi-step stair-course completion or physical hardware deployment.
+
+The clean integrated 140M mainline preserves the original 140M-producing model/PPO/reward implementation and stops at 140M. Historical 140→160M transfer and longer 180M research remain archived, but are not promoted as defaults. The previously approved 120M public actor is intentionally left untouched pending separate verification/publication of a real 140M actor.

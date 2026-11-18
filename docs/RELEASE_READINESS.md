@@ -1,12 +1,12 @@
 # EMU release readiness — source, actor and hardware are separate
 
-**The checked-in public demonstration is still the previously approved 120M H40 actor** at `showcase/champion.emupolicy`. The holistic 0→160M curriculum is a candidate training source. It is not itself a demonstrated 160M success, a new approved actor, or validated real hardware.
+**The checked-in public demonstration is still the previously approved 120M H40 actor** at `showcase/champion.emupolicy`. The curated 0→140M Spring V1 curriculum is the approved *development source* behind the independently examined 140M learner. The 140M actor is still local, not the public 120M showcase actor, and the simulated hardware is not validated.
 
 ## Source promotion gate
 
 Before a cleaned branch enters `main`, require:
 
-1. The original cold-run SHA and complete 20/40/120/140/160M checkpoint/actor records remain archived and untampered.
+1. The original cold-run SHA and complete 20/40/120/140M checkpoint/actor records remain archived and untampered.
 2. Training-critical modules have demonstrably identical Git blob hashes to the source that trained the candidate, or changes have separately passed physical/reward/sensor and PPO parity tests. A different Git commit is still a different *checkpoint provenance*.
 3. Clean WSL installation, CPU true-prism physics tests, 2,048-world CUDA PPO smoke and checkpoint/export/resume checks work without archived policies or secret local file paths.
 4. The fresh seed-735 actor has credible independent uphill and downhill 4–80mm results **and** retains flat, command, slope and resilience competence. Treat failure to maintain downhill as a failed gate even if uphill improves.
