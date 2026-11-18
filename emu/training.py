@@ -49,7 +49,8 @@ from .training_config import (
 )
 from .curriculum import RegimeGovernor
 from .training_health import TrainingHealth
-from .capability_focus import (teaching_profile, attention_weights, FOCUS_NAMES,
+from .capability_focus import (teaching_profile, attention_weights,
+                                protected_rehearsal_weights, FOCUS_NAMES,
                                 gait_guidance_strength, holistic_stair_stage,
                                academy_birth_allocation, academy_focus_mix,
                                academy_conditional_birth_share)
@@ -471,6 +472,10 @@ def train(args: TrainingConfig) -> int:
                 target_control=max(base_control,retention)
                 weights=[w*(1.-target_control)/other_total for w in weights[:-1]]
                 weights.append(target_control)
+            # This one research branch protects normal walking and directional
+            # control after 140M. Only the training birth distribution changes.
+            if args.holistic_cold_curriculum and step >= 140_000_000:
+                weights=list(protected_rehearsal_weights(weights))
             # Academy is an additional episode birth role, not a separate
             # optimizer or policy. Its share is relative to ALL worlds.
             # Original role fractions survive inside non-Academy births.

@@ -48,6 +48,32 @@ def attention_weights(*, schedule: str, step: int,
 COMMAND, RESILIENCE, SLOPE, STEP, TRANSITION, CONTROL = range(6)
 
 
+def protected_rehearsal_weights(weights, *, command_share=.24, control_share=.26):
+    """Protect command-following/control practice in one isolated sampling arm.
+
+    Change only non-Academy six-specialist birth allocation. Scale all four
+    remaining roles proportionally, preserving real step/up/down schooling,
+    Academy birth quota, motor/reward policy and PPO mechanics.
+    """
+    import math
+    if (len(weights) != len(FOCUS_NAMES)
+            or any(not math.isfinite(float(w)) or w < 0. for w in weights)
+            or not math.isclose(sum(weights), 1., abs_tol=1e-6)
+            or not (0. <= command_share <= 1.
+                    and 0. <= control_share <= 1.
+                    and command_share + control_share < 1.)):
+        raise ValueError("invalid protected rehearsal weights")
+    remaining = 1. - command_share - control_share
+    rest = sum(float(weights[i]) for i in range(len(weights))
+               if i not in (COMMAND, CONTROL))
+    if rest <= 0.:
+        raise ValueError("No specialist practice mass left")
+    out = [float(w) * remaining / rest for w in weights]
+    out[COMMAND], out[CONTROL] = command_share, control_share
+    return tuple(out)
+
+
+
 # The cold-start gait has first refusal through 20M world steps. Thereafter
 # the only time-driven quantity is TEACHING SHARE; physical targets always
 # advance/retreat on local completed-episode evidence, never on a clock.
