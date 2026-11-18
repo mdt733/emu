@@ -256,6 +256,22 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(out["first_both_foot_frame"].shape,(4,))
         self.assertEqual(out["traversed_upright_5frame"].shape,(4,))
         self.assertEqual(out["traversed_in_lane_5frame"].shape,(4,))
+        # Integration smoke: exercise the *real* exported 120M actor through
+        # the actual JAX trace endpoint, rather than only synthetic NumPy
+        # scoring. Three frames are API/physics evidence, NOT certification.
+        from emu.policy_export import load_exported_actor_for_exam
+        from pathlib import Path
+        policy, norm, actor = load_exported_actor_for_exam(
+            Path("showcase/champion.emupolicy"))
+        self.assertEqual(actor["obs_dim"], 360)
+        trace = trainer["evaluate_trace"](
+            policy, task, jnp.asarray(norm["mean"]),
+            jnp.asarray(norm["std"]), jax.random.PRNGKey(1711),
+            3, 0., command_schedule=jnp.zeros((3, 3), dtype=jnp.float32))
+        self.assertEqual(trace["done"].shape, (3, 4))
+        self.assertEqual(trace["physical_position_xy_after_step"].shape, (3, 4, 2))
+        self.assertTrue(np.isfinite(np.asarray(jax.device_get(
+            trace["physical_position_xy_after_step"]))).all())
 
 
 def physical_v1_fixture(seconds=1, worlds=2):
