@@ -590,7 +590,9 @@ class RegimeGovernor:
         return 'hold_probe_learning'
 
     def advance_academy(self, row: dict[str,float], *, max_height_m:float,
-                        enabled:bool, kl_ok:bool=True) -> str:
+                        enabled:bool, kl_ok:bool=True,
+                        up_cap_m:float | None=None,
+                        down_cap_m:float | None=None) -> str:
         """Grow UP and DOWN independently from real, approached lip encounters.
 
         Easy crossings audit retained skill; near-frontier encounters alone
@@ -603,9 +605,22 @@ class RegimeGovernor:
             raise ValueError('Academy aspiration must be in [3mm,25cm]')
         if float(row.get('academy_active_fraction',0.))<=0.:
             return 'academy_await_births'
+        # The learned fronts remain independent. A cold-run school may
+        # restrict hard uphill exposure while maintaining real downhill
+        # rehearsal up to its own cap; neither direction borrows progress.
+        for label,cap in (('up',up_cap_m),('down',down_cap_m)):
+            if cap is not None and (
+                    not math.isfinite(cap) or
+                    not self.ACADEMY_MIN_LIP_M<=cap<=max_height_m):
+                raise ValueError(f'invalid {label} Academy cap')
         evidence=self.academy_evidence
         events=[]
         for direction in ('up','down'):
+            direction_cap=(max_height_m if (up_cap_m if direction=='up'
+                                            else down_cap_m) is None
+                           else min(max_height_m,
+                                    up_cap_m if direction=='up'
+                                    else down_cap_m))
             for band in ('near','easy'):
                 for kind in ('attempts','successes'):
                     key=f'academy_{band}_{kind}_{direction}'
@@ -630,7 +645,7 @@ class RegimeGovernor:
                 if good and kl_ok:
                     previous=getattr(self.params,frontier)
                     setattr(self.params,frontier,min(
-                        max_height_m,previous+self.ACADEMY_HEIGHT_GROWTH_M))
+                        direction_cap,previous+self.ACADEMY_HEIGHT_GROWTH_M))
                     event='expand' if getattr(self.params,frontier)>previous else 'cap'
                 else:
                     event='kl_hold' if good else 'learning'
@@ -830,7 +845,9 @@ class RegimeGovernor:
     def advance_curriculum(self, row: dict[str, float], *, step: int,
                            max_height_m: float, foundation_steps: int,
                            kl_ok_to_expand: bool = True,
-                           academy_max_height_m: float = 0.0) -> dict[str, float | str]:
+                           academy_max_height_m: float = 0.0,
+                           academy_up_cap_m: float | None = None,
+                           academy_down_cap_m: float | None = None) -> dict[str, float | str]:
         """One path for the ordinary and final rollout's curriculum decisions.
 
         Reuse the original regime logic and existing per-skill closed evidence.
@@ -851,7 +868,8 @@ class RegimeGovernor:
             row,max_height_m=academy_max_height_m,
             enabled=(self.unified_capability_focus and
                      academy_max_height_m>0. and growth_enabled),
-            kl_ok=kl_ok_to_expand)
+            kl_ok=kl_ok_to_expand,
+            up_cap_m=academy_up_cap_m,down_cap_m=academy_down_cap_m)
         report['academy_height_up_m']=self.params.academy_height_up_m
         report['academy_height_down_m']=self.params.academy_height_down_m
         report.update({f'academy_window_{key}':value

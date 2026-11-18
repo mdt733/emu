@@ -1,6 +1,6 @@
 # EMU — retained research findings
 
-**Current source:** [H40 handover](../handover.md). This is a concise **evidence ledger**, not a second set of runbooks. The full 2026 experiments, source, commands, reports and discarded proposals remain in [the pre-cleanup Git snapshot](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs) and their original PRs. Each result below identifies **its own** physics, source, seeds and exam fixtures. Historical v50xx results must **not** be treated as H40's measured capability; the matched frozen-H40 CUDA study below is the current measured stair baseline.
+**Current source:** [H40 handover](../handover.md). This is a concise **evidence ledger**, not a second set of runbooks. The full 2026 experiments, source, commands, reports and discarded proposals remain in [the pre-cleanup Git snapshot](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs) and their original PRs. Each result below identifies **its own** physics, source, seeds and exam fixtures. Historical v50xx results must **not** be treated as H40's measured capability; the 11 November H40 public baseline and later Spring V1 experiments below are separate source-specific physical studies, not proven results of the candidate cold system.
 
 ## H40 2,000 same-world frozen-actor signed stair vs flat — 11 November 2026
 
@@ -35,9 +35,28 @@ An earlier **64-world CUDA smoke** (one trial per height/sign) validated executi
 
 ## Current H40 baseline: what these studies do **not** prove
 
-The owner-approved H40 mainline is the **120,061,952-step**, seed-735, 40 cm / six chassis-mounted C018 / rated-torque model with a 45°×45°, 70°-down 4×4 sensor and four rolling 1 m tiles. Frozen training SHA: `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`. Its exact trained `showcase/champion.emupolicy` and checkpoint SHA live in the [handover](../handover.md) and [release readiness](RELEASE_READINESS.md).
+The previously approved *public actor* is the **120,061,952-step**, seed-735, 40 cm / six chassis-mounted C018 / rated-torque model with a 45°×45°, 70°-down 4×4 sensor and four rolling 1 m tiles. Frozen training SHA: `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`. The older approved `showcase/champion.emupolicy` remains checked in; its source/checkpoint release identity is guarded by `showcase/release_approval.json` and the separate [release-readiness](RELEASE_READINESS.md) workflow. It must not be silently replaced with an experimental actor.
 
 The owner reports pleasing viewer walking and slopes approaching 15°; these are **qualitative**. A **matched 2000-pair signed MJX step-vs-flat physical exam is now measured**, with nearly flat-equivalent controlled continuation up to +27.5mm and a sharp first-upper-foothold loss at +30–32.5mm; see results above. Repeatable high-step ascent, full command/slope/recovery/effort envelope, actual hardware actuation, remote knee transmission losses, motor thermal behaviour, battery sag and mass **remain unproven**. Retired experiments cannot be ranked as if they shared the same robot, sensor, reward, evaluation and physics.
+
+## Spring V1 incremental stair teaching, 140M → 160M (November 2026)
+
+This later Spring V1 model is **not** the approved public 120M actor above. On the same physical Spring V1 model (XML SHA `7085b1732fe6b876b27ef9b485853d0127c70f6e1c1a9b52b57af82c34de6cfd`), 2,000 real-prism stair attempts and 2,000 matched flat attempts per frozen actor, 350 first-life frames, exam seed 1701 and **zero PPO updates**, yielded:
+
+| Independently verified outcome | 140M explorer | 160M transfer tutor |
+|---|---:|---:|
+| UP 4–40mm controlled crossing | 29.8% | **38.6%** |
+| UP 44–60mm leading foot supported | 55.2% | **87.2%** |
+| UP 44–60mm both feet supported | 20.0% | **34.4%** |
+| UP 44–60mm controlled crossing | 1.6% | **8.8%** |
+| UP 44–60mm survival | **55.6%** | 47.2% |
+| UP 64–80mm survival | **88.0%** | 23.2% |
+| DOWN 44–80mm controlled crossing | **50.0%** | 27.2% |
+| Flat controlled crossing / survival | 54.3% / 100% | **55.5% / 100%** |
+
+This is a **warm continuation**, not independent replication from fresh random weights. It proved the difference between achieving first upper foothold, authentic bilateral support and a controlled crossing; it also exposed a costly lesson: increased tall-UP engagement can erase DOWN control and harder-UP survival even as flat walking stays excellent. See [source-pinned teacher PR #93](https://github.com/mdt733/emu/pull/93) and [160M comparison PR #94](https://github.com/mdt733/emu/pull/94).
+
+The subsequent [holistic cold-training system](https://github.com/mdt733/emu/pull/95) deliberately limits *uphill Academy training* to 55mm, maintains a separate 80mm downhill school and increases control rehearsal. **A genuinely cold seed-735 140M actor has now passed independent physical exams across three evaluation seeds; independent training-seed reproducibility is still unproven.** Full reference actors and trial ZIPs are outside Git; these findings stay, not their one-off launch scripts.
 
 ## Recovery instead of permanent experiment runbooks
 
@@ -47,3 +66,20 @@ The owner reports pleasing viewer walking and slopes approaching 15°; these are
 - All 18 retired pages are recoverable from the [source-pinned old docs tree](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs). GPU data and the original run bundles are not embedded in this repository.
 
 **Rule for future studies:** one concise measured result in this ledger, plus a source-pinned commit/run and the relevant externally retained evidence. Remove one-off run instructions and inactive branches when a study ends. Git is the archive, not the working tree.
+
+## New development reference: 140M cold Spring V1, 18 November 2026
+
+The original single-learner PPO run reached **140,050,432** environment steps, training seed **735**, source **`22266821bdbfc82a529ef708e5171c82c6c9f29c`**. Its frozen complete optimizer/normalizer/governor state, actor and stage provenance are stored off Git at `~/emu-data/runs/h40-holistic-cold-s735/stages/140m/`.
+
+Using 2,000 first-life true-prism stair trials plus 2,000 matched flat trials per evaluation seed, the **means across independent evaluation seeds 1701, 1711 and 1729** were:
+
+| Physical objective | Original 140M | Original 160M | Later 175M |
+| --- | ---: | ---: | ---: |
+| Flat directed control | **57.4%** | 7.2% | 12.3% |
+| Uphill 44–60mm | 50.5% | 52.7% | **62.9%** |
+| Uphill 64–80mm | 19.1% | 22.4% | **43.6%** |
+| Downhill 44–80mm | **71.6%** | 63.0% | 54.7% |
+
+Later policies learned harder climbs but often lost directional control and downhill competence. This selects **140M as the balanced development reference**, not as proven maximal stair performance. All three exam seeds share *one training seed*; no claim of repeatable training across independent random initialisations. No verified reliable multi-step stair-course completion or physical hardware deployment.
+
+The clean integrated 140M mainline preserves the original 140M-producing model/PPO/reward implementation and stops at 140M. Historical 140→160M transfer and longer 180M research remain archived, but are not promoted as defaults. The previously approved 120M public actor is intentionally left untouched pending separate verification/publication of a real 140M actor.

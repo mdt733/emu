@@ -26,6 +26,20 @@ CANONICAL_DOCS = frozenset({
     "PHYSICAL_QUALITY.md", "PLAYGROUND.md", "README.md",
     "RELEASE_READINESS.md", "RESEARCH_FINDINGS.md",
 })
+# Finished research wrappers are archived in Git; refuse them in the maintained tree.
+RETIRED_EXPERIMENT_SCRIPTS = frozenset((
+    "compare_h40_stair_outcome_tutor.py",
+    "compare_h40_stair_transfer_tutor.py",
+    "examine_h40_spring_v1_mechanics.py",
+    "h40_mechanical_feasibility.py",
+    "recover_h40_spring_v1.py",
+    "recover_h40_spring_v1_wsl.sh",
+    "run_h40_spring_v1_wsl.sh",
+    "run_h40_stair_diagnostics_wsl.sh",
+    "run_h40_stair_outcome_tutor_wsl.sh",
+    "run_h40_stair_transfer_160m_wsl.sh",
+    "summarize_stair_mechanics.py",
+))
 MARKDOWN_LINK = re.compile(r'!?\[[^\]]*\]\(([^)]+)\)')
 
 # Keep this short on purpose: one explicit owner for each Python runtime
@@ -200,6 +214,9 @@ def inventory(root: Path = REPO_ROOT) -> dict:
             "names": sorted(test_cases),
         },
         "documentation_policy": doc_policy,
+        "retired_experiment_scripts_present": sorted(
+            name for name in RETIRED_EXPERIMENT_SCRIPTS
+            if (root / "scripts" / name).is_file()),
         "backend_module_count": len(modules),
         "backend_python_lines": sum(lines.values()),
         "browser_javascript_files": sum(
@@ -279,6 +296,8 @@ def markdown(data: dict) -> str:
         out.append(f"| `{name}` | {detail['lines']} | "
                    f"{', '.join(detail['imports']) or '—'} | "
                    f"{len(detail['script_or_test_users'])} |")
+    out.extend(["", "## Retired trial wrappers (must be empty)", "",
+                json.dumps(data["retired_experiment_scripts_present"]), ""])
     out.extend(["", "## Skeleton ownership mismatches (must all be empty)", "",
                 json.dumps(data["ownership_errors"], sort_keys=True),
                 "", "## Deleted-module imports (must be empty)", "",
@@ -298,7 +317,8 @@ def main(argv: list[str] | None = None) -> int:
     data = inventory()
     print(json.dumps(data, sort_keys=True, indent=2) if args.json
           else markdown(data), end="")
-    return int(bool(data["missing_emu_module_imports"]) or
+    return int(bool(data["retired_experiment_scripts_present"]) or
+               bool(data["missing_emu_module_imports"]) or
                bool(data["broken_markdown_links"]) or
                any(data["ownership_errors"].values()) or
                not data["documentation_policy"]["within_budget"] or

@@ -7,6 +7,7 @@ than retaining obsolete campaign code just to keep its tests green.
 from __future__ import annotations
 
 from dataclasses import asdict, replace
+from types import SimpleNamespace
 from pathlib import Path
 from typing import Any, NamedTuple
 from unittest.mock import patch
@@ -99,9 +100,230 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     m["cmd_vx"]=np.asarray([.12],np.float32)
     assert float(_gait_maturity(m,np,allow_zero_command_balance=True)[1][0])==pytest.approx(.30)
     assert cfg.physical_profile=="h40"
+    assert cfg.gait_guidance_fade_steps == 0
+    # One new research profile has an explicit outcome transition, not a
+    # rewired frozen champion or an undocumented change of teaching weights.
+    from emu.capability_focus import gait_guidance_strength
+    with patch.dict("os.environ", {"EMU_PHYSICAL_PROFILE": "h40-spring-v1"}):
+        v2 = one_run_config(SimpleNamespace(
+                profile="sim2real", run_dir=str(tmp_path/"spring-outcomes"),
+                steps=120_000_000, envs=2048, seed=735, device="cuda",
+                terrain_actor=True, unified_capabilities=True,
+                terrain_step_max_m=.08, terrain_carpet=True, carpet_prisms=True,
+                academy_stream=True, terrain_lesson="coherent-careful",
+                growth_recipe="main-mature", force_program="gentle"))
+    assert v2.physical_profile == "h40-spring-v1"
+    assert v2.gait_guidance_fade_steps == 20_000_000
+    # Use actual source-pinned step ages, no fixed batch-age reset effects.
+    assert [gait_guidance_strength(step=n, foundation_steps=20_000_000,
+                                  fade_steps=v2.gait_guidance_fade_steps)
+            for n in (0, 20_000_000, 25_000_000, 30_000_000,
+                      35_000_000, 40_000_000, 120_000_000)
+            ] == pytest.approx([1.,1.,.75,.5,.25,0.,0.])
+    assert gait_guidance_strength(step=120_000_000,
+                                  foundation_steps=20_000_000,
+                                  fade_steps=0) == 1.
+    from emu.rewards import weighted_training_terms
+    money=dict(alive=0., locomotion=0., posture=1., contact=1.,
+               anti_slip=0., clearance=1., smoothness=0.,
+               joint_safety=0.)
+    early, early_terms = weighted_training_terms(
+        **money, stepping_gate=.3, gait_guidance_strength=1.)
+    late, late_terms = weighted_training_terms(
+        **money, stepping_gate=1., gait_guidance_strength=0.)
+    assert early_terms["clearance"] == pytest.approx(.16)
+    assert late_terms["clearance"] == pytest.approx(0.)
+    assert late_terms["posture"] == pytest.approx(.68)
+    assert late_terms["contact"] == pytest.approx(.5)
+    assert early_terms["posture"] < late_terms["posture"]
+    assert late > early
+    # At 40M the step cadence *and* foot-under-hip pose cease to earn
+    # rewards. Real attitude/height/support remain as outcome constraints.
+    from emu.rewards import _physical_qualities
+    qualities=dict(attitude_quality=np.array([.9]),
+                   height_error=np.array([0.]),
+                   cmd_pitch=np.array([0.]),
+                   foot_mid_cone=np.array([0.]),
+                   bad_contact=np.array([0.]),
+                   support=np.array([1.]),
+                   stance_slip=np.array([0.]),
+                   swing_clearance=np.array([.04]),
+                   target_step_height=np.array([.03]),
+                   organic_step_shape=np.array([.8]),
+                   action_delta_norm=np.array([0.]),
+                   joint_limit_pressure=np.array([0.]),
+                   scissor_pressure=np.array([0.]))
+    first = _physical_qualities(qualities,np,gait_guidance_strength=1.)
+    free = _physical_qualities(qualities,np,gait_guidance_strength=0.)
+    same = _physical_qualities({**qualities,
+              "foot_mid_cone":np.array([1.])},np,
+              gait_guidance_strength=0.)
+    assert float(first[0][0]) < float(free[0][0])
+    assert float(free[0][0]) == pytest.approx(float(same[0][0]))
     assert not {"cloud_probes_per_eval","cloud_final_probes",
                 "science_reset_step_evidence_on_fork"} & asdict(cfg).keys()
     assert training_sensor_contract(cfg) is not None
+    import re, shutil, subprocess
+    # A source-pinned cold curriculum MUST work without any parent policy,
+    # inherited PPO checkpoint, manual reward switching or changed actor
+    # channels. Stage scalar ages follow the same single optimiser.
+    from emu.capability_focus import holistic_stair_stage
+    from emu.contracts import P,UNIFIED_TERRAIN_FIELDS,OBS_DIM
+    assert OBS_DIM==360
+    assert [holistic_stair_stage(n).name for n in (
+        0,20_000_000,40_000_000,119_999_999,
+        120_000_000,139_999_999,140_000_000,160_000_000)
+    ]==[
+        "foundation","gait_fade","outcome_school","outcome_school",
+        "commitment","commitment","transfer_retention","transfer_retention"]
+    for n in (0,20_000_000,40_000_000,119_999_999):
+        st=holistic_stair_stage(n)
+        assert st.goal_weight==0. and st.velocity_relief==0.
+        assert st.bilateral_bonus==st.followthrough_bonus==0.
+        assert st.approach_m==0.
+    commitment=holistic_stair_stage(120_000_000)
+    transfer=holistic_stair_stage(140_000_000)
+    assert (commitment.goal_weight,commitment.velocity_relief,
+            commitment.approach_m)==pytest.approx((.22,.55,.22))
+    assert (transfer.goal_weight,transfer.velocity_relief,
+            transfer.bilateral_bonus,transfer.followthrough_bonus,
+            transfer.retention_share)==pytest.approx((.10,.55,6.,7.,.25))
+    assert transfer.uphill_cap_m<transfer.downhill_cap_m
+    assert len(UNIFIED_TERRAIN_FIELDS)==24
+    assert P.holistic_goal_weight==P.gait_guidance_strength+1
+    with patch.dict("os.environ",{"EMU_PHYSICAL_PROFILE":"h40-spring-v1"}):
+        cold_flags=[
+            "train","--run-dir",str(tmp_path/"one-cold-140m"),
+            "--steps","140000000","--envs","2048","--seed","735",
+            "--device","cuda","--profile","sim2real",
+            "--terrain-actor","--terrain-step-max-m",".08",
+            "--unified-capabilities","--terrain-carpet","--carpet-prisms",
+            "--holistic-cold-curriculum","--academy-stream",
+            "--foundation-steps","20000000","--foundation-mix","main",
+            "--growth-recipe","main-mature","--teaching-schedule","terrain-early",
+            "--terrain-lesson","coherent-careful","--force-program","gentle",
+            "--retention-share",".15","--athletic-rehearsal-share",".10",
+            "--academy-intro-steps","60000000",
+            "--academy-start-steps","80000000",
+            "--academy-ramp-steps","20000000",
+            "--academy-intro-share",".10","--academy-max-share",".40",
+            "--academy-height-cap-m",".15"]
+        cold_cfg=[]
+        with patch("emu.run.train_one",side_effect=lambda x:cold_cfg.append(one_run_config(x)) or 0):
+            assert emu_cli_main(cold_flags)==0
+        assert len(cold_cfg)==1
+        assert cold_cfg[0].holistic_cold_curriculum is True
+        assert cold_cfg[0].resume==""
+        assert cold_cfg[0].science_step_goal_weight==pytest.approx(.22)
+        assert cold_cfg[0].science_step_velocity_relief==pytest.approx(.55)
+        assert cold_cfg[0].science_bilateral_support_bonus==pytest.approx(6.)
+        assert cold_cfg[0].science_followthrough_bonus==pytest.approx(7.)
+        assert cold_cfg[0].observation_schema==OBS_SCHEMA_TERRAIN
+        with patch("emu.run.train_one",side_effect=lambda x:one_run_config(x)):
+            with pytest.raises(ValueError,match="remove explicit"):
+                emu_cli_main(cold_flags+["--science-step-goal-weight",".1"])
+    import ast
+    root=Path(__file__).resolve().parents[1]
+    cold_runner=root/"scripts/run_h40_holistic_cold_wsl.sh"
+    cold_src=cold_runner.read_text(encoding="utf-8")
+    for code in re.findall(r"<<'PY'\n(.*?)\nPY",cold_src,re.S):
+        compile(code,str(cold_runner),"exec")
+    assert len(re.findall(r"<<'PY'",cold_src))>=3
+    if shutil.which("bash"):
+        subprocess.run(["bash","-n",str(cold_runner)],check=True)
+    for age in ("20","40","120","140"):
+        assert f" {age}" in cold_src or f"{age}m" in cold_src
+    assert '--holistic-cold-curriculum' in cold_src
+    assert '--steps 140000000 --plan' in cold_src
+    assert '--steps 160000000' not in cold_src
+    assert 'h40-main-140m-s' in cold_src
+    # Historical phase definition at the 140M boundary remains source-identical.
+    # The promoted launcher never trains any later phase.
+    assert 'INITIAL_PARENT' not in cold_src
+    assert '--research-parent-source' not in cold_src
+    assert '--research-parent-sha256' not in cold_src
+    assert '"checkpoints/final.pkl"' in cold_src
+    assert 'stages' in cold_src and 'matrix_worlds.csv' in cold_src
+    report_file=root/"scripts/summarize_h40_holistic_cold.py"
+    ast.parse(report_file.read_text(encoding="utf-8"))
+    from scripts.summarize_h40_holistic_cold import aggregate
+    row=dict(fall_frame="-1",lead_foot_top="True",
+             both_feet_top_five="True",traversed_upright_5frame="True",
+             traversed_5frame="True",fell_after_lead_before_both="False",
+             best_forward_progress_m="1.0",max_abs_lateral_offset_m=".1")
+    baseline=aggregate([row])
+    assert baseline["both_feet"]==1. and baseline["controlled_cross"]==1.
+    assert baseline["survival"]==1.
+    # The terminal metrics bug was caused by two different report schemas.
+    # Periodic AND final report sites must both call one common function.
+    from emu.training import attach_unified_teaching_report
+    import inspect
+    src = inspect.getsource(__import__("emu.training",fromlist=["train"]).train)
+    assert src.count("attach_unified_teaching_report(") == 2
+    p = dict(regime_frac_steady=.8,regime_frac_transition=.1,
+             regime_frac_resilience=.1,foundation_control_mix=0.,
+             gait_guidance_strength=.75,
+             athletic_rehearsal_frac=.1,specialist_mix=.5,
+             focus_weight_step=.25,academy_episode_probability=.2)
+    for name in ("command","resilience","slope","step","transition","control"):
+        p["focus_weight_"+name]=.25 if name=="step" else .15
+    report={}
+    attach_unified_teaching_report(
+        report,p,step=25_000_000,
+        args=SimpleNamespace(foundation_steps=20_000_000,foundation_mix="main"),
+        governor=SimpleNamespace(params=SimpleNamespace(steady_difficulty=.2)))
+    assert report["gait_guidance_strength"] == .75
+    assert report["foundation_control_mix"] == 0.
+    assert report["academy_expected_birth_fraction"] == pytest.approx(.0225)
+    assert report["teaching_profile"] == "growth"
+
+    # Normal cross-source experiments STILL insist on a published final.pkl.
+    # Only an explicit byte+source-pinned repair flag permits an incomplete
+    # latest/snapshot ancestor; nobody can quietly bypass source provenance.
+    from emu.run import _validate_cross_source_research_parent
+    import hashlib
+    ck = tmp_path/"repair-origin"/"checkpoints"/"latest.pkl"
+    ck.parent.mkdir(parents=True,exist_ok=True)
+    ck.write_bytes(b"validated ancestor bytes for permission test")
+    parent_sha=hashlib.sha256(ck.read_bytes()).hexdigest()
+    original="a"*40
+    meta={"meta":{"source_provenance":{"git_commit":original}}}
+    provenance={"commit":"b"*40}
+    with pytest.raises(RuntimeError,match="completed final.pkl"):
+        _validate_cross_source_research_parent(
+            ck,payload=meta,expected_source=original,
+            expected_sha256=parent_sha,provenance=provenance)
+    _validate_cross_source_research_parent(
+        ck,payload=meta,expected_source=original,
+        expected_sha256=parent_sha,provenance=provenance,
+        repair_partial_parent=True)
+    with pytest.raises(RuntimeError,match="SHA256 changed"):
+        _validate_cross_source_research_parent(
+            ck,payload=meta,expected_source=original,
+            expected_sha256="f"*64,provenance=provenance,
+            repair_partial_parent=True)
+    with pytest.raises(RuntimeError,match="best/latest/snapshot"):
+        _validate_cross_source_research_parent(
+            ck.with_name("recovery.pkl"),payload=meta,expected_source=original,
+            expected_sha256=parent_sha,provenance=provenance,
+            repair_partial_parent=True)
+    # The final frozen exam ran BEFORE terminal CSV failure and saved
+    # fully trained best.pkl weights + optimiser at the exact 20M boundary.
+    # Only a genuine scored/evaluated actor is eligible for this rescue.
+    best=ck.with_name("best.pkl")
+    best.write_bytes(ck.read_bytes())
+    meta_best={"meta":{"source_provenance":{"git_commit":original},
+                       "evaluated_policy":True,"best_eval_score":.157,
+                       "step":20_054_016}}
+    _validate_cross_source_research_parent(
+        best,payload=meta_best,expected_source=original,
+        expected_sha256=parent_sha,provenance=provenance,
+        repair_partial_parent=True)
+    with pytest.raises(RuntimeError,match="best/latest/snapshot"):
+        _validate_cross_source_research_parent(
+            best,payload=meta,expected_source=original,
+            expected_sha256=parent_sha,provenance=provenance,
+            repair_partial_parent=True)
     # Keep 24 core tests: this UI is another assertion of the *existing*
     # public CLI contract, not a new training experiment/test family.
     _check_readonly_dashboard(tmp_path)
