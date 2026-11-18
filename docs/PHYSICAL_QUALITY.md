@@ -336,6 +336,42 @@ the ZIP and exact source commit for later inspection.
   **cannot affect the measured first life**. A future kernel should freeze
   dead worlds to reduce computation and enable stronger parity comparisons.
 
+## Source-audited GPU/browser parity mismatches (not yet measured)
+
+The restored 120M actor comes from the same exported robot source in both
+engines, but the **world physics and operator controls are not the same**:
+
+- MJX's normal `EmuMJXEnv` has `feet_only_contacts=True`. The
+  `add_carpet_geoms` compiler disables `torso_box` contact against its
+  eight convex-prism colliders. Browser `withTerrain` instead loads the
+  source torso geom with collidable defaults against 225 streaming
+  heightfield tiles. A torso-ground strike can therefore produce different
+  contact impulses despite identical actor weights.
+- The GPU uses 4 moving 1m source tiles / 8 convex triangular prisms;
+  the browser uses a 15×15 streaming CPU MuJoCo heightfield. Matching the
+  *drawn* two-triangle slope does not prove matching collision response,
+  tessellation or contact normal/penetration behaviour.
+- MJX birth randomises gait phase in [0, 2π); browser normally starts its
+  phase at 0 and samples cadence with an independent JavaScript RNG.
+  Browser birth also differs in position and joint/velocity noise.
+- Browser `headingHold` defaults **on**, with `headingKp=2.2`;
+  the new MJX `evaluate_trace` uses **no heading correction**
+  (`heading_kp=0`) to assess the raw operator command. Browser
+  forward/lateral commands are also smoothed before inference while the
+  frozen exam sets explicit per-frame command schedules.
+- Browser auto-reset waits until its fall detector has been active for
+  0.8 seconds, whereas the exam truncates at the first environment terminal.
+
+These differences are **source-level findings**, not yet quantified
+causes of the observed Spring V1 behaviour. Do not "fix" the viewer or
+GPU model merely to make scores agree. First establish per-frame matched
+birth pose/velocity, source motor limits, direct operator commands, phase,
+and identical *level-floor contact configurations*. Then compare open-loop
+identical servo controls in the two engines, followed by closed-loop actor
+sensor packets/actions and fall criteria. Only when this passes should
+actual Meadow heightfields be contrasted against convex prisms. Report
+separately the initial-condition, control, sensor, motor and collision deltas.
+
 ## Next work, in strict order
 
 1. **Calibrate the baseline.** Run the 120M actor with v1. Inspect world rows
