@@ -18,7 +18,7 @@ from emu.terrain_carpet_mjx import (
 from scripts.examine_h40_specialties import (
     Challenge, challenges as specialist_challenges,
     score_terrain, score_recovery, summarize as specialist_summary,
-    archive_results)
+    recovery_diagnostic_traces, archive_results)
 
 
 class MatrixExamTests(unittest.TestCase):
@@ -609,6 +609,25 @@ class _PhysicalSpecialtyChecks(unittest.TestCase):
         self.assertTrue(rows[1]["physical_mission_pass"])
         self.assertAlmostEqual(
             rows[1]["measured_initial_world_x_velocity_mps"], -.25)
+        n, w = trace["done"].shape
+        for name, shape in (
+                ("actor_action", (n, w, 6)),
+                ("foot_xyz", (n, w, 2, 3)),
+                ("servo_torque_nm", (n, w, 6)),
+                ("servo_joint_rate_rad_s", (n, w, 6)),
+                ("policy_phase_rad", (n, w)),
+                ("policy_cmd_vx", (n, w)),
+                ("policy_cmd_vy", (n, w)),
+                ("issued_yaw_rate", (n, w))):
+            trace[name] = np.zeros(shape)
+        evidence = recovery_diagnostic_traces(trace, rows)
+        self.assertEqual(len(evidence), 2)
+        self.assertTrue(any("-recovered-" in k for k in evidence))
+        self.assertTrue(any("-not_recovered-" in k for k in evidence))
+        with np.load(io.BytesIO(next(v for k, v in evidence.items()
+                                     if "-recovered-" in k))) as payload:
+            self.assertAlmostEqual(
+                float(payload["requested_birth_kick_world_x_mps"]), -.25)
         trace["root_qvel"][0, 0, 0] = 0.
         with self.assertRaisesRegex(RuntimeError, "birth velocity was not delivered"):
             score_recovery(trace, list(scenario), horizon=500)
