@@ -4,6 +4,7 @@ from __future__ import annotations
 import unittest
 import io
 import tempfile
+import zipfile
 from pathlib import Path
 from dataclasses import asdict
 import numpy as np
@@ -630,13 +631,21 @@ class _PhysicalSpecialtyChecks(unittest.TestCase):
         cases, evidence = self.fixture()
         rows = pulse_score(cases, evidence, 600)
         heads, curves, auc = pulse_summary(rows)
+        fixture_manifest = dict(schema="fixture", actor_step=100000000,
+                                seed=1701, worlds=len(rows),
+                                horizon_frames=600, mjx_compute_wall_s=1.0)
         with tempfile.TemporaryDirectory() as td:
             dest = Path(td) / "pulse.zip"
-            pulse_write_zip(dest, {"schema": "fixture"}, rows,
+            pulse_write_zip(dest, fixture_manifest, rows,
                             heads, curves, auc)
             self.assertTrue(dest.is_file())
+            with zipfile.ZipFile(dest) as archive:
+                self.assertEqual(set(archive.namelist()),
+                                 {"manifest.json", "summary.json",
+                                  "summary.md", "worlds.csv",
+                                  "curves.csv", "pulse.csv"})
             with self.assertRaises(FileExistsError):
-                pulse_write_zip(dest, {"schema": "fixture"}, rows,
+                pulse_write_zip(dest, fixture_manifest, rows,
                                 heads, curves, auc)
 
 
