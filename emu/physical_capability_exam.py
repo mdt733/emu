@@ -11,8 +11,8 @@ import csv
 from dataclasses import dataclass
 from hashlib import sha256
 import io
-import json
 import math
+import json
 from pathlib import Path
 import time
 import zipfile
@@ -149,7 +149,7 @@ def score_first_life(trace: dict, scenario: Scenario,
         reason = ("nonfinite" if not valid else
                   "fall" if fell_first else
                   "other_terminal" if ended else "horizon_survived")
-        survived = bool(not ended and valid)
+        survived = bool(not ended and not fell_first and valid)
         # Both surviving and bounded are required. A moving robot is not a
         # standing robot simply because its head remains above the ground.
         balance_ok = (survived and
@@ -200,6 +200,19 @@ def score_first_life(trace: dict, scenario: Scenario,
     return output
 
 
+def wilson_95(successes: int, trials: int) -> tuple[float, float]:
+    """Binomial sampling interval for worlds, NOT for training-seed variation."""
+    if trials < 1 or not 0 <= successes <= trials:
+        raise ValueError("invalid binomial counts")
+    z = 1.959963984540054
+    p = successes / trials
+    den = 1. + z * z / trials
+    centre = (p + z * z / (2. * trials)) / den
+    half = (z * math.sqrt(p * (1. - p) / trials +
+                          z * z / (4. * trials * trials))) / den
+    return max(0., centre - half), min(1., centre + half)
+
+
 def summarize(rows: list[dict], *, expected_worlds: int) -> list[dict]:
     grouped = {}
     for row in rows:
@@ -209,13 +222,17 @@ def summarize(rows: list[dict], *, expected_worlds: int) -> list[dict]:
         if len(group) != expected_worlds:
             raise ValueError(f"{name}: incomplete world count")
         survival = sum(r["survived_full_horizon"] for r in group)
+        lo, hi = wilson_95(survival, len(group))
+        standing_passes = (sum(bool(r["bounded_standing_pass"])
+                               for r in group)
+                           if group[0]["category"] == "balance" else None)
         output.append(dict(
             scenario=name, category=group[0]["category"],
             trials=len(group), full_survivals=survival,
             full_survival_fraction=survival / len(group),
-            bounded_standing_passes=(
-                sum(bool(r["bounded_standing_pass"]) for r in group)
-                if group[0]["category"] == "balance" else None),
+            full_survival_wilson95_lo=lo,
+            full_survival_wilson95_hi=hi,
+            bounded_standing_passes=standing_passes,
             mean_first_life_s=_safe_mean(np.asarray(
                 [r["observed_seconds"] for r in group])),
             mean_vx_mae_mps=_safe_mean(np.asarray(
@@ -291,6 +308,8 @@ def run(*, policy: Path, output: Path, worlds: int = 8, seed: int = 1701,
         raise FileNotFoundError("Need a frozen .emupolicy")
     if output == policy or output in policy.parents or policy in output.parents:
         raise ValueError("Result archive must be independent of actor")
+    if output.suffix.lower() != '.zip':
+        raise ValueError("Results must be a ZIP file")
     if output.exists():
         raise FileExistsError("Results archive already exists")
 
@@ -298,6 +317,7 @@ def run(*, policy: Path, output: Path, worlds: int = 8, seed: int = 1701,
     from .policy_export import load_exported_actor_for_exam
     from .ppo import make_trainer, configure_jax, require_backend
     from .environment import EmuMJXEnv
+    from .physical_variants import selected_profile
     from .training_config import (
         PPO_LR, ROLLOUT_STEPS, PPO_ENTROPY_COST, PPO_VALUE_COST)
     params, norm, actor = load_exported_actor_for_exam(policy)
@@ -353,18 +373,19 @@ def run(*, policy: Path, output: Path, worlds: int = 8, seed: int = 1701,
         academy_episode_probability=0.))
     rows = []
     started = time.perf_counter()
-    for idx, scenario in enumerate(scenarios):
+    for scenario in scenarios:
+        # Same named scenario receives the same seed even in a subset run.
+        scenario_seed = seed + SCENARIOS.index(scenario)
         print(f"[physical-v1] {scenario.name}: {scenario.seconds}s × "
-              f"{worlds} worlds, seed={seed+idx}", flush=True)
+              f"{worlds} worlds, seed={scenario_seed}", flush=True)
         trace = jax.device_get(trainer["evaluate_trace"](
             params, teacher, jnp.asarray(norm["mean"]),
-            jnp.asarray(norm["std"]), jax.random.PRNGKey(seed+idx),
+            jnp.asarray(norm["std"]), jax.random.PRNGKey(scenario_seed),
             scenario.seconds * 50, 0.,
             command_schedule=jnp.asarray(scenario.command_schedule())))
         rows.extend(score_first_life(trace, scenario))
         del trace
     summary = summarize(rows, expected_worlds=worlds)
-    import inspect
     # Hash *all* core scoring and physical inference sources, as well as
     # the verified actor/model identity. An altered examiner cannot silently
     # share a comparison key with an earlier build.
@@ -382,7 +403,7 @@ def run(*, policy: Path, output: Path, worlds: int = 8, seed: int = 1701,
         actor_weights_sha256=actor["source"]["actor_sha256"],
         actor_training_source=actor["source"],
         robot_model_sha256=actor["robot_model_sha256"],
-        physical_profile="h40",
+        physical_profile=selected_profile(),
         sensor_contract_sha256=env.sensor_contract["sha256"],
         source_files_sha256=source_hashes,
         compiled_solver_iterations=int(env.mj_model.opt.iterations),
