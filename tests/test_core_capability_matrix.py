@@ -609,6 +609,9 @@ class _PhysicalSpecialtyChecks(unittest.TestCase):
         self.assertTrue(rows[1]["physical_mission_pass"])
         self.assertAlmostEqual(
             rows[1]["measured_initial_world_x_velocity_mps"], -.25)
+        trace["root_qvel"][0, 0, 0] = 0.
+        with self.assertRaisesRegex(RuntimeError, "birth velocity was not delivered"):
+            score_recovery(trace, list(scenario), horizon=500)
 
     def verify_exam_archive_nonoverwrite(self):
         rows = [dict(specialty="step", kind="step_up", level=1,
