@@ -40,7 +40,7 @@ OWNED_BACKEND: dict[str, tuple[str, ...]] = {
     "learning": ("training", "ppo", "rewards", "curriculum",
                  "capability_focus", "capability_field", "training_health",
                  "step_goal"),
-    "state_and_exams": ("checkpoint_io", "results", "console_dashboard", "evaluation", "prism_exam", "step_autopsy"),
+    "state_and_exams": ("checkpoint_io", "results", "console_dashboard", "evaluation", "prism_exam", "physical_capability_exam", "step_autopsy"),
     "delivery": ("policy_export", "viewer_server", "capability_viewer"),
     "diagnostics": ("doctor",),
 }
@@ -55,7 +55,7 @@ STAGES: dict[str, tuple[str, ...]] = {
                 "contracts", "domain_randomization", "rewards"),
     "learning": ("training", "ppo", "curriculum", "capability_focus",
                  "training_health", "capability_field"),
-    "exam": ("evaluation", "prism_exam", "results"),
+    "exam": ("evaluation", "prism_exam", "physical_capability_exam", "results"),
     "viewer": ("viewer_server",),
 }
 
