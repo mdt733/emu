@@ -157,8 +157,7 @@ class MatrixExamTests(unittest.TestCase):
         # examiner contract case; no test-per-experiment growth.
         v1 = _PhysicalV1Checks()
         for check in ["verify_zero_command_real_standing","verify_first_fall_excludes_subsequent_reset_lives","verify_walk_away_is_not_standing","verify_requested_trajectory_and_actor_are_distinct","verify_transition_requires_real_stop","verify_partial_scenario_cannot_become_complete_summary","verify_zip_does_not_overwrite_prior_exam"]:
-            with self.subTest(physical_v1_check=check):
-                getattr(v1, check)()
+            getattr(v1, check)()
 
     def test_signed_exact_step_and_continuous_grade_geometry(self):
         heights=np.array([.0025,.05,-.0375,0.],np.float32)
