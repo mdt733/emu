@@ -619,12 +619,16 @@ class _PhysicalSpecialtyChecks(unittest.TestCase):
         curves = [dict(specialty="step", kind="step_up", severity=.01,
                        severity_unit="m", full_survivals=1,
                        physical_mission_passes=1, trials=1)]
+        envelopes = [dict(kind="step_up", severity_unit="m",
+                          measured_levels=1, first_severity=.01,
+                          last_severity=.01, tested_range_auc=None,
+                          auc_interpretation="not measured: fewer than 2 levels")]
         with tempfile.TemporaryDirectory() as td:
             dest = Path(td) / "specialties.zip"
-            archive_results(dest, {"schema": "fixture"}, rows, curves, [])
+            archive_results(dest, {"schema": "fixture"}, rows, curves, envelopes)
             self.assertTrue(dest.is_file())
             with self.assertRaises(FileExistsError):
-                archive_results(dest, {"schema": "fixture"}, rows, curves, [])
+                archive_results(dest, {"schema": "fixture"}, rows, curves, envelopes)
 
 
 if __name__=="__main__":
