@@ -286,6 +286,8 @@ class _PhysicalV1Checks(unittest.TestCase):
         self.assertTrue(all(x["bounded_standing_pass"] for x in rows))
         self.assertTrue(all(x["survived_full_horizon"] for x in rows))
         self.assertAlmostEqual(rows[0]["final_drift_m"], 0.)
+        self.assertEqual(rows[0]["physical_touchdown_events"], 0)
+        self.assertEqual(rows[0]["standing_failure_reasons"], "")
 
     def verify_first_fall_excludes_subsequent_reset_lives(self):
         case = Scenario("still", 1, ((1, 0., 0., 0.),), "balance")
@@ -297,6 +299,7 @@ class _PhysicalV1Checks(unittest.TestCase):
         self.assertEqual(rows[1]["first_life_frames"], 7)
         self.assertAlmostEqual(rows[1]["time_to_first_fall_s"], .14)
         self.assertEqual(rows[1]["terminal_reason"], "fall")
+        self.assertIn("terminal", rows[1]["standing_failure_reasons"])
         self.assertFalse(rows[1]["survived_full_horizon"])
         self.assertFalse(rows[1]["bounded_standing_pass"])
         self.assertAlmostEqual(rows[1]["max_radius_m"], 0.)
@@ -310,6 +313,7 @@ class _PhysicalV1Checks(unittest.TestCase):
         rows = score_first_life(x, case)
         self.assertTrue(rows[0]["survived_full_horizon"])
         self.assertFalse(rows[0]["bounded_standing_pass"])
+        self.assertIn("position_drift", rows[0]["standing_failure_reasons"])
         self.assertAlmostEqual(rows[0]["max_radius_m"], .5)
 
     def verify_requested_trajectory_and_actor_are_distinct(self):
