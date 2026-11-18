@@ -1009,7 +1009,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
 
     def evaluate_matrix(params, curriculum_params, obs_mean, obs_std,
-                        world_commands, target_mask, eval_key, horizon):
+                        world_commands, target_mask, eval_key, horizon,
+                        program_codes=None):
         """Read-only heterogeneous 2048-world physical capability screen.
 
         One shared REAL eight-prism MJX batch / frozen actor. Each world
