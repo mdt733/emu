@@ -225,15 +225,6 @@ UNIFIED_TERRAIN_FIELDS = (
     # Independent supported-up and supported-down frontiers, teacher only.
     ('academy_height_up_m',0.003),
     ('academy_height_down_m',0.003),
-    # Teacher-only reward schedule; outside all 360 actor sensor fields.
-    ('gait_guidance_strength',1.0),
-    # One cold-run teacher's live stage settings. All added strictly AFTER
-    # historical packet indices; none enters the deployable 360 channels.
-    ('holistic_goal_weight',0.0),
-    ('holistic_velocity_relief',0.0),
-    ('holistic_approach_m',0.0),
-    ('holistic_bilateral_bonus',0.0),
-    ('holistic_followthrough_bonus',0.0),
 )
 UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
 P = SimpleNamespace(
@@ -257,12 +248,6 @@ P = SimpleNamespace(
     academy_episode_probability=TERRAIN_TASK_PARAM_DIM+15,
     academy_height_up_m=TERRAIN_TASK_PARAM_DIM+16,
     academy_height_down_m=TERRAIN_TASK_PARAM_DIM+17,
-    gait_guidance_strength=TERRAIN_TASK_PARAM_DIM+18,
-    holistic_goal_weight=TERRAIN_TASK_PARAM_DIM+19,
-    holistic_velocity_relief=TERRAIN_TASK_PARAM_DIM+20,
-    holistic_approach_m=TERRAIN_TASK_PARAM_DIM+21,
-    holistic_bilateral_bonus=TERRAIN_TASK_PARAM_DIM+22,
-    holistic_followthrough_bonus=TERRAIN_TASK_PARAM_DIM+23,
 )
 
 

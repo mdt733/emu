@@ -50,7 +50,6 @@ from .training_config import (
 from .curriculum import RegimeGovernor
 from .training_health import TrainingHealth
 from .capability_focus import (teaching_profile, attention_weights, FOCUS_NAMES,
-                                gait_guidance_strength, holistic_stair_stage,
                                academy_birth_allocation, academy_focus_mix,
                                academy_conditional_birth_share)
 from .ppo import (make_trainer, update_running_stats, build_obs_norm_mask,
@@ -69,38 +68,6 @@ from .contracts import ROBOT_XML, VERSION
 
 RUN_VERSION = f'emu_{VERSION}'
 LOG_PREFIX = f'[{RUN_VERSION}]'
-
-def attach_unified_teaching_report(report: dict, params: dict, *, step: int,
-                                   args: TrainingConfig, governor: RegimeGovernor) -> None:
-    """ONE schema for periodic and final training reports.
-
-    The final checkpoint must never fail because the terminal metrics row
-    forgot a teacher-only field present in the previous CSV header.
-    No PPO, reward, actor, or curriculum state is altered.
-    """
-    for name in ('steady','transition','resilience'):
-        key='regime_frac_'+name
-        report[key]=float(params[key])
-    report['foundation_control_mix']=float(params['foundation_control_mix'])
-    report['gait_guidance_strength']=float(params['gait_guidance_strength'])
-    report['holistic_stage']=(
-        holistic_stair_stage(step).name
-        if getattr(args,'holistic_cold_curriculum',False) else 'disabled')
-    for name in ('holistic_goal_weight','holistic_velocity_relief',
-                 'holistic_approach_m','holistic_bilateral_bonus',
-                 'holistic_followthrough_bonus'):
-        report[name]=float(params.get(name,0.))
-    report['academy_expected_birth_fraction']=float(
-        (1.-params['athletic_rehearsal_frac'])*
-        params['specialist_mix']*params['focus_weight_step']*
-        params['academy_episode_probability'])
-    for name in FOCUS_NAMES:
-        report['focus_alloc_'+name]=float(params['focus_weight_'+name])
-    report['teaching_profile']=teaching_profile(
-        step=step,foundation_steps=args.foundation_steps,
-        foundation_mix=args.foundation_mix,
-        steady_difficulty=governor.params.steady_difficulty).name
-
 
 TRAIN_PERF_TIMER_NAMES = (
     'train_update', 'host_metric_transfer', 'capability_field_update',
@@ -169,7 +136,6 @@ def env_kwargs_from_args(args) -> dict:
         science_step_velocity_relief=args.science_step_velocity_relief,
         science_step_approach_m=args.science_step_approach_m,
         science_step_finish_on_transfer=args.science_step_finish_on_transfer,
-        holistic_cold_curriculum=getattr(args,'holistic_cold_curriculum',False),
         academy_stream=args.academy_stream,
         terrain_carpet=args.terrain_carpet,
         terrain_carpet_prisms=args.terrain_carpet_prisms,
@@ -441,12 +407,6 @@ def train(args: TrainingConfig) -> int:
                 foundation_mix=args.foundation_mix,
                 steady_difficulty=float(governor.params.steady_difficulty))
             d['specialist_mix'] = profile.specialist_fraction
-            # New spring-profile learner alone: 0–20M full gait assistance;
-            # 20–40M linear fade; >=40M pure measured-outcome incentives.
-            # This signal is teacher-only, not in actor observations.
-            d['gait_guidance_strength'] = gait_guidance_strength(
-                step=step, foundation_steps=args.foundation_steps,
-                fade_steps=args.gait_guidance_fade_steps)
             # The 20M foundation uses original main-style births only.
             # Afterward, honour the explicit run configuration even when
             # resuming a cold-foundation checkpoint whose saved governor
@@ -461,14 +421,13 @@ def train(args: TrainingConfig) -> int:
             weights=list(attention_weights(
                 schedule=args.teaching_schedule,step=step,
                 foundation_steps=args.foundation_steps))
-            # After 140M explicitly rehearse ordinary/command skills.
-            retention=(holistic_stair_stage(step).retention_share
-                       if args.holistic_cold_curriculum
-                       else args.retention_share)
-            if step>args.foundation_steps and retention>0.:
+            # Reserve a deterministic share of all focused births for
+            # useful moving, low-disturbance retention (CONTROL role).
+            # The ordinary control role remains unchanged in baseline arms.
+            if step>args.foundation_steps and args.retention_share>0.:
                 base_control=weights[-1]
                 other_total=1.-base_control
-                target_control=max(base_control,retention)
+                target_control=max(base_control,args.retention_share)
                 weights=[w*(1.-target_control)/other_total for w in weights[:-1]]
                 weights.append(target_control)
             # Academy is an additional episode birth role, not a separate
@@ -506,14 +465,6 @@ def train(args: TrainingConfig) -> int:
             # A zero specialist allocation is not a separate PPO or a
             # synthetic zero-gradient loss. It simply sends all worlds
             # through main's ordinary gait sampler. Terrain stays dormant.
-            if args.holistic_cold_curriculum:
-                stage=holistic_stair_stage(step)
-                d.update(
-                    holistic_goal_weight=stage.goal_weight,
-                    holistic_velocity_relief=stage.velocity_relief,
-                    holistic_approach_m=stage.approach_m,
-                    holistic_bilateral_bonus=stage.bilateral_bonus,
-                    holistic_followthrough_bonus=stage.followthrough_bonus)
             if not profile.adaptive_specialists:
                 d['terrain_exposure'] = 0.0
                 d['terrain_height_m'] = 0.0
@@ -740,11 +691,7 @@ def train(args: TrainingConfig) -> int:
             row, step=total_steps, max_height_m=args.terrain_step_max_m,
             foundation_steps=args.foundation_steps,
             kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']),
-            academy_max_height_m=(args.academy_height_cap_m if args.academy_stream else 0.),
-            academy_up_cap_m=(holistic_stair_stage(total_steps).uphill_cap_m
-                              if args.holistic_cold_curriculum else None),
-            academy_down_cap_m=(holistic_stair_stage(total_steps).downhill_cap_m
-                                if args.holistic_cold_curriculum else None))
+            academy_max_height_m=(args.academy_height_cap_m if args.academy_stream else 0.))
         health_collapse = health.observe_collapse(float(report['fall_ema_posture']))
         report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
         report.update(health_collapse)
@@ -754,9 +701,23 @@ def train(args: TrainingConfig) -> int:
                   "expansion indefinitely. Retreat is unaffected (driven by fall rate/competence only).", flush=True)
         params = params_with_field(total_steps)
         if args.unified_capability_focus:
-            # Actual NEXT-birth regime/gait schedule, not governor proposals.
-            attach_unified_teaching_report(
-                report, params, step=total_steps, args=args, governor=governor)
+            # The fixed experimental nursery mix may override the ordinary
+            # governor's NEXT-birth regime allocation. Report what worlds
+            # will really sample, never only the governor's unused proposal.
+            for name in ('steady','transition','resilience'):
+                key='regime_frac_'+name
+                report[key]=float(params[key])
+            report['foundation_control_mix']=float(params['foundation_control_mix'])
+            report['academy_expected_birth_fraction']=float(
+                (1.-params['athletic_rehearsal_frac'])*
+                params['specialist_mix']*params['focus_weight_step']*
+                params['academy_episode_probability'])
+            for name in FOCUS_NAMES:
+                report['focus_alloc_'+name]=float(params['focus_weight_'+name])
+            report['teaching_profile']=teaching_profile(
+                step=total_steps,foundation_steps=args.foundation_steps,
+                foundation_mix=args.foundation_mix,
+                steady_difficulty=governor.params.steady_difficulty).name
         report['rollback_count']=rollback_count
         attach_field_influence(report, params)
         p = env.params_array(params)
@@ -1052,17 +1013,25 @@ def train(args: TrainingConfig) -> int:
         row, step=total_steps, max_height_m=args.terrain_step_max_m,
         foundation_steps=args.foundation_steps,
         kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']),
-        academy_max_height_m=(args.academy_height_cap_m if args.academy_stream else 0.),
-        academy_up_cap_m=(holistic_stair_stage(total_steps).uphill_cap_m
-                          if args.holistic_cold_curriculum else None),
-        academy_down_cap_m=(holistic_stair_stage(total_steps).downhill_cap_m
-                            if args.holistic_cold_curriculum else None))
+        academy_max_height_m=(args.academy_height_cap_m if args.academy_stream else 0.))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
     params = params_with_field(total_steps)
     if args.unified_capability_focus:
-        attach_unified_teaching_report(
-            report, params, step=total_steps, args=args, governor=governor)
+        for name in ('steady','transition','resilience'):
+            key='regime_frac_'+name
+            report[key]=float(params[key])
+        report['foundation_control_mix']=float(params['foundation_control_mix'])
+        report['academy_expected_birth_fraction']=float(
+            (1.-params['athletic_rehearsal_frac'])*
+            params['specialist_mix']*params['focus_weight_step']*
+            params['academy_episode_probability'])
+        for name in FOCUS_NAMES:
+            report['focus_alloc_'+name]=float(params['focus_weight_'+name])
+        report['teaching_profile']=teaching_profile(
+            step=total_steps,foundation_steps=args.foundation_steps,
+            foundation_mix=args.foundation_mix,
+            steady_difficulty=governor.params.steady_difficulty).name
     report['rollback_count']=rollback_count
     attach_field_influence(report, params)
     elapsed = time.time() - start

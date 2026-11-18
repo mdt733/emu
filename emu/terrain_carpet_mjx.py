@@ -23,11 +23,9 @@ def academy_near_lip_spawn_x(xp, x, approach_m):
     This only changes the spawn position, never the prism height/profile or
     ToF source. Original birth x remains exact when the feature is disabled.
     """
-    # JAX-traced age scalar cannot be a Python branch condition.
-    # Keep x physically unchanged for zero approach; move to the SAME
-    # real-prism next seam for any nonzero Academy birth distance.
-    near=(xp.floor(x / TILE_M) + 1.) * TILE_M - approach_m
-    return xp.where(approach_m == 0., x, near)
+    if approach_m == 0.:
+        return x
+    return (xp.floor(x / TILE_M) + 1.) * TILE_M - approach_m
 
 def exact_exam_lip_profiles(xp, signed_height_m):
     """One exact-height +X tile seam at x=1m; all other seams level.

@@ -82,45 +82,6 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertEqual(out.state.academy_goal_xy.shape,(4,2))
         self.assertTrue(np.isfinite(
             np.asarray(jax.device_get(out.state.academy_goal_xy))).all())
-        # The newly integrated random-init curriculum has 5 JAX-dynamic
-        # teacher scalars. Compile an ACTUAL true-prism step with the late
-        # transfer phase and with the pre-120M zero-incentive phase; this
-        # catches traced-scalar Python branching before a 160M GPU run.
-        cold=EmuMJXEnv(
-            str(ROBOT_XML),num_envs=2,seed=736,
-            terrain_step_max_m=.08,observation_schema=OBS_SCHEMA_TERRAIN,
-            unified_capability_focus=True,terrain_carpet=True,
-            terrain_carpet_prisms=True,academy_stream=True,
-            terrain_lesson="coherent-careful",
-            solver_iterations=2,solver_ls_iterations=4,
-            holistic_cold_curriculum=True,
-            science_step_goal_weight=.22,
-            science_step_velocity_relief=.55,
-            science_step_approach_m=.22,
-            science_bilateral_support_bonus=6.,
-            science_followthrough_bonus=7.)
-        base=dict(specialist_mix=1.,focus_weight_step=1.,
-                  academy_episode_probability=1.,
-                  academy_height_up_m=.02,academy_height_down_m=.02)
-        from emu.capability_focus import holistic_stair_stage
-        for age in (119_999_999,120_000_000,140_000_000):
-            stage=holistic_stair_stage(age)
-            params=dict(base,
-                holistic_goal_weight=stage.goal_weight,
-                holistic_velocity_relief=stage.velocity_relief,
-                holistic_approach_m=stage.approach_m,
-                holistic_bilateral_bonus=stage.bilateral_bonus,
-                holistic_followthrough_bonus=stage.followthrough_bonus)
-            state,obs=cold.reset(params)
-            self.assertEqual(obs.shape,(2,360))
-            stepped=cold.step(state,jnp.zeros((2,6),jnp.float32),params)
-            self.assertTrue(np.isfinite(np.asarray(
-                jax.device_get(stepped.reward))).all())
-            self.assertEqual(stepped.obs.shape,(2,360))
-            self.assertIn("academy_transfer_new",stepped.metrics)
-            self.assertIn("academy_followthrough_new",stepped.metrics)
-        with self.assertRaisesRegex(ValueError,"holistic stage"):
-            cold.params_array(dict(base,holistic_goal_weight=.50))
 
     def test_sync_off_reduces_only_phase_payment(self):
         m=dict(cmd_pitch=np.ones(1)*0.,height_error=np.zeros(1),
