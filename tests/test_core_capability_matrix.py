@@ -255,7 +255,8 @@ class MatrixExamTests(unittest.TestCase):
             jnp.array([[0.,0.,0.],[.15,0.,0.],[.25,0.,0.],
                        [.25,0.,0.]],dtype=jnp.float32),
             jnp.asarray([False,True,True,True]),
-            jax.random.PRNGKey(1701),3)
+            jax.random.PRNGKey(1701),3,
+            jnp.array([0,1,0,1],dtype=jnp.int32))
         actual=np.asarray(jax.device_get(out["actual_lip_m"]))
         np.testing.assert_allclose(
             actual,[0.,.0025,.02,-.05],atol=.0005)
@@ -268,6 +269,14 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(out["first_both_foot_frame"].shape,(4,))
         self.assertEqual(out["traversed_upright_5frame"].shape,(4,))
         self.assertEqual(out["traversed_in_lane_5frame"].shape,(4,))
+        for field in ("initial_world_x_velocity_mps",
+                      "final2s_horizontal_speed_mps",
+                      "longest_stable_streak_frames",
+                      "transition_initial_vx_mps",
+                      "transition_stop_speed_mps",
+                      "transition_final_vx_mps",
+                      "positive_servo_shaft_work_j"):
+            self.assertEqual(out[field].shape, (4,))
         # Integration smoke: exercise the *real* exported 120M actor through
         # the actual JAX trace endpoint, rather than only synthetic NumPy
         # scoring. Three frames are API/physics evidence, NOT certification.
