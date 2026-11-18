@@ -83,7 +83,9 @@ PY
   else
     RESUME=(--resume "$PARENT" --research-parent-source "$SOURCE_SHA"
             --research-parent-sha256 "$PARENT_HASH")
-    "$PY" -m pytest -q tests/test_core_run.py tests/test_core_stair_teaching.py
+    # Generic CLI contract tests assert the default h40 profile; the separate
+    # holistic experiment itself still runs with h40-spring-v1.
+    EMU_PHYSICAL_PROFILE=h40 "$PY" -m pytest -q tests/test_core_run.py tests/test_core_stair_teaching.py
     "$PY" scripts/smoke_gpu_carpet.py --device cuda --worlds 128 --frames 2 --prisms --ppo
     "$PY" scripts/smoke_gpu_carpet.py --device cuda --worlds 2048 --frames 2 --prisms --ppo --full-update
   fi
