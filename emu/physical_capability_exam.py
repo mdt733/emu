@@ -29,6 +29,7 @@ GATES_REVISION = "provisional-2"
 # the frozen 360-input H40 actor was never given. Reserve radius and absolute
 # heading limits for a *different* station-keeping skill, still measured.
 ZERO_COMMAND_BALANCE_MAX_MEAN_SPEED_MPS = 0.10
+ZERO_COMMAND_BALANCE_MAX_MEAN_YAW_RATE_RAD_S = 0.15
 STAND_MAX_RADIUS_M = 0.20
 STAND_MAX_HEADING_RAD = 0.35
 STAND_P95_TILT_DEG = 20.0
@@ -205,6 +206,8 @@ def score_first_life(trace: dict, scenario: Scenario,
             balance_failures.append("terminal")
         if mean_horizontal_speed > ZERO_COMMAND_BALANCE_MAX_MEAN_SPEED_MPS:
             balance_failures.append("excessive_average_horizontal_motion")
+        if _safe_mean(np.abs(actual_yaw)) > ZERO_COMMAND_BALANCE_MAX_MEAN_YAW_RATE_RAD_S:
+            balance_failures.append("excessive_average_yaw_rotation")
         if float(np.percentile(tilt, 95)) > STAND_P95_TILT_DEG:
             balance_failures.append("torso_tilt")
         if _safe_mean(support) < MIN_FOOT_SUPPORT_FRACTION:
@@ -300,6 +303,7 @@ def score_first_life(trace: dict, scenario: Scenario,
             max_radius_m=float(np.max(displacement)),
             final_drift_m=float(displacement[-1]),
             mean_horizontal_speed_mps=mean_horizontal_speed,
+            mean_abs_yaw_rate_rad_s=_safe_mean(np.abs(actual_yaw)),
             p95_horizontal_speed_mps=float(np.percentile(horizontal_speed, 95)),
             peak_horizontal_speed_mps=float(np.max(horizontal_speed)),
             final_drift_rate_mps=float(displacement[-1] / (n * dt)),
@@ -685,6 +689,8 @@ def run(*, policy: Path, output: Path, worlds: int = 8, seed: int = 1701,
         gate_values=dict(
             zero_command_balance_mean_horizontal_speed_max_mps=(
                 ZERO_COMMAND_BALANCE_MAX_MEAN_SPEED_MPS),
+            zero_command_balance_mean_abs_yaw_rate_max_rad_s=(
+                ZERO_COMMAND_BALANCE_MAX_MEAN_YAW_RATE_RAD_S),
             station_keeping_radius_m=STAND_MAX_RADIUS_M,
             stand_radius_m=STAND_MAX_RADIUS_M,
             heading_rad=STAND_MAX_HEADING_RAD,
