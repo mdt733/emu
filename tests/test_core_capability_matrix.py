@@ -16,9 +16,8 @@ from emu.physical_capability_exam import (
 from emu.terrain_carpet_mjx import (
     TILE_M,exact_exam_lip_profiles,tile_geometry)
 from scripts.examine_h40_specialties import (
-    Challenge, challenges as specialist_challenges,
-    score_terrain, score_recovery, summarize as specialist_summary,
-    recovery_diagnostic_traces, archive_results)
+    allocate as pulse_allocate, score as pulse_score,
+    summarize as pulse_summary, write_zip as pulse_write_zip)
 
 
 class MatrixExamTests(unittest.TestCase):
@@ -538,116 +537,107 @@ class _PhysicalV1Checks(unittest.TestCase):
 
 
 class _PhysicalSpecialtyChecks(unittest.TestCase):
-    def verify_specialist_allocation(self):
-        tasks = specialist_challenges("terrain", worlds=20, repeats=1)
-        self.assertEqual(len(tasks), 20)
-        self.assertEqual(sum(t.specialty == "slope" for t in tasks), 8)
-        self.assertEqual(sum(t.specialty == "step" for t in tasks), 10)
-        self.assertEqual(sum(t.kind == "flat_control" for t in tasks), 1)
-        self.assertEqual(sum(t.specialty == "padding" for t in tasks), 1)
-        self.assertAlmostEqual(max(t.step_m for t in tasks), .08)
-        self.assertAlmostEqual(min(t.step_m for t in tasks), -.08)
-        self.assertAlmostEqual(max(t.grade_deg for t in tasks), 15.)
-        self.assertAlmostEqual(min(t.grade_deg for t in tasks), -15.)
-        kicks = specialist_challenges("recovery", worlds=18, repeats=2)
-        self.assertEqual(sum(t.kind == "no_kick_control" for t in kicks), 2)
-        self.assertEqual(sum(t.kind == "forward_birth_kick" for t in kicks), 8)
-        self.assertEqual(sum(t.kind == "backward_birth_kick" for t in kicks), 8)
-        with self.assertRaisesRegex(ValueError, "requires at least"):
-            specialist_challenges("terrain", worlds=18, repeats=1)
-
-    def verify_signed_terrain_crossing_not_survival(self):
-        tasks = specialist_challenges("terrain", worlds=20, repeats=1)
-        n = len(tasks)
-        measured = dict(
-            actual_lip_m=np.array([t.step_m for t in tasks]),
-            actual_grade_deg=np.array([t.grade_deg for t in tasks]),
-            survived=np.ones(n, dtype=bool),
-            both_feet_top_five=np.ones(n, dtype=bool),
-            traversed_upright_5frame=np.ones(n, dtype=bool),
-            traversed_5frame=np.ones(n, dtype=bool),
-            completed_destination=np.ones(n, dtype=bool),
+    def fixture(self, worlds=46):
+        cases = pulse_allocate(worlds)
+        def vals(field):
+            return np.asarray([getattr(t.case, field) for t in cases])
+        n = len(cases)
+        actual_vx = np.zeros(n)
+        for t in cases:
+            if t.case.specialty == "transition":
+                actual_vx[t.world] = np.sign(t.case.vx)*.19
+        evidence = dict(
+            actual_lip_m=vals("step_m"),
+            actual_grade_deg=vals("grade_deg"),
+            survived=np.ones(n, bool),
             fall_frame=np.full(n, -1),
             first_life_frames=np.full(n, 600),
-            best_forward_progress_m=np.full(n, .93),
-            speed_mae_mps=np.full(n, .03),
+            both_feet_top_five=np.ones(n, bool),
+            traversed_upright_5frame=np.ones(n, bool),
+            traversed_5frame=np.ones(n, bool),
+            best_forward_progress_m=np.ones(n),
+            speed_mae_mps=np.full(n, .02),
+            lateral_mae_mps=np.full(n, .02),
             yaw_mae_rad_s=np.full(n, .02),
-            mean_support=np.full(n, .90))
-        step = next(t for t in tasks if t.kind == "step_up")
-        measured["traversed_upright_5frame"][step.world] = False
-        rows = score_terrain(tasks, measured, horizon=600)
+            mean_support=np.ones(n),
+            mean_horizontal_speed_mps=np.full(n, .03),
+            mean_abs_yaw_rate_rad_s=np.full(n, .02),
+            bad_contact_fraction=np.zeros(n),
+            minimum_gravity_z=np.ones(n),
+            mean_stance_slip_proxy=np.zeros(n),
+            positive_servo_shaft_work_j=np.ones(n),
+            final2s_horizontal_speed_mps=np.full(n, .03),
+            final2s_abs_yaw_rate_rad_s=np.full(n, .02),
+            longest_stable_streak_frames=np.full(n, 100),
+            initial_world_x_velocity_mps=vals("birth_kick_mps"),
+            transition_initial_vx_mps=actual_vx,
+            transition_stop_speed_mps=np.full(n, .02),
+            transition_final_vx_mps=-actual_vx*.8,
+        )
+        return cases, evidence
+
+    def verify_specialist_allocation(self):
+        full = pulse_allocate(2048)
+        self.assertEqual(len(full), 2048)
+        self.assertEqual(len({x.world for x in full}), 2048)
+        counts = {name: sum(t.case.specialty == name for t in full)
+                  for name in ("command", "control", "transition",
+                               "slope", "step", "resilience")}
+        self.assertEqual(counts, dict(command=384, control=256,
+                                      transition=256, slope=384,
+                                      step=512, resilience=256))
+        self.assertEqual(len(pulse_allocate(46)), 46)
+        with self.assertRaisesRegex(ValueError, "worlds must"):
+            pulse_allocate(32)
+
+    def verify_signed_terrain_crossing_not_survival(self):
+        cases, evidence = self.fixture()
+        step = next(t for t in cases if t.case.kind == "step_up")
+        evidence["both_feet_top_five"][step.world] = False
+        rows = pulse_score(cases, evidence, 600)
+        self.assertTrue(rows[step.world]["survived"])
         self.assertFalse(rows[step.world]["physical_mission_pass"])
-        self.assertTrue(rows[step.world]["survived_full_horizon"])
-        self.assertTrue(rows[step.world]["physical_each_foot_top_five"])
-        self.assertIn("not_physically_traversed", rows[step.world]["failure_reasons"])
+        self.assertIn("both_feet_not_supported", rows[step.world]["failure_reasons"])
         self.assertTrue(next(r for r in rows if r["kind"] == "step_down")
                         ["physical_mission_pass"])
-        curves, envelopes = specialist_summary(rows)
-        self.assertEqual(len(curves), 19)
-        self.assertIsNone(next(r for r in envelopes
-                               if r["kind"] == "flat_control")["tested_range_auc"])
-        self.assertIsNotNone(next(r for r in envelopes
-                                  if r["kind"] == "step_up")["tested_range_auc"])
-        measured["actual_lip_m"][step.world] = .08
-        with self.assertRaisesRegex(RuntimeError, "actual lip mismatch"):
-            score_terrain(tasks, measured, horizon=600)
+        headline, curves, auc = pulse_summary(rows)
+        self.assertEqual(len(headline), 6)
+        self.assertEqual(sum(x["attempted"] for x in headline), 46)
+        self.assertTrue(any(x["tested_range_auc"] is not None for x in auc))
+        evidence["actual_lip_m"][step.world] = .08
+        with self.assertRaisesRegex(ValueError, "physical step fixture mismatch"):
+            pulse_score(cases, evidence, 600)
 
     def verify_recovery_needs_settling(self):
-        scenario = (
-            Challenge(0, "resilience", "forward_birth_kick", 1, 0,
-                      birth_kick_mps=.25),
-            Challenge(1, "resilience", "backward_birth_kick", 1, 0,
-                      birth_kick_mps=-.25))
-        trace = physical_v1_fixture(seconds=10)
-        trace["root_qvel"] = np.zeros((500, 2, 6))
-        trace["root_qvel"][0, :, 0] = [.25, -.25]
-        trace["physical_position_xy_after_step"][-250:, 0, 0] = (
-            np.arange(1, 251) * .20 * .02)
-        rows = score_recovery(trace, list(scenario), horizon=500)
-        self.assertFalse(rows[0]["physical_mission_pass"])
-        self.assertIn("not_settled_linear_final5s", rows[0]["failure_reasons"])
-        self.assertTrue(rows[1]["physical_mission_pass"])
-        self.assertAlmostEqual(
-            rows[1]["measured_initial_world_x_velocity_mps"], -.25)
-        n, w = trace["done"].shape
-        for name, shape in (
-                ("actor_action", (n, w, 6)),
-                ("foot_xyz", (n, w, 2, 3)),
-                ("servo_torque_nm", (n, w, 6)),
-                ("servo_joint_rate_rad_s", (n, w, 6)),
-                ("policy_phase_rad", (n, w)),
-                ("policy_cmd_vx", (n, w)),
-                ("policy_cmd_vy", (n, w)),
-                ("issued_yaw_rate", (n, w))):
-            trace[name] = np.zeros(shape)
-        evidence = recovery_diagnostic_traces(trace, rows)
-        self.assertEqual(len(evidence), 2)
-        self.assertTrue(any("-recovered-" in k for k in evidence))
-        self.assertTrue(any("-not_recovered-" in k for k in evidence))
-        with np.load(io.BytesIO(next(v for k, v in evidence.items()
-                                     if "-recovered-" in k))) as payload:
-            self.assertAlmostEqual(
-                float(payload["requested_birth_kick_world_x_mps"]), -.25)
-        trace["root_qvel"][0, 0, 0] = 0.
-        with self.assertRaisesRegex(RuntimeError, "birth velocity was not delivered"):
-            score_recovery(trace, list(scenario), horizon=500)
+        cases, evidence = self.fixture()
+        kick = next(t for t in cases if t.case.kind == "kick_forward")
+        evidence["final2s_horizontal_speed_mps"][kick.world] = .24
+        evidence["longest_stable_streak_frames"][kick.world] = 0
+        forward = next(t for t in cases if t.case.kind == "forward_stop_reverse")
+        evidence["transition_stop_speed_mps"][forward.world] = .22
+        rows = pulse_score(cases, evidence, 600)
+        self.assertFalse(rows[kick.world]["physical_mission_pass"])
+        self.assertIn("not_settled_linear", rows[kick.world]["failure_reasons"])
+        self.assertFalse(rows[forward.world]["physical_mission_pass"])
+        self.assertIn("never_stopped", rows[forward.world]["failure_reasons"])
+        other = next(t for t in cases if t.case.kind == "kick_backward")
+        self.assertTrue(rows[other.world]["physical_mission_pass"])
+        evidence["initial_world_x_velocity_mps"][kick.world] = 0.
+        with self.assertRaisesRegex(ValueError, "physical kick was not delivered"):
+            pulse_score(cases, evidence, 600)
 
     def verify_exam_archive_nonoverwrite(self):
-        rows = [dict(specialty="step", kind="step_up", level=1,
-                     physical_mission_pass=True)]
-        curves = [dict(specialty="step", kind="step_up", severity=.01,
-                       severity_unit="m", full_survivals=1,
-                       physical_mission_passes=1, trials=1)]
-        envelopes = [dict(kind="step_up", severity_unit="m",
-                          measured_levels=1, first_severity=.01,
-                          last_severity=.01, tested_range_auc=None,
-                          auc_interpretation="not measured: fewer than 2 levels")]
+        cases, evidence = self.fixture()
+        rows = pulse_score(cases, evidence, 600)
+        heads, curves, auc = pulse_summary(rows)
         with tempfile.TemporaryDirectory() as td:
-            dest = Path(td) / "specialties.zip"
-            archive_results(dest, {"schema": "fixture"}, rows, curves, envelopes)
+            dest = Path(td) / "pulse.zip"
+            pulse_write_zip(dest, {"schema": "fixture"}, rows,
+                            heads, curves, auc)
             self.assertTrue(dest.is_file())
             with self.assertRaises(FileExistsError):
-                archive_results(dest, {"schema": "fixture"}, rows, curves, envelopes)
+                pulse_write_zip(dest, {"schema": "fixture"}, rows,
+                                heads, curves, auc)
 
 
 if __name__=="__main__":
