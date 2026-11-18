@@ -1095,8 +1095,14 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             # Preserve the source actor's optional velocity-I control:
             # operator commands stay fixed, while the actor sees the
             # effective I-corrected demand from the previous MJX step.
-            xy_policy=(es.task[:,[T.vx,T.vy]]
-                       if env.velocity_i_multiplier>1. else cmd_now[:,:2])
+            if env.velocity_i_multiplier>1.:
+                change=jnp.any(jnp.abs(
+                    es.raw_velocity_command-cmd_now[:,:2])>.005,axis=1)
+                xy_policy=jnp.where(
+                    change[:,None],cmd_now[:,:2],
+                    es.task[:,[T.vx,T.vy]])
+            else:
+                xy_policy=cmd_now[:,:2]
             task=(es.task.at[:,T.vx].set(xy_policy[:,0])
                          .at[:,T.vy].set(xy_policy[:,1])
                          .at[:,T.yaw].set(cmd_now[:,2]))
