@@ -308,9 +308,14 @@ sensor contract, sampling seed and exam settings. Test only actor/physics
 source combinations accepted by the existing strict actor loader.
 
 The ZIP contains `manifest.json`, `summary.json`, `summary.md`,
-`worlds.csv` and `capabilities.csv`. There are no invented results or
-replays: **replay export is not yet implemented**. Keep console logs and
-the exact ZIP along with the source commit.
+`worlds.csv`, `capabilities.csv`, and up to one passing and one failing
+first-life diagnostic trace per scenario under `traces/*.npz`. Each trace
+includes real post-step position/heading, operator commands, actor actions,
+foot positions/contact observations, torso tilt and actuator diagnostics.
+The trace ends at first termination; automatic-reset lives are never saved
+as continuations of the original attempt. **These diagnostic samples are
+not yet restartable MuJoCo state replays or browser parity proof.** Keep
+the ZIP and exact source commit for later inspection.
 
 ### Important initial limitations
 
@@ -321,8 +326,10 @@ the exact ZIP along with the source commit.
 - Contact coverage records actual foot/terrain contact, **not** the centre
   of pressure, load distribution or dynamic stability margin. The current
   torso tilt metric is based on the MJX gravity vector.
-- No fresh GPU rollout was possible through the GitHub-only connection.
-  No 120M/140M calibration results have yet been generated in this branch.
+- No fresh full-length GPU rollout was possible through the GitHub-only
+  connection. Three-frame actor/MJX CI smoke tests are integration evidence,
+  **not** a 60-second standing result. No 120M/140M calibration results have
+  yet been generated in this branch.
 - No confidence interval or cross-training-seed generality is inferred from
   multiple world resets of one trained actor.
 - Internal source simulator auto-reset still executes after a terminal but
