@@ -29,6 +29,11 @@ TRAINED_SOURCE = "0e6e07d45e95363867220b3cabba10b4be8cdd63"
 ORIGINAL_SOURCE = "22266821bdbfc82a529ef708e5171c82c6c9f29c"
 STUDY_BRANCH = "work/emu-retention-research"
 REPO = Path(__file__).resolve().parents[1]
+# File-path invocation ("python scripts/recheck_...py") otherwise puts only
+# scripts/ on sys.path, hiding the parent scripts package and emu package.
+# Keep both file-path and module invocation working from any current directory.
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
 
 
 def _sha256(path: Path) -> str:
