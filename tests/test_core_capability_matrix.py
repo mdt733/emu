@@ -156,7 +156,7 @@ class MatrixExamTests(unittest.TestCase):
         # The new v1 first-life scoring checks share the existing physical
         # examiner contract case; no test-per-experiment growth.
         v1 = _PhysicalV1Checks()
-        for check in ["verify_zero_command_real_standing","verify_first_fall_excludes_subsequent_reset_lives","verify_walk_away_is_not_standing","verify_requested_trajectory_and_actor_are_distinct","verify_static_survival_cannot_pass_walking","verify_early_fall_cannot_pass_walking","verify_transition_requires_real_stop","verify_perfect_transition_passes","verify_partial_scenario_cannot_become_complete_summary","verify_zip_does_not_overwrite_prior_exam"]:
+        for check in ["verify_zero_command_real_standing","verify_first_fall_excludes_subsequent_reset_lives","verify_walk_away_is_not_standing","verify_requested_trajectory_and_actor_are_distinct","verify_static_survival_cannot_pass_walking","verify_early_fall_cannot_pass_walking","verify_reject_wrong_operator_commands","verify_transition_requires_real_stop","verify_perfect_transition_passes","verify_partial_scenario_cannot_become_complete_summary","verify_zip_does_not_overwrite_prior_exam"]:
             getattr(v1, check)()
 
     def test_signed_exact_step_and_continuous_grade_geometry(self):
@@ -353,6 +353,17 @@ class _PhysicalV1Checks(unittest.TestCase):
         self.assertIn("terminal", rows[0]["locomotion_failure_reasons"])
         self.assertTrue(rows[1]["locomotion_mission_pass"])
         self.assertEqual(rows[0]["first_life_frames"], 5)
+
+    def verify_reject_wrong_operator_commands(self):
+        case = Scenario("forward", 1, ((1, .25, 0., 0.),),
+                        "locomotion")
+        x = physical_v1_fixture()
+        # A trace delivering no operator command cannot be credited as
+        # forward walking merely because its pose happened to move.
+        x["physical_position_xy_after_step"][:, :, 0] = (
+            .005 * np.arange(1, 51)[:, None])
+        with self.assertRaisesRegex(ValueError, "operator commands differ"):
+            score_first_life(x, case)
 
     def verify_transition_requires_real_stop(self):
         case = Scenario("forward_stop_reverse_30s", 30,
