@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# ONE random-initialised actor, ONE optimiser, ONE SHA-pinned 0->160M source.
+# Canonical 0->140M Spring V1 H40: ONE cold actor, ONE optimizer.
 # All stage rewards are scheduled by the same JAX task packet in emu.training,
 # not swapped launchers or inherited policies. No historical actor is read.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
-MODE="${1:-all}"
+MODE="${1:-plan}"
 [[ "$MODE" == all || "$MODE" == plan ]] || {
   echo "Usage: bash scripts/run_h40_holistic_cold_wsl.sh [plan|all]" >&2
   exit 2
 }
-BRANCH="work/emu-holistic-coldstart"
-[[ "$(git branch --show-current)" == "$BRANCH" ]] || {
-  echo "Use $BRANCH; do NOT run from main" >&2; exit 1;
+# Clean, named Git source; the original seed-735 run remains untouched.
+[[ -n "$(git branch --show-current)" ]] || {
+  echo "Detached checkout: switch to a named source branch" >&2; exit 1;
 }
 [[ -z "$(git status --porcelain)" ]] || {
   echo "Dirty Git source; refuse an unverifiable cold-start lineage" >&2; exit 1;
@@ -27,7 +27,7 @@ export EMU_COLD_SEED="${EMU_COLD_SEED:-735}"
 [[ "$EMU_COLD_SEED" =~ ^[0-9]+$ ]] || {
   echo "EMU_COLD_SEED must be a non-negative decimal integer" >&2; exit 1;
 }
-export EMU_COLD_RUN_DIR="${EMU_COLD_RUN_DIR:-$HOME/emu-data/runs/h40-holistic-cold-s$EMU_COLD_SEED}"
+export EMU_COLD_RUN_DIR="${EMU_COLD_RUN_DIR:-$HOME/emu-data/runs/h40-main-140m-s$EMU_COLD_SEED}"
 export EMU_COLD_SOURCE="$(git rev-parse HEAD)"
 # Existing proven physical system: same 360-input observation, 150 N/m
 # knee support, 2 N.m/rad hip centring, real signed 8-prism collider.
@@ -40,7 +40,7 @@ actual=hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest()
 if actual!=wanted:
     raise RuntimeError(f"H40 Spring V1 robot XML drifted: {actual}")
 ages=(0,20_000_000,40_000_000,119_999_999,120_000_000,
-      139_999_999,140_000_000,160_000_000)
+      139_999_999,140_000_000)
 for step in ages:
     stage=holistic_stair_stage(step)
     gait=gait_guidance_strength(step=step,foundation_steps=20_000_000,
@@ -55,6 +55,7 @@ if not (holistic_stair_stage(20_000_000).name=="gait_fade"
         and holistic_stair_stage(120_000_000).name=="commitment"
         and holistic_stair_stage(140_000_000).name=="transfer_retention"):
     raise RuntimeError("Frozen teacher stage boundaries changed")
+# 140M is final. No after-140M transfer-rollout is trained by this recipe.
 print("ONE COLD SOURCE:",os.environ["EMU_COLD_SOURCE"])
 PY
 COMMON=(
@@ -75,7 +76,7 @@ COMMON=(
   --academy-height-cap-m .15
   --fixed-eval-every-steps 60000000
 )
-"$PY" -m emu.cli train "${COMMON[@]}" --steps 160000000 --plan
+"$PY" -m emu.cli train "${COMMON[@]}" --steps 140000000 --plan
 if [[ "$MODE" == plan ]]; then
   echo "PLAN ONLY. No run created or old policy opened."
   exit 0
@@ -88,7 +89,7 @@ if [[ -d "$EMU_COLD_RUN_DIR" && ! -f "$CONFIG" && -n "$(
   exit 1
 fi
 # Short independent GPU physics/PPO checks before allocating overnight time.
-# These are not a substitute for the actual 2048-env 160M learner.
+# These are not a substitute for the actual 2048-env 140M learner.
 if [[ ! -f "$CONFIG" ]]; then
   "$PY" -m emu.cli doctor --require-gpu
   "$PY" scripts/smoke_gpu_carpet.py --device cuda \
@@ -142,7 +143,7 @@ if bad:
                        "; ".join(bad))
 PY
 }
-for AGE in 20 40 120 140 160; do
+for AGE in 20 40 120 140; do
   export EMU_COLD_AGE="$AGE"
   TARGET=$((AGE * 1000000))
   SNAP="$EMU_COLD_RUN_DIR/stages/${AGE}m"
@@ -240,8 +241,7 @@ manifest=dict(source_git_commit=source,target_steps=age*1_000_000,
               no_historical_model_loaded=True,
               curriculum_stage=(
                   "foundation" if age<=20 else "gait_fade" if age<=40
-                  else "outcomes" if age<=120 else "commitment" if age<=140
-                  else "transfer_retention"))
+                  else "outcomes" if age<=120 else "commitment"))
 path=out/"stage_manifest.json"
 if path.exists() and json.loads(path.read_text(encoding="utf-8"))!=manifest:
     raise RuntimeError("Frozen cold stage manifest conflict")
@@ -252,8 +252,8 @@ PY
 done
 
 # Independently test the exact physical terrain (not Academy reward flags)
-# at 120M, 140M and 160M. Every actor is from THIS cold run.
-for AGE in 120 140 160; do
+# at 120M and 140M. Every actor is from THIS cold run.
+for AGE in 120 140; do
   for MODE in stairs flat; do
     ACTOR="$EMU_COLD_RUN_DIR/stages/${AGE}m/actor.emupolicy"
     OUT="$EMU_COLD_RUN_DIR/heldout/${AGE}m/$MODE"

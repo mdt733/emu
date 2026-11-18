@@ -193,8 +193,8 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert P.holistic_goal_weight==P.gait_guidance_strength+1
     with patch.dict("os.environ",{"EMU_PHYSICAL_PROFILE":"h40-spring-v1"}):
         cold_flags=[
-            "train","--run-dir",str(tmp_path/"one-cold-160m"),
-            "--steps","160000000","--envs","2048","--seed","735",
+            "train","--run-dir",str(tmp_path/"one-cold-140m"),
+            "--steps","140000000","--envs","2048","--seed","735",
             "--device","cuda","--profile","sim2real",
             "--terrain-actor","--terrain-step-max-m",".08",
             "--unified-capabilities","--terrain-carpet","--carpet-prisms",
@@ -231,9 +231,14 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert len(re.findall(r"<<'PY'",cold_src))>=3
     if shutil.which("bash"):
         subprocess.run(["bash","-n",str(cold_runner)],check=True)
-    for age in ("20","40","120","140","160"):
+    for age in ("20","40","120","140"):
         assert f" {age}" in cold_src or f"{age}m" in cold_src
     assert '--holistic-cold-curriculum' in cold_src
+    assert '--steps 140000000 --plan' in cold_src
+    assert '--steps 160000000' not in cold_src
+    assert 'h40-main-140m-s' in cold_src
+    # Historical phase definition at the 140M boundary remains source-identical.
+    # The promoted launcher never trains any later phase.
     assert 'INITIAL_PARENT' not in cold_src
     assert '--research-parent-source' not in cold_src
     assert '--research-parent-sha256' not in cold_src
