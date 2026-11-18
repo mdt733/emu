@@ -357,6 +357,58 @@ def summarize(rows: list[dict], *, expected_worlds: int) -> list[dict]:
     return output
 
 
+# Representative first-life trajectory evidence for later browser/CPU parity.
+# These are replay *traces*, not a deterministic reloadable MuJoCo state.
+REPLAY_TRACE_FIELDS = (
+    "physical_position_xy_after_step", "physical_heading_rad_after_step",
+    "command", "actor_action", "foot_xyz", "floor_contact",
+    "terrain_gravity_z", "terrain_bad_contact",
+    "servo_torque_nm", "servo_joint_rate_rad_s",
+    "done", "fell",
+)
+
+
+def capture_representative_traces(trace: dict, rows: list[dict],
+                                  scenario: Scenario) -> dict[str, bytes]:
+    """Capture at most one passing and one failing first-life world per task.
+
+    Truncate BEFORE serializing so an internal simulator auto-reset never
+    appears in evidence presented as an uninterrupted physical attempt.
+    """
+    field = ("bounded_standing_pass" if scenario.category == "balance"
+             else "locomotion_mission_pass")
+    payloads: dict[str, bytes] = {}
+    for label, matches in (
+            ("pass", [r for r in rows if r[field] is True]),
+            ("fail", [r for r in rows if r[field] is False])):
+        if not matches:
+            continue
+        # Prefer the shortest unsuccessful first life to expose physical
+        # failures; a successful sample comes from the first indexed world.
+        chosen = (min(matches, key=lambda r: (
+            r["first_life_frames"], r["world"])) if label == "fail"
+                  else min(matches, key=lambda r: r["world"]))
+        world, frames = int(chosen["world"]), int(chosen["first_life_frames"])
+        data = {}
+        for key in REPLAY_TRACE_FIELDS:
+            if key not in trace:
+                raise ValueError(f"missing required replay trace {key}")
+            arr = np.asarray(trace[key])
+            if arr.shape[0] < frames or arr.shape[1] <= world:
+                raise ValueError(f"malformed replay trace {key}")
+            data[key] = arr[:frames, world]
+        data["initial_position_xy"] = np.asarray(
+            trace["position_xy"][0, world])
+        data["initial_heading_rad"] = np.asarray(
+            trace["heading_rad"][0, world])
+        data["control_dt_s"] = np.array(CONTROL_DT)
+        memory = io.BytesIO()
+        np.savez_compressed(memory, **data)
+        payloads[f"traces/{scenario.name}-{label}-world{world}.npz"] = (
+            memory.getvalue())
+    return payloads
+
+
 def _csv_bytes(rows: list[dict]) -> bytes:
     if not rows:
         raise ValueError("empty results")
@@ -368,7 +420,8 @@ def _csv_bytes(rows: list[dict]) -> bytes:
 
 
 def save_evidence(path: Path, manifest: dict, rows: list[dict],
-                  summary: list[dict]) -> None:
+                  summary: list[dict],
+                  trace_files: dict[str, bytes] | None = None) -> None:
     """One atomic ZIP; no results produced until all scenarios succeed."""
     path = Path(path).expanduser().resolve()
     if path.exists():
@@ -399,6 +452,10 @@ def save_evidence(path: Path, manifest: dict, rows: list[dict],
             archive.writestr("summary.md", "\n".join(md))
             archive.writestr("worlds.csv", _csv_bytes(rows))
             archive.writestr("capabilities.csv", _csv_bytes(summary))
+            for name, payload in sorted((trace_files or {}).items()):
+                if not name.startswith("traces/") or not name.endswith(".npz"):
+                    raise ValueError(f"unexpected trace filename: {name}")
+                archive.writestr(name, payload)
         partial.replace(path)
     finally:
         partial.unlink(missing_ok=True)
@@ -484,6 +541,7 @@ def run(*, policy: Path, output: Path, worlds: int = 8, seed: int = 1701,
         terrain_exposure=0., slope_exposure=0.,
         academy_episode_probability=0.))
     rows = []
+    trace_files: dict[str, bytes] = {}
     started = time.perf_counter()
     for scenario in scenarios:
         # Same named scenario receives the same seed even in a subset run.
@@ -495,7 +553,10 @@ def run(*, policy: Path, output: Path, worlds: int = 8, seed: int = 1701,
             jnp.asarray(norm["std"]), jax.random.PRNGKey(scenario_seed),
             scenario.seconds * 50, 0.,
             command_schedule=jnp.asarray(scenario.command_schedule())))
-        rows.extend(score_first_life(trace, scenario))
+        scored = score_first_life(trace, scenario)
+        rows.extend(scored)
+        trace_files.update(capture_representative_traces(
+            trace, scored, scenario))
         del trace
     summary = summarize(rows, expected_worlds=worlds)
     # Hash *all* core scoring and physical inference sources, as well as
@@ -540,6 +601,8 @@ def run(*, policy: Path, output: Path, worlds: int = 8, seed: int = 1701,
         duration_s_by_scenario={x.name: x.seconds for x in scenarios},
         no_optimizer_updates=True, first_life_only=True,
         terminal_resets_discarded=True,
+        trace_files=sorted(trace_files),
+        traces_are_diagnostic_not_restartable=True,
         exam_timeout_frames=max_frames+50,
         motor_work="positive servo shaft drive work, not battery energy",
         wall_seconds=round(time.perf_counter()-started, 3),
@@ -558,7 +621,7 @@ def run(*, policy: Path, output: Path, worlds: int = 8, seed: int = 1701,
             mission_stop_speed_max_mps=MISSION_STOP_SPEED_MAX_MPS,
             mission_contact_fraction=MISSION_MIN_CONTACT_FRACTION,
             mission_bad_contact_fraction=MISSION_MAX_BAD_CONTACT_FRACTION))
-    save_evidence(output, manifest, rows, summary)
+    save_evidence(output, manifest, rows, summary, trace_files)
     return manifest
 
 
