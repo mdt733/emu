@@ -158,7 +158,7 @@ class MatrixExamTests(unittest.TestCase):
         # The new v1 first-life scoring checks share the existing physical
         # examiner contract case; no test-per-experiment growth.
         v1 = _PhysicalV1Checks()
-        for check in ["verify_zero_command_real_standing","verify_first_fall_excludes_subsequent_reset_lives","verify_walk_away_is_not_standing","verify_requested_trajectory_and_actor_are_distinct","verify_static_survival_cannot_pass_walking","verify_early_fall_cannot_pass_walking","verify_reject_wrong_operator_commands","verify_transition_requires_real_stop","verify_perfect_transition_passes","verify_trace_archive_ends_at_first_terminal","verify_partial_scenario_cannot_become_complete_summary","verify_zip_does_not_overwrite_prior_exam"]:
+        for check in ["verify_zero_command_real_standing","verify_first_fall_excludes_subsequent_reset_lives","verify_walk_away_is_not_standing","verify_requested_trajectory_and_actor_are_distinct","verify_static_survival_cannot_pass_walking","verify_early_fall_cannot_pass_walking","verify_reject_wrong_operator_commands","verify_transition_requires_real_stop","verify_perfect_transition_passes","verify_trace_archive_ends_at_first_terminal","verify_trace_archive_captures_extreme_drift","verify_partial_scenario_cannot_become_complete_summary","verify_zip_does_not_overwrite_prior_exam"]:
             getattr(v1, check)()
 
     def test_signed_exact_step_and_continuous_grade_geometry(self):
@@ -423,6 +423,10 @@ class _PhysicalV1Checks(unittest.TestCase):
         x["foot_xyz"] = np.zeros((n, w, 2, 3))
         x["servo_torque_nm"] = np.zeros((n, w, 6))
         x["servo_joint_rate_rad_s"] = np.zeros((n, w, 6))
+        x["policy_phase_rad"] = np.zeros((n, w))
+        x["policy_cmd_vx"] = np.zeros((n, w))
+        x["policy_cmd_vy"] = np.zeros((n, w))
+        x["issued_yaw_rate"] = np.zeros((n, w))
         rows = score_first_life(x, case)
         selected = capture_representative_traces(x, rows, case)
         self.assertEqual(len(selected), 2)
@@ -432,6 +436,29 @@ class _PhysicalV1Checks(unittest.TestCase):
             self.assertTrue(bool(trace["done"][-1]))
             self.assertLess(np.max(trace["physical_position_xy_after_step"]),
                             999.)
+
+    def verify_trace_archive_captures_extreme_drift(self):
+        case = Scenario("still", 1, ((1, 0., 0., 0.),), "balance")
+        x = physical_v1_fixture(worlds=3)
+        n, w = x["done"].shape
+        for field in ("policy_phase_rad", "policy_cmd_vx",
+                      "policy_cmd_vy", "issued_yaw_rate"):
+            x[field] = np.zeros((n, w))
+        x["actor_action"] = np.zeros((n, w, 6))
+        x["foot_xyz"] = np.zeros((n, w, 2, 3))
+        x["servo_torque_nm"] = np.zeros((n, w, 6))
+        x["servo_joint_rate_rad_s"] = np.zeros((n, w, 6))
+        for world, distance in enumerate((.5, .3, .9)):
+            x["physical_position_xy_after_step"][:, world, 0] = (
+                distance * (np.arange(n) + 1) / n)
+        rows = score_first_life(x, case)
+        files = capture_representative_traces(x, rows, case)
+        self.assertEqual(len(files), 3)
+        self.assertTrue(any("fail-world0" in name for name in files))
+        self.assertTrue(any("best_error-world1" in name for name in files))
+        self.assertTrue(any("worst_error-world2" in name for name in files))
+        self.assertAlmostEqual(rows[0]["time_to_radius_breach_s"], .42)
+        self.assertIsNone(rows[0]["time_to_heading_breach_s"])
 
     def verify_partial_scenario_cannot_become_complete_summary(self):
         case = Scenario("still", 1, ((1, 0., 0., 0.),), "balance")
