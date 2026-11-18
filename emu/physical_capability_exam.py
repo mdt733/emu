@@ -206,6 +206,15 @@ def score_first_life(trace: dict, scenario: Scenario,
         if _safe_mean(bad > .5) > MAX_BAD_CONTACT_FRACTION:
             standing_failures.append("bad_contacts")
         balance_ok = not standing_failures
+        # Crossing times identify *when* stationary balance was lost even
+        # if the robot stayed upright to the end of the horizon.
+        radius_breach = np.flatnonzero(displacement[1:] > STAND_MAX_RADIUS_M)
+        heading_breach = np.flatnonzero(
+            np.abs(headings[1:] - headings[0]) > STAND_MAX_HEADING_RAD)
+        time_radius_breach = (
+            float((radius_breach[0] + 1) * dt) if len(radius_breach) else None)
+        time_heading_breach = (
+            float((heading_breach[0] + 1) * dt) if len(heading_breach) else None)
         # A locomotion mission is a completed, correctly directed journey;
         # velocity MAE before an early fall is never a successful mission.
         # Desired trajectory is integrated from ORIGINAL operator instructions.
@@ -270,6 +279,10 @@ def score_first_life(trace: dict, scenario: Scenario,
             final_drift_m=float(displacement[-1]),
             max_heading_drift_rad=float(np.max(np.abs(
                 headings - headings[0]))),
+            time_to_radius_breach_s=(
+                time_radius_breach if scenario.category == "balance" else None),
+            time_to_heading_breach_s=(
+                time_heading_breach if scenario.category == "balance" else None),
             p95_tilt_deg=float(np.percentile(tilt, 95)),
             peak_tilt_deg=float(np.max(tilt)),
             contact_fraction=_safe_mean(support),
@@ -362,7 +375,8 @@ def summarize(rows: list[dict], *, expected_worlds: int) -> list[dict]:
 REPLAY_TRACE_FIELDS = (
     "physical_position_xy_after_step", "physical_heading_rad_after_step",
     "command", "actor_action", "foot_xyz", "floor_contact",
-    "terrain_gravity_z", "terrain_bad_contact",
+    "policy_phase_rad", "policy_cmd_vx", "policy_cmd_vy",
+    "issued_yaw_rate", "terrain_gravity_z", "terrain_bad_contact",
     "servo_torque_nm", "servo_joint_rate_rad_s",
     "done", "fell",
 )
@@ -370,25 +384,37 @@ REPLAY_TRACE_FIELDS = (
 
 def capture_representative_traces(trace: dict, rows: list[dict],
                                   scenario: Scenario) -> dict[str, bytes]:
-    """Capture at most one passing and one failing first-life world per task.
+    """Capture passing, failing, best and worst actual first-life attempts.
 
-    Truncate BEFORE serializing so an internal simulator auto-reset never
-    appears in evidence presented as an uninterrupted physical attempt.
+    A single failed world is not representative when drift spans metres.
+    Preserve unique worlds only; never include post-terminal reset states.
     """
     field = ("bounded_standing_pass" if scenario.category == "balance"
              else "locomotion_mission_pass")
+    error_field = ("max_radius_m" if scenario.category == "balance"
+                   else "final_trajectory_error_m")
+    passing = [r for r in rows if r[field] is True]
+    failing = [r for r in rows if r[field] is False]
+    candidates = []
+    if passing:
+        candidates.append(("pass", min(passing, key=lambda r: r["world"])))
+    if failing:
+        candidates.append(("fail", min(failing, key=lambda r: (
+            r["first_life_frames"], r["world"]))))
+    if rows:
+        candidates += [
+            ("best_error", min(rows, key=lambda r: (
+                r[error_field], r["world"]))),
+            ("worst_error", max(rows, key=lambda r: (
+                r[error_field], -r["world"]))),
+        ]
     payloads: dict[str, bytes] = {}
-    for label, matches in (
-            ("pass", [r for r in rows if r[field] is True]),
-            ("fail", [r for r in rows if r[field] is False])):
-        if not matches:
-            continue
-        # Prefer the shortest unsuccessful first life to expose physical
-        # failures; a successful sample comes from the first indexed world.
-        chosen = (min(matches, key=lambda r: (
-            r["first_life_frames"], r["world"])) if label == "fail"
-                  else min(matches, key=lambda r: r["world"]))
+    selected_worlds = set()
+    for label, chosen in candidates:
         world, frames = int(chosen["world"]), int(chosen["first_life_frames"])
+        if world in selected_worlds:
+            continue
+        selected_worlds.add(world)
         data = {}
         for key in REPLAY_TRACE_FIELDS:
             if key not in trace:
