@@ -30,6 +30,17 @@ STAND_MAX_HEADING_RAD = 0.35
 STAND_P95_TILT_DEG = 20.0
 MIN_FOOT_SUPPORT_FRACTION = 0.75
 MAX_BAD_CONTACT_FRACTION = 0.05
+# Provisional mission gates, distinct from survival and from the standing gate.
+# They are visible in every report and MUST be calibrated on the reference actors.
+MISSION_ROUTE_BASE_M = 0.20
+MISSION_ROUTE_RELATIVE = 0.10
+MISSION_HEADING_MAX_RAD = 0.75
+MISSION_VX_MAE_MAX_MPS = 0.12
+MISSION_VY_MAE_MAX_MPS = 0.10
+MISSION_YAW_MAE_MAX_RAD_S = 0.20
+MISSION_STOP_SPEED_MAX_MPS = 0.08
+MISSION_MIN_CONTACT_FRACTION = 0.50
+MISSION_MAX_BAD_CONTACT_FRACTION = 0.10
 
 
 @dataclass(frozen=True)
@@ -190,6 +201,56 @@ def score_first_life(trace: dict, scenario: Scenario,
         if _safe_mean(bad > .5) > MAX_BAD_CONTACT_FRACTION:
             standing_failures.append("bad_contacts")
         balance_ok = not standing_failures
+        # A locomotion mission is a completed, correctly directed journey;
+        # velocity MAE before an early fall is never a successful mission.
+        # Desired trajectory is integrated from ORIGINAL operator instructions.
+        mission_failures = []
+        requested_distance = float(np.sum(
+            np.linalg.norm(command[:, :2], axis=1)) * dt)
+        allowed_path_error = (
+            MISSION_ROUTE_BASE_M + MISSION_ROUTE_RELATIVE * requested_distance)
+        heading_error = float(abs(headings[-1] - desired_heading[-1]))
+        vx_mae = _safe_mean(np.abs(actual_vx - command[:, 0]))
+        vy_mae = _safe_mean(np.abs(actual_vy - command[:, 1]))
+        yaw_mae = _safe_mean(np.abs(actual_yaw - command[:, 2]))
+        if scenario.category != "balance":
+            if not survived:
+                mission_failures.append("terminal")
+            if path_error[-1] > allowed_path_error:
+                mission_failures.append("route_endpoint")
+            if float(np.percentile(path_error, 95)) > allowed_path_error:
+                mission_failures.append("route_deviation")
+            if heading_error > MISSION_HEADING_MAX_RAD:
+                mission_failures.append("heading_error")
+            if vx_mae > MISSION_VX_MAE_MAX_MPS:
+                mission_failures.append("vx_tracking")
+            if vy_mae > MISSION_VY_MAE_MAX_MPS:
+                mission_failures.append("vy_tracking")
+            if yaw_mae > MISSION_YAW_MAE_MAX_RAD_S:
+                mission_failures.append("yaw_tracking")
+            if _safe_mean(support) < MISSION_MIN_CONTACT_FRACTION:
+                mission_failures.append("insufficient_foot_contact")
+            if _safe_mean(bad > .5) > MISSION_MAX_BAD_CONTACT_FRACTION:
+                mission_failures.append("bad_contacts")
+        stop_speed = None
+        if scenario.name == "forward_stop_reverse_30s":
+            # Check ALL three segments independently: reversing after a
+            # non-stop or never reversing must not pass on averaged velocity.
+            a, b, c = 10 * 50, 20 * 50, 30 * 50
+            if n < c:
+                mission_failures.append("incomplete_transition")
+            else:
+                forward_vx = _safe_mean(actual_vx[:a])
+                reverse_vx = _safe_mean(actual_vx[b:c])
+                stop_speed = _safe_mean(np.hypot(actual_vx[a:b], actual_vy[a:b]))
+                if forward_vx < .13:
+                    mission_failures.append("forward_segment")
+                if reverse_vx > -.10:
+                    mission_failures.append("reverse_segment")
+                if stop_speed > MISSION_STOP_SPEED_MAX_MPS:
+                    mission_failures.append("failed_to_stop")
+        mission_ok = (
+            not mission_failures if scenario.category != "balance" else None)
         row = dict(
             scenario=scenario.name, category=scenario.category, world=world,
             commanded_seconds=scenario.seconds,
@@ -209,9 +270,9 @@ def score_first_life(trace: dict, scenario: Scenario,
             contact_fraction=_safe_mean(support),
             physical_touchdown_events=touchdowns,
             bad_contact_fraction=_safe_mean(bad > .5),
-            vx_mae_mps=_safe_mean(np.abs(actual_vx - command[:, 0])),
-            vy_mae_mps=_safe_mean(np.abs(actual_vy - command[:, 1])),
-            yaw_mae_rad_s=_safe_mean(np.abs(actual_yaw - command[:, 2])),
+            vx_mae_mps=vx_mae,
+            vy_mae_mps=vy_mae,
+            yaw_mae_rad_s=yaw_mae,
             achieved_vx_mps=_safe_mean(actual_vx),
             achieved_vy_mps=_safe_mean(actual_vy),
             achieved_yaw_rad_s=_safe_mean(actual_yaw),
@@ -224,14 +285,16 @@ def score_first_life(trace: dict, scenario: Scenario,
             standing_failure_reasons=(
                 ",".join(standing_failures)
                 if scenario.category == "balance" else None),
+            requested_travel_m=requested_distance,
+            route_error_limit_m=allowed_path_error,
+            max_allowed_heading_error_rad=MISSION_HEADING_MAX_RAD,
+            final_heading_error_rad=heading_error,
+            locomotion_mission_pass=mission_ok,
+            locomotion_failure_reasons=(
+                ",".join(mission_failures)
+                if scenario.category != "balance" else None),
+            stop_interval_mean_speed_mps=stop_speed,
         )
-        if scenario.name == "forward_stop_reverse_30s":
-            # A stop is not proved by a small *average* velocity across
-            # forward and backward sections. Judge the actual stop interval.
-            a, b = 10 * 50, min(n, 20 * 50)
-            row["stop_interval_mean_speed_mps"] = (
-                _safe_mean(np.hypot(actual_vx[a:b], actual_vy[a:b]))
-                if b > a else None)
         output.append(row)
     return output
 
@@ -262,6 +325,9 @@ def summarize(rows: list[dict], *, expected_worlds: int) -> list[dict]:
         standing_passes = (sum(bool(r["bounded_standing_pass"])
                                for r in group)
                            if group[0]["category"] == "balance" else None)
+        mission_passes = (sum(bool(r["locomotion_mission_pass"])
+                              for r in group)
+                          if group[0]["category"] != "balance" else None)
         output.append(dict(
             scenario=name, category=group[0]["category"],
             trials=len(group), full_survivals=survival,
@@ -269,6 +335,7 @@ def summarize(rows: list[dict], *, expected_worlds: int) -> list[dict]:
             full_survival_wilson95_lo=lo,
             full_survival_wilson95_hi=hi,
             bounded_standing_passes=standing_passes,
+            locomotion_mission_passes=mission_passes,
             mean_first_life_s=_safe_mean(np.asarray(
                 [r["observed_seconds"] for r in group])),
             mean_vx_mae_mps=_safe_mean(np.asarray(
@@ -306,13 +373,15 @@ def save_evidence(path: Path, manifest: dict, rows: list[dict],
     md = ["# EMU physical capability exam v1", "",
           "Frozen, first-life MJX evaluation. No training; no reset credit.",
           "All thresholds provisional until reference-robot calibration.", "",
-          "| Scenario | Full survival | Standing gate | Mean vx MAE | Mean trajectory error |",
-          "|---|---:|---:|---:|---:|"]
+          "| Scenario | Full survival | Standing gate | Mission gate | Mean vx MAE | Mean trajectory error |",
+          "|---|---:|---:|---:|---:|---:|"]
     for s in summary:
         gate = (str(s["bounded_standing_passes"]) + "/" + str(s["trials"])
                 if s["bounded_standing_passes"] is not None else "—")
+        mission = (str(s["locomotion_mission_passes"]) + "/" + str(s["trials"])
+                   if s["locomotion_mission_passes"] is not None else "—")
         md.append(f'| {s["scenario"]} | {s["full_survivals"]}/{s["trials"]} '
-                  f'| {gate} | {s["mean_vx_mae_mps"]:.3f} m/s '
+                  f'| {gate} | {mission} | {s["mean_vx_mae_mps"]:.3f} m/s '
                   f'| {s["mean_final_trajectory_error_m"]:.3f} m |')
     md += ["", "Only scenarios actually present in this ZIP were measured.",
            "No composite champion ranking is assigned.", ""]
@@ -461,7 +530,16 @@ def run(*, policy: Path, output: Path, worlds: int = 8, seed: int = 1701,
             heading_rad=STAND_MAX_HEADING_RAD,
             p95_tilt_deg=STAND_P95_TILT_DEG,
             contact_fraction=MIN_FOOT_SUPPORT_FRACTION,
-            bad_contact_fraction=MAX_BAD_CONTACT_FRACTION))
+            bad_contact_fraction=MAX_BAD_CONTACT_FRACTION,
+            mission_route_base_m=MISSION_ROUTE_BASE_M,
+            mission_route_relative=MISSION_ROUTE_RELATIVE,
+            mission_heading_max_rad=MISSION_HEADING_MAX_RAD,
+            mission_vx_mae_max_mps=MISSION_VX_MAE_MAX_MPS,
+            mission_vy_mae_max_mps=MISSION_VY_MAE_MAX_MPS,
+            mission_yaw_mae_max_rad_s=MISSION_YAW_MAE_MAX_RAD_S,
+            mission_stop_speed_max_mps=MISSION_STOP_SPEED_MAX_MPS,
+            mission_contact_fraction=MISSION_MIN_CONTACT_FRACTION,
+            mission_bad_contact_fraction=MISSION_MAX_BAD_CONTACT_FRACTION))
     save_evidence(output, manifest, rows, summary)
     return manifest
 
