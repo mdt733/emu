@@ -2,11 +2,15 @@
 from __future__ import annotations
 
 import unittest
+import tempfile
+from pathlib import Path
 from dataclasses import asdict
 import numpy as np
 
 from scripts.v5053_matrix_exam import (
     assignments,reduce_results,wilson_95,compare_paired_exams,PAIRED_GATES)
+from emu.physical_capability_exam import (
+    Scenario, score_first_life, summarize, save_evidence)
 from emu.terrain_carpet_mjx import (
     TILE_M,exact_exam_lip_profiles,tile_geometry)
 
@@ -149,6 +153,13 @@ class MatrixExamTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"Unrecognised physical"):
             compare_paired_exams(up,[dict(sr[0],traversed_5frame="maybe"),*sr[1:]],flat,fr)
 
+        # The new v1 first-life scoring checks share the existing physical
+        # examiner contract case; no test-per-experiment growth.
+        v1 = _PhysicalV1Checks()
+        for check in ["verify_zero_command_real_standing","verify_first_fall_excludes_subsequent_reset_lives","verify_walk_away_is_not_standing","verify_requested_trajectory_and_actor_are_distinct","verify_transition_requires_real_stop","verify_partial_scenario_cannot_become_complete_summary","verify_zip_does_not_overwrite_prior_exam"]:
+            with self.subTest(physical_v1_check=check):
+                getattr(v1, check)()
+
     def test_signed_exact_step_and_continuous_grade_geometry(self):
         heights=np.array([.0025,.05,-.0375,0.],np.float32)
         x,y=exact_exam_lip_profiles(np,heights)
@@ -246,6 +257,103 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(out["first_both_foot_frame"].shape,(4,))
         self.assertEqual(out["traversed_upright_5frame"].shape,(4,))
         self.assertEqual(out["traversed_in_lane_5frame"].shape,(4,))
+
+
+def physical_v1_fixture(seconds=1, worlds=2):
+    n = 50 * seconds
+    zeros = np.zeros((n, worlds))
+    pos = np.zeros((n, worlds, 2))
+    return dict(
+        done=np.zeros((n, worlds), dtype=bool),
+        fell=np.zeros((n, worlds), dtype=bool),
+        position_xy=pos.copy(),
+        physical_position_xy_after_step=pos.copy(),
+        heading_rad=zeros.copy(),
+        physical_heading_rad_after_step=zeros.copy(),
+        command=np.zeros((n, worlds, 3)),
+        terrain_gravity_z=np.ones((n, worlds)),
+        terrain_bad_contact=zeros.copy(),
+        floor_contact=np.ones((n, worlds, 2), dtype=bool),
+        servo_shaft_drive_power_w=zeros.copy(),
+    )
+
+
+class _PhysicalV1Checks(unittest.TestCase):
+    def verify_zero_command_real_standing(self):
+        case = Scenario("still", 1, ((1, 0., 0., 0.),), "balance")
+        rows = score_first_life(physical_v1_fixture(), case)
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(x["bounded_standing_pass"] for x in rows))
+        self.assertTrue(all(x["survived_full_horizon"] for x in rows))
+        self.assertAlmostEqual(rows[0]["final_drift_m"], 0.)
+
+    def verify_first_fall_excludes_subsequent_reset_lives(self):
+        case = Scenario("still", 1, ((1, 0., 0., 0.),), "balance")
+        x = physical_v1_fixture()
+        x["done"][6, 1] = True
+        x["fell"][6, 1] = True
+        x["physical_position_xy_after_step"][7:, 1, 0] = 99.
+        rows = score_first_life(x, case)
+        self.assertEqual(rows[1]["first_life_frames"], 7)
+        self.assertAlmostEqual(rows[1]["time_to_first_fall_s"], .14)
+        self.assertEqual(rows[1]["terminal_reason"], "fall")
+        self.assertFalse(rows[1]["survived_full_horizon"])
+        self.assertFalse(rows[1]["bounded_standing_pass"])
+        self.assertAlmostEqual(rows[1]["max_radius_m"], 0.)
+        self.assertTrue(rows[0]["survived_full_horizon"])
+
+    def verify_walk_away_is_not_standing(self):
+        case = Scenario("still", 1, ((1, 0., 0., 0.),), "balance")
+        x = physical_v1_fixture()
+        x["physical_position_xy_after_step"][:, 0, 0] = (
+            .01 * np.arange(1, 51))
+        rows = score_first_life(x, case)
+        self.assertTrue(rows[0]["survived_full_horizon"])
+        self.assertFalse(rows[0]["bounded_standing_pass"])
+        self.assertAlmostEqual(rows[0]["max_radius_m"], .5)
+
+    def verify_requested_trajectory_and_actor_are_distinct(self):
+        case = Scenario("forward", 1, ((1, .25, 0., 0.),),
+                        "locomotion")
+        x = physical_v1_fixture()
+        x["command"][:, :, 0] = .25
+        x["physical_position_xy_after_step"][:, :, 0] = (
+            .005 * np.arange(1, 51)[:, None])
+        rows = score_first_life(x, case)
+        self.assertAlmostEqual(rows[0]["vx_mae_mps"], 0., places=5)
+        self.assertAlmostEqual(rows[0]["final_trajectory_error_m"],
+                               0., places=5)
+
+    def verify_transition_requires_real_stop(self):
+        case = Scenario("forward_stop_reverse_30s", 30,
+                        ((10, .25, 0., 0.), (10, 0., 0., 0.),
+                         (10, -.20, 0., 0.)), "transitions")
+        x = physical_v1_fixture(seconds=30)
+        x["command"][:, :, :] = case.command_schedule()[:, None, :]
+        # A policy moving forward through the middle rest period.
+        x["physical_position_xy_after_step"][:, :, 0] = (
+            .005 * np.arange(1, 1501)[:, None])
+        rows = score_first_life(x, case)
+        self.assertGreater(rows[0]["stop_interval_mean_speed_mps"], .20)
+
+    def verify_partial_scenario_cannot_become_complete_summary(self):
+        case = Scenario("still", 1, ((1, 0., 0., 0.),), "balance")
+        rows = score_first_life(physical_v1_fixture(), case)
+        with self.assertRaisesRegex(ValueError, "incomplete"):
+            summarize(rows[:-1], expected_worlds=2)
+
+    def verify_zip_does_not_overwrite_prior_exam(self):
+        case = Scenario("still", 1, ((1, 0., 0., 0.),), "balance")
+        rows = score_first_life(physical_v1_fixture(), case)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / "results.zip"
+            save_evidence(path, {"schema": "test"}, rows,
+                          summarize(rows, expected_worlds=2))
+            self.assertTrue(path.is_file())
+            with self.assertRaises(FileExistsError):
+                save_evidence(path, {"schema": "test"}, rows,
+                              summarize(rows, expected_worlds=2))
+
 
 
 if __name__=="__main__":
