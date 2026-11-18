@@ -365,88 +365,94 @@ the ZIP and exact source commit for later inspection.
   **cannot affect the measured first life**. A future kernel should freeze
   dead worlds to reduce computation and enable stronger parity comparisons.
 
-## Research specialty examinations — signed terrain and velocity recovery
+## Compact mid-training specialty pulse (one 2,048-world GPU pass)
 
-Entry point: `python -m scripts.examine_h40_specialties`. This is a
-**second exam campaign**, not a replacement for the original zero-command
-balance/locomotion/control/transition tests. It uses the same strictly
-authenticated frozen H40 policy and *real* MJX triangular-prism contacts.
-It has its own source and actor fingerprints and first-life-only metrics.
-No reward, academy progression flag, or optimizer update counts as success.
+Entry point: `python -m scripts.examine_h40_specialties` (research only).
+This replaces the previous separately compiled 192-world terrain and 24-world
+recovery screens. The *long* independent 60-second standing exam remains
+separate: a 12-second pulse cannot certify endurance or station-keeping.
 
-These are the exact scopes of the six training specialties:
+One frozen, source-authenticated actor; one 600-frame (12s) MJX program;
+2,048 fully assigned worlds; eight true convex prisms per world;
+**no episode reset credited, teacher success flag, rollout trace export,
+optimizer update, or hidden weighted overall ranking**. The six training
+focuses share ONE JIT-compilation shape and run on the same GPU in parallel.
+Results are scalar per-world accumulators on device, then a small single ZIP.
 
-| Training focus | Independent physical exam evidence |
-|---|---|
-| Command | The existing 30-second signed forward, reverse, lateral, yaw, combined tasks; additional true-physics 0cm flat-seam control |
-| Control | Existing 30-second route/heading accuracy, signed yaw and actual stop interval; stationary balance kept separate from absolute XY/heading station keeping |
-| Transition | Existing 10s forward, 10s stop, 10s reverse; checks each interval, not averaged speed |
-| Slope | **New** ±3°, ±6°, ±10°, ±15° continuous signed world-X grades, 10–12-second real-prism traversal |
-| Step | **New** ±1, ±2.5, ±5, ±6.5, ±8cm lips, actual top support independently sustained on *both* feet, then ≥60cm uphill/downhill traversal |
-| Resilience | **New** birth world-X velocity perturbations ±0.10, ±0.25, ±0.40, ±0.60m/s, plus zero-perturbation controls; survivor must genuinely settle in the final five seconds |
+| Training focus | Worlds | Exact signed physical screens |
+|---|---:|---|
+| Command | 384 | ±forward, ±lateral, ±yaw; independently tracked velocities and flat control crossing |
+| Control | 256 | Zero-command dynamic balance, heading-constrained forward, two combined turns |
+| Transition | 256 | ±forward / stop / reverse; actual middle-interval speed and final direction, all in the same first life |
+| Slope | 384 | ±3°, 6°, 10°, 15° grade; two-foot supported upright crossing |
+| Step | 512 | ±0.5, 1, 2, 3, 4, 5, 6.5, 8cm lips; independent top-foot proof and 60cm post-seam traversal |
+| Resilience | 256 | ±0.10, 0.25, 0.40, 0.60m/s birth velocity kicks; measured physical kick, 1s sustained recovered posture and quiet final 2s |
 
-The source fixture has **hard limits** at 15° and 8cm, which are
-constraints of this particular independent-exam implementation, NOT
-estimates of the robot's ability. A stronger robot will require a
-reviewed fixture extension. No grade-Y/oblique approach, side push,
-timed impulse, sequential staircase, or mixed grade-plus-step physics
-is certified by this v1 extension.
+Every named case has dozens of independent reset-world replicates in the
+canonical 2,048-world layout. Exactly 46 different protocol cells, no
+unused/padded worlds. Smaller 46+ world runs are *integration diagnostics*,
+not comparable to full-size qualification.
 
-For slopes and steps, success is *not* merely an upright torso or
-crossed X coordinate. The scorer demands five real top-contact frames
-**from each foot**, followed by five upright traversal frames at least
-60cm past the first exact physical seam, **and no terminal through
-the entire horizon**. A separate stricter traversal column requires
-holding heading and lane, so acceptable lateral drift can be evaluated
-without hiding it. A robot may safely stop to prepare for a large step:
-no strict speed MAE gate is used on the step's physical success. Its
-achieved speed and tracking error are still reported.
+All cases report survival separately from mission success. Step/slope
+physical proof is *not* merely crossing X with the torso: both feet must
+establish five supported frames on the destination real prism, and there
+must be five upright traversal frames at least 60cm beyond the seam.
+Physical grades/steps must match requested geometry within 0.30°/0.5mm.
+Step wind-up/pause is allowed; command-speed MAE is reported but is not a
+step success prerequisite. Recovery demands the **actual kick was delivered**,
+then quiet motion/yaw and healthy support; slow accumulated XY drift does not
+disqualify balance. Grace and motor shaft work are reported as *diagnostics*,
+not a certified source of electrical energy or independent grace gate.
 
-For resilience, the measured kick is an **initial world-X velocity
-perturbation**, not a lateral force or later torso impulse. The
-examiner uses 20-second zero-command episodes, truncates every trial
-at its first terminal, and requires a 2-second low-speed/yaw recovery
-window, low final-five-second mean horizontal speed (≤0.10m/s),
-low mean absolute yaw (≤0.15rad/s), no fall, acceptable body tilt,
-physical foot contact and no repeated unsafe contact. Total XY
-distance is a *diagnostic*, not a disqualifier.
-
-### Run on the frozen source-matched H40
+### One command; accepts checkpoint snapshots
 
 ```bash
-git fetch origin
-git switch research/physical-capability-exam-v1
-git pull --ff-only
 export PYTHONPATH=$PWD
 export EMU_PHYSICAL_PROFILE=h40
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 
-# 152 authentic flat/grade/step worlds + 40 labelled padding worlds:
 python -m scripts.examine_h40_specialties \
-  --mode terrain --device cuda --worlds 192 --repeats 8 --horizon 600 \
   --policy showcase/champion.emupolicy --seed 1701 \
-  --output ~/emu-data/exams/h40-specialties-terrain-s1701.zip
+  --device cuda --worlds 2048 --horizon 600 \
+  --output ~/emu-data/exams/h40-pulse-120m-s1701.zip
 
-# 18 kick/baseline attempts + 6 padding worlds, 20s each:
+# Mid-training: use an already completed and validated checkpoint snapshot.
 python -m scripts.examine_h40_specialties \
-  --mode recovery --device cuda --worlds 24 --repeats 2 --horizon 1000 \
-  --policy showcase/champion.emupolicy --seed 1701 \
-  --output ~/emu-data/exams/h40-specialties-recovery-s1701.zip
+  --policy ~/emu-data/runs/YOUR-RUN/stages/100m/final.pkl \
+  --seed 1701 --device cuda \
+  --output ~/emu-data/exams/h40-pulse-100m-s1701.zip
+
+# Tiny API smoke ONLY (each named scenario still receives at least one world).
+python -m scripts.examine_h40_specialties \
+  --worlds 46 --horizon 300 --device cpu \
+  --output ~/emu-data/exams/h40-pulse-smoke.zip
 ```
 
-Both runs produce one non-overwriting ZIP with `manifest.json`,
-`summary.json`, `summary.md`, `worlds.csv`, `curves.csv`, and
-`envelopes.csv` (and representative non-restartable diagnostic traces
-in recovery mode). Only physically attempted difficulty points appear
-in the denominator. AUC is integrated **only** between measured
-severities within the same direction; a one-point control has NULL AUC.
+For a real mid-training checkpoint, replace the illustrative checkpoint
+path with its actual saved path. The script validates the snapshot through
+the existing policy exporter **in a temporary directory**, and refuses
+wrong-source actor/robot matches. It does not alter the original checkpoint.
 
-These gates are research hypotheses until compared to viewer behaviour
-and additional training/birth seeds. This **does not** claim a 30-second
-locomotion policy passed merely because it traversed a 10-second
-prism challenge. Grace and shaft efficiency remain separate diagnostics;
-the new specialist matrix does not yet claim an independent
-electrical-efficiency or all-terrain grace pass.
+Outputs: `summary.md` (six capability lines), `summary.json` (six
+groups, per-direction/per-severity curves and measured-only AUC),
+`worlds.csv` (exact 2048 first-life records) and `manifest.json`
+(source, actor, solver, runtime, seed, counts and measured wall time)
+inside one non-overwritten ZIP. The console prints only the six
+pass/survival tallies and output path.
+
+Suggested cadence for comparable trend plots: **same fixed horizon,
+same 2,048 allocation and primary seed** at regular completed checkpoints
+(e.g. each 20–40M training steps), plus occasional a different held-out
+seed and the 60-second/endurance examiner less frequently. GPU contention
+with running PPO can make an independent second process slower or exhaust
+the RTX 4060 Ti's 8GB. Schedule at a safe checkpoint/pause rather than
+assuming a concurrent run is free. Repeated independent evaluations need
+actual measured wall-time before assigning an automatic training cadence.
+
+Exact fixture hardcaps here are 15° and 8cm, *not* learned ability caps.
+This pulse does **not** certify timed pushes, lateral/oblique terrain,
+consecutive stairs, mixed grade/step, five-minute endurance, or viewer
+physics parity. Source-protocol/version mismatches remain noncomparable.
 
 ## Source-audited GPU/browser parity mismatches (not yet measured)
 
