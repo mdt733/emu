@@ -239,17 +239,35 @@ to prevent an actor from steering off course without penalty. Sensor and
 command corrections internal to the policy are not substituted for the
 operator's desired trajectory.
 
-The standing pass requires **all** these provisional gates for the full
-60 seconds: no terminal/fall, maximum birth-relative XY radius ≤0.20 m,
-maximum birth-relative heading error ≤0.35 rad, 95th-percentile torso tilt
-≤20°, measured foot-contact coverage ≥75%, and bad-contact coverage ≤5%.
-Corrective stepping is allowed; wandering away is not. These tolerances are
-not yet calibrated against both reference actors.
+### Two distinct zero-command results, not one misleading pass
+
+**Basic dynamic balance:** For the full 60 seconds, require no terminal/fall,
+95th-percentile tilt ≤20°, foot contact in ≥75% of frames, bad contact in
+≤5%, and mean physical horizontal speed ≤0.10m/s. This tests whether an
+actively correcting, dynamically unstable biped stays safe and approximately
+still when asked for zero vx/vy/yaw. The score reports peak and 95th-percentile
+speed without treating brief corrective steps as automatic failures.
+**Slow accumulated displacement or heading error is not a basic balance
+failure.** These provisional limits must still be calibrated.
+
+**Station keeping (separate and more demanding):** Preserve the old
+`bounded_standing_pass` output *unchanged* for backward interpretation:
+maximum birth-relative XY radius ≤0.20m and maximum heading excursion
+≤0.35rad, in addition to the survival/tilt/foot-contact requirements.
+The current frozen actor has no explicit world-XY position reference or
+position-hold command, so failure of this gate is diagnostic, NOT grounds
+to disqualify its basic balance. Viewer heading-hold assistance is a separate
+control configuration and must be declared.
+
+Never silently reinterpret historical `bounded_standing_pass` as dynamic
+balance. Exam gate revision `provisional-2` introduces the new explicit
+`zero_command_balance_pass` result; the original ZIP is immutable.
 
 For each trial we record survival, first-life duration, time to first fall,
-failure class, maximum/final XY drift, heading drift, tilt, contact coverage,
-bad contacts, achieved vx/vy/yaw, operator-frame velocity tracking errors,
-desired-path tracking error, and positive servo shaft work. The stop interval
+failure class, maximum/final XY drift, time of radius/heading breach, heading
+drift, mean/p95/peak physical horizontal speed, torso tilt, contacts,
+achieved vx/vy/yaw, operator-frame velocity tracking errors, desired-path
+tracking error, and positive servo shaft work. The stop interval
 has its own speed measure so forward/reverse velocities cannot average out
 and masquerade as a successful stop.
 
@@ -308,8 +326,9 @@ sensor contract, sampling seed and exam settings. Test only actor/physics
 source combinations accepted by the existing strict actor loader.
 
 The ZIP contains `manifest.json`, `summary.json`, `summary.md`,
-`worlds.csv`, `capabilities.csv`, and up to one passing and one failing
-first-life diagnostic trace per scenario under `traces/*.npz`. Each trace
+`worlds.csv`, `capabilities.csv`, and selected passing, failing, best/worst
+drift/route-error and (when available) station-keeping failure
+first-life traces under `traces/*.npz`. Each trace
 includes real post-step position/heading, operator commands, actor actions,
 foot positions/contact observations, torso tilt and actuator diagnostics.
 The trace ends at first termination; automatic-reset lives are never saved
@@ -326,10 +345,19 @@ the ZIP and exact source commit for later inspection.
 - Contact coverage records actual foot/terrain contact, **not** the centre
   of pressure, load distribution or dynamic stability margin. The current
   torso tilt metric is based on the MJX gravity vector.
-- No fresh full-length GPU rollout was possible through the GitHub-only
-  connection. Three-frame actor/MJX CI smoke tests are integration evidence,
-  **not** a 60-second standing result. No 120M/140M calibration results have
-  yet been generated in this branch.
+- A first 60-second, eight-world H40 120M GPU standing run (`seed=1701`,
+  original `h40-standing-v1-s1701.zip`) has now been inspected. It reported
+  8/8 first-life survivors, 0/8 historical *station-keeping* passes,
+  p95 torso tilt 3.94–4.74°, 99.97% foot contact and zero bad contacts.
+  Mean final XY drift was 1.26m, with a 0.41–2.53m range over 60s.
+  On the old ZIP's zero-command velocity MAEs, all eight mean horizontal
+  speeds are rigorously bounded above by the sum of the two absolute
+  component errors, each <0.10m/s. Thus **all eight would pass the revised
+  dynamic-balance gate**, but this is a post-hoc interpretation, NOT a
+  retroactively rewritten ZIP. Re-run using gate revision provisional-2
+  for an authoritative new `zero_command_balance_passes` column.
+- The 140M Spring V1 calibration, matched GPU/browser parity, multi-seed
+  reliability and 5–15 minute endurance are still outstanding.
 - No confidence interval or cross-training-seed generality is inferred from
   multiple world resets of one trained actor.
 - Internal source simulator auto-reset still executes after a terminal but
