@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import unittest
+import io
 import tempfile
 from pathlib import Path
 from dataclasses import asdict
@@ -10,7 +11,8 @@ import numpy as np
 from scripts.v5053_matrix_exam import (
     assignments,reduce_results,wilson_95,compare_paired_exams,PAIRED_GATES)
 from emu.physical_capability_exam import (
-    Scenario, score_first_life, summarize, save_evidence)
+    Scenario, score_first_life, summarize, save_evidence,
+    capture_representative_traces)
 from emu.terrain_carpet_mjx import (
     TILE_M,exact_exam_lip_profiles,tile_geometry)
 
@@ -156,7 +158,7 @@ class MatrixExamTests(unittest.TestCase):
         # The new v1 first-life scoring checks share the existing physical
         # examiner contract case; no test-per-experiment growth.
         v1 = _PhysicalV1Checks()
-        for check in ["verify_zero_command_real_standing","verify_first_fall_excludes_subsequent_reset_lives","verify_walk_away_is_not_standing","verify_requested_trajectory_and_actor_are_distinct","verify_static_survival_cannot_pass_walking","verify_early_fall_cannot_pass_walking","verify_reject_wrong_operator_commands","verify_transition_requires_real_stop","verify_perfect_transition_passes","verify_partial_scenario_cannot_become_complete_summary","verify_zip_does_not_overwrite_prior_exam"]:
+        for check in ["verify_zero_command_real_standing","verify_first_fall_excludes_subsequent_reset_lives","verify_walk_away_is_not_standing","verify_requested_trajectory_and_actor_are_distinct","verify_static_survival_cannot_pass_walking","verify_early_fall_cannot_pass_walking","verify_reject_wrong_operator_commands","verify_transition_requires_real_stop","verify_perfect_transition_passes","verify_trace_archive_ends_at_first_terminal","verify_partial_scenario_cannot_become_complete_summary","verify_zip_does_not_overwrite_prior_exam"]:
             getattr(v1, check)()
 
     def test_signed_exact_step_and_continuous_grade_geometry(self):
@@ -409,6 +411,27 @@ class _PhysicalV1Checks(unittest.TestCase):
         self.assertAlmostEqual(rows[0]["stop_interval_mean_speed_mps"], 0.)
         summary = summarize(rows, expected_worlds=2)
         self.assertEqual(summary[0]["locomotion_mission_passes"], 2)
+
+    def verify_trace_archive_ends_at_first_terminal(self):
+        case = Scenario("still", 1, ((1, 0., 0., 0.),), "balance")
+        x = physical_v1_fixture()
+        x["done"][5, 1] = True
+        x["fell"][5, 1] = True
+        x["physical_position_xy_after_step"][6:, 1, 0] = 999.
+        n, w = x["done"].shape
+        x["actor_action"] = np.zeros((n, w, 6))
+        x["foot_xyz"] = np.zeros((n, w, 2, 3))
+        x["servo_torque_nm"] = np.zeros((n, w, 6))
+        x["servo_joint_rate_rad_s"] = np.zeros((n, w, 6))
+        rows = score_first_life(x, case)
+        selected = capture_representative_traces(x, rows, case)
+        self.assertEqual(len(selected), 2)
+        failed = next(v for k, v in selected.items() if "-fail-" in k)
+        with np.load(io.BytesIO(failed)) as trace:
+            self.assertEqual(trace["done"].shape, (6,))
+            self.assertTrue(bool(trace["done"][-1]))
+            self.assertLess(np.max(trace["physical_position_xy_after_step"]),
+                            999.)
 
     def verify_partial_scenario_cannot_become_complete_summary(self):
         case = Scenario("still", 1, ((1, 0., 0., 0.),), "balance")
