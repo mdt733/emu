@@ -365,6 +365,89 @@ the ZIP and exact source commit for later inspection.
   **cannot affect the measured first life**. A future kernel should freeze
   dead worlds to reduce computation and enable stronger parity comparisons.
 
+## Research specialty examinations — signed terrain and velocity recovery
+
+Entry point: \`python -m scripts.examine_h40_specialties\`. This is a
+**second exam campaign**, not a replacement for the original zero-command
+balance/locomotion/control/transition tests. It uses the same strictly
+authenticated frozen H40 policy and *real* MJX triangular-prism contacts.
+It has its own source and actor fingerprints and first-life-only metrics.
+No reward, academy progression flag, or optimizer update counts as success.
+
+These are the exact scopes of the six training specialties:
+
+| Training focus | Independent physical exam evidence |
+|---|---|
+| Command | The existing 30-second signed forward, reverse, lateral, yaw, combined tasks; additional true-physics 0cm flat-seam control |
+| Control | Existing 30-second route/heading accuracy, signed yaw and actual stop interval; stationary balance kept separate from absolute XY/heading station keeping |
+| Transition | Existing 10s forward, 10s stop, 10s reverse; checks each interval, not averaged speed |
+| Slope | **New** ±3°, ±6°, ±10°, ±15° continuous signed world-X grades, 10–12-second real-prism traversal |
+| Step | **New** ±1, ±2.5, ±5, ±6.5, ±8cm lips, actual top support independently sustained on *both* feet, then ≥60cm uphill/downhill traversal |
+| Resilience | **New** birth world-X velocity perturbations ±0.10, ±0.25, ±0.40, ±0.60m/s, plus zero-perturbation controls; survivor must genuinely settle in the final five seconds |
+
+The source fixture has **hard limits** at 15° and 8cm, which are
+constraints of this particular independent-exam implementation, NOT
+estimates of the robot's ability. A stronger robot will require a
+reviewed fixture extension. No grade-Y/oblique approach, side push,
+timed impulse, sequential staircase, or mixed grade-plus-step physics
+is certified by this v1 extension.
+
+For slopes and steps, success is *not* merely an upright torso or
+crossed X coordinate. The scorer demands five real top-contact frames
+**from each foot**, followed by five upright traversal frames at least
+60cm past the first exact physical seam, **and no terminal through
+the entire horizon**. A separate stricter traversal column requires
+holding heading and lane, so acceptable lateral drift can be evaluated
+without hiding it. A robot may safely stop to prepare for a large step:
+no strict speed MAE gate is used on the step's physical success. Its
+achieved speed and tracking error are still reported.
+
+For resilience, the measured kick is an **initial world-X velocity
+perturbation**, not a lateral force or later torso impulse. The
+examiner uses 20-second zero-command episodes, truncates every trial
+at its first terminal, and requires a 2-second low-speed/yaw recovery
+window, low final-five-second mean horizontal speed (≤0.10m/s),
+low mean absolute yaw (≤0.15rad/s), no fall, acceptable body tilt,
+physical foot contact and no repeated unsafe contact. Total XY
+distance is a *diagnostic*, not a disqualifier.
+
+### Run on the frozen source-matched H40
+
+\`\`\`bash
+git fetch origin
+git switch research/physical-capability-exam-v1
+git pull --ff-only
+export PYTHONPATH=$PWD
+export EMU_PHYSICAL_PROFILE=h40
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+
+# 152 authentic flat/grade/step worlds + 40 labelled padding worlds:
+python -m scripts.examine_h40_specialties \
+  --mode terrain --device cuda --worlds 192 --repeats 8 --horizon 600 \
+  --policy showcase/champion.emupolicy --seed 1701 \
+  --output ~/emu-data/exams/h40-specialties-terrain-s1701.zip
+
+# 18 kick/baseline attempts + 6 padding worlds, 20s each:
+python -m scripts.examine_h40_specialties \
+  --mode recovery --device cuda --worlds 24 --repeats 2 --horizon 1000 \
+  --policy showcase/champion.emupolicy --seed 1701 \
+  --output ~/emu-data/exams/h40-specialties-recovery-s1701.zip
+\`\`\`
+
+Both runs produce one non-overwriting ZIP with \`manifest.json\`,
+\`summary.json\`, \`summary.md\`, \`worlds.csv\`, \`curves.csv\`, and
+\`envelopes.csv\` (and representative non-restartable diagnostic traces
+in recovery mode). Only physically attempted difficulty points appear
+in the denominator. AUC is integrated **only** between measured
+severities within the same direction; a one-point control has NULL AUC.
+
+These gates are research hypotheses until compared to viewer behaviour
+and additional training/birth seeds. This **does not** claim a 30-second
+locomotion policy passed merely because it traversed a 10-second
+prism challenge. Grace and shaft efficiency remain separate diagnostics;
+the new specialist matrix does not yet claim an independent
+electrical-efficiency or all-terrain grace pass.
+
 ## Source-audited GPU/browser parity mismatches (not yet measured)
 
 The restored 120M actor comes from the same exported robot source in both
