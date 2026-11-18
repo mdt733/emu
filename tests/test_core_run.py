@@ -378,7 +378,7 @@ def _check_readonly_dashboard(tmp_path):
     (viewer_dist/"index.html").write_text("<html/>", encoding="utf-8")
     assert not viewer_build_is_current(viewer_dist, viewer_src)
     (viewer_dist/VIEWER_SOURCE_STAMP).write_text(
-        viewer_source_fingerprint(viewer_src)+"\\n", encoding="ascii")
+        viewer_source_fingerprint(viewer_src)+"\n", encoding="ascii")
     assert viewer_build_is_current(viewer_dist, viewer_src)
     # Generated build content and installed npm dependencies are excluded.
     (viewer_src/"dist").mkdir()
