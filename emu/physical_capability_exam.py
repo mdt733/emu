@@ -138,7 +138,15 @@ def score_first_life(trace: dict, scenario: Scenario,
             trace["terrain_gravity_z"][:n, world], dtype=float), -1., 1.)
         tilt = np.degrees(np.arccos(grav))
         contacts = np.asarray(trace["floor_contact"][:n, world], dtype=bool)
-        support = np.any(contacts.reshape((n, -1)), axis=1)
+        if contacts.shape != (n, 2):
+            raise ValueError("need one physical contact signal per foot")
+        support = np.any(contacts, axis=1)
+        # Two consecutive airborne frames followed by two supported frames:
+        # concrete touchdown evidence, not a nominal learned gait phase.
+        touchdowns = sum(int(np.count_nonzero(
+            contacts[3:, foot] & contacts[2:-1, foot] &
+            ~contacts[1:-2, foot] & ~contacts[:-3, foot]))
+            for foot in range(2))
         bad = np.asarray(trace["terrain_bad_contact"][:n, world], dtype=float)
         drive = np.asarray(
             trace["servo_shaft_drive_power_w"][:n, world], dtype=float)
@@ -146,19 +154,42 @@ def score_first_life(trace: dict, scenario: Scenario,
         valid = all(np.isfinite(x).all() for x in (
             positions, headings, command, tilt, drive, actual_vx, actual_vy,
             actual_yaw, bad))
-        reason = ("nonfinite" if not valid else
-                  "fall" if fell_first else
+        if not valid:
+            # A corrupted trace is not a low tracking error, nor evidence
+            # suitable for a champion. Never publish NaN aggregates.
+            raise FloatingPointError(
+                f"nonfinite first-life physics in {scenario.name} world {world}")
+        fall_causes = tuple(
+            label for label, field in (
+                ("height", "terrain_fall_height"),
+                ("tilt", "terrain_fall_tilt"),
+                ("roll_rate", "terrain_fall_roll_rate"),
+                ("pitch_rate", "terrain_fall_pitch_rate"))
+            if field in trace and np.any(
+                np.asarray(trace[field][:n, world]) > .5))
+        timeout = bool("terrain_timeout" in trace and
+                       np.any(np.asarray(
+                           trace["terrain_timeout"][:n, world]) > .5))
+        reason = ("fall" if fell_first else
+                  "timeout" if timeout and ended else
                   "other_terminal" if ended else "horizon_survived")
-        survived = bool(not ended and not fell_first and valid)
+        survived = bool(not ended and not fell_first)
         # Both surviving and bounded are required. A moving robot is not a
         # standing robot simply because its head remains above the ground.
-        balance_ok = (survived and
-                      float(np.max(displacement)) <= STAND_MAX_RADIUS_M and
-                      float(np.max(np.abs(headings - headings[0]))) <=
-                      STAND_MAX_HEADING_RAD and
-                      float(np.percentile(tilt, 95)) <= STAND_P95_TILT_DEG and
-                      _safe_mean(support) >= MIN_FOOT_SUPPORT_FRACTION and
-                      _safe_mean(bad > .5) <= MAX_BAD_CONTACT_FRACTION)
+        standing_failures = []
+        if not survived:
+            standing_failures.append("terminal")
+        if float(np.max(displacement)) > STAND_MAX_RADIUS_M:
+            standing_failures.append("position_drift")
+        if float(np.max(np.abs(headings - headings[0]))) > STAND_MAX_HEADING_RAD:
+            standing_failures.append("heading_drift")
+        if float(np.percentile(tilt, 95)) > STAND_P95_TILT_DEG:
+            standing_failures.append("torso_tilt")
+        if _safe_mean(support) < MIN_FOOT_SUPPORT_FRACTION:
+            standing_failures.append("insufficient_foot_contact")
+        if _safe_mean(bad > .5) > MAX_BAD_CONTACT_FRACTION:
+            standing_failures.append("bad_contacts")
+        balance_ok = not standing_failures
         row = dict(
             scenario=scenario.name, category=scenario.category, world=world,
             commanded_seconds=scenario.seconds,
@@ -167,6 +198,7 @@ def score_first_life(trace: dict, scenario: Scenario,
                 if fell_first else None),
             observed_seconds=round(n * dt, 3),
             survived_full_horizon=survived, terminal_reason=reason,
+            fall_cause_flags=(",".join(fall_causes) if fell_first else None),
             terminal_frame=(n if ended else None),
             max_radius_m=float(np.max(displacement)),
             final_drift_m=float(displacement[-1]),
@@ -175,6 +207,7 @@ def score_first_life(trace: dict, scenario: Scenario,
             p95_tilt_deg=float(np.percentile(tilt, 95)),
             peak_tilt_deg=float(np.max(tilt)),
             contact_fraction=_safe_mean(support),
+            physical_touchdown_events=touchdowns,
             bad_contact_fraction=_safe_mean(bad > .5),
             vx_mae_mps=_safe_mean(np.abs(actual_vx - command[:, 0])),
             vy_mae_mps=_safe_mean(np.abs(actual_vy - command[:, 1])),
@@ -188,6 +221,9 @@ def score_first_life(trace: dict, scenario: Scenario,
             positive_motor_shaft_power_w=drive_energy / (n * dt),
             bounded_standing_pass=(
                 balance_ok if scenario.category == "balance" else None),
+            standing_failure_reasons=(
+                ",".join(standing_failures)
+                if scenario.category == "balance" else None),
         )
         if scenario.name == "forward_stop_reverse_30s":
             # A stop is not proved by a small *average* velocity across
