@@ -423,52 +423,9 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision(tmp_path):
     assert varied_limits.shape == (8,6,2)
     assert np.max(np.abs(varied_limits)) <= SERVO_RATED_CONTINUOUS_TORQUE_NM+1e-6
 
-    # Keep source/model provenance and the 24-case budget: mechanics belongs
-    # inside the existing real-MuJoCo physics contract, not a new suite.
-    import json
-    from scripts.h40_mechanical_feasibility import run as mechanical_run
-    (mechanical_json, mechanical_md) = mechanical_run(tmp_path / "mechanical")
-    assert mechanical_md.is_file()
-    bench = json.loads(mechanical_json.read_text())
-    assert bench["source_generated_h40_sha256"] == training_h40_xml_sha
-    assert len(bench["cases"]) == 4
-    normal, soft, boosted, both = bench["cases"]
-    assert normal["case"] == "hardware_valid"
-    assert all(c["case"] == "diagnostic_only" for c in (soft, boosted, both))
-    at_minus_30 = lambda c: next(x["passive_torque_nm"]
-        for x in c["knee_passive_sweep"] if x["angle_deg"] == -30)
-    assert at_minus_30(normal) > SERVO_RATED_CONTINUOUS_TORQUE_NM
-    assert at_minus_30(soft) == pytest.approx(at_minus_30(normal) * .25,
-                                               abs=2e-5)
-    assert at_minus_30(boosted) == pytest.approx(at_minus_30(normal), abs=2e-5)
-    assert normal["swing"]["max_abs_knee_actuator_nm"] <= SERVO_RATED_CONTINUOUS_TORQUE_NM+1e-5
-    assert boosted["swing"]["max_abs_knee_actuator_nm"] <= 2*SERVO_RATED_CONTINUOUS_TORQUE_NM+1e-5
-
-    # Proposed low-rate preloaded springs are isolated source-pinned
-    # counterfactuals, checked against MuJoCo's *actual* passive force.
-    rows = {x["name"]: x for x in bench["spring_design"]["rows"]}
-    assert rows["unchanged_champion"]["hardware_valid"] is True
-    gentle = rows["35_25_gentle_low_rate"]
-    assert gentle["hardware_valid"] is False
-    assert gentle["min_attachment_separation_mm"] == pytest.approx(10.)
-    sweep = {x["angle_deg"]: x["passive_torque_nm"]
-             for x in gentle["static"]}
-    assert sweep[0] == pytest.approx(.350, abs=.003)
-    assert sweep[-55] < .65
-    assert gentle["max_passive_torque_nm"] < .65
-    assert rows["35_25_gentler_low_rate"]["max_passive_torque_nm"] < gentle["max_passive_torque_nm"]
-    long_spring = rows["35_25_long_preload"]
-    forces = {x["angle_deg"]: x["spring_compression_force_n"]
-              for x in long_spring["static"]}
-    # Gentle, long effective preloaded spring: close to constant force
-    # across the nominal swing bend, instead of original +139% growth.
-    assert forces[-55] / forces[0] < 1.12
-    assert long_spring["max_passive_torque_nm"] < .5
-    assert long_spring["rest_length_mm"] > 250.  # linkage/packaging challenge
-    # Equal-arm design has a zero-length tendon at -90; do not score
-    # its singular limit as a valid hardware knee position.
-    assert -90 not in {x["angle_deg"] for x in rows["30_30_same_neutral_soft"]["static"]}
-
+    # Source-pinned torque/spring feasibility *experiments* and their
+    # one-off script remain archived in Git; they are not a dependency
+    # of the maintained contact/motor/true-prism physics test.
     # Pre-step torque and pose correspond to the action two trace frames
     # earlier. Must not confuse extreme NN output with *actual* motor torque.
     from emu.prism_exam import policy_motor_summary
