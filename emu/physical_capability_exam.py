@@ -438,15 +438,6 @@ def capture_representative_traces(trace: dict, rows: list[dict],
     if failing:
         candidates.append(("fail", min(failing, key=lambda r: (
             r["first_life_frames"], r["world"]))))
-    # A robot may pass dynamic balance while failing station keeping.
-    # Preserve a separate example of that *different* outcome.
-    if scenario.category == "balance":
-        station_fails = [r for r in rows if
-                         r["bounded_standing_pass"] is False]
-        if station_fails:
-            candidates.append(("station_keeping_fail",
-                               max(station_fails, key=lambda r: (
-                                   r["max_radius_m"], -r["world"]))))
     if rows:
         candidates += [
             ("best_error", min(rows, key=lambda r: (
@@ -454,6 +445,17 @@ def capture_representative_traces(trace: dict, rows: list[dict],
             ("worst_error", max(rows, key=lambda r: (
                 r[error_field], -r["world"]))),
         ]
+    # A robot may pass dynamic balance while failing station keeping.
+    # Keep one *additional* station-keeping example if it isn't already
+    # represented by a passing, failing, best or worst trace.
+    if scenario.category == "balance":
+        already = {r["world"] for _, r in candidates}
+        station_fails = [r for r in rows
+                         if r["bounded_standing_pass"] is False
+                         and r["world"] not in already]
+        if station_fails:
+            candidates.append(("station_keeping_fail",
+                               min(station_fails, key=lambda r: r["world"])))
     payloads: dict[str, bytes] = {}
     selected_worlds = set()
     for label, chosen in candidates:
