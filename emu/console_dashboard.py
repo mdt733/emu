@@ -151,8 +151,6 @@ def render(history: list[dict], *, run_name: str, target: int | None,
          f"    vy ±{fmt(row,'frontier_vy')} m/s    yaw ±{fmt(row,'frontier_yaw')} rad/s"),
         (f" SLOPES      target ≤{fmt(row,'slope_max_deg',1)}°"
          f"    measured maximum {fmt(row,'physical_slope_deg_max',1)}°"),
-        (f" TEACHING    prescribed gait reward {fmt(row,'gait_guidance_strength',0,100)}%"
-         f"    (20M→40M fade; survival/contact/commands stay rewarded)"),
         "",
         " STAIRS      5M sampled training episodes, NOT all-episode counts",
         (f"   Near UP {sampled_window(history,'academy_near_attempts_up','academy_near_successes_up')}"

@@ -382,7 +382,7 @@ button:disabled { opacity: .4; cursor: default; }
 
 .depth-legend{font-size:9px;color:#93b8aa;line-height:1.3;margin-top:5px}
 
-/* v5041: training terrain controls live in the existing Settings drawer. */
+/* One settings drawer for Meadow and the selected physical specialist. */
 .carpet-panel { display:grid; gap:9px; padding:12px; width:100%; min-width:0;
   border:1px solid rgba(107,212,178,.3);border-radius:12px;
   background:rgba(18,45,43,.35); }
@@ -391,16 +391,9 @@ button:disabled { opacity: .4; cursor: default; }
 .carpet-panel label{display:flex;flex-wrap:wrap;align-items:center;gap:8px;
   font-size:12px;line-height:1.4}
 .carpet-panel select {flex:1;min-width:170px}
-.carpet-file{cursor:pointer;color:#9edbcf}
-.carpet-values {font:11px/1.6 ui-monospace,SFMono-Regular,Consolas,monospace;
-  white-space:pre-wrap;color:#e7f4ee;background:rgba(0,0,0,.2);
-  border-radius:8px;padding:9px}
-.carpet-actions{display:flex;flex-wrap:wrap;gap:7px}
-.carpet-actions button{flex:1;min-width:110px;font-size:12px}
 
 
-/* v5041 world-first inspector: exactly two top-level worlds. Everything
-   else lives in the single existing, dismissible Settings drawer. */
+/* Explicit selected-world controls, grouped by their real physical effects. */
 .topbar {
   grid-template-columns: auto auto minmax(80px,1fr) auto;
   gap: 14px;
@@ -411,13 +404,6 @@ button:disabled { opacity: .4; cursor: default; }
 .brand { display:flex; flex-direction:column; gap:0; align-items:flex-start; }
 .brand strong {letter-spacing:.16em;line-height:1.1;color:#edf9f6;}
 .brand span {font-size:10px;max-width:155px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.topbar .world-tab {
-  display:inline-flex;align-items:center;white-space:nowrap;
-  min-height:36px;padding:0 13px;border-radius:11px;
-  background:rgba(83,184,152,.18);color:#c9ffea;
-  border:1px solid rgba(121,222,185,.28);
-  font-size:12px;font-weight:650;
-}
 .top-actions { align-items:center; }
 #settingsOpen {background:rgba(45,95,94,.26);border-color:rgba(133,216,190,.35);}
 .telemetry {border-radius:16px;max-width:220px;background:rgba(7,19,24,.75);border-color:rgba(136,195,192,.15);}
@@ -452,13 +438,9 @@ button:disabled { opacity: .4; cursor: default; }
 }
 .lesson-card>strong {font-size:15px;color:#ccffe8;}
 .lesson-card>span {font-size:11px;color:#b3cbc7;}
-.lesson-metrics {display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:6px;}
-.lesson-metrics span {display:flex;flex-direction:column;font-size:10px;letter-spacing:.03em;text-transform:uppercase;color:#90afa8;}
-.lesson-metrics b {font-size:13px;color:#edf9f0;letter-spacing:0;text-transform:none;}
 .lesson-command {padding-top:8px;border-top:1px solid rgba(164,222,196,.14);color:#a2c3b6;font-size:11px;}
 .lesson-command b {display:block;color:#edfffa;font-size:12px;margin-top:4px;font-variant-numeric:tabular-nums;}
 #carpetTestShove {width:100%;background:rgba(139,87,43,.24);border-color:rgba(248,173,92,.38);color:#ffd7ab;}
-.carpet-values {font-size:10px;line-height:1.65;white-space:pre-wrap;padding:10px;}
 .carpet-panel small {line-height:1.5;}
 .carpet-panel .viewer-checkbox {display:flex;gap:8px;}
 /* Sensor readout is now a collapsed part of Settings, never an
@@ -480,7 +462,6 @@ button:disabled { opacity: .4; cursor: default; }
 }
 @media(max-width:720px) {
   .topbar {grid-template-columns:auto 1fr;align-items:center;row-gap:8px;}
-  .topbar .world-tab {display:none;}
   .topbar .top-actions {justify-self:end;gap:4px;}
   .topbar .top-actions button,.topbar .file-button {padding:0 8px;min-height:35px;}
   .settings-drawer {top:max(74px,calc(env(safe-area-inset-top) + 69px));bottom:8px;}
@@ -494,7 +475,6 @@ button:disabled { opacity: .4; cursor: default; }
   .telemetry .metric b {font-size:12px;}
   .telemetry .metric span {font-size:9px;}
   .settings-drawer {width:auto;}
-  .lesson-metrics {gap:7px;}
 }
 
 /* Hide secondary gait diagnostics until requested. Keep the HUD readable
@@ -510,12 +490,7 @@ button:disabled { opacity: .4; cursor: default; }
 #viewerExercise {color:#a5f1d6;}
 @media(max-width:430px){.telemetry{width:196px}.telemetry-primary{gap:6px 7px}}
 
-/* One Infinite Meadow world. The historical training inspector stays collapsed. */
-.specialty-picker {display:flex !important;flex-direction:column;align-items:stretch !important;
-  gap:7px !important;font-size:12px;font-weight:700;color:#c1f9e0;}
-.specialty-picker b {font-size:11px;letter-spacing:.10em;text-transform:uppercase;color:#a8d4bf;}
-.specialty-picker select {width:100%;height:43px;font-size:14px;font-weight:650;
-  background:#1e4740 !important;color:#f5fff8;border-color:rgba(147,221,189,.48);}
+/* Physical specialist and natural Meadow options share compact visual style. */
 .carpet-panel {gap:13px;}
 .carpet-panel > p {margin:0;font-size:11px;line-height:1.5;}
 .carpet-panel .viewer-checkbox {font-size:12px !important;}
@@ -535,31 +510,48 @@ button:disabled { opacity: .4; cursor: default; }
 .settings-drawer .control-row .tuning-row input[type="range"] {
   grid-column:1/-1;width:100%;height:21px;margin:0;accent-color:#87dfb1;
 }
-#carpetResetLimits {width:100%;min-height:38px;background:rgba(53,104,82,.20);
-  border-color:rgba(138,210,179,.32);font-size:12px;}
 #carpetTestShove {width:100%;min-height:38px;}
 #carpetPushRate {width:100%;}
 #lessonCommand {padding:9px;border-radius:8px;background:rgba(3,19,23,.5);
   font:11px/1.4 ui-monospace,SFMono-Regular,Consolas,monospace;color:#e0f8e7;}
-#carpetDiagnostics[open] {margin-top:5px;}
 .settings-drawer .control-row {gap:11px;}
 .settings-drawer #carpetPanel {order:0;}
 .settings-drawer #viewPreferences {margin-top:3px;}
 
-/* Concrete provenance of the ACTUAL MuJoCo 3×3 geometry at tiny
-   teaching frontiers. This does not exaggerate collisions. */
-.carpet-evidence {
-  white-space:pre-wrap;
-  padding:12px;border-radius:12px;
-  background:rgba(5,25,29,.8);
-  border:1px solid rgba(138,210,186,.32);
-  color:#cfefe2;
-  font:10.5px/1.78 ui-monospace,SFMono-Regular,Consolas,monospace;
-  font-variant-numeric:tabular-nums;
-}
-#carpetDifficultyMode,#carpetStepTrack {width:100%;font-size:11px;line-height:1.35;}
 .telemetry .terrain-assigned {grid-column:1 / -1;
   padding:8px 0 6px;border-top:1px solid rgba(146,205,175,.22);}
 .telemetry .terrain-assigned b {font-size:12px;color:#bcffe0;letter-spacing:.01em;}
 
 
+
+
+/* One visible physical world selector: Meadow or a real specialist fixture. */
+.scene-switch {
+  display:flex;align-items:center;gap:8px;min-width:0;padding:5px 9px;
+  background:rgba(83,184,152,.16);border:1px solid rgba(121,222,185,.29);
+  border-radius:11px;color:#d9fff1;font-size:11px;font-weight:700;
+}
+.scene-switch span {font-size:10px;letter-spacing:.09em;opacity:.82;}
+.scene-switch select {
+  background:#142e34;color:#e3fff4;border:0;border-radius:7px;
+  min-height:34px;min-width:140px;max-width:270px;width:100%;
+  padding:5px 7px;font:inherit;cursor:pointer;
+}
+#specialistScenePanel[hidden],#meadowDifficultyPanel[hidden] {display:none!important;}
+#sceneStatus {font-size:12px;line-height:1.65;color:#d8fff1;white-space:pre-line;}
+#sceneNext {width:100%;}
+@media(max-width:1100px) {
+  .scene-switch {grid-column:2;grid-row:1;}
+  .scene-switch select {max-width:210px;}
+}
+@media(max-width:720px) {
+  .scene-switch {grid-column:1 / -1;grid-row:2;width:100%;}
+  .scene-switch select {max-width:none;flex:1;}
+  .topbar .top-actions {grid-column:2;grid-row:1;}
+}
+
+/* Hidden is authoritative even when the compact Settings form forces
+   labels to flex/grid. A different specialist must not show stale knobs. */
+#sceneHeightRow[hidden],#sceneApproachRow[hidden],#sceneGradeRow[hidden],
+#sceneDistanceRow[hidden],#sceneCommandRow[hidden],
+#carpetDriveRow[hidden],#autoResetRow[hidden] {display:none!important;}

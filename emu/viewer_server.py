@@ -139,6 +139,40 @@ def viewer_dist() -> Path:
     packaged = Path(__file__).resolve().parent / 'webviewer_dist'
     return packaged if packaged.exists() else viewer_source() / 'dist'
 
+# A Git branch switch changes viewer source but leaves ignored compiled assets
+# on disk. Pin the built HTML/JS to the exact source bytes so the viewer can
+# never silently serve an obsolete Meadow after a checkout.
+VIEWER_SOURCE_STAMP = '.emu-viewer-source.sha256'
+
+
+def viewer_source_fingerprint(root: Path | None = None) -> str:
+    import hashlib
+    root = viewer_source() if root is None else Path(root)
+    result = hashlib.sha256()
+    for path in sorted(root.rglob('*')):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(root)
+        if any(part in ('node_modules', 'dist', '__pycache__') for part in relative.parts):
+            continue
+        result.update(relative.as_posix().encode('utf-8'))
+        result.update(b'\0')
+        with path.open('rb') as stream:
+            for block in iter(lambda: stream.read(1024 * 1024), b''):
+                result.update(block)
+    return result.hexdigest()
+
+
+def viewer_build_is_current(dist: Path | None = None,
+                            source: Path | None = None) -> bool:
+    dist = viewer_dist() if dist is None else Path(dist)
+    source = viewer_source() if source is None else Path(source)
+    stamp = dist / VIEWER_SOURCE_STAMP
+    return bool((dist / 'index.html').is_file() and stamp.is_file()
+                and stamp.read_text(encoding='ascii').strip()
+                == viewer_source_fingerprint(source))
+
+
 
 def build() -> int:
     src = viewer_source()
@@ -163,6 +197,8 @@ def build() -> int:
     if packaged.exists():
         shutil.rmtree(packaged)
     shutil.copytree(dist, packaged)
+    (packaged / VIEWER_SOURCE_STAMP).write_text(
+        viewer_source_fingerprint(src) + '\n', encoding='ascii')
     print(f'viewer built -> {packaged}')
     return 0
 
@@ -366,8 +402,9 @@ def serve(*, port: int = 8765, policy: Path | None = None,
     if sensor_lab and (policy is not None or live_root is not None):
         raise ValueError('Sensor lab does not accept a trained policy or live-run watcher')
     dist = viewer_dist()
-    if not (dist / 'index.html').exists():
-        print('Viewer build missing; invoking npm build...', flush=True)
+    if not viewer_build_is_current(dist):
+        print('Viewer build missing or stale relative to this Git source; '
+              'rebuilding Meadow automatically...', flush=True)
         build()
         dist = viewer_dist()
     # The viewer is a separate read-only CPU process: do not let checkpoint

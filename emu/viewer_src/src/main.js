@@ -4,10 +4,10 @@ import { VirtualStick } from './joystick.js';
 import { joystickToCommands, DemoHandoff, commandStickPositions } from './controls.js';
 import { EmuBrowserSim } from './sim.js';
 import { terrainHeightOffsetsCm } from './sensor.js';
-import { CARPET_DEFAULT, parseCarpetMetrics, trainingLimits } from './training-carpet.js';
+import { CARPET_DEFAULT } from './training-carpet.js';
 import { MEADOW_DEFAULTS, normalizedMeadowSettings } from './sensor-lab-carpet.js';
-import { carpetLearningStage, carpetRepresentativeRole, terrainRoleEnvelope } from './training-solid-carpet.js';
-import { specialistLesson, friendlyFrontiers, SLIDER_FIELDS, roleSliders, customRoleOverride, carpetGeometrySignature } from './training-inspector.js';
+import {makeSpecialistScene,isStepScene,isSlopeScene,sceneRole,supportedFirstLip} from './specialist-scenes.js';
+import { specialistLesson } from './training-inspector.js';
 import { showcasePolicyUrl, isJsonResponse, isViewerConfig, readShowcaseManifest, assertShowcasePolicyResponse } from './showcase.js';
 
 const $ = id => document.getElementById(id);
@@ -24,26 +24,19 @@ const gridToggle = $('gridToggle');
 const trailToggle = $('trailToggle');
 const shadowToggle = $('shadowToggle');
 const terrainMode = $('terrainMode');
-const carpetRole=$('carpetRole'),carpetPanel=$('carpetPanel'),carpetImport=$('carpetImport');
-const carpetValues=$('carpetValues'),carpetStatus=$('carpetStatus');
-const carpetLive=$('carpetLive'),carpetFetch=$('carpetFetch'),carpetApply=$('carpetApply');
-const carpetAutoApply=$('carpetAutoApply');
-const carpetMatch=$('carpetMatch'),carpetDrive=$('carpetDrive');
-const carpetShoves=$('carpetShoves'),carpetTestShove=$('carpetTestShove');
-const carpetPushRate=$('carpetPushRate'),carpetResetLimits=$('carpetResetLimits');
-const carpetDifficultyMode=$('carpetDifficultyMode'),carpetStepTrack=$('carpetStepTrack');
-const carpetEdits=new Map();
-const tuningInputs=Object.fromEntries(SLIDER_FIELDS.map(([key,id])=>[key,$(id)]));
+const sceneMode=$('sceneMode'),sceneStatus=$('sceneStatus');
+const sceneHeight=$('sceneHeight'),sceneGrade=$('sceneGrade');
+const sceneDistance=$('sceneDistance'),sceneSpeed=$('sceneSpeed');
+const sceneApproach=$('sceneApproach'),sceneCommandAxis=$('sceneCommandAxis');
+const sceneRandomize=$('sceneRandomize');
+const carpetPanel=$('carpetPanel');
+const carpetDrive=$('carpetDrive'),carpetShoves=$('carpetShoves');
+const carpetPushRate=$('carpetPushRate'),carpetTestShove=$('carpetTestShove');
 let carpetExerciseClock=0;
 let carpetLastExercise='';
 
-let carpetDifficulty={...CARPET_DEFAULT};
-// The sole physical authority for Meadow geology, independent of specialists.
+// Meadow alone controls its geology; specialist physics comes from sceneMode.
 let meadowSettings={...MEADOW_DEFAULTS};
-let carpetSource='Illustrative defaults';
-let carpetFetching=false;
-let carpetLastAppliedSignature='';
-let discoverCarpetFromLive=false;
 const depthOn=$('depthOn'),depthTilt=$('depthTilt'),depthActorRays=$('depthActorRays');
 const depthMount=$('depthMount'),depthHeight=$('depthHeight'),
       depthLateral=$('depthLateral'),depthYaw=$('depthYaw'),depthRays=$('depthRays'),depthSamples=$('depthSamples'),depthFootprint=$('depthFootprint');
@@ -129,6 +122,15 @@ let lastFrame = performance.now() / 1000;
 let fpsEma = 0;
 let lastTelemetry = 0;
 let loading = false;
+let lastResetGeneration = -1; // was an undeclared global: crashed initial actor load
+let sceneCurrent = null;
+let sceneTrial = 0;
+let sceneClock = 0;
+let sceneFootStreak = 0;
+let sceneControlFrame = -1;
+let sceneOutcomeWait = 0;
+let sceneLastOutcome = 'Ready';
+let sceneCounts = {attempts:0,successes:0,falls:0,timeouts:0};
 
 function setStatus(text, kind='idle') {
   statusEl.textContent = text;
@@ -149,6 +151,17 @@ function applyHeadingGain() {
 }
 
 function updateStickLabels() {
+  if(sceneMode.value!=='meadow'&&carpetDrive.value==='lesson'&&sim){
+    // Display trained specialist commands without allowing the centred
+    // visual joystick to WRITE vx=0 into the policy's active instruction.
+    const command=sim.commandTarget;
+    const sticks=commandStickPositions(command,limits());
+    leftStick.setDisplay(sticks.left.x,sticks.left.y);
+    rightStick.setDisplay(sticks.right.x,sticks.right.y);
+    leftValues.textContent=`vx ${fmtSigned(command.vx)} · vy ${fmtSigned(command.vy)}`;
+    rightValues.textContent=`yaw ${fmtSigned(command.yaw)} · pitch ${fmtSigned(deg(command.pitch||0),1)}°`;
+    return;
+  }
   if(demoActive){
     const sticks=commandStickPositions(navLastCommand,limits());
     leftStick.setDisplay(sticks.left.x,sticks.left.y);
@@ -230,8 +243,6 @@ async function activatePolicy(index) {
     sim.setCameraMode(cameraMode);
     sim.setHeadingHold(headingHoldToggle.checked);
     applyHeadingGain();
-    sim.setTrainingCarpet({role:carpetRepresentativeRole(carpetEffectiveLimits(),carpetRole.value),
-                           limits:carpetEffectiveLimits()});
     sim.setMeadowSettings(meadowSettings);
     sim.setTerrainMode('carpet');
     updateWorldTabs();
@@ -279,6 +290,8 @@ async function activatePolicy(index) {
     lastResetGeneration=-1;
     syncGoalMode();
     syncCarpetExercise();
+    // The original policy remains unchanged when switching spectator worlds.
+    if(sceneMode.value!=='meadow')selectObservationWorld();
     return true;
   } catch (err) {
     console.error(err);
@@ -330,46 +343,203 @@ cameraBtn.addEventListener('click', () => {
   cameraBtn.setAttribute('aria-label', `Camera: ${cameraDescription(cameraMode)}`);
 });
 function updateWorldTabs(){
+  const meadow=sceneMode.value==='meadow';
   carpetPanel.hidden=false;
-  document.body.dataset.world='meadow';
+  document.body.dataset.world=meadow?'meadow':'specialist';
+  $('modeLabel').textContent=meadow?'Infinite Meadow':'Training Carpet';
+  $('drawerWorldTitle').textContent=meadow?'EMU · INFINITE MEADOW':'EMU · TRAINING CARPET';
+  $('drawerWorldSubtitle').textContent=meadow
+    ?'Natural terrain · free-roaming generalisation'
+    :'Physical '+(sceneMode.selectedOptions[0]?.textContent||'specialist')+' drill';
+  $('carpetDriveRow').hidden=meadow;
+  $('autoResetRow').hidden=!meadow;
+  $('meadowDifficultyPanel').hidden=!meadow;
+  $('specialistScenePanel').hidden=meadow;
+  $('sceneHeightRow').hidden=!isStepScene(sceneMode.value);
+  $('sceneDistanceRow').hidden=!isStepScene(sceneMode.value);
+  $('sceneGradeRow').hidden=!isSlopeScene(sceneMode.value);
+  $('sceneApproachRow').hidden=!isStepScene(sceneMode.value);
+  $('sceneCommandRow').hidden=sceneMode.value!=='command';
   $('carpetHudRow').hidden=false;
-  $('carpetGrowthRow').hidden=false;
-  $('viewerExercise').textContent=demoActive
-    ?'Meadow stroll':currentCarpetLesson().heading;
+  $('carpetGrowthRow').hidden=!meadow;
+  $('viewerExercise').textContent=meadow
+    ?(demoActive?'Meadow stroll':'Generalised locomotion')
+    :sceneMode.selectedOptions[0]?.textContent||'Specialist';
 }
-function carpetSourceLimits(){
-  const role=carpetRepresentativeRole(carpetDifficulty,carpetRole.value);
-  const academy=carpetStepTrack.value==='academy'&&role==='step';
-  return {...carpetDifficulty,
-    stepTrack:academy?'academy':'ordinary',
-    stepUpM:academy
-      ?carpetDifficulty.academyStepUpM??carpetDifficulty.stepUpM
-      :carpetDifficulty.ordinaryStepUpM??carpetDifficulty.stepUpM,
-    stepDownM:academy
-      ?carpetDifficulty.academyStepDownM??carpetDifficulty.stepDownM
-      :carpetDifficulty.ordinaryStepDownM??carpetDifficulty.stepDownM};
+
+function refreshSceneStatus(){
+  const mode=sceneMode.value;
+  if(mode==='meadow')return;
+  const count=sceneCounts;
+  const scene=sceneCurrent;
+  const physical=scene?.kind==='step'
+    ?`Signed lip ${scene.lipM>=0?'+':''}${(scene.lipM*100).toFixed(2)}cm · ${(scene.distanceM*100).toFixed(1)}cm before x=1m · heading ${scene.approachDeg.toFixed(1)}°`
+    :scene?.kind==='slope'
+      ?`Physical ${scene.gradeDeg.toFixed(1)}° ${mode.replace('slope-','')} grade`
+      :'Level physical terrain; actual learner commands and disturbances';
+  sceneStatus.textContent=`Attempt #${sceneTrial+1} · ${sceneLastOutcome}
+${physical}
+Completed ${count.attempts} · supported step arrivals ${count.successes} · falls ${count.falls} · timeouts ${count.timeouts}
+${Math.min(sceneClock,scene?.horizonS||15).toFixed(1)}s / ${scene?.horizonS||15}s · NN ${sim?.policy?'loaded':'ABSENT'} · inference ${sim?.controlFrames??0} · action |·| ${Math.hypot(...(sim?.prevAction||[])).toFixed(2)}
+Velocity request ${sim?.commandTarget?.vx?.toFixed(2)??'--'}m/s
+Viewer observation, NOT frozen MJX certification`;
 }
-function carpetEffectiveLimits(){
-  const source=carpetSourceLimits();
-  const role=carpetRepresentativeRole(source,carpetRole.value);
-  const custom=carpetMatch.checked?null:carpetEdits.get(role);
-  if(custom)return {...source,previewOverride:custom};
-  if(carpetDifficultyMode.value==='frontier'){
-    // An explicit VIEWER challenge at the global source ceilings.
-    // Do not confuse this unscaled geometry with MJX role birth values.
-    return {...source,previewOverride:{terrain:{
-      slopeDeg:source.slopeDeg,
-      transitionDeg:source.transitionDeg,
-      stepUpM:source.stepUpM,
-      stepDownM:source.stepDownM}}};
+
+function specialistCommandAt(seconds=0){
+  const command=currentCarpetLesson().commandAt(seconds);
+  const speed=Number(sceneSpeed.value),mode=sceneMode.value;
+  if(isStepScene(mode)||isSlopeScene(mode)||mode==='resilience'||mode==='control')
+    command.vx=speed;
+  if(mode==='command'&&sceneCommandAxis.value!=='cycle'){
+    const l=limits(),axis=sceneCommandAxis.value;
+    command.vx=axis==='vx-pos'?Math.min(speed,l.vx_max):
+      axis==='vx-neg'?-Math.min(speed,Math.abs(l.vx_min)):0;
+    command.vy=axis==='vy-pos'?Math.min(speed,l.vy_abs):
+      axis==='vy-neg'?-Math.min(speed,l.vy_abs):0;
+    command.yaw=axis==='yaw-pos'?Math.min(speed,l.yaw_abs):
+      axis==='yaw-neg'?-Math.min(speed,l.yaw_abs):0;
   }
-  return source;
+  return command;
 }
+
+function beginSceneAttempt({fresh=false}={}){
+  if(sceneMode.value==='meadow'||!sim)return;
+  if(fresh){
+    sceneTrial=0;
+    sceneCounts={attempts:0,successes:0,falls:0,timeouts:0};
+    sceneLastOutcome='Ready';
+  }else sceneTrial++;
+  sceneClock=0;sceneFootStreak=0;sceneControlFrame=-1;sceneOutcomeWait=0;
+  sceneCurrent=makeSpecialistScene(sceneMode.value,{
+    stepCm:Number(sceneHeight.value),gradeDeg:Number(sceneGrade.value),
+    spawnCm:Number(sceneDistance.value),
+    approachDeg:Number(sceneApproach.value),
+    seed:Number(meadowSettings.seed??735),
+    trial:sceneTrial,randomize:sceneRandomize.checked
+  });
+  // Preserve actor identity and start the frozen-policy episode with the
+  // correct velocity instruction. Resetting while the previous Meadow
+  // demo's command was zero looked like EMU had lost its neural policy.
+  const actor=sim.policy;
+  sim.prepareLessonBirth(specialistCommandAt(0));
+  const oldGeneration=sim.resetGeneration;
+  sim.setTrainingScenario(sceneCurrent);
+  if(sim.policy!==actor)throw Error('Viewer switched or lost its policy');
+  if(sim.resetGeneration===oldGeneration)sim.reset();
+  lastResetGeneration=sim.resetGeneration;
+  // The lab owns reset timing: capture the final failed or supported pose
+  // before beginning the next birth, rather than MuJoCo auto-reset hiding it.
+  sim.autoReset=false;
+  carpetExerciseClock=0;
+  refreshSceneStatus();
+}
+
+function selectObservationWorld(){
+  updateWorldTabs();
+  if(!sim)return;
+  if(sceneMode.value==='meadow'){
+    // Back to true free-roam: don't silently keep the last Academy lesson
+    // running behind the hidden specialist movement selector.
+    carpetDrive.value='manual';
+    sceneCurrent=null;
+    sim.setTrainingScenario(null);
+    sim.autoReset=demoActive||autoResetToggle.checked;
+  }else{
+    if(demoActive)stopDemo();
+    carpetDrive.value='lesson';
+    carpetShoves.checked=sceneMode.value==='resilience';
+    beginSceneAttempt({fresh:true});
+  }
+  syncCarpetExercise();
+  updateStickLabels();
+}
+
+function updatePhysicalObservation(dt){
+  if(!sim||sim.paused||sceneMode.value==='meadow'||!sceneCurrent)return;
+  if(sim.resetGeneration!==lastResetGeneration){
+    // Covers manual Reset as well as any model refresh.
+    lastResetGeneration=sim.resetGeneration;
+    sceneClock=0;sceneFootStreak=0;sceneControlFrame=-1;
+    sceneOutcomeWait=0;
+  }
+  if(sceneOutcomeWait>0){
+    sceneOutcomeWait-=dt;
+    if(sceneOutcomeWait<=0)beginSceneAttempt();
+    return;
+  }
+  sceneClock+=dt;
+  let verdict='';
+  if(sim.fallenFor>=.3)verdict='falls';
+  else if(isStepScene(sceneMode.value)){
+    const feet=sim.footGeomIds.map(id=>{
+      const offset=3*id;
+      const x=Number(sim.data.geom_xpos[offset]);
+      const y=Number(sim.data.geom_xpos[offset+1]);
+      return {x,soleZ:Number(sim.data.geom_xpos[offset+2])-
+        Number(sim.model.geom_size[offset]),
+        groundZ:sim.park.sampleHeight(x,y)};
+    });
+    const good=supportedFirstLip({
+      scenario:sceneCurrent,bodyX:Number(sim.data.qpos[0]),
+      feet,fallen:sim.isFallen()});
+    if(sceneControlFrame!==sim.controlFrames){
+      sceneFootStreak=good?sceneFootStreak+1:0;
+      sceneControlFrame=sim.controlFrames;
+    }
+    if(sceneFootStreak>=5)verdict='successes';
+  }
+  if(!verdict&&sceneClock>=sceneCurrent.horizonS)verdict='timeouts';
+  if(verdict){
+    sceneCounts.attempts++;
+    sceneCounts[verdict]++;
+    sceneLastOutcome=verdict==='successes'?'SUPPORTED two-foot arrival':
+      verdict==='falls'?'FALL':'TIMEOUT';
+    sceneOutcomeWait=.7;
+    refreshSceneStatus();
+  }else if(sim.controlFrames%5===0)refreshSceneStatus();
+}
+
+sceneMode.addEventListener('change',()=>{
+  if(sceneMode.value==='step-down')sceneHeight.value='2';
+  if(sceneMode.value==='step-up')sceneHeight.value='5';
+  $('sceneHeightOut').textContent=Number(sceneHeight.value).toFixed(1)+' cm';
+  try{selectObservationWorld();}
+  catch(err){
+    console.error('Specialist switch failed:',err);
+    sceneStatus.textContent='WORLD SWITCH FAILED: '+String(err?.message||err)+
+      '\nThe policy is preserved; review console errors.';
+    setStatus('World switch: '+String(err?.message||err),'error');
+  }
+});
+for(const [element,output,unit,digits] of [
+  [sceneHeight,'sceneHeightOut',' cm',1],
+  [sceneGrade,'sceneGradeOut','°',1],
+  [sceneApproach,'sceneApproachOut','°',1],
+  [sceneDistance,'sceneDistanceOut',' cm',1],
+  [sceneSpeed,'sceneSpeedOut',' m/s',2]]){
+  element.addEventListener('input',()=>{
+    $(output).textContent=Number(element.value).toFixed(digits)+unit;
+  });
+  element.addEventListener('change',()=>{
+    if(sceneMode.value!=='meadow')beginSceneAttempt({fresh:true});
+  });
+}
+sceneRandomize.addEventListener('change',()=>{
+  if(sceneMode.value!=='meadow')beginSceneAttempt({fresh:true});
+});
+$('sceneCommandAxis').addEventListener('change',()=>{
+  if(sceneMode.value==='command')beginSceneAttempt({fresh:true});
+});
+$('sceneNext').addEventListener('click',()=>beginSceneAttempt());
+
 function currentCarpetLesson(){
-  return specialistLesson(carpetEffectiveLimits(),carpetRole.value);
-}
-function carpetTerrainSignature(){
-  return carpetGeometrySignature(currentCarpetLesson(),carpetStepTrack.value);
+  // Representative command schedules are bounded by the frozen actor's
+  // exported command limits. They NEVER change any geometry or PPO teacher.
+  const l=limits();
+  const settings={...CARPET_DEFAULT,seed:meadowSettings.seed,
+    vxHi:l.vx_max,vxLo:l.vx_min,vyMax:l.vy_abs,yawMax:l.yaw_abs,
+    pushN:4,pushMaxForceN:4,resilienceDifficulty:.5};
+  return specialistLesson(settings,sceneRole(sceneMode.value));
 }
 function syncCarpetExercise(){
   if(!sim||terrainMode.value!=='carpet'){
@@ -377,7 +547,9 @@ function syncCarpetExercise(){
     return;
   }
   const lesson=currentCarpetLesson();
-  sim.autoReset=demoActive||carpetDrive.value==='lesson'||autoResetToggle.checked;
+  sim.autoReset=sceneMode.value==='meadow'
+    ?(demoActive||carpetDrive.value==='lesson'||autoResetToggle.checked)
+    :false;
   // Optional physical shoves obey the unified Meadow settings, NOT
   // training specialist settings or an invisible teacher assignment.
   const strength=Number($('meadowShove').value)/100;
@@ -393,150 +565,10 @@ function syncCarpetExercise(){
     sim.setDemoCommands({vx:0,vy:0,yaw:0,pitch:0});
   }
 }
-function renderCarpetValues(){
-  const base=carpetEffectiveLimits();
-  const lesson=currentCarpetLesson(),f=friendlyFrontiers(lesson);
-  const measured=carpetMatch.checked&&
-    carpetDifficultyMode.value==='assignment'&&carpetDifficulty.source==='training';
-  const stage=carpetLearningStage(carpetDifficulty);
-  const phase={
-    foundation:'flat foundation',specialists:'six specialists',
-    'multi-lip':'multi-lip Academy',illustrative:'illustrative'
-  }[stage];
-  $('carpetContext').textContent=`${lesson.heading}: ${lesson.description}.
-    ${measured?'Training targets (not achieved skill).':'Editable viewer scenario; NOT live training difficulty.'}
-    Infinite procedural Meadow: terrain increases in difficulty to the NORTH (+Y),
-    becomes easier to the south and varies at steady difficulty east/west.
-    EMU begins facing EAST (+X): turn left to explore harder northern terrain.
-    15×15m moving real collision window, deterministic return visits, misty visual fallaway.`;
-  if(!demoActive)$('viewerExercise').textContent=lesson.heading;
-  const values=roleSliders(base,carpetRole.value);
-  for(const [key,id,unit,,digits] of SLIDER_FIELDS){
-    const el=tuningInputs[key];
-    el.value=String(values[key]);
-    $(id+'Out').textContent=values[key].toFixed(digits)+unit;
-  }
-  const original=roleSliders(carpetSourceLimits(),carpetRole.value);
-  const sRatio=carpetDifficulty.slopeDeg>0
-    ?Math.round(original.slope/carpetDifficulty.slopeDeg*100):0;
-  const tRatio=carpetDifficulty.stepUpM>0
-    ?Math.round(original.up/(carpetSourceLimits().stepUpM*1000)*100):0;
-  const frontier=carpetSourceLimits();
-  const sourceRole=roleSliders(frontier,carpetRole.value);
-  const slopeExposure=Number(frontier.slopeExposure??1);
-  const stepExposure=Number(frontier.stepExposure??1);
-  const fmt=(n,d=2)=>Number(n).toFixed(d);
-  const roleIsStep=lesson.role==='step';
-  $('carpetStepTrackRow').hidden=!roleIsStep;
-  const activeStepTrack=roleIsStep?carpetStepTrack.value:'ordinary';
-  $('carpetHudTerrain').textContent=
-    `Meadow at start: ${meadowSettings.hillPeakDeg.toFixed(1)}° hill peaks · +${(meadowSettings.stepUpM*1000).toFixed(0)}/−${(meadowSettings.stepDownM*1000).toFixed(0)} mm max`;
-  $('carpetPhysicalEvidence').textContent=[
-    `GLOBAL FRONTIER · grade ≤${fmt(frontier.slopeDeg)}° · ${activeStepTrack==='academy'?'Academy signed':'Ordinary signed'} lips ≤${fmt(frontier.stepUpM*1000,3)}/${fmt(frontier.stepDownM*1000,3)} mm`,
-    `BIRTH EXPOSURE · slope ${fmt(slopeExposure*100,1)}% of ordinary births · steps ${fmt(stepExposure*100,1)}% of ordinary births; Academy has its own allocation`,
-    `SELECTED ${lesson.role.toUpperCase()} · source birth ${fmt(sourceRole.slope)}° · +${fmt(sourceRole.up,3)}/−${fmt(sourceRole.down,3)} mm`,
-    `INSPECTOR TARGET (NOT VIEWER COLLIDERS) · ${fmt(lesson.terrain.slopeDeg)}° · +${fmt(lesson.terrain.stepUpM*1000,3)}/−${fmt(lesson.terrain.stepDownM*1000,3)} mm`,
-    activeStepTrack==='academy'&&!frontier.academyEligible
-      ?'Academy births are NOT currently allocated in the source; this is an illustrative Academy preview.'
-      :carpetDifficultyMode.value==='frontier'
-      ?'FRONTIER DEMO — unscaled source ceilings, NOT the sampled GPU physical assignment.'
-      :carpetMatch.checked
-        ?'Representative EXPOSED birth; source RNG chooses which real worlds get terrain. Tile heights still vary by direction and seed.'
-        :'CUSTOM VIEWER ONLY — this does not change the running trainer.'
-  ].join('\n');
-  $('tuneOrigin').textContent=!carpetMatch.checked
-    ?`CUSTOM ${lesson.role.toUpperCase()} · Reset sliders restores selected source preview.`
-    :carpetDifficultyMode.value==='frontier'
-      ?'Unscaled source maximum; this is a diagnostic challenge, NOT the GPU sampling distribution.'
-      :`Exposed ${lesson.role.toUpperCase()} birth: slope ${sRatio}% · upward lip ${tRatio}% of source frontier. Unexposed births are flat; exposure does not reduce height.`;
-  carpetValues.textContent=[
-    `Source: ${carpetDifficulty.source==='training'?carpetDifficulty.run:'Illustrative defaults'}`,
-    `Age ${Number(carpetDifficulty.step||0).toLocaleString()} steps · phase: ${phase}`,
-    (carpetDifficulty.trainingCarpetPrisms
-      ? 'SOURCE: 4 recycled convex-prism MJX tiles. VIEWER: 225 runtime-updated heightfield tiles.'
-      : 'VIEWER: infinite coordinates, 225 moving CPU heightfields; not an exact MJX prism exam.'),
-    `Training frontier slope ${Number(carpetDifficulty.slopeDeg||0).toFixed(2)}°; specialist target ${lesson.terrain.slopeDeg.toFixed(3)}° (INSPECTOR ONLY)`,
-    `Inspector target up/down ${(lesson.terrain.stepUpM*1000).toFixed(3)} / ${(lesson.terrain.stepDownM*1000).toFixed(3)} mm (NOT Meadow terrain)`,
-    `Role velocity ${f.speed} · strafe ${f.lateral} · yaw ${f.yaw}`,
-    `Push cap ${f.shove} · effective push chance fraction ${lesson.intensity.toFixed(3)}`,
-    `Recovery at spawn (different quantity): ${lesson.birthRecovery.toFixed(2)}`,
-    'All exercises share ONE trained actor. Browser previews are not',
-    'exact samples from the GPU trainer and never change training.'
-  ].join('\n');
-}
-function acceptCarpetSnapshot(data,label){
-  carpetDifficulty=trainingLimits(data);
-  carpetSource=label;
-  renderCarpetValues();
-  if(terrainMode.value!=='carpet')return;
-  if(carpetAutoApply.checked&&carpetMatch.checked)applyCarpetTerrain(true);
-  else carpetStatus.textContent='Read '+label+'; custom preview preserved. Reset sliders to follow the trainer.';
-}
-async function refreshCarpetLive(manual=false){
-  if(carpetFetching||(!manual&&(!carpetLive.checked||
-      (terrainMode.value!=='carpet'&&!discoverCarpetFromLive))))return;
-  carpetFetching=true;
-  try{
-    const response=await fetch('/api/live/terrain',{cache:'no-store'});
-    if(!response.ok)throw Error(`Live training difficulty HTTP ${response.status}`);
-    const data=await response.json();
-    if(data.schema!=='emu_terrain_live_v1')throw Error('Unrecognized terrain telemetry format');
-    const prev=`${carpetDifficulty.run}:${carpetDifficulty.step}`;
-    const incoming=trainingLimits(data);
-    if(discoverCarpetFromLive){
-      discoverCarpetFromLive=false;
-      if(incoming.trainingCarpet){
-        terrainMode.value='carpet';updateTerrain();
-      }
-    }
-    if(prev!==`${incoming.run}:${incoming.step}`)acceptCarpetSnapshot(data,'local EMU training viewer');
-    else if(manual)carpetStatus.textContent='Live source unchanged: '+prev;
-  }catch(err){
-    if(manual)carpetStatus.textContent='No local training feed: '+err.message+' · import a CSV/JSON instead.';
-  }finally{carpetFetching=false;}
-}
-function applyCarpetTerrain(automatic=false){
-  renderCarpetValues();
-  const signature=carpetTerrainSignature();
-  if(automatic&&signature===carpetLastAppliedSignature){
-    syncCarpetExercise();return;
-  }
-  if(!sim){carpetStatus.textContent='Saved preview for when a policy loads.';return;}
-  try{
-    const limits=carpetEffectiveLimits();
-    sim.setTrainingCarpet({
-      role:carpetRepresentativeRole(limits,carpetRole.value),limits});
-    if(terrainMode.value!=='carpet'){
-      terrainMode.value='carpet';updateTerrain();
-    }
-    carpetExerciseClock=0;
-    carpetLastAppliedSignature=signature;
-    syncCarpetExercise();
-    carpetStatus.textContent=(automatic?'Auto-followed':'Applied')+
-      ' this specialist exercise. Meadow terrain remains controlled above.';
-  }catch(err){setStatus('Training terrain: '+err.message,'error');}
-}
-function updateTerrain(){
-  terrainMode.value='carpet';
-  updateWorldTabs();
-  renderCarpetValues();
-  if(!sim)return;
-  try{
-    const limits=carpetEffectiveLimits();
-    sim.setTrainingCarpet({role:carpetRepresentativeRole(limits,carpetRole.value),limits});
-    sim.setTerrainMode('carpet');
-    carpetLastAppliedSignature=carpetTerrainSignature();
-    carpetExerciseClock=0;
-    syncCarpetExercise();
-    updateStickLabels();
-  }catch(err){setStatus('Meadow unavailable: '+String(err?.message||err),'error');}
-}
 function runCarpetLesson(dt){
   if(!sim||sim.paused||demoActive||carpetDrive.value!=='lesson')return;
-  const lesson=currentCarpetLesson();
   carpetExerciseClock+=Math.max(0,Math.min(.10,dt));
-  const command=lesson.commandAt(carpetExerciseClock);
-  sim.setDemoCommands(command);
+  sim.setDemoCommands(specialistCommandAt(carpetExerciseClock));
   const delivered=sim.commandTarget;
   const descriptor=`vx ${fmtSigned(delivered.vx)} · vy ${fmtSigned(delivered.vy)} · yaw ${fmtSigned(delivered.yaw)}`;
   if(descriptor!==carpetLastExercise){
@@ -558,47 +590,6 @@ function updateCarpetShoveStatus(){
     :shove.recent?'Recent shove · muted arrow (force ended)'
     :`Random pushes: ${shove.enabled?'on':'off'} · cap ${shove.limit.toFixed(2)} N · task intensity ${shove.intensity.toFixed(3)}`;
 }
-carpetRole.addEventListener('change',()=>{
-  carpetExerciseClock=0;
-  applyCarpetTerrain(false);
-});
-for(const control of [carpetDifficultyMode,carpetStepTrack]){
-  control.addEventListener('change',()=>{
-    carpetMatch.checked=true;
-    carpetExerciseClock=0;
-    applyCarpetTerrain(false);
-  });
-}
-function readSliderOverride(){
-  const values=Object.fromEntries(SLIDER_FIELDS.map(([key])=>[key,
-    Number(tuningInputs[key].value)]));
-  return customRoleOverride(values);
-}
-for(const [key,id,unit,,digits] of SLIDER_FIELDS){
-  const input=tuningInputs[key];
-  input.addEventListener('input',()=>{
-    $(id+'Out').textContent=Number(input.value).toFixed(digits)+unit;
-  });
-  input.addEventListener('change',()=>{
-    const role=carpetRepresentativeRole(carpetDifficulty,carpetRole.value);
-    carpetEdits.set(role,readSliderOverride());
-    carpetMatch.checked=false;
-    applyCarpetTerrain(false);
-  });
-}
-carpetMatch.addEventListener('change',()=>{
-  if(!carpetMatch.checked){
-    const role=carpetRepresentativeRole(carpetDifficulty,carpetRole.value);
-    if(!carpetEdits.has(role))
-      carpetEdits.set(role,customRoleOverride(roleSliders(carpetDifficulty,role)));
-  }
-  applyCarpetTerrain(false);
-});
-carpetResetLimits.addEventListener('click',()=>{
-  carpetEdits.delete(carpetRepresentativeRole(carpetDifficulty,carpetRole.value));
-  carpetMatch.checked=true;
-  applyCarpetTerrain(false);
-});
 carpetDrive.addEventListener('change',()=>{
   carpetExerciseClock=0;
   syncCarpetExercise();
@@ -641,8 +632,8 @@ function applyMeadowControls(){
   renderMeadowControls();
   try{
     sim?.setMeadowSettings(meadowSettings);
-    if(sim?.terrainMode==='carpet')
-      carpetStatus.textContent='New hills applied; viewer robot reset to protect foot contacts.';
+    if(sim?.terrainMode==='carpet'&&sceneMode.value==='meadow')
+      setStatus('Meadow updated · viewer-only reset, actor unchanged','ok');
     syncCarpetExercise();
   }catch(err){setStatus('Meadow terrain: '+String(err?.message||err),'error');}
 }
@@ -676,24 +667,6 @@ carpetTestShove.addEventListener('click',()=>{
   if(sim&&terrainMode.value==='carpet'&&!sim.triggerShove())
     $('carpetShoveState').textContent='Increase Maximum shove above 0 N to test.';
 });
-carpetAutoApply.addEventListener('change',()=>{
-  if(carpetAutoApply.checked&&terrainMode.value==='carpet'&&carpetMatch.checked)
-    applyCarpetTerrain(true);
-});
-carpetApply.addEventListener('click',()=>applyCarpetTerrain(false));
-carpetFetch.addEventListener('click',()=>refreshCarpetLive(true));
-carpetImport.addEventListener('change',async()=>{
-  const file=carpetImport.files?.[0];if(!file)return;
-  try{
-    const text=await file.text();
-    const obj=file.name.toLowerCase().endsWith('.csv')?parseCarpetMetrics(text):JSON.parse(text);
-    acceptCarpetSnapshot(obj,file.name);
-  }catch(error){carpetStatus.textContent='Import failed: '+error.message;}
-  carpetImport.value='';
-});
-setInterval(()=>refreshCarpetLive(false),5000);
-renderCarpetValues();
-
 function updateDepthSettings(){
   const c=bundle?.observation?.sensor_contract;
   $('actorDepthSource').textContent=c?.tof4x4_rays_body?.length===16
@@ -925,13 +898,20 @@ function updateTelemetry(now, dt) {
   $('slopeRead').textContent = !s.supported ? 'No terrain underfoot'
     : s.flat ? '0.0° · level' : `${s.degrees.toFixed(1)}°`;
   const worldY=Number(sim.data?.qpos?.[1]??0);
-  const local=sim.park?.physics==='streaming-heightfield'
+  const local=sim.park?.physics==='streaming-heightfield'&&sceneMode.value==='meadow'
     ?sim.park.difficultyAt(worldY):null;
   $('carpetGrowth').textContent=local
     ? Math.round(100*local.difficulty)+'% difficulty · '+
       local.slopeDeg.toFixed(1)+'° hill peaks · '+
       Math.abs(worldY).toFixed(1)+'m '+(worldY>=0?'N':'S')
     :'—';
+  if(sceneMode.value!=='meadow'&&sceneCurrent){
+    $('carpetHudTerrain').textContent=sceneCurrent.kind==='step'
+      ?`Academy signed lip ${(sceneCurrent.lipM*100).toFixed(2)}cm · x=1m`
+      :sceneCurrent.kind==='slope'
+        ?`Physical grade ${sceneCurrent.gradeDeg.toFixed(1)}° · ${sceneMode.value}`
+        :'Level physical specialist course';
+  }
   if(local)$('carpetHudTerrain').textContent=
     local.slopeDeg.toFixed(1)+'° natural hill peaks · +'+
     Math.round(local.stepUpM*1000)+'/−'+Math.round(local.stepDownM*1000)+
@@ -957,10 +937,11 @@ function frame(ms){
       const manual=held.size>0||leftStick.pointerId!==null||
         rightStick.pointerId!==null||Math.hypot(left.x,left.y)>.06||
         Math.hypot(right.x,right.y)>.06;
-      if(!demoActive&&handoff.shouldResume(now,manual))startDemo();
-      if(demoActive)meadowStroll(dt);
+      if(sceneMode.value==='meadow'&&!demoActive&&handoff.shouldResume(now,manual))startDemo();
+      if(demoActive&&sceneMode.value==='meadow')meadowStroll(dt);
       runCarpetLesson(dt);
       sim.advance(dt);
+      updatePhysicalObservation(dt);
       sim.render(dt);
       updateTelemetry(now,dt);
     }
@@ -984,6 +965,10 @@ function stopDemo(){
 }
 function startDemo(){
   if(!sim)return;
+  if(sceneMode.value!=='meadow'){
+    sceneMode.value='meadow';
+    selectObservationWorld();
+  }
   demoActive=true;
   handoff.resume();
   $('liveDemo').checked=true;
@@ -1096,9 +1081,11 @@ async function startViewerFeed() {
             // Standalone CPU calibration. The model is h40 and the actor
             // inference is DISABLED; do not mislabel this a trained gait.
             terrainMode.value='carpet';
-            carpetRole.value='standing';
-            carpetDifficulty={...CARPET_DEFAULT,slopeDeg:0,transitionDeg:0,
-              stepUpM:0,stepDownM:0};
+            sceneMode.value='meadow';
+            meadowSettings=normalizedMeadowSettings({...MEADOW_DEFAULTS,
+              hillPeakDeg:0,stepUpM:0,stepDownM:0,stepFrequency:0,
+              northGainPerM:0});
+            renderMeadowControls();
             demoActive=false;
             $('liveDemo').checked=false;
             autoResetToggle.checked=true;
@@ -1134,14 +1121,8 @@ async function startViewerFeed() {
           }
         }
         if (config.live) {
-          discoverCarpetFromLive=true;
-          // All policy sources use the single infinite-coordinate CPU Meadow.
-          // The GPU trainer's eight convex prisms remain unchanged.
-          await refreshCarpetLive(true);
-          if(carpetDifficulty.trainingCarpet){
-            terrainMode.value='carpet';
-            updateTerrain();
-          }
+          // The watcher updates only the policy; the spectator chooses
+          // its own visible physical world and never auto-edits geology.
           livePanel.hidden = false;
           demoActive=$('liveDemo').checked;
           if(demoActive){carpetDrive.value='manual';strollClock=Infinity;}

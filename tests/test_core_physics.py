@@ -143,7 +143,7 @@ def test_batched_mocaps_match_old_birth_and_recycling():
         rtol=0,atol=2e-7)
 
 
-def test_foot_only_contacts_preserve_mass_and_remove_torso_collision(tmp_path):
+def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
     """Remove solver contacts, not the 460g central chassis or its inertia."""
     from pathlib import Path
     from mujoco import mjx
@@ -159,11 +159,10 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision(tmp_path):
     # compile as genuine MuJoCo hardware with the same actuator limits,
     # support forces, contact geometry and sensor array.
     from emu.physical_variants import (
-        PROFILES, RESEARCH_PROFILE, target_span_rad,
-        selected_profile, generate_xml, profile_numbers,
+        PROFILES, selected_profile, generate_xml, profile_numbers,
         FOOT_RADIUS_M, SERVO_RATED_CONTINUOUS_TORQUE_NM)
     base_source=(Path(__file__).resolve().parents[1]/'emu'/'robot.xml').read_text()
-    assert tuple(PROFILES) == ("h40", RESEARCH_PROFILE)
+    assert tuple(PROFILES) == ("h40",)
     assert selected_profile() == "h40"
     # Regression fence: this exact MJCF is what the frozen 120M actor saw.
     # Changing this hash makes a different robot, even if it looks similar.
@@ -174,62 +173,7 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision(tmp_path):
     assert sha256(generate_xml(base_source, "h40").encode()).hexdigest() == training_h40_xml_sha
     with pytest.raises(ValueError,match="Unsupported physical model"):
         generate_xml(base_source,"h34")
-
-    # New cold-start robot is opt-in. Never re-interpret champion target
-    # semantics and never alter its canonical source/model checksum.
-    from emu.environment import TARGET_SPAN as active_target_span
-    np.testing.assert_array_equal(active_target_span, np.asarray(
-        target_span_rad("h40"), dtype=np.float32))
-    experimental_xml = generate_xml(base_source, RESEARCH_PROFILE)
-    assert sha256(experimental_xml.encode()).hexdigest() != training_h40_xml_sha
-    experimental_model = mujoco.MjModel.from_xml_string(experimental_xml)
-    assert experimental_model.nu == 6 and experimental_model.ntendon == 2
-    assert np.all(experimental_model.actuator_forcelimited == 1)
-    assert np.all(experimental_model.actuator_ctrllimited == 1)
-    # MuJoCo ctrlrange is in RAW RADIANS, even though joint range is
-    # authored in degrees in MJCF. Verify the *compiled* motor targets.
-    for side in ("r", "l"):
-        for joint,lo,hi in (("hip_roll",-25.,25.),
-                            ("hip_pitch",-50.,50.),
-                            ("knee",-90.,95.)):
-            aid=mujoco.mj_name2id(experimental_model,
-                                  mujoco.mjtObj.mjOBJ_ACTUATOR,
-                                  f"{side}_{joint}")
-            assert aid >= 0
-            np.testing.assert_allclose(
-                experimental_model.actuator_ctrlrange[aid],
-                np.deg2rad([lo,hi]),atol=1e-6)
-    np.testing.assert_allclose(
-        experimental_model.actuator_forcerange,
-        np.tile([-SERVO_RATED_CONTINUOUS_TORQUE_NM,
-                 SERVO_RATED_CONTINUOUS_TORQUE_NM], (6,1)), atol=1e-6)
-    np.testing.assert_allclose(
-        [experimental_model.tendon_stiffness[i] for i in range(2)],
-        [150.,150.], atol=1e-6)
-    assert target_span_rad(RESEARCH_PROFILE)[2] == pytest.approx(np.pi/2)
-    assert target_span_rad(RESEARCH_PROFILE)[1] == pytest.approx(np.deg2rad(50))
-    experimental_data = mujoco.MjData(experimental_model)
-    for side in ("r", "l"):
-        jid=mujoco.mj_name2id(experimental_model,
-                             mujoco.mjtObj.mjOBJ_JOINT, f"{side}_knee")
-        np.testing.assert_allclose(
-            np.rad2deg(experimental_model.jnt_range[jid]),
-            [-90,95], atol=1e-5)
-        qadr=experimental_model.jnt_qposadr[jid]
-        did=experimental_model.jnt_dofadr[jid]
-        for angle in (-85,-55,-30,0,45,90):
-            mujoco.mj_resetData(experimental_model, experimental_data)
-            experimental_data.qpos[qadr]=np.deg2rad(angle)
-            mujoco.mj_forward(experimental_model,experimental_data)
-            assert np.isfinite(experimental_data.qfrc_passive[did])
-            assert np.isfinite(experimental_data.ten_length).all()
-        mujoco.mj_resetData(experimental_model, experimental_data)
-        mujoco.mj_forward(experimental_model,experimental_data)
-        # Calibrated neutral passive assistance, as in the isolated design.
-        assert experimental_data.qfrc_passive[did] == pytest.approx(.520606,abs=.005)
-    # Exact nominal profile XML is unchanged by adding the other option.
-    assert sha256(generate_xml(base_source, "h40").encode()).hexdigest() == training_h40_xml_sha
-    for variant in ("h40",):
+    for variant in PROFILES:
         row=profile_numbers(variant)
         from emu.tof_geometry import (TOF_MOUNT_BODY_M, TOF_RAYS_BODY,
                                       TOF_HARDWARE_ZONE_IDS)
@@ -422,24 +366,6 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision(tmp_path):
     varied_limits=np.asarray(varied.actuator_forcerange)
     assert varied_limits.shape == (8,6,2)
     assert np.max(np.abs(varied_limits)) <= SERVO_RATED_CONTINUOUS_TORQUE_NM+1e-6
-
-    # Source-pinned torque/spring feasibility *experiments* and their
-    # one-off script remain archived in Git; they are not a dependency
-    # of the maintained contact/motor/true-prism physics test.
-    # Pre-step torque and pose correspond to the action two trace frames
-    # earlier. Must not confuse extreme NN output with *actual* motor torque.
-    from emu.prism_exam import policy_motor_summary
-    a=np.zeros((5,1,6)); a[0,0,2] = 1.
-    torque=np.zeros_like(a); torque[2,0,2] = SERVO_RATED_CONTINUOUS_TORQUE_NM
-    row=policy_motor_summary(dict(
-        actor_action=a, spring_joint_qpos_rad=np.zeros((5,1,8)),
-        servo_joint_rate_rad_s=np.zeros_like(a), servo_torque_nm=torque,
-        servo_peak_limit_nm=np.full((1,6),SERVO_RATED_CONTINUOUS_TORQUE_NM),
-        done=np.zeros((5,1),bool)))["joints"][2]
-    assert row["joint"] == "r_knee"
-    assert row["frames"] == 3
-    assert row["at_cap_fraction"] == pytest.approx(1/3, abs=1e-5)
-    assert row["near_action_limit_fraction"] == pytest.approx(1/3, abs=1e-5)
 
 
 def test_midpoint_2x2_window_covers_30cm_and_preserves_present_tile():

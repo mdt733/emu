@@ -22,26 +22,6 @@ from .directional import contact_pair_mask
 from .directional import heading_rate_request
 from .contracts import CONTROL_DT, P
 
-def hip_roll_load_terms(xp, motor_nm, angle_rad, stiffness_nm_rad,
-                        spring_reference_rad, rated_limit_nm):
-    """Pure NumPy/JAX testable signed motor vs centring spring facts.
-
-    Passive spring torque = -stiffness * (joint angle - reference).
-    Motor torque fights this spring only if motor * spring torque < 0.
-    This is a joint-frame correlation, NOT proof of the spring's causal
-    effect on balance. It changes no actuator or PPO training behaviour.
-    """
-    spring_nm=-stiffness_nm_rad*(angle_rad-spring_reference_rad)
-    opposition=motor_nm*spring_nm < -1e-6
-    assistance=motor_nm*spring_nm > 1e-6
-    rated_fraction=xp.abs(motor_nm)/xp.maximum(rated_limit_nm,1e-6)
-    near95=rated_fraction>=.95
-    return dict(
-        spring_nm=spring_nm,rated_fraction=rated_fraction,
-        opposition=opposition,assistance=assistance,
-        near95=near95,near95_opposing=near95&opposition)
-
-
 def hip_roll_action_saturation(xp, raw_action, academy_active):
     """Read-only sampled hip-roll command saturation, Academy vs other roles.
 
@@ -1069,21 +1049,6 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         zero_i=jnp.zeros((n,),jnp.int32)
         zeros_feet=jnp.zeros((n,2),jnp.int32)
         false_feet=jnp.zeros((n,2),jnp.bool_)
-        # Per-world, 2-sided joint diagnostics. These O(worlds) aggregates
-        # stay on GPU. No [time,worlds] trace or optimiser state is created.
-        z2=jnp.zeros((n,2),jnp.float32)
-        diagnostic0=dict(
-            motor_abs_fraction_sum=z2,spring_abs_nm_sum=z2,
-            roll_angle_abs_deg_sum=z2,
-            near95_sum=z2,opposing_sum=z2,
-            near95_opposing_sum=z2,assisting_sum=z2,
-            fall_motor_near95=false_feet,fall_motor_opposition=false_feet,
-            fall_motor_rated_fraction=z2,fall_roll_abs_angle_deg=z2,
-            first_fall_height=false,first_fall_tilt=false,
-            first_fall_before_foot=false,
-            first_fall_after_lead=false,first_fall_after_both=false,
-            first_fall_x_m=zero,first_fall_y_offset_m=zero,
-            max_abs_lateral_offset_m=zero)
         # [2,3] are the two real mesh geometries of target cell [1,0].
         target_geoms=tuple(env.carpet_prism_geom_ids[2:4])
         foot_geoms=tuple(int(i) for i in env.ids['foot_geoms'])
@@ -1100,7 +1065,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
              goal_line,goal_line_both,goal_window_both,
              goal_window_heading,goal_window_safe,goal_window_all,
              x_window_any,x_window_both,first_both_frame,first_both_x,
-             open_streak,lane_streak,open_cross,lane_cross,diagnostic)=carry
+             open_streak,lane_streak,open_cross,lane_cross)=carry
             # Maintain *different* operator instructions in the same
             # JAX program; bypass random command resampling without
             # changing the actual deployable observation format.
@@ -1219,67 +1184,6 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             lateral_sum=lateral_sum+w*jnp.abs(
                 m['vy']-commands[:,1])
             still_motion=still_motion+w*jnp.abs(m['vx'])
-            # Signed actual POST-step actuator force and matching spring
-            # torque: motor * spring < 0 means fighting the centring spring.
-            motor=jnp.stack((
-                m['hip_roll_motor_torque_nm_right'],
-                m['hip_roll_motor_torque_nm_left']),axis=-1)
-            angle=jnp.stack((
-                m['hip_roll_angle_rad_right'],
-                m['hip_roll_angle_rad_left']),axis=-1)
-            stiffness=jnp.asarray(env.spring_stiffness)[jnp.asarray((0,3))]
-            reference=jnp.asarray(env.spring_reference)[jnp.asarray((0,3))]
-            limit=jnp.stack((
-                jnp.broadcast_to(env.servo_actuator_torque_limit_nm[...,0],(n,)),
-                jnp.broadcast_to(env.servo_actuator_torque_limit_nm[...,3],(n,))
-                ),axis=-1)
-            ht=hip_roll_load_terms(jnp,motor,angle,stiffness,reference,limit)
-            wt=live.astype(jnp.float32)[:,None]
-            def add(name,values):
-                return diagnostic[name]+wt*values
-            # Classify the first death frame from post-step physics metrics,
-            # not out.state (which can already contain a fresh reset).
-            fy=xy[:,1]-.5*TILE_M
-            diagnostic=dict(
-                motor_abs_fraction_sum=add(
-                    'motor_abs_fraction_sum',ht['rated_fraction']),
-                spring_abs_nm_sum=add(
-                    'spring_abs_nm_sum',jnp.abs(ht['spring_nm'])),
-                roll_angle_abs_deg_sum=add(
-                    'roll_angle_abs_deg_sum',jnp.rad2deg(jnp.abs(angle))),
-                near95_sum=add(
-                    'near95_sum',ht['near95'].astype(jnp.float32)),
-                opposing_sum=add(
-                    'opposing_sum',ht['opposition'].astype(jnp.float32)),
-                assisting_sum=add(
-                    'assisting_sum',ht['assistance'].astype(jnp.float32)),
-                near95_opposing_sum=add(
-                    'near95_opposing_sum',ht['near95_opposing'].astype(jnp.float32)),
-                fall_motor_near95=jnp.where(first_fall[:,None],
-                    ht['near95'],diagnostic['fall_motor_near95']),
-                fall_motor_opposition=jnp.where(first_fall[:,None],
-                    ht['opposition'],diagnostic['fall_motor_opposition']),
-                fall_motor_rated_fraction=jnp.where(first_fall[:,None],
-                    ht['rated_fraction'],diagnostic['fall_motor_rated_fraction']),
-                fall_roll_abs_angle_deg=jnp.where(first_fall[:,None],
-                    jnp.rad2deg(jnp.abs(angle)),diagnostic['fall_roll_abs_angle_deg']),
-                first_fall_height=diagnostic['first_fall_height'] |
-                    (first_fall & (m['fall_height']>.5)),
-                first_fall_tilt=diagnostic['first_fall_tilt'] |
-                    (first_fall & (m['fall_tilt']>.5)),
-                first_fall_before_foot=diagnostic['first_fall_before_foot'] |
-                    (first_fall & ~lead_seen),
-                first_fall_after_lead=diagnostic['first_fall_after_lead'] |
-                    (first_fall & lead_seen & ~jnp.all(feet_seen,axis=1)),
-                first_fall_after_both=diagnostic['first_fall_after_both'] |
-                    (first_fall & jnp.all(feet_seen,axis=1)),
-                first_fall_x_m=jnp.where(first_fall,xy[:,0],
-                    diagnostic['first_fall_x_m']),
-                first_fall_y_offset_m=jnp.where(first_fall,fy,
-                    diagnostic['first_fall_y_offset_m']),
-                max_abs_lateral_offset_m=jnp.maximum(
-                    diagnostic['max_abs_lateral_offset_m'],
-                    jnp.where(live,jnp.abs(fy),0.)))
             return (out.state,live_next,fall_frame,lead_seen,
                     foot_streak,feet_seen,stable_streak,complete,
                     best_progress,valid_frames,speed_error,yaw_error,
@@ -1288,7 +1192,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     goal_window_both,goal_window_heading,
                     goal_window_safe,goal_window_all,
                     x_window_any,x_window_both,first_both_frame,first_both_x,
-                    open_streak,lane_streak,open_cross,lane_cross,diagnostic)
+                    open_streak,lane_streak,open_cross,lane_cross)
 
         finished=jax.lax.fori_loop(0,horizon,frame_step,(
             es0,jnp.ones((n,),dtype=jnp.bool_),
@@ -1296,48 +1200,16 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             zero_i,false,zero,zero_i,zero,zero,zero,zero,zero,zero,
             zero_i,false,false,false,false,false,false,false,
             false,false,jnp.full((n,),-1,jnp.int32),zero,
-            zero_i,zero_i,false,false,diagnostic0))
+            zero_i,zero_i,false,false))
         (_,live,fall,lead,streak,seen,arrival,complete,progress,
          frames,speed_err,yaw_err,support,gravity,lateral,still,
          traverse_streak,traversed,goal_line,goal_line_both,
          goal_window_both,goal_window_heading,
          goal_window_safe,goal_window_all,x_window_any,x_window_both,
          first_both_frame,first_both_x,open_streak,lane_streak,
-         open_cross,lane_cross,diagnostic)=finished
+         open_cross,lane_cross)=finished
         denom=jnp.maximum(frames,1).astype(jnp.float32)
-        sides=('right','left')
-        joint_summary={}
-        for side,idx in zip(sides,range(2)):
-            for name in ('motor_abs_fraction_sum','spring_abs_nm_sum',
-                         'roll_angle_abs_deg_sum','near95_sum','opposing_sum',
-                         'assisting_sum','near95_opposing_sum'):
-                suffix=('fraction' if name in (
-                    'near95_sum','opposing_sum','assisting_sum',
-                    'near95_opposing_sum') else 'mean')
-                joint_summary[f'hip_{side}_{name}_{suffix}']=(
-                    diagnostic[name][:,idx] / denom)
-            joint_summary[f'hip_{side}_near95_at_fall']=(
-                diagnostic['fall_motor_near95'][:,idx])
-            joint_summary[f'hip_{side}_opposing_at_fall']=(
-                diagnostic['fall_motor_opposition'][:,idx])
-            joint_summary[f'hip_{side}_motor_fraction_at_fall']=(
-                diagnostic['fall_motor_rated_fraction'][:,idx])
-            joint_summary[f'hip_{side}_angle_abs_deg_at_fall']=(
-                diagnostic['fall_roll_abs_angle_deg'][:,idx])
-            joint_summary[f'hip_{side}_near95_opposed_conditional']=jnp.where(
-                diagnostic['near95_sum'][:,idx]>0,
-                diagnostic['near95_opposing_sum'][:,idx]/
-                    jnp.maximum(diagnostic['near95_sum'][:,idx],1.),-1.)
         return dict(
-            **joint_summary,
-            fell_height=diagnostic['first_fall_height'],
-            fell_tilt=diagnostic['first_fall_tilt'],
-            fell_before_lead_foot=diagnostic['first_fall_before_foot'],
-            fell_after_lead_before_both=diagnostic['first_fall_after_lead'],
-            fell_after_both_feet=diagnostic['first_fall_after_both'],
-            first_fall_x_m=diagnostic['first_fall_x_m'],
-            first_fall_y_offset_m=diagnostic['first_fall_y_offset_m'],
-            max_abs_lateral_offset_m=diagnostic['max_abs_lateral_offset_m'],
             actual_lip_m=measured_lip,actual_grade_deg=measured_grade,
             fall_frame=fall,first_life_frames=frames,
             survived=live,lead_foot_top=lead,

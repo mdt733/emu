@@ -183,75 +183,6 @@ def score_prism_crossings(frames, *, required_frames=5):
         worlds=per_world)
 
 
-
-def policy_motor_summary(frames):
-    """Read-only frozen-policy motor attribution, using the EXISTING prism trace.
-
-    Position servos receive action[t-1] at step t; the trace samples the
-    PRE-step state and therefore torque/pose at t correspond to action[t-2].
-    Exclude the first two frames and anything after an episode ends. This is
-    not a measured electrical torque-speed curve or a causal spring ablation.
-    """
-    from .environment import TARGET_SPAN
-
-    actions = np.asarray(frames["actor_action"], dtype=float)
-    joints = np.asarray(frames["spring_joint_qpos_rad"], dtype=float)[..., :6]
-    rates = np.asarray(frames["servo_joint_rate_rad_s"], dtype=float)
-    delivered = np.asarray(frames["servo_torque_nm"], dtype=float)
-    done = np.asarray(frames["done"], dtype=bool)
-    limits = np.asarray(frames["servo_peak_limit_nm"], dtype=float)
-    if actions.ndim != 3 or actions.shape[-1] != 6 or actions.shape[0] < 3:
-        raise ValueError("Expected T>=3, worlds, six motor actions")
-    if (joints.shape != actions.shape or rates.shape != actions.shape or
-            delivered.shape != actions.shape or done.shape != actions.shape[:2]):
-        raise ValueError("Frozen motor trace shape mismatch")
-    if limits.shape == (6,):
-        limits = np.broadcast_to(limits, actions.shape[1:])
-    if limits.shape != actions.shape[1:] or np.any(limits <= 0):
-        raise ValueError("Invalid per-world actuator force limits")
-
-    valid = first_episode_mask(done)[2:]
-    pos_target = actions[:-2] * TARGET_SPAN
-    error = pos_target - joints[2:]
-    # Nominal model request, not exact domain-randomized controller force.
-    nominal_unclamped_nm = 10.0 * error - 0.624 * rates[2:]
-    actual = delivered[2:]
-    cap = np.abs(actual) >= 0.98 * limits[None, :, :]
-    extreme = np.abs(actions[:-2]) >= 0.95
-
-    names = ("r_hip_roll", "r_hip_pitch", "r_knee",
-             "l_hip_roll", "l_hip_pitch", "l_knee")
-    rows = []
-    for j, name in enumerate(names):
-        sel = valid
-        count = int(sel.sum())
-        if count == 0:
-            rows.append(dict(joint=name, frames=0, at_cap_fraction=None,
-                             near_action_limit_fraction=None,
-                             cap_without_extreme_action_fraction=None,
-                             target_error_deg_p95=None))
-            continue
-        caps = cap[:, :, j][sel]
-        ex = extreme[:, :, j][sel]
-        rows.append(dict(
-            joint=name, frames=count,
-            at_cap_fraction=round(float(caps.mean()), 5),
-            near_action_limit_fraction=round(float(ex.mean()), 5),
-            cap_without_extreme_action_fraction=round(float((caps & ~ex).mean()), 5),
-            target_error_deg_p95=round(float(np.percentile(
-                np.abs(np.rad2deg(error[:, :, j][sel])), 95)), 3),
-            nominal_unclamped_nm_p95=round(float(np.percentile(
-                np.abs(nominal_unclamped_nm[:, :, j][sel]), 95)), 4),
-        ))
-    return dict(
-        note="First-life frames only; previous-policy action[t-2] paired with pre-step pose/torque[t].",
-        actuator_force_is_actual_clamped=True,
-        nominal_unclamped_is_not_actual_motor_force=True,
-        extreme_action_threshold=0.95,
-        rated_cap_threshold=0.98,
-        joints=rows,
-    )
-
 def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
                           speed=.12, seed=1701, device="cpu", mode="mixed",
                           grade_deg=3., lip_cm=1., phase_probe="normal", tof_probe="normal"):
@@ -523,7 +454,6 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         worlds=rows,
         mission_autopsy=autopsy,
         destination_autopsy=destination,
-        motor_diagnostics=policy_motor_summary(measured),
     )
     output.mkdir(parents=True, exist_ok=True)
     json_path = output / "prism_exam.json"
@@ -569,7 +499,6 @@ def evaluate_prism_policy(*, policy, output, worlds=4, horizon=300,
         "", "*Mechanical positive shaft work divided by actual forward directed progress;"
         " not battery energy, and omitted when travel is below 2 cm.",
         "Per-world net XY drift, footfall rate and same-foot stride length are in `prism_exam.json`.",
-        "Frozen motor target-error, command-extremity and actual saturation diagnostics are in `motor_diagnostics`.",
         "Footfalls require two frames airborne then two frames supported; stride requires two same-foot contacts.",
         "Per-world measured support and signed lip geometry are in `prism_exam.json`.",
         "No physical mastery, fixed-grade pass rate, or hardware safety is inferred"
