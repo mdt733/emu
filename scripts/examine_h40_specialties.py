@@ -293,6 +293,45 @@ def summarize(rows: list[dict]) -> tuple[list[dict], list[dict]]:
     return curves, envelopes
 
 
+def recovery_diagnostic_traces(trace: dict, rows: list[dict]) -> dict[str, bytes]:
+    """Sample actual resilience PASS/FAIL first lives, never balance proxies."""
+    from emu.physical_capability_exam import REPLAY_TRACE_FIELDS
+    passed = [r for r in rows if r["physical_mission_pass"]]
+    failed = [r for r in rows if not r["physical_mission_pass"]]
+    selected = []
+    if passed:
+        selected.append(("recovered", max(passed, key=lambda r: (
+            abs(r["birth_kick_mps"]), -r["world"]))))
+    if failed:
+        selected.append(("not_recovered", min(failed, key=lambda r: (
+            r["first_life_frames"], r["world"]))))
+    payloads = {}
+    for label, record in selected:
+        w, n = record["world"], record["first_life_frames"]
+        data = {}
+        for key in REPLAY_TRACE_FIELDS:
+            if key not in trace:
+                raise ValueError(f"Missing recovery physical trace: {key}")
+            arr = np.asarray(trace[key])
+            if arr.shape[0] < n or arr.shape[1] <= w:
+                raise ValueError(f"Misaligned recovery physical trace: {key}")
+            data[key] = arr[:n, w]
+        data["initial_position_xy"] = np.asarray(
+            trace["position_xy"][0, w])
+        data["initial_heading_rad"] = np.asarray(
+            trace["heading_rad"][0, w])
+        data["requested_birth_kick_world_x_mps"] = np.array(
+            record["birth_kick_mps"])
+        data["measured_initial_world_x_velocity_mps"] = np.array(
+            record["measured_initial_world_x_velocity_mps"])
+        data["control_dt_s"] = np.array(CONTROL_DT)
+        memory = io.BytesIO()
+        np.savez_compressed(memory, **data)
+        payloads[f"traces/{record['kind']}-{label}-world{w}.npz"] = (
+            memory.getvalue())
+    return payloads
+
+
 def _csv(rows: list[dict]) -> bytes:
     if not rows:
         raise ValueError("Cannot serialize an empty exam")
@@ -458,17 +497,9 @@ def run(*, policy: Path, output: Path, mode: str = "terrain",
             jax.random.PRNGKey(seed), horizon, 0.,
             command_schedule=zero))
         rows = score_recovery(traces, trials, horizon=horizon)
-        # A representative full first-life record of one recoverer and one
-        # failure is helpful, but not a restartable simulation.
-        from emu.physical_capability_exam import (
-            capture_representative_traces)
-        base = score_first_life(
-            traces, Scenario("birth_velocity_recovery", horizon//50,
-                             ((horizon//50, 0., 0., 0.),), "balance"))
-        trace_files = capture_representative_traces(
-            traces, base,
-            Scenario("birth_velocity_recovery", horizon//50,
-                     ((horizon//50, 0., 0., 0.),), "balance"))
+        # Preserve samples selected by the actual recovery gate, not by
+        # the different standing-balance or absolute XY station-keeping gate.
+        trace_files = recovery_diagnostic_traces(traces, rows)
         del traces
     curves, envelopes = summarize(rows)
     root = Path(__file__).resolve().parents[1]
