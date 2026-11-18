@@ -158,7 +158,7 @@ class MatrixExamTests(unittest.TestCase):
         # The new v1 first-life scoring checks share the existing physical
         # examiner contract case; no test-per-experiment growth.
         v1 = _PhysicalV1Checks()
-        for check in ["verify_zero_command_real_standing","verify_first_fall_excludes_subsequent_reset_lives","verify_walk_away_is_not_standing","verify_requested_trajectory_and_actor_are_distinct","verify_static_survival_cannot_pass_walking","verify_early_fall_cannot_pass_walking","verify_reject_wrong_operator_commands","verify_transition_requires_real_stop","verify_perfect_transition_passes","verify_trace_archive_ends_at_first_terminal","verify_trace_archive_captures_extreme_drift","verify_partial_scenario_cannot_become_complete_summary","verify_zip_does_not_overwrite_prior_exam"]:
+        for check in ["verify_zero_command_real_standing","verify_slow_drift_passes_balance_but_not_station_keeping","verify_fast_motion_fails_balance","verify_first_fall_excludes_subsequent_reset_lives","verify_walk_away_is_not_standing","verify_requested_trajectory_and_actor_are_distinct","verify_static_survival_cannot_pass_walking","verify_early_fall_cannot_pass_walking","verify_reject_wrong_operator_commands","verify_transition_requires_real_stop","verify_perfect_transition_passes","verify_trace_archive_ends_at_first_terminal","verify_trace_archive_captures_extreme_drift","verify_partial_scenario_cannot_become_complete_summary","verify_zip_does_not_overwrite_prior_exam"]:
             getattr(v1, check)()
 
     def test_signed_exact_step_and_continuous_grade_geometry(self):
@@ -305,6 +305,41 @@ class _PhysicalV1Checks(unittest.TestCase):
         self.assertAlmostEqual(rows[0]["final_drift_m"], 0.)
         self.assertEqual(rows[0]["physical_touchdown_events"], 0)
         self.assertEqual(rows[0]["standing_failure_reasons"], "")
+        self.assertTrue(all(r["zero_command_balance_pass"] for r in rows))
+
+    def verify_slow_drift_passes_balance_but_not_station_keeping(self):
+        # An already balancing robot with no world-XY position input
+        # must not fail basic balance after a minute of slow creep.
+        case = Scenario("still", 60, ((60, 0., 0., 0.),), "balance")
+        x = physical_v1_fixture(seconds=60)
+        dt = .02
+        frames = np.arange(1, 3001)
+        x["physical_position_xy_after_step"][:, 0, 0] = frames * dt * .04
+        x["physical_heading_rad_after_step"][:, 0] = frames * dt * .02
+        rows = score_first_life(x, case)
+        drifted = rows[0]
+        self.assertTrue(drifted["survived_full_horizon"])
+        self.assertTrue(drifted["zero_command_balance_pass"])
+        self.assertFalse(drifted["bounded_standing_pass"])
+        self.assertAlmostEqual(drifted["mean_horizontal_speed_mps"], .04)
+        self.assertAlmostEqual(drifted["final_drift_m"], 2.4)
+        self.assertIn("position_drift", drifted["standing_failure_reasons"])
+        self.assertIn("heading_drift", drifted["standing_failure_reasons"])
+        self.assertEqual(drifted["balance_failure_reasons"], "")
+        summary = summarize(rows, expected_worlds=2)
+        self.assertEqual(summary[0]["zero_command_balance_passes"], 2)
+        self.assertEqual(summary[0]["bounded_standing_passes"], 1)
+
+    def verify_fast_motion_fails_balance(self):
+        case = Scenario("still", 1, ((1, 0., 0., 0.),), "balance")
+        x = physical_v1_fixture()
+        x["physical_position_xy_after_step"][:, 0, 0] = (
+            .25 * .02 * np.arange(1, 51))
+        row = score_first_life(x, case)[0]
+        self.assertTrue(row["survived_full_horizon"])
+        self.assertFalse(row["zero_command_balance_pass"])
+        self.assertIn("excessive_average_horizontal_motion",
+                      row["balance_failure_reasons"])
 
     def verify_first_fall_excludes_subsequent_reset_lives(self):
         case = Scenario("still", 1, ((1, 0., 0., 0.),), "balance")
