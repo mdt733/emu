@@ -438,6 +438,8 @@ def run(*, policy: Path, output: Path, worlds: int = 8, seed: int = 1701,
     configure_jax(device)
     import jax
     import jax.numpy as jnp
+    import jaxlib
+    import platform
     require_backend(device == "cpu")
     train, control, sensor = (actor["training"], actor["control"],
                               actor["sensor_settings"])
@@ -513,6 +515,13 @@ def run(*, policy: Path, output: Path, worlds: int = 8, seed: int = 1701,
     manifest = dict(
         schema=SCHEMA, gates_revision=GATES_REVISION,
         status="UNCALIBRATED_NOT_A_CHAMPION_RANKING",
+        runtime_versions=dict(
+            python=platform.python_version(),
+            platform=platform.platform(),
+            numpy=np.__version__,
+            jax=jax.__version__,
+            jaxlib=jaxlib.__version__,
+            mujoco=env.mujoco.mj_versionString()),
         actor_artifact_sha256=actor["artifact_sha256"],
         actor_weights_sha256=actor["source"]["actor_sha256"],
         actor_training_source=actor["source"],
