@@ -1207,6 +1207,33 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             lateral_sum=lateral_sum+w*jnp.abs(
                 m['vy']-cmd_now[:,1])
             still_motion=still_motion+w*jnp.abs(m['vx'])
+            # Compact first-life resilience, grace and energy evidence.
+            # Never accumulate the internally auto-reset second life.
+            body_speed=jnp.hypot(m['vx'],m['vy'])
+            abs_yaw=jnp.abs(m['yaw_rate'])
+            motion_sum=motion_sum+w*body_speed
+            abs_yaw_sum=abs_yaw_sum+w*abs_yaw
+            bad_sum=bad_sum+w*(m['bad_contact']>.5).astype(jnp.float32)
+            min_gravity=jnp.minimum(
+                min_gravity,jnp.where(live,m['gravity_z'],1.))
+            slip_sum=slip_sum+w*m['exam_stance_slip_proxy']
+            energy_sum=energy_sum+w*jnp.maximum(
+                m['servo_shaft_drive_power_w'],0.)*CONTROL_DT
+            last_w=w*(i>=tail_start)
+            tail_motion=tail_motion+last_w*body_speed
+            tail_yaw=tail_yaw+last_w*abs_yaw
+            tail_frames=tail_frames+last_w
+            settled=(healthy&(body_speed<=.10)&(abs_yaw<=.15)&
+                     (m['gravity_z']>=recovery_gravity_limit)&
+                     (m['support']>=.5)&(m['bad_contact']<.5))
+            quiet_streak=jnp.where(settled,quiet_streak+1,0)
+            quiet_max=jnp.maximum(quiet_max,quiet_streak)
+            transition_a=transition_a+w*jnp.where(
+                i<a_end,m['vx'],0.)
+            transition_b=transition_b+w*jnp.where(
+                (i>=a_end)&(i<b_end),body_speed,0.)
+            transition_c=transition_c+w*jnp.where(
+                i>=b_end,m['vx'],0.)
             return (out.state,live_next,fall_frame,lead_seen,
                     foot_streak,feet_seen,stable_streak,complete,
                     best_progress,valid_frames,speed_error,yaw_error,
@@ -1215,7 +1242,11 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     goal_window_both,goal_window_heading,
                     goal_window_safe,goal_window_all,
                     x_window_any,x_window_both,first_both_frame,first_both_x,
-                    open_streak,lane_streak,open_cross,lane_cross)
+                    open_streak,lane_streak,open_cross,lane_cross,
+                    motion_sum,abs_yaw_sum,bad_sum,min_gravity,
+                    slip_sum,energy_sum,tail_motion,tail_yaw,tail_frames,
+                    quiet_streak,quiet_max,transition_a,transition_b,
+                    transition_c)
 
         finished=jax.lax.fori_loop(0,horizon,frame_step,(
             es0,jnp.ones((n,),dtype=jnp.bool_),
@@ -1223,14 +1254,21 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             zero_i,false,zero,zero_i,zero,zero,zero,zero,zero,zero,
             zero_i,false,false,false,false,false,false,false,
             false,false,jnp.full((n,),-1,jnp.int32),zero,
-            zero_i,zero_i,false,false))
+            zero_i,zero_i,false,false,
+            zero,zero,zero,jnp.ones((n,),jnp.float32),
+            zero,zero,zero,zero,zero,zero_i,zero_i,
+            zero,zero,zero))
         (_,live,fall,lead,streak,seen,arrival,complete,progress,
          frames,speed_err,yaw_err,support,gravity,lateral,still,
          traverse_streak,traversed,goal_line,goal_line_both,
          goal_window_both,goal_window_heading,
          goal_window_safe,goal_window_all,x_window_any,x_window_both,
          first_both_frame,first_both_x,open_streak,lane_streak,
-         open_cross,lane_cross)=finished
+         open_cross,lane_cross,
+         motion_sum,abs_yaw_sum,bad_sum,min_gravity,
+         slip_sum,energy_sum,tail_motion,tail_yaw,tail_frames,
+         quiet_streak,quiet_max,transition_a,transition_b,
+         transition_c)=finished
         denom=jnp.maximum(frames,1).astype(jnp.float32)
         return dict(
             actual_lip_m=measured_lip,actual_grade_deg=measured_grade,
@@ -1259,6 +1297,19 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             mean_support=support/denom,
             mean_gravity_z=gravity/denom,
             still_motion_mps=still/denom,
+            mean_horizontal_speed_mps=motion_sum/denom,
+            mean_abs_yaw_rate_rad_s=abs_yaw_sum/denom,
+            bad_contact_fraction=bad_sum/denom,
+            minimum_gravity_z=min_gravity,
+            mean_stance_slip_proxy=slip_sum/denom,
+            positive_servo_shaft_work_j=energy_sum,
+            final2s_horizontal_speed_mps=tail_motion/jnp.maximum(tail_frames,1.),
+            final2s_abs_yaw_rate_rad_s=tail_yaw/jnp.maximum(tail_frames,1.),
+            longest_stable_streak_frames=quiet_max,
+            initial_world_x_velocity_mps=measured_birth_vx,
+            transition_initial_vx_mps=transition_a/max(a_end,1),
+            transition_stop_speed_mps=transition_b/max(b_end-a_end,1),
+            transition_final_vx_mps=transition_c/max(horizon-b_end,1),
         )
 
     evaluate_matrix=jax.jit(evaluate_matrix,static_argnums=(7,))
