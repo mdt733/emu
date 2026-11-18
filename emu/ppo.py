@@ -1030,10 +1030,19 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             raise ValueError("matrix target mask requires [worlds]")
         if env.exam_fixture_steps is None:
             raise ValueError("matrix evaluator requires an exact physical fixture")
-
+        programs=(jnp.zeros((env.num_envs,),dtype=jnp.int32)
+                  if program_codes is None else
+                  jnp.asarray(program_codes,dtype=jnp.int32))
+        if programs.shape!=(env.num_envs,):
+            raise ValueError("exam programs require [worlds]")
+        a_end=horizon//3
+        b_end=(2*horizon)//3
+        tail_start=max(0,horizon-100)  # Last 2s, only on-device sums
+        recovery_gravity_limit=jnp.cos(jnp.deg2rad(20.))
         keys=jax.random.split(eval_key,env.num_envs)
         es0=env._reset_with_keys(keys,curriculum_params)
         initial_xy=es0.data.qpos[:,:2]
+        measured_birth_vx=es0.data.qvel[:,0]
         # Independently check the actual eight-mesh topology's two tile
         # *source* surfaces AT the exact shared boundary before evaluation.
         hv=es0.carpet_hfields.reshape((env.num_envs,TILE_COUNT,4))
