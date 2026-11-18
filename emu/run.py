@@ -15,7 +15,7 @@ from pathlib import Path
 from .checkpoint_io import (git_provenance, resolve_target_checkpoint,
                             run_training, update_boundary_at_or_after)
 from .contracts import source_repo_root, OBS_SCHEMA_TERRAIN
-from .physical_variants import selected_profile, profile_numbers
+from .physical_variants import selected_profile, profile_numbers, RESEARCH_PROFILE
 from .training_config import (TrainingConfig, prism_base_config,
                               training_sensor_contract, verify_existing_phase_config)
 
@@ -42,6 +42,10 @@ def one_run_config(args) -> TrainingConfig:
             raise ValueError(f"--{key.replace('_','-')} requires integer 1..100")
     unified = bool(getattr(args, 'unified_capabilities', False))
     foundation_steps=int(getattr(args,'foundation_steps',20_000_000))
+    # Research profile ONLY: phase out specific gait shaping over 20M
+    # after the 20M foundation. The protected normal H40 recipe keeps 0.
+    gait_guidance_fade_steps = (
+        20_000_000 if selected_profile() == RESEARCH_PROFILE else 0)
     foundation_mix=str(getattr(args,'foundation_mix','main'))
     teaching_schedule=str(getattr(args,'teaching_schedule','balanced'))
     velocity_i_ramp_s=float(getattr(args,'velocity_i_ramp_s',0.4))
@@ -178,6 +182,41 @@ def one_run_config(args) -> TrainingConfig:
     approach=science_args['science_step_approach_m']
     if 0. < approach < .15:
         raise ValueError('science-step-approach-m must be zero or >=0.15m')
+    holistic=bool(getattr(args,'holistic_cold_curriculum',False))
+    if holistic:
+        # This recipe can be reproduced with NO previous weights. Do not
+        # permit custom teacher knobs to silently defeat the age schedule.
+        if (selected_profile()!=RESEARCH_PROFILE or not unified or
+                not academy_stream or not carpet_prisms or
+                foundation_steps!=20_000_000 or growth_recipe!='main-mature' or
+                terrain_lesson!='coherent-careful' or
+                teaching_schedule!='terrain-early' or
+                force_program!='gentle' or
+                not math.isclose(athletic_share,.10,abs_tol=1e-9) or
+                not math.isclose(retention_share,.15,abs_tol=1e-9) or
+                not math.isclose(academy_share,.40,abs_tol=1e-9) or
+                finish_on_transfer):
+            raise ValueError(
+                'holistic cold curriculum requires Spring V1 H40, 20M foundation, '
+                'main-mature/terrain-early/coherent-careful/gentle, '
+                'Academy 40%, fast rehearsal 10%, base retention 15%, '
+                'and no early stair finish')
+        scheduled={
+            'science_step_goal_weight':.22,
+            'science_step_velocity_relief':.55,
+            'science_step_approach_m':.22,
+            'science_bilateral_support_bonus':6.,
+            'science_followthrough_bonus':7.,
+        }
+        if any(science_args[name]!=0. for name in scheduled):
+            raise ValueError(
+                'holistic stage rewards are sourced only from the pinned '
+                'curriculum; remove explicit --science-step-* overrides')
+        if any(science_args[name]!=0. for name in (
+                'science_supported_cross_bonus','science_foothold_bonus',
+                'science_sensor_teacher_bonus')):
+            raise ValueError('holistic cold curriculum has no lead-foot or sensor bonus')
+        science_args.update(scheduled)
     return replace(cfg, steps=args.steps, attitude_profile='v5015',
                    physical_profile=selected_profile(),
                    solver_iterations=solver_iterations,
@@ -185,6 +224,8 @@ def one_run_config(args) -> TrainingConfig:
                    observation_schema=OBS_SCHEMA_TERRAIN,
                    terrain_step_max_m=terrain_max, unified_capability_focus=unified,
                    foundation_steps=foundation_steps, foundation_mix=foundation_mix,
+                   gait_guidance_fade_steps=gait_guidance_fade_steps,
+                   holistic_cold_curriculum=holistic,
                    teaching_schedule=teaching_schedule,
                    velocity_i_ramp_s=velocity_i_ramp_s,
                    velocity_i_multiplier=velocity_i_multiplier,
@@ -295,7 +336,7 @@ def verify_experiment_fork(parent: TrainingConfig, child: TrainingConfig) -> Non
 
 def _validate_cross_source_research_parent(
         parent: Path, *, payload: dict, expected_source: str, expected_sha256: str,
-        provenance: dict) -> None:
+        provenance: dict, repair_partial_parent: bool = False) -> None:
     """Explicitly approve ONE immutable external research ancestor.
 
     Shape, normalizer, optimizer and sensor identity are already checked by
@@ -309,9 +350,26 @@ def _validate_cross_source_research_parent(
             or any(c not in '0123456789abcdef' for c in expected_source)
             or any(c not in '0123456789abcdef' for c in expected_sha256)):
         raise RuntimeError('Research ancestor requires full lower-case source SHA and SHA256')
+    # An explicitly declared post-publication-bug repair may fork the latest
+    # VALID incomplete checkpoint instead of lying that it was 'final.pkl'.
+    # This is NEVER enabled for ordinary research forks or --resume auto.
+    import re
+    completed=(parent.name == 'final.pkl')
+    # A completed independent evaluation may have already saved best.pkl
+    # at the exact PPO age before the terminal CSV publication failed.
+    # Preserve that fully trained PPO/optimiser snapshot if it validates.
+    evaluated_best=(parent.name == 'best.pkl' and
+                    payload['meta'].get('evaluated_policy') is True and
+                    math.isfinite(float(payload['meta'].get('best_eval_score',float('nan')))))
+    partial=(parent.name == 'latest.pkl' or bool(re.fullmatch(
+        r'snapshot_step_[0-9]+\.pkl', parent.name)))
+    permitted=((partial or evaluated_best) if repair_partial_parent else completed)
     if (source != expected_source or source == provenance['commit']
-            or parent.name != 'final.pkl' or parent.parent.name != 'checkpoints'):
-        raise RuntimeError('Research parent must be completed final.pkl from exact declared earlier source')
+            or not permitted or parent.parent.name != 'checkpoints'):
+        raise RuntimeError(
+            'Research parent requires exact declared source and an unmodified '
+            + ('validated best/latest/snapshot rescue checkpoint' if repair_partial_parent
+               else 'completed final.pkl'))
     digest = hashlib.sha256()
     with parent.open('rb') as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b''):
@@ -325,7 +383,8 @@ def _validate_cross_source_research_parent(
 
 
 def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str,
-                research_parent_source: str = '', research_parent_sha256: str = '') -> tuple[Path | None, bool]:
+                research_parent_source: str = '', research_parent_sha256: str = '',
+                repair_partial_parent: bool = False) -> tuple[Path | None, bool]:
     """Fail closed on incompatible runs, unclean source, and unsafe paths.
 
     Returns (validated checkpoint to resume from, already complete?).
@@ -333,6 +392,10 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str,
     """
     if bool(research_parent_source) != bool(research_parent_sha256):
         raise RuntimeError('Research fork requires BOTH exact source SHA and checkpoint SHA256')
+    if repair_partial_parent and not (research_parent_source and
+                                      research_parent_sha256 and resume not in ('', 'auto')):
+        raise RuntimeError('Partial-source repair requires explicit ancestor path, full Git SHA and checkpoint SHA256')
+
     if research_parent_source and resume in ('', 'auto'):
         raise RuntimeError('Research parent hashes require an explicit external --resume checkpoint')
     root = Path(config.run_dir).resolve()
@@ -419,7 +482,8 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str,
                     'and checkpoint SHA256, or start a new cold training lineage.')
             _validate_cross_source_research_parent(
                 parent, payload=payload, expected_source=research_parent_source,
-                expected_sha256=research_parent_sha256, provenance=provenance)
+                expected_sha256=research_parent_sha256, provenance=provenance,
+                repair_partial_parent=repair_partial_parent)
         elif research_parent_source:
             raise RuntimeError('Research cross-source flags are not allowed for same-source resume')
         # A newly created study is allowed to fork a source-matched
@@ -454,7 +518,8 @@ def train_one(args) -> int:
     parent, completed = inspect_run(
         config, provenance=provenance, resume=args.resume,
         research_parent_source=getattr(args,'research_parent_source',''),
-        research_parent_sha256=getattr(args,'research_parent_sha256',''))
+        research_parent_sha256=getattr(args,'research_parent_sha256',''),
+        repair_partial_parent=bool(getattr(args,'repair_partial_parent',False)))
     if getattr(args, 'check_resume_only', False):
         print(f'RESUME VERIFICATION PASS: {parent or "cold start"}'
               f' (already complete={completed}); no PPO run or output created',
