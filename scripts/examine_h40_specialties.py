@@ -78,15 +78,14 @@ def challenges(mode: str, *, worlds: int, repeats: int) -> list[Challenge]:
             f"{mode} requires at least {len(specs) * repeats} worlds "
             f"for {repeats} repeats per difficulty, got {worlds}")
     rows = [
-        Challenge(len_placeholder, specialty, kind, level, rep,
+        Challenge(i, specialty, kind, level, rep,
                   vx=.25 if mode == "terrain" else 0.,
                   step_m=step, grade_deg=grade, birth_kick_mps=kick)
-        for specialty, kind, level, step, grade, kick in specs
-        for rep in range(repeats)
-        for len_placeholder in (0,)
+        for i, (specialty, kind, level, rep, step, grade, kick) in enumerate(
+            (specialty, kind, level, rep, step, grade, kick)
+            for specialty, kind, level, step, grade, kick in specs
+            for rep in range(repeats))
     ]
-    rows = [Challenge(i, **{k: v for k, v in asdict(row).items()
-                             if k != "world"}) for i, row in enumerate(rows)]
     rows.extend(Challenge(i, "padding", "padding", 0, 0)
                 for i in range(len(rows), worlds))
     return rows
@@ -190,6 +189,15 @@ def score_recovery(traces: dict, trials: list[Challenge],
             continue
         i = tr.world
         row = base_rows[i]
+        measured_kick = float(initial_vel[0, i, 0])
+        # A simulated disturbance that never reached the real body is
+        # invalid evidence; never report effortless recovery in that case.
+        if not np.isfinite(measured_kick) or (
+                abs(measured_kick - tr.birth_kick_mps) > .05):
+            raise RuntimeError(
+                f"{tr.kind} world {i}: birth velocity was not delivered "
+                f"(expected {tr.birth_kick_mps:+.3f}, measured "
+                f"{measured_kick:+.3f} m/s)")
         n = int(row["first_life_frames"])
         xy = np.concatenate((initial_xy[0, i:i+1],
                              actual_xy[:n, i]), axis=0)
@@ -225,7 +233,7 @@ def score_recovery(traces: dict, trials: list[Challenge],
             failures.append("no_sustained_2s_recovery")
         detail.append(dict(
             **asdict(tr),
-            measured_initial_world_x_velocity_mps=float(initial_vel[0, i, 0]),
+            measured_initial_world_x_velocity_mps=measured_kick,
             survived_full_horizon=full,
             first_life_frames=n,
             p95_tilt_deg=row["p95_tilt_deg"],
@@ -491,6 +499,7 @@ def run(*, policy: Path, output: Path, mode: str = "terrain",
         simulator="MJX 8 true convex triangle prisms / 4 source 1m tiles",
         device=jax.default_backend(), wall_seconds=time.perf_counter()-started,
         scenarios=sorted({r["kind"] for r in rows}),
+        training_focus_names=FOCUS_NAMES,
         first_life_only=True, no_optimizer_updates=True,
         no_teacher_reward_success=True,
         terrain_gate="each foot 5 top-support frames + 5 upright frames >=60cm beyond seam, full horizon survived",
