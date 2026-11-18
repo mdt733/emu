@@ -1,39 +1,42 @@
-# EMU H40 — concise handover
+# EMU H40 — 140M development handover
 
-**Product goal:** reproducible, one-policy locomotion for the 40 cm H40 six-servo biped: stand, walk commanded vx/vy/yaw, tolerate disturbances and slopes, then negotiate physical uphill *and* downhill steps without sacrificing easier skills.
+**Goal:** one six-servo, 360-input dynamically unstable biped learns useful commanded walking, resilience, slopes and both step directions *without forgetting earlier skills*.
 
-## Current authority
+## The promoted baseline
 
-- `main` retains the prior approved H40 120M actor in `showcase/champion.emupolicy`. Source promotion does not replace the public demonstration.
-- The newer **holistic cold curriculum** is one source-pinned **0→160M random-initialisation** learner, with teacher stages at 20M (gait fade), 40M (outcomes), 120M (physical step approach), 140M (both-foot transfer), and a final 160M held-out exam. It does not import a 120M/140M/160M research checkpoint.
-- The **first candidate run** is against the unmodified `work/emu-holistic-coldstart` source. Treat its own `run_meta.json`, immutable stage manifests and Git SHA as authoritative. Don't silently resume its checkpoints on the separate clean-integration branch.
-- `work/emu-main-clean-integration` is the **curated, main-based proposal**: carry across the new training implementation unchanged, remove one-off experiment scripts, refresh docs and tests. This branch has a *different Git SHA*, despite byte-identical training-critical files. It is not yet approved for merging.
-- Preserve all 120M, 140M and 160M historical reference actors, their source hashes and result ZIPs outside Git. Findings are in `docs/RESEARCH_FINDINGS.md` and original Git/PR history.
+- **Original 140M learner:** source `22266821bdbfc82a529ef708e5171c82c6c9f29c`, training seed `735`, actual step `140,050,432`, complete PPO/normaliser/curriculum state at `~/emu-data/runs/h40-holistic-cold-s735/stages/140m/final.pkl`. Its signed `stage_manifest.json` and exported `actor.emupolicy` remain with it **outside Git**.
+- **Maintained code:** `main` is the curated source-equivalent Spring V1 training system up to 140M, derived from PR #96. Core robot, observations, PPO and rewards retain the original 140M-producing implementations. This integration commit is *not* the original checkpoint source SHA.
+- **Profile:** `EMU_PHYSICAL_PROFILE=h40-spring-v1` (150 N/m effective knee strut, revised anchors and ROM, original six rated ±0.980665 N·m motor caps). Keep separate from historical `h40` physical model. Real spring cartridge geometry and hardware performance are unvalidated.
+- **Public website:** `showcase/champion.emupolicy` remains the older approved 120M actor. New source promotion does **not** silently publish a new actor or change release approval.
 
-## Evidence that drives decisions
+## How the 140M learner was built
 
-Earlier matched 2,000-stair + 2,000-flat physical exams:
-- At **140M**, 44–60mm UP had 20.0% verified both-foot support and 1.6% aligned traversal; DOWN 44–80mm had 50.0% aligned traversal.
-- At **160M**, UP 44–60mm improved to 34.4% both-foot support and 8.8% aligned traversal, but UP survival fell to 47.2% and DOWN aligned traversal regressed to 27.2%.
-- The holistic experiment specifically addresses that tradeoff with **uphill Academy practice capped at 55mm, downhill practice at 80mm, extra core-control retention after 140M**, and full independent tests. Higher Academy reward or assigned step height is not proof of real crossing.
+| World steps | Lesson |
+| --- | --- |
+| 0–20M | Walking and balance with gait guidance |
+| 20–40M | Fade gait guidance to zero |
+| 40–120M | Outcomes: commands, slopes, recovery, uphill/downhill practice |
+| 120–140M | Step commitment: approach a lip, attempt progress, allow temporary slowdown |
 
-## Next decisions
+One actor, one optimizer, 2,048 MJX environments, no warm-start actor imported. The canonical runner **stops at 140M**. The source still describes the original after-140M transfer phase for historical parity; it is **not** a supported mainline continuation.
 
-1. Do not change the source or delete checkpoints underneath the running original cold training.
-2. Compare independent held-out UP, DOWN, flat and general capability results at 120/140/160M; inspect failures by actual height and foot-transfer stage.
-3. Verify **main-based clean integration** with a fresh install, source parity, real CPU MJX contacts and 2,048-env CUDA PPO/export/resume smoke. Treat passing CI as software validation, not successful cold locomotion.
-4. Reproduce with a second independently randomised seed on **the same frozen revision** before asserting seed robustness.
-5. Request explicit owner approval before a curated merge to `main`; separately approve a new showcase actor.
+## Physical evidence
 
-## Operator shortcuts
+Three *evaluation* seeds (1701/1711/1729; only one training seed, 735) yielded means: **57.4%** flat lane control, **50.5%** uphill 44–60mm, **19.1%** uphill 64–80mm, **71.6%** downhill 44–80mm; essentially 100% flat survival. Full sequential multi-step reliability is not demonstrated.
 
-```bash
-bash scripts/setup_wsl.sh --cuda13 --install-node --check
+The historical 160M actor lost flat directional control to **7.2%**; the later 175M actor gained hard-uphill capability (**43.6%**) but flat control fell to **12.3%**. The remaining challenge is **retaining the old skills while learning new ones**, not blindly increasing run length. These numbers are from source-pinned first-life true-prism independent exams, not PPO rewards.
+
+## Reproduce, evaluate and extend
+
+~~~bash
+# Maintained mainline: plan is default, no checkpoint opened.
 bash scripts/run_h40_holistic_cold_wsl.sh plan
-bash scripts/run_h40_holistic_cold_wsl.sh all
-source .venv/bin/activate
-emu dashboard --run-dir ~/emu-data/runs/h40-holistic-cold-s735 --once --plain
-emu viewer showcase/champion.emupolicy --no-open
-```
+# New random seed and isolated output directory:
+EMU_COLD_SEED=736 bash scripts/run_h40_holistic_cold_wsl.sh all
+# Original trained development actor (local only):
+EMU_PHYSICAL_PROFILE=h40-spring-v1 emu viewer   ~/emu-data/runs/h40-holistic-cold-s735/stages/140m/actor.emupolicy --no-open
+~~~
 
-Architecture: [docs/CORE_SKELETON.md](docs/CORE_SKELETON.md). Hardware assumptions and unresolved calibration: [docs/MAINTENANCE.md](docs/MAINTENANCE.md). Source-specific history lives in Git; do not accumulate new branch-per-tweak launcher files.
+The new default run path is `~/emu-data/runs/h40-main-140m-s<seed>/`; never overwrite the original source-pinned run. Continue from the 140M full PPO checkpoint only on a **single isolated research branch** with explicit cross-source checksum/source authentication. For new curriculum proposals, measure flat/UP/DOWN/command/slope/resilience; no promotion by reward or frontier. Reproduce the 140M recipe across other *training* seeds before claiming robust training reproducibility.
+
+[README](README.md) · [Core skeleton](docs/CORE_SKELETON.md) · [Measured findings](docs/RESEARCH_FINDINGS.md)

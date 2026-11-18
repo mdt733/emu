@@ -37,7 +37,7 @@ bash scripts/run_h40_holistic_cold_wsl.sh plan
 bash scripts/run_h40_holistic_cold_wsl.sh all
 ```
 
-The single script validates the branch, clean Git state and H40 Spring V1 physical hash. It starts a **new** seed-735 run, preserves 20/40/120/140/160M stage checkpoints, stops if early foundation health collapses, evaluates all final-stage frozen policies and writes the evidence bundle.
+The single script validates a clean named Git source and H40 Spring V1 physical hash. It starts a **new** seed-735 run in `~/emu-data/runs/h40-main-140m-s735/` (never the original validated `h40-holistic-cold-s735`), preserves 20/40/120/140M stage checkpoints, stops if early foundation health collapses, evaluates all final-stage frozen policies and writes the evidence bundle.
 
 Data lives at `~/emu-data/runs/h40-holistic-cold-s735/`, **outside Git**. To conduct a second independent run from random weights on an unchanged source revision, set `EMU_COLD_SEED=736` in the launcher invocation; it uses a different output directory. Never re-use the seed-735 directory for a different experiment.
 
@@ -55,7 +55,7 @@ emu dashboard --run-dir ~/emu-data/runs/h40-holistic-cold-s735 --once --plain
 emu report --root ~/emu-data/runs/h40-holistic-cold-s735
 ```
 
-For an independent exam on a frozen export, see `emu prism-exam --help`. The holistic launcher runs the exact 2k-stair + 2k-flat held-out matrix at ages 120/140/160M automatically. Never confuse the browser's Meadow terrain with identical MJX collision physics.
+For an independent exam on a frozen export, see `emu prism-exam --help`. The holistic launcher runs the exact 2k-stair + 2k-flat held-out matrix at ages 120/140M automatically. Never confuse the browser's Meadow terrain with identical MJX collision physics.
 
 ## Browser and geometry lab
 
@@ -69,6 +69,6 @@ Open http://127.0.0.1:8765/. The checked-in champion is the previously approved 
 
 ## Validation and failure handling
 
-Run `bash scripts/check.sh --quick` or `bash scripts/check.sh --full`. CI also runs actual small-world CPU prism contacts; it cannot train 160M on your RTX. Keep the exact source SHA, error and run directory on a failed run. Do **not** erase the run or copy historical checkpoints into the new study to get past a failure.
+Run `bash scripts/check.sh --quick` or `bash scripts/check.sh --full`. CI also runs actual small-world CPU prism contacts; it cannot train 140M on your RTX. Keep the exact source SHA, error and run directory on a failed run. Do **not** erase the run or copy historical checkpoints into the new study to get past a failure.
 
 Repository/build policy and hardware assumptions: [maintenance](MAINTENANCE.md) · [core skeleton](CORE_SKELETON.md). An old 120M release policy is **not** the new cold-start model and must not be silently substituted.

@@ -35,7 +35,7 @@ validated .emupolicy --> separate MuJoCo/WASM browser viewer
 
 ## Holistic random-init program
 
-`scripts/run_h40_holistic_cold_wsl.sh` sets an immutable recipe and runs one uninterrupted **checkpoint lineage** through 20M, 40M, 120M, 140M and 160M environment steps. The stages are age-scheduled **teacher settings**, not independent trained models, additional actor observations or runtime code swaps.
+`scripts/run_h40_holistic_cold_wsl.sh` sets an immutable recipe and runs one uninterrupted **checkpoint lineage** through 20M, 40M, 120M and **140M** environment steps. The stages are age-scheduled **teacher settings**, not independent trained models, additional actor observations or runtime code swaps.
 
 | Age | Teacher emphasis | Prevented failure |
 | --- | --- | --- |
@@ -43,7 +43,7 @@ validated .emupolicy --> separate MuJoCo/WASM browser viewer
 | 20–40M | Fade gait/phase-specific rewards to zero | Overfit prescribed gait |
 | 40–120M | Commands, slopes, recovery and earned UP/DOWN schools | Flat-only skill |
 | 120–140M | Signed progress and near-lip approach | Avoidance instead of learning steps |
-| 140–160M | Verified two-foot transfer, true post-cross continuation, extra control rehearsal | Leading-foot-only credit; downhill retention collapse |
+| Beyond 140M | **Research only:** no mainline graduation or continuation | The historical transfer stage degraded flat control |
 
 The uphill Academy difficulty cap (55 mm) differs from downhill (80 mm) by design. **Both remain individually earned competency frontiers**; the separate examiner still probes 4–80mm. A robot is not promised to clear any height just because a teacher presents it.
 
@@ -63,3 +63,5 @@ The uphill Academy difficulty cap (55 mm) differs from downhill (80 mm) by desig
 Large modules warrant eventual responsibility-based refactoring, but **never change traced JAX operations or physics during a source-pinned GPU run**. Any refactor requires contact, reward, observation, export and training-lifecycle parity tests. The current clean-integration proposal carries training-core module bytes unchanged from the original holistic cold experiment.
 
 Read [installation](INSTALL.md), [physical quality](PHYSICAL_QUALITY.md), [maintenance rules](MAINTENANCE.md) and [current handover](../handover.md).
+
+**Reference fidelity:** the curated 140M mainline retains the original core robot/observation/PPO/reward implementations. The after-140M teacher exists for historical source parity but is never entered by the supported launcher. The locally stored full seed-735 140M checkpoint is the development champion; the checked-in public 120M actor is not it.
