@@ -253,6 +253,26 @@ desired-path tracking error, and positive servo shaft work. The stop interval
 has its own speed measure so forward/reverse velocities cannot average out
 and masquerade as a successful stop.
 
+### Separate provisional locomotion mission gate
+
+Survival, average tracking and actual mission completion are separate
+outcomes. A moving-task **mission pass** requires full first-life survival,
+no unreasonable route endpoint or 95th-percentile deviation, bounded
+world-heading error, operator vx/vy/yaw tracking, and safe foot contact.
+The route tolerance is `0.20m + 10% of commanded translational path
+length`; absolute heading error must be at most 0.75rad; mean absolute
+vx/vy/yaw errors must be ≤0.12m/s, ≤0.10m/s and ≤0.20rad/s. At least 50%
+of live frames need actual foot-floor contact, with bad contacts in ≤10%.
+
+The 10s-forward / 10s-stop / 10s-reverse task additionally requires
+mean body-frame forward speed ≥0.13m/s in the first segment, ≤0.08m/s
+mean horizontal speed while stopped, and mean reverse speed ≤-0.10m/s
+in the last segment. A fall at 2s cannot pass because the pre-fall
+average happened to look good. The world-level CSV includes every gate's
+failure reason; the summary keeps mission passes distinct from survival.
+These values are **hypotheses**, not empirically calibrated acceptance
+criteria. No certification of Spring V1 or the current H40 is implied.
+
 **No aggregate weighted championship score is assigned.** Summary rows
 retain the denominator of the number of evaluated worlds. A policy does not
 pass as a generalist merely because a stair or speed specialist is strong.
