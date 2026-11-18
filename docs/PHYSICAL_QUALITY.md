@@ -367,7 +367,7 @@ the ZIP and exact source commit for later inspection.
 
 ## Research specialty examinations — signed terrain and velocity recovery
 
-Entry point: \`python -m scripts.examine_h40_specialties\`. This is a
+Entry point: `python -m scripts.examine_h40_specialties`. This is a
 **second exam campaign**, not a replacement for the original zero-command
 balance/locomotion/control/transition tests. It uses the same strictly
 authenticated frozen H40 policy and *real* MJX triangular-prism contacts.
@@ -413,7 +413,7 @@ distance is a *diagnostic*, not a disqualifier.
 
 ### Run on the frozen source-matched H40
 
-\`\`\`bash
+```bash
 git fetch origin
 git switch research/physical-capability-exam-v1
 git pull --ff-only
@@ -432,11 +432,11 @@ python -m scripts.examine_h40_specialties \
   --mode recovery --device cuda --worlds 24 --repeats 2 --horizon 1000 \
   --policy showcase/champion.emupolicy --seed 1701 \
   --output ~/emu-data/exams/h40-specialties-recovery-s1701.zip
-\`\`\`
+```
 
-Both runs produce one non-overwriting ZIP with \`manifest.json\`,
-\`summary.json\`, \`summary.md\`, \`worlds.csv\`, \`curves.csv\`, and
-\`envelopes.csv\` (and representative non-restartable diagnostic traces
+Both runs produce one non-overwriting ZIP with `manifest.json`,
+`summary.json`, `summary.md`, `worlds.csv`, `curves.csv`, and
+`envelopes.csv` (and representative non-restartable diagnostic traces
 in recovery mode). Only physically attempted difficulty points appear
 in the denominator. AUC is integrated **only** between measured
 severities within the same direction; a one-point control has NULL AUC.
