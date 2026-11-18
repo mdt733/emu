@@ -126,6 +126,11 @@ def score_first_life(trace: dict, scenario: Scenario,
         command = np.asarray(trace["command"][:n, world], dtype=float)
         if command.shape != (n, 3):
             raise ValueError("malformed requested command history")
+        # Never score a scenario under another command due to a misplaced
+        # task reset, ramp or trace-ordering regression.
+        if not np.allclose(command, scenario.command_schedule()[:n],
+                           atol=1e-6, rtol=0.):
+            raise ValueError(f"{scenario.name} world {world}: operator commands differ from protocol")
         dx = np.diff(positions, axis=0) / dt
         theta = headings[:-1]
         c, s = np.cos(theta), np.sin(theta)
@@ -497,7 +502,11 @@ def run(*, policy: Path, output: Path, worlds: int = 8, seed: int = 1701,
     source_paths = ("emu/physical_capability_exam.py", "emu/ppo.py",
                     "emu/environment.py", "emu/contracts.py",
                     "emu/terrain_carpet_mjx.py", "emu/carpet_prism_mjx.py",
-                    "emu/physical_variants.py")
+                    "emu/physical_variants.py", "emu/robot.xml",
+                    "emu/policy_export.py", "emu/tof_geometry.py",
+                    "emu/training_config.py", "emu/domain_randomization.py",
+                    "emu/directional.py", "emu/capability_focus.py",
+                    "emu/rewards.py", "emu/step_goal.py")
     root = Path(__file__).resolve().parents[1]
     source_hashes = {p: sha256((root / p).read_bytes()).hexdigest()
                      for p in source_paths}
