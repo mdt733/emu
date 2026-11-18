@@ -156,7 +156,7 @@ class MatrixExamTests(unittest.TestCase):
         # The new v1 first-life scoring checks share the existing physical
         # examiner contract case; no test-per-experiment growth.
         v1 = _PhysicalV1Checks()
-        for check in ["verify_zero_command_real_standing","verify_first_fall_excludes_subsequent_reset_lives","verify_walk_away_is_not_standing","verify_requested_trajectory_and_actor_are_distinct","verify_transition_requires_real_stop","verify_partial_scenario_cannot_become_complete_summary","verify_zip_does_not_overwrite_prior_exam"]:
+        for check in ["verify_zero_command_real_standing","verify_first_fall_excludes_subsequent_reset_lives","verify_walk_away_is_not_standing","verify_requested_trajectory_and_actor_are_distinct","verify_static_survival_cannot_pass_walking","verify_early_fall_cannot_pass_walking","verify_transition_requires_real_stop","verify_perfect_transition_passes","verify_partial_scenario_cannot_become_complete_summary","verify_zip_does_not_overwrite_prior_exam"]:
             getattr(v1, check)()
 
     def test_signed_exact_step_and_continuous_grade_geometry(self):
@@ -326,6 +326,33 @@ class _PhysicalV1Checks(unittest.TestCase):
         self.assertAlmostEqual(rows[0]["vx_mae_mps"], 0., places=5)
         self.assertAlmostEqual(rows[0]["final_trajectory_error_m"],
                                0., places=5)
+        self.assertTrue(rows[0]["locomotion_mission_pass"])
+        self.assertEqual(rows[0]["locomotion_failure_reasons"], "")
+
+    def verify_static_survival_cannot_pass_walking(self):
+        case = Scenario("forward", 1, ((1, .25, 0., 0.),),
+                        "locomotion")
+        x = physical_v1_fixture()
+        x["command"][:, :, 0] = .25
+        rows = score_first_life(x, case)
+        self.assertTrue(rows[0]["survived_full_horizon"])
+        self.assertFalse(rows[0]["locomotion_mission_pass"])
+        self.assertIn("vx_tracking", rows[0]["locomotion_failure_reasons"])
+
+    def verify_early_fall_cannot_pass_walking(self):
+        case = Scenario("forward", 1, ((1, .25, 0., 0.),),
+                        "locomotion")
+        x = physical_v1_fixture()
+        x["command"][:, :, 0] = .25
+        x["physical_position_xy_after_step"][:, :, 0] = (
+            .005 * np.arange(1, 51)[:, None])
+        x["done"][4, 0] = True
+        x["fell"][4, 0] = True
+        rows = score_first_life(x, case)
+        self.assertFalse(rows[0]["locomotion_mission_pass"])
+        self.assertIn("terminal", rows[0]["locomotion_failure_reasons"])
+        self.assertTrue(rows[1]["locomotion_mission_pass"])
+        self.assertEqual(rows[0]["first_life_frames"], 5)
 
     def verify_transition_requires_real_stop(self):
         case = Scenario("forward_stop_reverse_30s", 30,
@@ -338,6 +365,23 @@ class _PhysicalV1Checks(unittest.TestCase):
             .005 * np.arange(1, 1501)[:, None])
         rows = score_first_life(x, case)
         self.assertGreater(rows[0]["stop_interval_mean_speed_mps"], .20)
+        self.assertFalse(rows[0]["locomotion_mission_pass"])
+        self.assertIn("failed_to_stop", rows[0]["locomotion_failure_reasons"])
+
+    def verify_perfect_transition_passes(self):
+        case = Scenario("forward_stop_reverse_30s", 30,
+                        ((10, .25, 0., 0.), (10, 0., 0., 0.),
+                         (10, -.20, 0., 0.)), "transitions")
+        x = physical_v1_fixture(seconds=30)
+        schedule = case.command_schedule()
+        x["command"][:] = schedule[:, None, :]
+        x["physical_position_xy_after_step"][:, :, 0] = (
+            np.cumsum(schedule[:, 0])[:, None] * .02)
+        rows = score_first_life(x, case)
+        self.assertTrue(all(r["locomotion_mission_pass"] for r in rows))
+        self.assertAlmostEqual(rows[0]["stop_interval_mean_speed_mps"], 0.)
+        summary = summarize(rows, expected_worlds=2)
+        self.assertEqual(summary[0]["locomotion_mission_passes"], 2)
 
     def verify_partial_scenario_cannot_become_complete_summary(self):
         case = Scenario("still", 1, ((1, 0., 0., 0.),), "balance")
