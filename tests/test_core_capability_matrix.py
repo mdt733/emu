@@ -15,6 +15,10 @@ from emu.physical_capability_exam import (
     capture_representative_traces)
 from emu.terrain_carpet_mjx import (
     TILE_M,exact_exam_lip_profiles,tile_geometry)
+from scripts.examine_h40_specialties import (
+    Challenge, challenges as specialist_challenges,
+    score_terrain, score_recovery, summarize as specialist_summary,
+    archive_results)
 
 
 class MatrixExamTests(unittest.TestCase):
@@ -160,6 +164,12 @@ class MatrixExamTests(unittest.TestCase):
         v1 = _PhysicalV1Checks()
         for check in ["verify_zero_command_real_standing","verify_slow_drift_passes_balance_but_not_station_keeping","verify_fast_motion_fails_balance","verify_spin_fails_zero_yaw_balance","verify_first_fall_excludes_subsequent_reset_lives","verify_walk_away_is_not_standing","verify_requested_trajectory_and_actor_are_distinct","verify_static_survival_cannot_pass_walking","verify_early_fall_cannot_pass_walking","verify_reject_wrong_operator_commands","verify_transition_requires_real_stop","verify_perfect_transition_passes","verify_trace_archive_ends_at_first_terminal","verify_trace_archive_captures_extreme_drift","verify_partial_scenario_cannot_become_complete_summary","verify_zip_does_not_overwrite_prior_exam"]:
             getattr(v1, check)()
+        specialties = _PhysicalSpecialtyChecks()
+        for check in ("verify_specialist_allocation",
+                      "verify_signed_terrain_crossing_not_survival",
+                      "verify_recovery_needs_settling",
+                      "verify_exam_archive_nonoverwrite"):
+            getattr(specialties, check)()
 
     def test_signed_exact_step_and_continuous_grade_geometry(self):
         heights=np.array([.0025,.05,-.0375,0.],np.float32)
@@ -525,6 +535,93 @@ class _PhysicalV1Checks(unittest.TestCase):
                 save_evidence(path, {"schema": "test"}, rows,
                               summarize(rows, expected_worlds=2))
 
+
+
+class _PhysicalSpecialtyChecks(unittest.TestCase):
+    def verify_specialist_allocation(self):
+        tasks = specialist_challenges("terrain", worlds=20, repeats=1)
+        self.assertEqual(len(tasks), 20)
+        self.assertEqual(sum(t.specialty == "slope" for t in tasks), 8)
+        self.assertEqual(sum(t.specialty == "step" for t in tasks), 10)
+        self.assertEqual(sum(t.kind == "flat_control" for t in tasks), 1)
+        self.assertEqual(sum(t.specialty == "padding" for t in tasks), 1)
+        self.assertAlmostEqual(max(t.step_m for t in tasks), .08)
+        self.assertAlmostEqual(min(t.step_m for t in tasks), -.08)
+        self.assertAlmostEqual(max(t.grade_deg for t in tasks), 15.)
+        self.assertAlmostEqual(min(t.grade_deg for t in tasks), -15.)
+        kicks = specialist_challenges("recovery", worlds=18, repeats=2)
+        self.assertEqual(sum(t.kind == "no_kick_control" for t in kicks), 2)
+        self.assertEqual(sum(t.kind == "forward_birth_kick" for t in kicks), 8)
+        self.assertEqual(sum(t.kind == "backward_birth_kick" for t in kicks), 8)
+        with self.assertRaisesRegex(ValueError, "requires at least"):
+            specialist_challenges("terrain", worlds=18, repeats=1)
+
+    def verify_signed_terrain_crossing_not_survival(self):
+        tasks = specialist_challenges("terrain", worlds=20, repeats=1)
+        n = len(tasks)
+        measured = dict(
+            actual_lip_m=np.array([t.step_m for t in tasks]),
+            actual_grade_deg=np.array([t.grade_deg for t in tasks]),
+            survived=np.ones(n, dtype=bool),
+            both_feet_top_five=np.ones(n, dtype=bool),
+            traversed_upright_5frame=np.ones(n, dtype=bool),
+            traversed_5frame=np.ones(n, dtype=bool),
+            completed_destination=np.ones(n, dtype=bool),
+            fall_frame=np.full(n, -1),
+            first_life_frames=np.full(n, 600),
+            best_forward_progress_m=np.full(n, .93),
+            speed_mae_mps=np.full(n, .03),
+            yaw_mae_rad_s=np.full(n, .02),
+            mean_support=np.full(n, .90))
+        step = next(t for t in tasks if t.kind == "step_up")
+        measured["traversed_upright_5frame"][step.world] = False
+        rows = score_terrain(tasks, measured, horizon=600)
+        self.assertFalse(rows[step.world]["physical_mission_pass"])
+        self.assertTrue(rows[step.world]["survived_full_horizon"])
+        self.assertTrue(rows[step.world]["physical_each_foot_top_five"])
+        self.assertIn("not_physically_traversed", rows[step.world]["failure_reasons"])
+        self.assertTrue(next(r for r in rows if r["kind"] == "step_down")
+                        ["physical_mission_pass"])
+        curves, envelopes = specialist_summary(rows)
+        self.assertEqual(len(curves), 19)
+        self.assertIsNone(next(r for r in envelopes
+                               if r["kind"] == "flat_control")["tested_range_auc"])
+        self.assertIsNotNone(next(r for r in envelopes
+                                  if r["kind"] == "step_up")["tested_range_auc"])
+        measured["actual_lip_m"][step.world] = .08
+        with self.assertRaisesRegex(RuntimeError, "actual lip mismatch"):
+            score_terrain(tasks, measured, horizon=600)
+
+    def verify_recovery_needs_settling(self):
+        scenario = (
+            Challenge(0, "resilience", "forward_birth_kick", 1, 0,
+                      birth_kick_mps=.25),
+            Challenge(1, "resilience", "backward_birth_kick", 1, 0,
+                      birth_kick_mps=-.25))
+        trace = physical_v1_fixture(seconds=10)
+        trace["root_qvel"] = np.zeros((500, 2, 6))
+        trace["root_qvel"][0, :, 0] = [.25, -.25]
+        trace["physical_position_xy_after_step"][-250:, 0, 0] = (
+            np.arange(1, 251) * .20 * .02)
+        rows = score_recovery(trace, list(scenario), horizon=500)
+        self.assertFalse(rows[0]["physical_mission_pass"])
+        self.assertIn("not_settled_linear_final5s", rows[0]["failure_reasons"])
+        self.assertTrue(rows[1]["physical_mission_pass"])
+        self.assertAlmostEqual(
+            rows[1]["measured_initial_world_x_velocity_mps"], -.25)
+
+    def verify_exam_archive_nonoverwrite(self):
+        rows = [dict(specialty="step", kind="step_up", level=1,
+                     physical_mission_pass=True)]
+        curves = [dict(specialty="step", kind="step_up", severity=.01,
+                       severity_unit="m", full_survivals=1,
+                       physical_mission_passes=1, trials=1)]
+        with tempfile.TemporaryDirectory() as td:
+            dest = Path(td) / "specialties.zip"
+            archive_results(dest, {"schema": "fixture"}, rows, curves, [])
+            self.assertTrue(dest.is_file())
+            with self.assertRaises(FileExistsError):
+                archive_results(dest, {"schema": "fixture"}, rows, curves, [])
 
 
 if __name__=="__main__":
