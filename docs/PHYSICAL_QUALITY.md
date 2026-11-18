@@ -267,7 +267,7 @@ export EMU_PHYSICAL_PROFILE=h40
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 
 # Cheap contract/unit tests, no GPU or actor required:
-python -m unittest tests.test_physical_capability_exam -v
+python -m pytest -q tests/test_core_capability_matrix.py -k same_index
 
 # Small compilation/loader diagnostic; NOT a full qualification:
 python -m emu.physical_capability_exam \
