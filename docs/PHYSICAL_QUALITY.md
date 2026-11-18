@@ -2,9 +2,7 @@
 
 **Independent examiner contract (originating 31 October 2026).** Read-only
 physical evidence; **not** a PPO reward function or training schedule.
-The current H40 120M `main` actor has **not** yet passed matched
-held-out signed-step exams. Historical v5032/v5048 results remain
-research baselines, not evidence for H40.
+The previous public H40 120M actor has its own historical exam record. The current **140M Spring V1 development baseline** has now been independently examined on matched signed-step and flat-control fixtures, with training seed 735 and evaluation seeds 1701/1711/1729. Those results are software/simulation evidence, not real-hardware proof.
 
 ## The north-star definition
 
@@ -142,7 +140,7 @@ two-slab fixed-angle pass rates as though they were identical exams.
 
 For installation, the frozen-actor validation gate and new v5045
 usage, see [the current physical release gates](RELEASE_READINESS.md).
-The **current H40 120M** source and inference actor are on `main`; do
+The **140M Spring V1** curriculum source is the maintained development baseline; the older public 120M inference actor remains checked in. Do
 not transfer the previous 260M actor's independent exam scores to it or
 fabricate matched-prism results.
 
