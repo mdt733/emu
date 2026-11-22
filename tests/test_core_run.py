@@ -95,6 +95,37 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
             "--stair-survival-curriculum","--science-step-goal-weight",".12",
             "--science-step-finish-on-transfer"])
     assert cfg.stair_survival_curriculum is False
+    # Catch the real bug found during this review: public --resume auto
+    # becomes a CONCRETE checkpoint path before the trainer is called.
+    from emu.training import is_external_research_checkpoint
+    root=tmp_path/"student"
+    own=root/"checkpoints"/"latest.pkl"
+    other=tmp_path/"parent"/"checkpoints"/"milestone_140m.pkl"
+    assert not is_external_research_checkpoint("",root)
+    assert not is_external_research_checkpoint("auto",root)
+    assert not is_external_research_checkpoint(str(own),root)
+    assert is_external_research_checkpoint(str(other),root)
+    # Cross-source authentic research may use ANY full checkpoint with
+    # source+exact bytes, not only one awkwardly named final.pkl.
+    import hashlib
+    from emu.run import _validate_cross_source_research_parent
+    other.parent.mkdir(parents=True)
+    other.write_bytes(b"frozen PPO checkpoint fixture: 140M")
+    parent_source="a"*40
+    new_source="b"*40
+    parent_sha=hashlib.sha256(other.read_bytes()).hexdigest()
+    payload={"meta":{"source_provenance":{"git_commit":parent_source}}}
+    _validate_cross_source_research_parent(
+        other,payload=payload,expected_source=parent_source,
+        expected_sha256=parent_sha,provenance={"commit":new_source})
+    with pytest.raises(RuntimeError,match="SHA256 changed"):
+        _validate_cross_source_research_parent(
+            other,payload=payload,expected_source=parent_source,
+            expected_sha256="0"*64,provenance={"commit":new_source})
+    with pytest.raises(RuntimeError,match="exact declared earlier source"):
+        _validate_cross_source_research_parent(
+            other,payload=payload,expected_source="c"*40,
+            expected_sha256=parent_sha,provenance={"commit":new_source})
     # Real research forks may change teacher and solver, but not the
     # 360-input actor geometry, physical robot or sensor history.
     from emu.run import verify_experiment_fork
