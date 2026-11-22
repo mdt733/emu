@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # H40-KS150: independent held-out evaluation, seed 2701, NO PPO training.
-# Modes: plan (default), preflight, all, report. All outputs separate.
+# Modes: plan (default), preflight, all, report, bundle. All outputs separate.
 # This does not choose or publish a champion. Requires completed V1 exports.
 set -euo pipefail
 MODE="${1:-plan}"
-case "$MODE" in plan|preflight|all|report) ;; *)
-  echo "Usage: bash $0 plan|preflight|all|report" >&2; exit 2 ;;
+case "$MODE" in plan|preflight|all|report|bundle) ;; *)
+  echo "Usage: bash $0 plan|preflight|all|report|bundle" >&2; exit 2 ;;
 esac
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
@@ -34,6 +34,40 @@ EOF
 fi
 if [[ "$MODE" == report ]]; then
   "$PY" scripts/score_h40_ks150_heldout.py --root "$DEST" --seed "$SEED"
+  exit 0
+fi
+if [[ "$MODE" == bundle ]]; then
+  "$PY" scripts/score_h40_ks150_heldout.py --root "$DEST" --seed "$SEED" >/dev/null
+  "$PY" - "$DEST" <<'PY'
+from pathlib import Path
+from zipfile import ZipFile, ZIP_DEFLATED
+import sys,os
+root=Path(sys.argv[1]).expanduser()
+out=root.with_suffix(".zip")
+required=[Path("heldout-report.md")]
+for age in (120,150,160):
+    base=Path(f"{age}m")
+    required += [
+        base/"pulse-s2701.zip", base/"deep-s2701.zip",
+        base/"stairs"/"matrix_summary.json",
+        base/"stairs"/"matrix_curve.csv",
+        base/"stairs"/"matrix_worlds.csv",
+    ]
+for rel in required:
+    if not (root/rel).is_file():
+        raise RuntimeError(f"Refusing incomplete evidence bundle, missing {rel}")
+if out.exists() or out.with_suffix(".zip.partial").exists():
+    raise FileExistsError(f"Refusing to overwrite old bundle or partial: {out}")
+tmp=out.with_suffix(".zip.partial")
+try:
+    with ZipFile(tmp,"x",compression=ZIP_DEFLATED) as archive:
+        for rel in required:
+            archive.write(root/rel, arcname=rel.as_posix())
+    os.replace(tmp,out)
+finally:
+    tmp.unlink(missing_ok=True)
+print(f"IMMUTABLE UPLOAD EVIDENCE: {out}")
+PY
   exit 0
 fi
 [[ "$(git branch --show-current)" == research/h40-ks150-safe-ascent-v2 ]] || {
@@ -114,3 +148,10 @@ for AGE in 120 150 160; do
 done
 echo "Held-out seed2701 physical exams complete; NO training changes."
 echo "Review: $DEST/heldout-report.md"
+# One uploadable, complete audit ZIP. If rerun, existing evidence
+# is preserved and bundle mode refuses to overwrite a prior publication.
+if [[ ! -e "$DEST.zip" ]]; then
+  bash "$0" bundle
+else
+  echo "Existing upload bundle preserved: $DEST.zip"
+fi
