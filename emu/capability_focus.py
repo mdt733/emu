@@ -105,79 +105,64 @@ def teaching_profile(*, step: int, foundation_steps: int,
     return TeachingProfile('growth', fraction, True)
 
 
-def growth_mix(*, step: int, foundation_steps: int,
-               steady_difficulty: float) -> float:
-    """Existing task-packet interface; share the same two-profile decision."""
-    return teaching_profile(
-        step=step, foundation_steps=foundation_steps,
-        steady_difficulty=steady_difficulty).specialist_fraction
+def birth_lesson_weights(*, schedule: str, step: int,
+                         foundation_steps: int, retention_share: float,
+                         academy_enabled: bool, athletic_share: float,
+                         academy_intro_steps: int, academy_start_steps: int,
+                         academy_ramp_steps: int, academy_intro_share: float,
+                         academy_max_share: float,
+                         nonfast_generalist_floor: float = .15
+                         ) -> tuple[tuple[float, ...], float]:
+    """ONE episode allocation: specialist rehearsal + Academy births.
 
-
-def academy_birth_allocation(*, step: int, intro_steps: int,
-                             start_steps: int, ramp_steps: int,
-                             intro_share: float, max_share: float) -> float:
-    """Fraction of ALL episode births assigned four real consecutive lips.
-
-    This is one existing PPO/sampler, not a separate optimizer or fixed
-    environment mask. Age controls *exposure*; step height still depends on
-    independently earned supported crossings. Optional nursery comes first.
+    Inputs are the currently selected immutable teaching recipe and age.
+    Outputs are six conditional focus weights plus P(Academy | STEP).
+    The athletic quota has already been reserved outside this sampler;
+    the Academy request is a fraction of ALL worlds, not of remaining
+    non-athletic worlds. This is a pure host decision, no extra model.
     """
     import math
-    if (step < 0 or intro_steps < 0 or start_steps < intro_steps
-        or ramp_steps <= 0 or not (0 <= intro_share <= max_share <= .85)
-        or not math.isfinite(float(intro_share))
-        or not math.isfinite(float(max_share))):
-        raise ValueError('invalid Step Academy birth schedule')
-    if step < intro_steps:
-        return 0.0
-    if step < start_steps:
-        return intro_share * min(1.,(step-intro_steps)/max(1,start_steps-intro_steps))
-    return intro_share+(max_share-intro_share)*min(
-        1.,(step-start_steps)/ramp_steps)
+    weights=list(attention_weights(
+        schedule=schedule, step=step, foundation_steps=foundation_steps))
+    if not math.isfinite(retention_share) or not 0. <= retention_share <= 1.:
+        raise ValueError('invalid retention share')
+    if step > foundation_steps and retention_share > 0.:
+        base_control=weights[CONTROL]
+        other_total=1.-base_control
+        target_control=max(base_control,retention_share)
+        weights=[w*(1.-target_control)/other_total for w in weights[:-1]]
+        weights.append(target_control)
 
-
-def academy_conditional_birth_share(requested_share:float,
-                                  athletic_share:float,
-                                  nonfast_generalist_floor:float=.15):
-    """Convert requested ALL-world Academy fraction to nonfast birth quota.
-
-    Rehearsal worlds are already held aside before _specialist_task decides
-    roles. Without accounting for them, a requested 50% Academy silently
-    becomes 37.5% when a quarter of PPO worlds preserve fast walking.
-    Keep at least 15% of ALL births for other non-fast capabilities.
-    Returns (conditional_academy_share, actual_absolute_target).
-    """
-    import math
-    if any(not math.isfinite(float(x)) for x in (
-            requested_share,athletic_share,nonfast_generalist_floor)):
-        raise ValueError('nonfinite Academy scheduling fraction')
-    if not (0.<=requested_share<=.85 and
-            0.<=athletic_share<=.75 and
-            0.<=nonfast_generalist_floor<.5):
-        raise ValueError('invalid Academy/fast/retention allocation')
-    eligible=1.-athletic_share
-    actual=min(requested_share,max(0.,eligible-nonfast_generalist_floor))
-    return actual/eligible,actual
-
-
-def academy_focus_mix(weights, academy_share: float):
-    """Return role probabilities and STEP->Academy probability *among nonfast births*.
-
-    Call academy_conditional_birth_share first to account for reserved
-    athletic/fast rehearsal. The other specialists keep their original
-    relative mixture and ordinary STEP continues alongside Academy.
-    """
-    import math
-    if (len(weights)!=6 or any(not math.isfinite(float(x)) or x<0 for x in weights)
-        or not math.isclose(sum(weights),1.,abs_tol=1e-4)
-        or not 0<=academy_share<=.85):
-        raise ValueError('invalid Academy focus weights/share')
-    # Additional Academy births replace an equal fraction of the original
-    # episode roles, rather than consuming all ordinary STEP practice.
-    new=[x*(1.-academy_share) for x in weights]
-    new[STEP]+=academy_share
-    chance=(academy_share/new[STEP] if new[STEP]>0 else 0.0)
-    return tuple(new),chance
+    probability=0.
+    if academy_enabled:
+        if (academy_intro_steps < 0 or
+            academy_start_steps < academy_intro_steps or
+            academy_ramp_steps <= 0 or
+            not all(math.isfinite(float(v)) for v in
+                    (academy_intro_share,academy_max_share,
+                     athletic_share,nonfast_generalist_floor)) or
+            not 0. <= academy_intro_share <= academy_max_share <= .85 or
+            not 0. <= athletic_share <= .75 or
+            not 0. <= nonfast_generalist_floor < .5):
+            raise ValueError('invalid Academy birth recipe')
+        if step < academy_intro_steps:
+            requested=0.
+        elif step < academy_start_steps:
+            requested=(academy_intro_share *
+                       min(1.,(step-academy_intro_steps) /
+                           max(1,academy_start_steps-academy_intro_steps)))
+        else:
+            requested=(academy_intro_share +
+                       (academy_max_share-academy_intro_share) *
+                       min(1.,(step-academy_start_steps) /
+                           academy_ramp_steps))
+        eligible=1.-athletic_share
+        actual=min(requested,max(0.,eligible-nonfast_generalist_floor))
+        conditional=actual/eligible
+        weights=[w*(1.-conditional) for w in weights]
+        weights[STEP]+=conditional
+        probability=conditional/weights[STEP] if weights[STEP]>0. else 0.
+    return tuple(weights),probability
 
 
 def focus_indices(num_envs: int):
