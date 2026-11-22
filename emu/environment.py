@@ -2012,6 +2012,26 @@ class EmuMJXEnv(TaskSampler):
                       (academy_relative_height<=1.05))
         academy_easy=((academy_relative_height>=.36) &
                       (academy_relative_height<.68))
+        # V2 SAFE ASCENT, honest FIRST-LIFE episode evidence. Anchor the
+        # difficulty band to the PHYSICALLY MEASURED FIRST birth lip and its
+        # birth frontier. Do not classify a later approach, a newer frontier,
+        # or a single foothold as a survived stair trial. A real terminal
+        # fall is the only failure; reaching timeout upright is survival.
+        safe_ascent_first_up = (
+            done & state.academy_active &
+            (state.academy_birth_lip_m > .0015) &
+            (state.academy_birth_frontier_m >= .003))
+        safe_ascent_birth_ratio = (
+            state.academy_birth_lip_m /
+            jnp.maximum(state.academy_birth_frontier_m, .001))
+        safe_ascent_bands = (
+            ('near', safe_ascent_first_up &
+             (safe_ascent_birth_ratio >= .78) &
+             (safe_ascent_birth_ratio <= 1.05)),
+            ('easy', safe_ascent_first_up &
+             (safe_ascent_birth_ratio >= .36) &
+             (safe_ascent_birth_ratio < .68)),
+        )
         terrain_up=terrain_active & (ordinary_lip>0.)
         terrain_down=terrain_active & (ordinary_lip<0.)
         # Step severity is measured from physical shared-edge contacts,
@@ -2143,6 +2163,15 @@ class EmuMJXEnv(TaskSampler):
             'terrain_episode_attempt': (done & terrain_active).astype(jnp.float32),
             'terrain_episode_success': (timeout & ~terminal_fail & terrain_active & terrain_crossed).astype(jnp.float32),
             'terrain_cross_new':terrain_cross_new.astype(jnp.float32),
+            # First-lip outcome at episode closure; source-pinned V2 tutor
+            # consumes only if enabled. No reward, 360-obs or reset changes.
+            **{f'safe_ascent_{band}_{outcome}_up':(
+                cohort & condition).astype(jnp.float32)
+                for band,cohort in safe_ascent_bands
+                for outcome,condition in (
+                    ('attempts',jnp.ones_like(done,dtype=jnp.bool_)),
+                    ('survived',~terminal_fail),
+                    ('crossed',stepped.academy_up_crossings>0))},
             'academy_active':state.academy_active.astype(jnp.float32),
             'academy_lip_index':academy['lip_index'].astype(jnp.float32),
             'academy_lip_height_m':academy['height_m'],

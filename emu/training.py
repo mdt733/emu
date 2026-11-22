@@ -137,6 +137,15 @@ def ks150_permanent_milestones(args) -> dict[int, int]:
     Final 160M is already published as checkpoints/final.pkl.
     """
     from .checkpoint_io import update_boundary_at_or_after
+    if Path(args.run_dir).name == "h40-ks150-safe-ascent-s735":
+        if not (args.physical_profile == "h40-spring-only"
+                and args.seed == 735 and args.envs == 2048
+                and args.steps == 170_000_000
+                and args.terrain_step_max_m == .055
+                and args.academy_height_cap_m == .055):
+            raise RuntimeError("V2 milestone requires exact Spring-only "
+                               "150->170M, seed735, 2048 worlds and 55mm cap")
+        return {update_boundary_at_or_after(160_000_000, args.envs): 160}
     if Path(args.run_dir).name != "h40-ks150-stairs-bal-s735":
         return {}
     if not (args.physical_profile == "h40-spring-only"
@@ -359,6 +368,17 @@ def train(args: TrainingConfig) -> int:
               'after checkpoint/resume/export verification', flush=True)
 
     # No track-level flags to validate here -- a regime's difficulty is judged directly by RegimeGovernor, with no scheduling layer in between.
+    safe_ascent_run = (
+        run_dir.name == "h40-ks150-safe-ascent-s735")
+    if safe_ascent_run and not (
+            args.seed == 735 and args.envs == 2048
+            and args.steps == 170_000_000
+            and args.physical_profile == "h40-spring-only"
+            and args.terrain_step_max_m == .055
+            and args.academy_height_cap_m == .055
+            and args.academy_stream):
+        raise RuntimeError("V2 safe-ascent treatment requires exact "
+                           "KS150 150->170M config and 55mm bounds")
     governor = RegimeGovernor(fall_target=args.fall_target,
                               difficulty_base_step=args.difficulty_base_step,
                               regime_command_frac=args.regime_command_frac,
@@ -371,7 +391,8 @@ def train(args: TrainingConfig) -> int:
                               unified_capability_focus=args.unified_capability_focus,
                               science_step_promotion_mm=args.science_step_promotion_mm,
                               science_step_retreat_mm=args.science_step_retreat_mm,
-                              science_step_min_attempts=args.science_step_min_attempts)
+                              science_step_min_attempts=args.science_step_min_attempts,
+                              safe_ascent_enabled=safe_ascent_run)
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:
@@ -382,7 +403,22 @@ def train(args: TrainingConfig) -> int:
     health = TrainingHealth()
     if resumed_payload is not None:
         try:
-            governor.load_state_dict(resumed_payload['curriculum_state'])
+            parent_meta = resumed_payload.get('meta', {})
+            old_source = ((parent_meta.get('source_provenance') or {})
+                          .get('git_commit'))
+            v2_parent_fork = (
+                safe_ascent_run and bool(args.resume)
+                and args.resume.lower() != 'auto')
+            if v2_parent_fork and not (
+                    old_source ==
+                        "4504ac2c7219e5df8a106a224b77825fee219ead"
+                    and int(parent_meta.get('step', -1)) == 150011904):
+                raise RuntimeError(
+                    "V2 fork must inherit exact V1 150,011,904 age "
+                    "at source 4504ac2c; wrong parent")
+            governor.load_state_dict(
+                resumed_payload['curriculum_state'],
+                allow_safe_ascent_parent_fork=v2_parent_fork)
             # A fork must not spend 260M's partially collected old-threshold
             # evidence. Preserve heights and all learned weights. Do NOT
             # erase evidence on later same-source crash recovery.
@@ -434,6 +470,21 @@ def train(args: TrainingConfig) -> int:
                       f"this new curriculum: {limited}", flush=True)
                 governor.terrain_evidence = governor._empty_terrain_evidence()
                 governor.academy_evidence = governor._empty_academy_evidence()
+            if v2_parent_fork:
+                # V1 achieved reliable +4cm but 44-56mm fall survival
+                # collapsed. The new uphill school MUST begin at 40mm,
+                # while downhill retains its earned independent 55mm.
+                # This is one time at the external fork, never on reboot.
+                for name in ('terrain_height_m','academy_height_up_m'):
+                    old=float(getattr(governor.params,name))
+                    if old>.040:
+                        setattr(governor.params,name,.040)
+                        print(f'{LOG_PREFIX} V2 SAFE ASCENT start: '
+                              f'{name} {old:.4f} -> .0400m',flush=True)
+                governor.terrain_evidence=governor._empty_terrain_evidence()
+                governor.academy_evidence=governor._empty_academy_evidence()
+                governor.safe_ascent_evidence=(
+                    governor._empty_safe_ascent_evidence())
             # A newly introduced goal/transfer payment changes what
             # attempts mean. Don't reuse accumulated near/easy evidence
             # from a parent with different objectives.
@@ -765,7 +816,13 @@ def train(args: TrainingConfig) -> int:
         governor_t0 = time.perf_counter()
         health_ppo = health.observe_ppo(row)
         report = governor.advance_curriculum(
-            row, step=total_steps, max_height_m=args.terrain_step_max_m,
+            # Ordinary STEP worlds share one signed terrain ceiling, so
+            # cap that ceiling at the already-safe 40mm for V2. Only the
+            # Academy UP frontier can then graduate beyond 40mm, and it
+            # must pass the separate first-life survival gate.
+            row, step=total_steps,
+            max_height_m=(min(args.terrain_step_max_m,.040)
+                          if safe_ascent_run else args.terrain_step_max_m),
             foundation_steps=args.foundation_steps,
             kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']),
             academy_max_height_m=(args.academy_height_cap_m if args.academy_stream else 0.))
@@ -1123,7 +1180,9 @@ def train(args: TrainingConfig) -> int:
     stair_audit.observe(row, aux)
     health_ppo = health.observe_ppo(row)
     report = governor.advance_curriculum(
-        row, step=total_steps, max_height_m=args.terrain_step_max_m,
+        row, step=total_steps,
+        max_height_m=(min(args.terrain_step_max_m,.040)
+                      if safe_ascent_run else args.terrain_step_max_m),
         foundation_steps=args.foundation_steps,
         kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']),
         academy_max_height_m=(args.academy_height_cap_m if args.academy_stream else 0.))
