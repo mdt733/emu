@@ -75,14 +75,18 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
         assert emu_cli_main(cli_args+["--science-step-finish-on-transfer"])==0
     assert seen[-1].science_step_finish_on_transfer is True
     with patch("emu.run.train_one",side_effect=capture):
-        assert emu_cli_main(cli_args+["--stair-survival-curriculum"])==0
+        assert emu_cli_main(cli_args+[
+            "--stair-survival-curriculum","--science-step-goal-weight",".12"])==0
     assert seen[-1].stair_survival_curriculum is True
     with pytest.raises(ValueError,match="external warm-start"):
         emu_cli_main(cli_args+[
             "--stair-survival-curriculum","--resume","/tmp/old.pkl"])
+    with pytest.raises(ValueError,match="positive .*science-step-goal-weight"):
+        emu_cli_main(cli_args+["--stair-survival-curriculum"])
     with pytest.raises(ValueError,match="full first-life"):
         emu_cli_main(cli_args+[
-            "--stair-survival-curriculum","--science-step-finish-on-transfer"])
+            "--stair-survival-curriculum","--science-step-goal-weight",".12",
+            "--science-step-finish-on-transfer"])
     assert cfg.stair_survival_curriculum is False
     # Real research forks may change teacher and solver, but not the
     # 360-input actor geometry, physical robot or sensor history.
