@@ -195,6 +195,17 @@ def _check_balanced_stair_fork_caps_and_matrix():
                     worlds=50, traversed_5frame=3, survival_rate=.70)]
     group = group_stairs(example, "step_up", 44, 56)
     assert group == dict(trials=100, crossing=12, survived=75)
+    # Matrix v5 must really measure 4..80mm in BOTH directions;
+    # previous examiner v4 silently generated only 2.5..50mm.
+    from scripts.v5053_matrix_exam import assignments
+    trials = [t for t in assignments(
+        2048, mode="stairs", levels=20, trials_per_level=50)
+        if t.kind != "padding"]
+    assert len(trials) == 2000
+    for direction, sign in (("step_up", 1), ("step_down", -1)):
+        heights = sorted({round(t.exact_step_m * sign * 1000, 4)
+                          for t in trials if t.kind == direction})
+        assert heights == [float(4*i) for i in range(1, 21)]
 
 
 
