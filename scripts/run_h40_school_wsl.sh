@@ -98,6 +98,14 @@ if [[ "$MODE" == gpu-smoke ]]; then
   exit 0
 fi
 
+if [[ "$MODE" == report ]]; then
+  [[ -f "$ROOT/checkpoints/final.pkl" ]] || {
+    echo "No completed school final checkpoint to report" >&2; exit 1; }
+  "$PY" -m emu.results --root "$ROOT" --no-bundle
+  echo "Read-only report refreshed; no GPU exams and no training."
+  exit 0
+fi
+
 if [[ "$MODE" == all ]]; then
   # ONE continuous PPO target, same teacher/optimizer. Standard crash
   # checkpoints and final.pkl are the only checkpoint types; no research
@@ -134,7 +142,7 @@ if [[ ! -f "$OUT/deep-s3701.zip" ]]; then
     --output "$OUT/deep-s3701.zip" --worlds 8 \
     --seed 3701 --device cuda
 fi
-"$PY" -m emu.results --root "$ROOT" >/dev/null
+"$PY" -m emu.results --root "$ROOT" --no-bundle >/dev/null
 "$PY" - "$ROOT" <<'PY'
 import os,sys
 from pathlib import Path
