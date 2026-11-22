@@ -234,7 +234,7 @@ class CoreAcademyTests(unittest.TestCase):
 
         from dataclasses import replace
         from emu.training_config import TrainingConfig
-        from emu.training import compatible_academy_evidence_recipe
+        from emu.run import verify_experiment_fork
         parent=replace(TrainingConfig(),
             science_step_finish_on_transfer=True,
             academy_stream=True, science_step_goal_weight=.3,
@@ -244,13 +244,22 @@ class CoreAcademyTests(unittest.TestCase):
             solver_iterations=2, solver_ls_iterations=4)
         same=replace(parent,run_dir='diagnostic-fork',
                      steps=190_000_000,resume='parent/final.pkl')
-        self.assertTrue(compatible_academy_evidence_recipe(parent,same))
-        self.assertFalse(compatible_academy_evidence_recipe(
-            replace(parent,science_step_finish_on_transfer=False),same))
-        self.assertFalse(compatible_academy_evidence_recipe(
-            parent,replace(same,science_step_approach_m=.18)))
-        self.assertFalse(compatible_academy_evidence_recipe(
-            parent,replace(same,solver_iterations=1)))
+        # The old helper blocked any change in the teacher and thus
+        # prevented legitimate reward/solver ablations. New research
+        # forks can change those knobs; checkpoint-compatible physical
+        # robot and 360-input observation contract remain mandatory.
+        verify_experiment_fork(parent,same)
+        verify_experiment_fork(
+            replace(parent,science_step_finish_on_transfer=False),same)
+        verify_experiment_fork(
+            parent,replace(same,science_step_approach_m=.18))
+        verify_experiment_fork(
+            parent,replace(same,solver_iterations=1))
+        verify_experiment_fork(
+            parent,replace(same,stair_survival_curriculum=True))
+        with self.assertRaisesRegex(RuntimeError,"Incompatible research fork"):
+            verify_experiment_fork(
+                parent,replace(same,observation_schema="sim2real_232"))
 
     def test_independent_real_prism_trace_proves_first_lip_destination(self):
         # No teacher success, no reward fields, and no nominal height!
