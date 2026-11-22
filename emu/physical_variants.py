@@ -23,8 +23,10 @@ class Profile:
     hip_roll_stiffness: float = 2.0
 
 
-# One trained physical model. Alternatives belong in source-pinned research.
-PROFILES = {"h40": Profile(.40)}
+# Original champion remains the only default. Research profile changes the knee
+# passive spring law ONLY: not joint ROM, action scaling, motors or curriculum.
+SPRING_ONLY_PROFILE = "h40-spring-only"
+PROFILES = {"h40": Profile(.40), SPRING_ONLY_PROFILE: Profile(.40)}
 
 BASE_NEUTRAL_M = .2584
 BASE_HALF_LINK_M = .1202
@@ -79,6 +81,10 @@ def profile_numbers(name: str) -> dict[str, float | str]:
     mass = REFERENCE_TOTAL_MASS_KG + REFERENCE_LINK_MASS_KG * (scale - 1.)
     stiffness = REFERENCE_KNEE_STIFFNESS_N_M * (
         1. + KNEE_SPRING_HEIGHT_GAIN*(scale-1.)) * scale * p.knee_support
+    if name == SPRING_ONLY_PROFILE:
+        # Spring V1's effective preload geometry, without its altered motor
+        # targets, enlarged knee ROM or training/reward changes.
+        stiffness = 150.0
     # No height-dependent chassis translation; all six servo masses
     # remain at torso, while light rods move with the legs.
     torso_x = BASE_TORSO_X_M
@@ -162,8 +168,26 @@ def generate_xml(source_xml: str, name: str) -> str:
         # rotational flex stiffness scales approximately EI/L, not constant.
         _get(root, f".//joint[@name='{prefix}shin_flex']").set(
             "stiffness", f"{4.0/s:.8f}")
-        _get(root, f".//spatial[@name='{prefix}knee_support']").set(
-            "stiffness", f"{float(info['knee_strut_k_n_m']):.8f}")
+        spring = _get(root, f".//spatial[@name='{prefix}knee_support']")
+        spring.set("stiffness", f"{float(info['knee_strut_k_n_m']):.8f}")
+        if name == SPRING_ONLY_PROFILE:
+            # Exact Spring V1 equivalent: offset 35/25mm anchors and a
+            # 150N/m preloaded spatial tendon giving ~0.520606Nm at knee 0.
+            # Its long equivalent springlength requires a real rocker/
+            # guided cartridge design; this is NOT a build-ready BOM.
+            thigh_arm, shin_arm = .035, .025
+            span = math.hypot(thigh_arm, shin_arm)
+            lever = thigh_arm * shin_arm / span
+            rest = span + .520606 / (150.0 * lever)
+            thigh_pin = -BASE_HALF_LINK_M * s + thigh_arm / math.sqrt(2.)
+            _set_xyz(_get(root, f".//site[@name='{prefix}knee_strut_thigh']"),
+                     "pos", (thigh_pin, 0., thigh_pin))
+            _set_xyz(_get(root, f".//site[@name='{prefix}knee_strut_shin']"),
+                     "pos", (shin_arm / math.sqrt(2.), 0.,
+                             -shin_arm / math.sqrt(2.)))
+            spring.set("springlength", f"{rest:.9f}")
+            # Deliberately retain all baseline knee limits and actuator
+            # ctrlrange/forcerange: this experiment is SPRING-ONLY.
     return ET.tostring(root, encoding="unicode")
 
 
