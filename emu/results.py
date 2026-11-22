@@ -1420,11 +1420,5 @@ def posture_report(root: Path) -> int:
     print('\nRead-only trend screening; lower height does not prove reward exploitation.')
     return 0
 
-def posture_main(argv=None):
-    p = argparse.ArgumentParser(description='Read-only posture-height review for old EMU training runs')
-    p.add_argument('--root', type=Path, default=Path.home() / 'emu-data' / 'runs')
-    return posture_report(p.parse_args(argv).root)
-
-
 if __name__ == '__main__':
     raise SystemExit(main())
