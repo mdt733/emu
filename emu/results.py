@@ -988,13 +988,13 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
            for band in ('near','easy')
            for outcome in ('attempts','successes')
            for direction in ('up','down')},
-        # Source-pinned V2 governor input: complete FIRST-LIFE episodes,
+        # From-birth school input: completed FIRST-LIFE episodes,
         # not per-foot contact counts or privileged world-coordinate goals.
         **{f'safe_ascent_{band}_{outcome}_up':
             float(np.asarray(metrics.get(
                 f'safe_ascent_{band}_{outcome}_up',0.)).sum())
             for band in ('near','easy')
-            for outcome in ('attempts','survived','crossed')},
+            for outcome in ('attempts','survived','crossed','safe_crossed')},
         'academy_up_crossings': float(np.asarray(
             metrics.get('academy_cross_up',0.)).sum()),
         'academy_down_crossings': float(np.asarray(
