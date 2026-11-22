@@ -173,50 +173,77 @@ def read_deep(path: Path):
 
 
 def verify_deep_retention(reference: dict, candidate: dict):
-    """Explain all long-duration regressions; never average away directions.
+    """Protect actual dynamic balance and operator-command velocity tracking.
 
-    Both policies are tested under *the same physics*, examiner and seed.
-    A 12s perfect control pulse does not certify actual 30s route tracking.
-    Thresholds are provisional tolerances against imperfect 120M baseline.
+    No world-position feedback exists in this 360-channel H40 actor.
+    World-XY displacement, station-keeping radius, and 30s absolute-route
+    mission passes remain *diagnostics*, NEVER hard promotion gates.
+
+    Instead, compare measured velocities, yaw tracking, first-life survival
+    and motor work against the same-profile 120M ancestor on identical exams.
+    Provisional non-regression margins allow stochastic eight-world samples.
     """
     reasons = []
     measurements = {}
     stand = "stand_zero_60s"
-    r, c = reference[stand], candidate[stand]
-    drift_delta = c["mean_final_trajectory_error_m"] - r["mean_final_trajectory_error_m"]
-    measurements["standing_60s_mean_drift_delta_m"] = round(drift_delta, 3)
-    measurements["standing_60s_balance_passes"] = c["zero_command_balance_passes"]
-    measurements["standing_60s_position_heading_passes"] = c["bounded_standing_passes"]
-    if c["full_survivals"] < 7 or c["zero_command_balance_passes"] < 7:
+    old_stand, new_stand = reference[stand], candidate[stand]
+    drift_delta = (new_stand["mean_final_trajectory_error_m"] -
+                   old_stand["mean_final_trajectory_error_m"])
+    measurements["standing_60s_mean_drift_delta_m_DIAGNOSTIC"] = round(drift_delta, 3)
+    measurements["standing_60s_balance_passes"] = new_stand["zero_command_balance_passes"]
+    measurements["standing_60s_station_keeping_DIAGNOSTIC"] = (
+        new_stand["bounded_standing_passes"])
+    measurements["standing_60s_mean_speed_mps"] = round(
+        new_stand["mean_horizontal_speed_mps"], 4)
+    measurements["standing_60s_mean_yaw_error_rad_s"] = round(
+        new_stand["mean_yaw_mae_rad_s"], 4)
+
+    if (new_stand["full_survivals"] < 7 or
+            new_stand["zero_command_balance_passes"] < 7):
         reasons.append("60s dynamic balance / survival declined")
-    if drift_delta > .20:
-        reasons.append(f"60s standing drift worsened by {drift_delta:+.2f}m")
+    # The original 120M's dynamic zero-command speed was ~.036m/s. Keep
+    # motion QUIET, not artificially pinned to an unobservable XY origin.
+    speed_limit = min(.10, max(.08, old_stand["mean_horizontal_speed_mps"]+.025))
+    if new_stand["mean_horizontal_speed_mps"] > speed_limit:
+        reasons.append(
+            f"60s unwanted horizontal speed "
+            f"{new_stand['mean_horizontal_speed_mps']:.3f}m/s > "
+            f"{speed_limit:.3f}m/s")
+    yaw_limit = min(.15, max(.12, old_stand["mean_yaw_mae_rad_s"]+.05))
+    if new_stand["mean_yaw_mae_rad_s"] > yaw_limit:
+        reasons.append(
+            f"60s unwanted yaw rate error "
+            f"{new_stand['mean_yaw_mae_rad_s']:.3f}rad/s > "
+            f"{yaw_limit:.3f}rad/s")
+
     for name in DEEP_NAMES[1:]:
         old, new = reference[name], candidate[name]
-        keep = max(0, old["locomotion_mission_passes"] - 1)
-        if new["locomotion_mission_passes"] < keep:
-            reasons.append(
-                f"{name}: 30s route passes "
-                f"{old['locomotion_mission_passes']}->"
-                f"{new['locomotion_mission_passes']}")
+        measurements[f"{name}_route_passes_DIAGNOSTIC"] = (
+            new["locomotion_mission_passes"])
+        measurements[f"{name}_final_route_error_m_DIAGNOSTIC"] = round(
+            new["mean_final_trajectory_error_m"], 3)
         if new["full_survivals"] < 7:
             reasons.append(f"{name}: 30s first-life survival under 7/8")
-        # Even when parent scored 0/8, it must not be allowed to drift
-        # arbitrarily farther just because the strict pass count stayed 0.
-        parent_error = old["mean_final_trajectory_error_m"]
-        current_error = new["mean_final_trajectory_error_m"]
-        tolerance = max(1.25 * parent_error, parent_error + .08)
-        if current_error > tolerance:
-            reasons.append(
-                f"{name}: 30s route error {parent_error:.2f}m -> "
-                f"{current_error:.2f}m")
+        # Component-wise velocity tracking is observable by the actor and
+        # directly meaningful for a commanded dynamic walker. On a command
+        # with 0 pass due to absolute route, do not force it to chase XY.
+        for key, margin, relative in (
+            ("mean_vx_mae_mps", .03, 1.50),
+            ("mean_vy_mae_mps", .03, 1.50),
+            ("mean_yaw_mae_rad_s", .06, 1.50),
+        ):
+            threshold = max(relative*old[key], old[key]+margin)
+            measurements[f"{name}_{key}"] = round(new[key], 4)
+            if new[key] > threshold:
+                reasons.append(
+                    f"{name}: {key} degraded "
+                    f"{old[key]:.3f}->{new[key]:.3f} "
+                    f"(limit {threshold:.3f})")
         if new["mean_positive_motor_shaft_work_j"] > (
                 1.25 * old["mean_positive_motor_shaft_work_j"]):
             reasons.append(f"{name}: positive shaft work rose >25%")
-        measurements[f"{name}_mission_passes"] = new["locomotion_mission_passes"]
-        measurements[f"{name}_route_error_m"] = round(current_error, 3)
-    if c["mean_positive_motor_shaft_work_j"] > (
-            1.25 * r["mean_positive_motor_shaft_work_j"]):
+    if new_stand["mean_positive_motor_shaft_work_j"] > (
+            1.25 * old_stand["mean_positive_motor_shaft_work_j"]):
         reasons.append("60s standing positive shaft work rose >25%")
     return measurements, reasons
 
@@ -353,10 +380,14 @@ def score(root: Path):
                "specialties plus ≥3pp compact steps and ≥5pp controlled",
                "28–56mm uphill crossings; downhill 4–56 and 44–80mm",
                "controlled crossing each within −5pp; reverse and 5cm",
-               "downhill checks. DEEP: 60s balance >=7/8, standing drift",
-               "no more than +20cm, each 30s route success at most one pass",
-               "below parent and endpoint error no more than 25% / 8cm worse;",
-               "positive shaft work no more than +25%, and >=7/8 survival.",
+               "downhill checks. DEEP: 60s dynamic balance >=7/8;",
+               "mean unwanted speed <=8cm/s (or reference-derived bounded",
+               "limit) and yaw error <=0.12rad/s (or bounded tolerance).",
+               "For 30s signed commands: <=50% relative or small absolute",
+               "increase in each vx/vy/yaw tracking error; >=7/8 survival;",
+               "positive shaft work no more than +25%. ABSOLUTE position",
+               "drift, station-keeping radius and route-pass counts are",
+               "reported for diagnosis ONLY: no global XY feedback.",
                "These are exploratory tolerances, not proof of generalization.",
                "No candidate may claim proven safe 8cm climbing just from",
                "first-foot top contact.", ""])
