@@ -59,6 +59,13 @@ def source_checkpoint_for_stage(root: Path, age: int) -> Path:
     return root / "checkpoints" / checkpoint
 
 
+def archived_checkpoint_path(root: Path, age: int) -> Path:
+    """A stage must have a canonical checkpoints/ beneath its own run_meta."""
+    if age not in AGENUM:
+        raise ValueError(f"Invalid KS150 milestone age: {age}")
+    return root / "stages" / f"{age}m" / "checkpoints" / "final.pkl"
+
+
 def freeze_stage(root: Path, age: int, parent: Path, parent_sha: str) -> None:
     """Copy entire exact PPO temporal state before the next same-source age."""
     from emu.checkpoint_io import load_checkpoint, update_boundary_at_or_after
@@ -71,7 +78,7 @@ def freeze_stage(root: Path, age: int, parent: Path, parent_sha: str) -> None:
     source = source_checkpoint_for_stage(root, age)
     # Exporter requires checkpoint.parent.parent/run_meta.json; preserve
     # canonical run structure so 130M never exports under v5014 defaults.
-    target = stage / "checkpoints" / "final.pkl"
+    target = archived_checkpoint_path(root, age)
     marker = stage / "stage_manifest.json"
     source_git = subprocess.check_output(
         ["git", "rev-parse", "HEAD"],
