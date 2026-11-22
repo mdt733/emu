@@ -106,6 +106,53 @@ def compatible_academy_evidence_recipe(parent: TrainingConfig,
                    'solver_iterations', 'solver_ls_iterations'))
 
 
+def cap_restored_stair_frontiers(governor, *, ordinary_cap_m: float,
+                                 academy_cap_m: float) -> dict[str, tuple[float, float]]:
+    """Clamp inherited lesson frontiers at a deliberately LOWER research cap.
+
+    Loading a 120M governor restores its previously earned UP/DOWN heights.
+    A new child CLI height cap alone cannot undo those old values, so the
+    learner could unknowingly train >5.5cm despite a supposed 5.5cm cap.
+    This is a fork-time safety operation, not an optimiser/actor change.
+    """
+    changes = {}
+    for name, cap in (
+        ("terrain_height_m", ordinary_cap_m),
+        ("academy_height_up_m", academy_cap_m),
+        ("academy_height_down_m", academy_cap_m),
+    ):
+        prior = float(getattr(governor.params, name))
+        if prior > cap:
+            setattr(governor.params, name, float(cap))
+            changes[name] = (prior, float(cap))
+    return changes
+
+
+def ks150_permanent_milestones(args) -> dict[int, int]:
+    """Exact PPO boundaries to preserve in ONE uninterrupted 120->160M run.
+
+    This is a named, source-pinned research treatment, NOT a new general
+    training default, and does not add fields to older checkpoint configs.
+    Only full optimizer+normalizer+governor+health+field checkpoints qualify.
+    Final 160M is already published as checkpoints/final.pkl.
+    """
+    from .checkpoint_io import update_boundary_at_or_after
+    if Path(args.run_dir).name != "h40-ks150-stairs-bal-s735":
+        return {}
+    if not (args.physical_profile == "h40-spring-only"
+            and args.seed == 735 and args.envs == 2048
+            and args.steps == 160_000_000
+            and args.terrain_step_max_m == .055
+            and args.academy_height_cap_m == .055):
+        raise RuntimeError(
+            "KS150 milestone archive requires exact 160M, seed735, 2048 "
+            "worlds, Spring-only physics and 55mm stair cap")
+    return {
+        update_boundary_at_or_after(age * 1_000_000, args.envs): age
+        for age in (130, 140, 150)
+    }
+
+
 def env_kwargs_from_args(args) -> dict:
     """One source of truth for the physical/sensor envelope used by training."""
     return dict(
@@ -375,6 +422,31 @@ def train(args: TrainingConfig) -> int:
                     print(f'{LOG_PREFIX} new or unverified step-success recipe: '
                           'reset inherited Academy/STEP evidence '
                           '(height frontiers retained)',flush=True)
+            # Physical step capability from the parent is preserved,
+            # but a new bounded stair-school may intentionally LOWER both
+            # the ordinary-prism and Academy heights. Applied after restore,
+            # before the FIRST resumed PPO rollout.
+            limited = cap_restored_stair_frontiers(
+                governor, ordinary_cap_m=args.terrain_step_max_m,
+                academy_cap_m=args.academy_height_cap_m)
+            if limited:
+                print(f"{LOG_PREFIX} inherited step frontiers capped for "
+                      f"this new curriculum: {limited}", flush=True)
+                governor.terrain_evidence = governor._empty_terrain_evidence()
+                governor.academy_evidence = governor._empty_academy_evidence()
+            # A newly introduced goal/transfer payment changes what
+            # attempts mean. Don't reuse accumulated near/easy evidence
+            # from a parent with different objectives.
+            if (ancestor_sha != source_provenance_from_env().get('git_commit')
+                    and (args.science_step_goal_weight > 0.
+                         or args.science_bilateral_support_bonus > 0.
+                         or args.science_followthrough_bonus > 0.)
+                    and not limited):
+                governor.terrain_evidence = governor._empty_terrain_evidence()
+                governor.academy_evidence = governor._empty_academy_evidence()
+                print(f"{LOG_PREFIX} new stair tutor: reset inherited "
+                      "near/easy evidence; kept earned physical heights "
+                      "within explicit caps", flush=True)
             health.load_state_dict(resumed_payload['health_state'])
             print(f"{LOG_PREFIX} --resume: restored curriculum + training health "
                   f"(updates={governor._updates_done_total}, core_bad_streak={governor.core_bad_streak}, "
@@ -609,6 +681,11 @@ def train(args: TrainingConfig) -> int:
     log_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(LOG_EVERY_UPDATES))
     save_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(CHECKPOINT_EVERY_UPDATES))
     snapshot_every_steps = max(0, int(SNAPSHOT_EVERY_STEPS))
+
+    # One uninterrupted source-pinned PPO process. Archive milestones at
+    # their exact update boundary; external 12s/30s/stair tests run only
+    # AFTER the complete 160M run so they never interrupt PPO.
+    permanent_milestones = ks150_permanent_milestones(args)
 
     # Held-out evaluation state is reporting/artifact state only; it never feeds
     # PPO, curriculum, health or capability-field updates.
@@ -891,6 +968,42 @@ def train(args: TrainingConfig) -> int:
             perf.add('checkpoint_snapshot_device_get', snap_timing['device_get_s'])
             perf.add('checkpoint_snapshot_pickle_write', snap_timing['pickle_write_s'])
             perf.add('checkpoint_snapshot_total', snap_timing['total_s'])
+
+        # Immutable research snapshots: preserve a *complete* learner
+        # AFTER governor/health/normalizer have processed this rollout.
+        # The standard 2M rotating snapshots cannot preserve 130M after
+        # reaching 160M (the ring keeps only the latest ten).
+        if total_steps in permanent_milestones:
+            age = permanent_milestones[total_steps]
+            milestone_path = (
+                run_dir / 'checkpoints' / f'milestone_{age}m.pkl')
+            if milestone_path.exists():
+                existing = load_checkpoint(
+                    milestone_path,
+                    expected_observation_schema=args.observation_schema,
+                    expected_sensor_contract=sensor_contract)
+                if int(existing['meta']['step']) != total_steps:
+                    raise RuntimeError(
+                        f'Immutable {age}M milestone has wrong step')
+                print(f'{LOG_PREFIX} immutable milestone {age}M '
+                      'already verified; not overwriting', flush=True)
+            else:
+                timing = save_checkpoint(
+                    milestone_path, state,
+                    {'step': total_steps, 'run_name': run_name,
+                     'lr_scale': lr_scale, **obs_meta},
+                    {'mean': obs_mean, 'var': obs_var, 'count': obs_count},
+                    curriculum_state=governor.state_dict(),
+                    health_state=health.state_dict(),
+                    field_state=field.state_dict(),
+                    require_finite_state=True)
+                if not timing.get('saved', 0.0):
+                    raise RuntimeError(
+                        f'Refusing to continue without finite immutable '
+                        f'{age}M milestone checkpoint')
+                print(f'{LOG_PREFIX} FROZEN MILESTONE {age}M '
+                      f'at {total_steps:,} PPO world steps; '
+                      'continuing SAME learner/process', flush=True)
 
         # Freeze provenance for the rollout we are ABOUT to collect. The
         # next loop iteration's row must be attributed to these exact values,

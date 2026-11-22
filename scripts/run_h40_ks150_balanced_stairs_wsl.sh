@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+# H40-KS150 / STAIRS-BAL. One UNINTERRUPTED 120M->160M PPO process.
+# Modes: plan (default), preflight, gpu-smoke, all, report. No implicit training.
+# Mid-run milestones are immutable; exams occur AFTER PPO, not between ages.
+set -euo pipefail
+MODE="plan"
+if (( $# )); then MODE="$1"; fi
+case "$MODE" in plan|preflight|gpu-smoke|all|report) ;; *)
+  echo "Usage: bash $0 plan|preflight|gpu-smoke|all|report" >&2; exit 2 ;;
+esac
+REPO="$(cd "$(dirname "$0")/.." && pwd)"
+cd "$REPO"
+PY="$REPO/.venv/bin/python"
+[[ -x "$PY" ]] || { echo "Missing .venv/bin/python" >&2; exit 1; }
+export PYTHONPATH="$REPO"
+export EMU_PHYSICAL_PROFILE=h40-spring-only
+export EMU_UNIFIED_CONTINUOUS=cold-growth-approved
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+PARENT="$HOME/emu-data/runs/h40-spring-ab-s735/checkpoints/final.pkl"
+ROOT="$HOME/emu-data/runs/h40-ks150-stairs-bal-s735"
+if [[ "$MODE" == all || "$MODE" == gpu-smoke ]]; then
+  [[ "$(git branch --show-current)" == "research/h40-ks150-balanced-stairs" ]] || {
+    echo "Wrong branch; refusing to train" >&2; exit 1; }
+  [[ -z "$(git status --porcelain)" ]] || {
+    echo "Dirty Git checkout; refusing unpinned training" >&2; exit 1; }
+fi
+# Exact source/actor/model/optimizer parent, not merely a compatible shape.
+read -r PARENT_SOURCE PARENT_SHA < <("$PY" - "$PARENT" <<'PY'
+import hashlib,sys
+from pathlib import Path
+from emu.contracts import ROBOT_XML
+from emu.checkpoint_io import load_checkpoint
+from emu.policy_export import build_bundle
+from emu.training_config import TrainingConfig, training_sensor_contract
+p=Path(sys.argv[1]).expanduser().resolve()
+assert p.is_file(), f"Missing frozen 120M parent: {p}"
+model_hash=hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest()
+assert model_hash=="21b5856b7a248e5d5b988e2735255d57ec79bae1a7cab0bcb72f481bfc36f470",model_hash
+cfg=TrainingConfig.load(p.parent.parent/"training_config.json")
+assert cfg.physical_profile=="h40-spring-only" and cfg.seed==735 and cfg.steps==120000000
+ck=load_checkpoint(p,expected_sensor_contract=training_sensor_contract(cfg))
+assert ck["meta"]["step"]==120061952
+source=(ck["meta"].get("source_provenance") or {}).get("git_commit")
+assert source=="5235ea687d04948b3dce88880e644eac5bb74cee",source
+bundle=build_bundle(p)
+assert bundle["source"]["actor_sha256"]=="cc1f0ab126126815f6cea907dbc3a8a2b3faa6caff8ccbe2f05133d7c090771d"
+assert bundle["source"]["robot_model_sha256"]==model_hash
+digest=hashlib.sha256()
+with p.open("rb") as handle:
+    for chunk in iter(lambda:handle.read(1048576),b""): digest.update(chunk)
+print(source,digest.hexdigest())
+PY
+)
+if [[ "$MODE" == report ]]; then
+  "$PY" scripts/summarize_h40_ks150_stairs.py --root "$ROOT"
+  exit 0
+fi
+# Same original PPO/sensors/motor controls. Changed: bounded 5.5cm signed
+# stair training, outcome-based school and protected ordinary-control births.
+set -- --profile sim2real --run-dir "$ROOT" \
+  --envs 2048 --seed 735 --device cuda --pitch-deg 8 \
+  --terrain-actor --terrain-step-max-m .055 \
+  --unified-capabilities --terrain-carpet --carpet-prisms \
+  --carpet-transition-cap-deg 3 \
+  --academy-stream --terrain-lesson coherent-careful \
+  --foundation-steps 20000000 --foundation-mix main \
+  --growth-recipe main-mature --teaching-schedule terrain-early \
+  --force-program gentle --athletic-rehearsal-share .15 \
+  --retention-share .30 --academy-intro-steps 60000000 \
+  --academy-start-steps 80000000 --academy-ramp-steps 20000000 \
+  --academy-intro-share .10 --academy-max-share .28 \
+  --academy-height-cap-m .055 --fixed-eval-every-steps 10000000 \
+  --science-step-goal-weight .12 \
+  --science-step-velocity-relief .55 \
+  --science-step-approach-m .22 \
+  --science-bilateral-support-bonus 6 \
+  --science-followthrough-bonus 7
+if [[ "$MODE" == plan ]]; then
+  "$PY" -m emu.cli train --steps 160000000 --plan "$@"
+  exit 0
+fi
+# Before launch, prove the exact parent/resume. No training, no output.
+if [[ -e "$ROOT/training_config.json" ]]; then
+  FORK=(--resume auto)
+else
+  FORK=(--resume "$PARENT" --research-parent-source "$PARENT_SOURCE" \
+        --research-parent-sha256 "$PARENT_SHA")
+fi
+if [[ "$MODE" == preflight ]]; then
+  "$PY" -m emu.cli train --steps 160000000 \
+    --check-resume-only "${FORK[@]}" "$@"
+  echo "PREFLIGHT PASS: source/robot/parent checkpoint pinned; no training."
+  exit 0
+fi
+
+if [[ "$MODE" == gpu-smoke ]]; then
+  # Same physical profile as the real run, *inside* this subprocess.
+  # A separate invocation of smoke_gpu_carpet.py would revert to default
+  # H40 without EMU_PHYSICAL_PROFILE exported by the caller.
+  "$PY" -m emu.cli train --steps 160000000 \
+    --check-resume-only "${FORK[@]}" "$@"
+  "$PY" scripts/smoke_gpu_carpet.py --worlds 2048 --frames 2 \
+    --device cuda --prisms --ppo --full-update
+  echo "KS150 2048-world GPU smoke PASS. No 40M training launched."
+  exit 0
+fi
+
+# ONE continuous 120->160M PPO process (or same-source crash recovery).
+# The trainer writes full 130/140/150M immutable milestones in-process.
+# Fixed evaluations at 10M cadence are read-only; no heavy specialty exams
+# run during the train, and there are NO intermediate process restarts.
+"$PY" -m emu.cli train --steps 160000000 "${FORK[@]}" "$@"
+echo "=== 160M PPO COMPLETE; begin read-only frozen actor exams ==="
+
+# Matched 120M reference exams, then each immutable 130/140/150/160M age.
+# These archives cannot modify the PPO learner or original champion.
+for AGE in 130 140 150 160; do
+  STAGE="$ROOT/stages/$AGE"m
+  echo "=== FROZEN KS150 EXAM $AGE M ==="
+  # The root now has a validated trainer-created config and run_meta.
+  mkdir -p "$ROOT/reference"
+  if [[ ! -e "$ROOT/reference/pulse-s1701.zip" ]]; then
+    "$PY" -m scripts.examine_h40_specialties --policy "$PARENT" \
+      --seed 1701 --device cuda --worlds 2048 --horizon 600 \
+      --output "$ROOT/reference/pulse-s1701.zip"
+  fi
+  if [[ ! -e "$ROOT/reference/actor.emupolicy" ]]; then
+    "$PY" -m emu.cli export-policy "$PARENT" "$ROOT/reference/actor.emupolicy"
+  fi
+  if [[ ! -f "$ROOT/reference/stairs/matrix_summary.json" ]]; then
+    "$PY" scripts/v5053_matrix_exam.py --policy "$ROOT/reference/actor.emupolicy" \
+      --output "$ROOT/reference/stairs" --mode stairs --worlds 2048 \
+      --horizon 350 --levels 20 --trials-per-level 50 --seed 1701 --device cuda
+  fi
+  # Re-examine parent and child identically for 60s standing + 30s commands.
+  if [[ ! -e "$ROOT/reference/deep-s1701.zip" ]]; then
+    "$PY" -m emu.physical_capability_exam \
+      --policy "$ROOT/reference/actor.emupolicy" \
+      --output "$ROOT/reference/deep-s1701.zip" \
+      --worlds 8 --seed 1701 --device cuda
+  fi
+  "$PY" scripts/summarize_h40_ks150_stairs.py --archive-stage "$AGE" \
+    --root "$ROOT" --parent "$PARENT" --parent-sha256 "$PARENT_SHA"
+  POLICY="$STAGE/actor.emupolicy"
+  if [[ ! -e "$POLICY" ]]; then
+    "$PY" -m emu.cli export-policy "$STAGE/checkpoints/final.pkl" "$POLICY"
+  fi
+  if [[ ! -e "$STAGE/pulse-s1701.zip" ]]; then
+    "$PY" -m scripts.examine_h40_specialties --policy "$POLICY" \
+      --seed 1701 --device cuda --worlds 2048 --horizon 600 \
+      --output "$STAGE/pulse-s1701.zip"
+  fi
+  if [[ ! -f "$STAGE/stairs/matrix_summary.json" ]]; then
+    "$PY" scripts/v5053_matrix_exam.py --policy "$POLICY" \
+      --output "$STAGE/stairs" --mode stairs --worlds 2048 \
+      --horizon 350 --levels 20 --trials-per-level 50 --seed 1701 --device cuda
+  fi
+  if [[ ! -e "$STAGE/deep-s1701.zip" ]]; then
+    "$PY" -m emu.physical_capability_exam \
+      --policy "$POLICY" --output "$STAGE/deep-s1701.zip" \
+      --worlds 8 --seed 1701 --device cuda
+  fi
+  "$PY" scripts/summarize_h40_ks150_stairs.py --root "$ROOT"
+done
+echo "Finished. Inspect $ROOT/selection.md before any promotion."

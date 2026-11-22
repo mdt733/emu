@@ -162,7 +162,9 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
         PROFILES, selected_profile, generate_xml, profile_numbers,
         FOOT_RADIUS_M, SERVO_RATED_CONTINUOUS_TORQUE_NM)
     base_source=(Path(__file__).resolve().parents[1]/'emu'/'robot.xml').read_text()
-    assert tuple(PROFILES) == ("h40",)
+    # The Spring-only robot is a strictly opt-in research variant.
+    # The default public model and frozen original H40 hash remain unchanged.
+    assert tuple(PROFILES) == ("h40", "h40-spring-only")
     assert selected_profile() == "h40"
     # Regression fence: this exact MJCF is what the frozen 120M actor saw.
     # Changing this hash makes a different robot, even if it looks similar.

@@ -100,6 +100,8 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert float(_gait_maturity(m,np,allow_zero_command_balance=True)[1][0])==pytest.approx(.30)
     assert cfg.physical_profile=="h40"
     _check_spring_only_changes_nothing_except_knee_tendons()
+    _check_balanced_stair_fork_caps_and_matrix()
+    _check_balanced_stair_deep_retention()
     assert not {"cloud_probes_per_eval","cloud_final_probes",
                 "science_reset_step_evidence_on_fork"} & asdict(cfg).keys()
     assert training_sensor_contract(cfg) is not None
@@ -164,6 +166,145 @@ def _check_spring_only_changes_nothing_except_knee_tendons():
         assert torques[0] > torques[1] > 0.0, torques
         assert torques[1] < .980665, torques
 
+
+
+def _check_balanced_stair_fork_caps_and_matrix():
+    """The 120M inherited governor cannot silently exceed the new 55mm cap."""
+    from types import SimpleNamespace
+    from emu.training import cap_restored_stair_frontiers
+    from scripts.summarize_h40_ks150_stairs import group_stairs, LOSS_LIMIT_PP
+
+    params = SimpleNamespace(
+        terrain_height_m=.079,
+        academy_height_up_m=.067,
+        academy_height_down_m=.092)
+    governor = SimpleNamespace(params=params)
+    changes = cap_restored_stair_frontiers(
+        governor, ordinary_cap_m=.055, academy_cap_m=.055)
+    assert set(changes) == {
+        "terrain_height_m", "academy_height_up_m",
+        "academy_height_down_m"}
+    assert (params.terrain_height_m, params.academy_height_up_m,
+            params.academy_height_down_m) == pytest.approx((.055, .055, .055))
+    assert not cap_restored_stair_frontiers(
+        governor, ordinary_cap_m=.055, academy_cap_m=.055)
+    # The next 40M must be ONE single learner/process. No stage-specific
+    # target extensions or surprise snapshot rotation/disappearance.
+    from emu.training import ks150_permanent_milestones
+    from emu.checkpoint_io import update_boundary_at_or_after
+    config = SimpleNamespace(
+        run_dir="/tmp/h40-ks150-stairs-bal-s735",
+        physical_profile="h40-spring-only", seed=735, envs=2048,
+        steps=160_000_000, terrain_step_max_m=.055,
+        academy_height_cap_m=.055)
+    milestones = ks150_permanent_milestones(config)
+    assert list(milestones.values()) == [130, 140, 150]
+    assert list(milestones) == [
+        update_boundary_at_or_after(age * 1_000_000, 2048)
+        for age in (130, 140, 150)]
+    other = SimpleNamespace(**vars(config))
+    other.run_dir = "/tmp/unrelated-experiment"
+    assert not ks150_permanent_milestones(other)
+    wrong = SimpleNamespace(**vars(config))
+    wrong.steps = 130_000_000
+    with pytest.raises(RuntimeError, match="exact 160M"):
+        ks150_permanent_milestones(wrong)
+    from scripts.summarize_h40_ks150_stairs import source_checkpoint_for_stage
+    root = Path("/tmp/ks150-test-run")
+    assert source_checkpoint_for_stage(root, 130) == root/"checkpoints"/"milestone_130m.pkl"
+    assert source_checkpoint_for_stage(root, 140) == root/"checkpoints"/"milestone_140m.pkl"
+    assert source_checkpoint_for_stage(root, 150) == root/"checkpoints"/"milestone_150m.pkl"
+    assert source_checkpoint_for_stage(root, 160) == root/"checkpoints"/"final.pkl"
+    with pytest.raises(ValueError, match="Invalid KS150"):
+        source_checkpoint_for_stage(root, 120)
+    from scripts.summarize_h40_ks150_stairs import archived_checkpoint_path
+    for age in (130, 140, 150, 160):
+        target = archived_checkpoint_path(root, age)
+        expected_stage = root / "stages" / f"{age}m"
+        assert target == expected_stage / "checkpoints" / "final.pkl"
+        # policy_export.build_bundle reads checkpoint.parent.parent/run_meta.json
+        assert target.parent.parent == expected_stage
+        assert (target.parent.parent / "run_meta.json").parent == expected_stage
+    with pytest.raises(ValueError, match="Invalid KS150"):
+        archived_checkpoint_path(root, 120)
+    assert LOSS_LIMIT_PP["control"] < LOSS_LIMIT_PP["slope"]
+    example = [dict(kind="step_up", requested_step_mm=48.,
+                    worlds=50, traversed_5frame=9, survival_rate=.80),
+               dict(kind="step_up", requested_step_mm=52.,
+                    worlds=50, traversed_5frame=3, survival_rate=.70)]
+    group = group_stairs(example, "step_up", 44, 56)
+    assert group == dict(trials=100, crossing=12, survived=75)
+    # Matrix v5 must really measure 4..80mm in BOTH directions;
+    # previous examiner v4 silently generated only 2.5..50mm.
+    from scripts.v5053_matrix_exam import assignments
+    trials = [t for t in assignments(
+        2048, mode="stairs", levels=20, trials_per_level=50)
+        if t.kind != "padding"]
+    assert len(trials) == 2000
+    for direction, sign in (("step_up", 1), ("step_down", -1)):
+        heights = sorted({round(t.exact_step_m * sign * 1000, 4)
+                          for t in trials if t.kind == direction})
+        assert heights == [float(4*i) for i in range(1, 21)]
+
+
+
+
+def _check_balanced_stair_deep_retention():
+    """Protect dynamic balance and commanded velocity, not world XY drift."""
+    from scripts.summarize_h40_ks150_stairs import (
+        DEEP_NAMES, verify_deep_retention)
+
+    baseline = {}
+    for name in DEEP_NAMES:
+        baseline[name] = dict(
+            scenario=name, trials=8, full_survivals=8,
+            locomotion_mission_passes=2,
+            mean_final_trajectory_error_m=2.0,
+            mean_vx_mae_mps=.025, mean_vy_mae_mps=.030,
+            mean_yaw_mae_rad_s=.08,
+            mean_horizontal_speed_mps=.2,
+            mean_positive_motor_shaft_work_j=100.,
+            zero_command_balance_passes=None,
+            bounded_standing_passes=None)
+    baseline[DEEP_NAMES[0]].update(
+        locomotion_mission_passes=None,
+        mean_final_trajectory_error_m=1.2969,
+        mean_positive_motor_shaft_work_j=209.,
+        mean_horizontal_speed_mps=.036,
+        mean_yaw_mae_rad_s=.071,
+        zero_command_balance_passes=8,
+        bounded_standing_passes=0)
+    retained = {name: dict(row) for name, row in baseline.items()}
+    features, blockers = verify_deep_retention(baseline, retained)
+    assert not blockers, blockers
+    assert features["standing_60s_station_keeping_DIAGNOSTIC"] == 0
+    # An unsupported 20cm XY radius is NOT a learned dynamic task. A
+    # robot may drift 3m and still pass if measured velocity remains low.
+    dynamic_and_drifting = {name: dict(row) for name, row in retained.items()}
+    dynamic_and_drifting["stand_zero_60s"]["mean_final_trajectory_error_m"] = 3.
+    dynamic_and_drifting["stand_zero_60s"]["bounded_standing_passes"] = 0
+    dynamic_and_drifting["left_015_30s"]["mean_final_trajectory_error_m"] = 10.
+    dynamic_and_drifting["left_015_30s"]["locomotion_mission_passes"] = 0
+    measurements, blockers = verify_deep_retention(baseline, dynamic_and_drifting)
+    assert not blockers, blockers
+    assert measurements["standing_60s_mean_drift_delta_m_DIAGNOSTIC"] > 1.
+    # But genuine velocity bias, poor yaw tracking, and falling matter.
+    poorer = {name: dict(row) for name, row in retained.items()}
+    poorer["stand_zero_60s"]["mean_horizontal_speed_mps"] = .12
+    _, blockers = verify_deep_retention(baseline, poorer)
+    assert any("unwanted horizontal speed" in x for x in blockers)
+    poorer = {name: dict(row) for name, row in retained.items()}
+    poorer["stand_zero_60s"]["mean_yaw_mae_rad_s"] = .18
+    _, blockers = verify_deep_retention(baseline, poorer)
+    assert any("unwanted yaw" in x for x in blockers)
+    poorer = {name: dict(row) for name, row in retained.items()}
+    poorer["yaw_right_050_30s"]["mean_yaw_mae_rad_s"] = .30
+    _, blockers = verify_deep_retention(baseline, poorer)
+    assert any("yaw_right" in x and "mean_yaw_mae" in x for x in blockers)
+    poorer = {name: dict(row) for name, row in retained.items()}
+    poorer["forward_025_30s"]["full_survivals"] = 4
+    _, blockers = verify_deep_retention(baseline, poorer)
+    assert any("first-life survival" in x for x in blockers)
 
 
 def _check_readonly_dashboard(tmp_path):

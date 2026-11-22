@@ -32,15 +32,15 @@ class MatrixExamTests(unittest.TestCase):
         self.assertEqual(len({x.kind for x in a if x.kind!="padding"}),10)
         steps=[x for x in a if x.kind=="step_up"]
         self.assertEqual(len(steps),200)
-        self.assertAlmostEqual(min(x.exact_step_m for x in steps),.0025)
-        self.assertAlmostEqual(max(x.exact_step_m for x in steps),.05)
+        self.assertAlmostEqual(min(x.exact_step_m for x in steps),.004)
+        self.assertAlmostEqual(max(x.exact_step_m for x in steps),.08)
         # Dedicated exact-height allocation: same world, different challenge.
         a=assignments(2048,mode="stairs")
         self.assertEqual(sum(x.kind=="step_up" for x in a),1000)
         self.assertEqual(sum(x.kind=="step_down" for x in a),1000)
         self.assertEqual(len({x.level for x in a if x.kind=="step_up"}),20)
         self.assertEqual(len({x.level for x in a if x.kind=="step_down"}),20)
-        self.assertEqual(min(x.exact_step_m for x in a if x.kind=="step_down"),-.05)
+        self.assertEqual(min(x.exact_step_m for x in a if x.kind=="step_down"),-.08)
         self.assertEqual(sum(x.kind=="step_up" for x in assignments(2048,mode="stairs_up")),2000)
         self.assertEqual(sum(x.kind=="step_down" for x in assignments(2048,mode="stairs_down")),2000)
         flat=assignments(128,mode="flat")
@@ -62,7 +62,7 @@ class MatrixExamTests(unittest.TestCase):
         # Grouped numerators must never average away labels or padding.
         a=assignments(4,mode="stairs_up",levels=1,trials_per_level=3)
         result=dict(
-            actual_lip_m=np.array([.05,.05,.05,0.]),
+            actual_lip_m=np.array([.08,.08,.08,0.]),
             actual_grade_deg=np.zeros(4),
             survived=np.array([True,True,False,True]),
             lead_foot_top=np.array([True,True,False,False]),
@@ -126,7 +126,7 @@ class MatrixExamTests(unittest.TestCase):
             return record
         sr=[row(t,i%2==0) for i,t in enumerate(stairs)]
         fr=[row(t,True) for t in flats]
-        common=dict(schema="h40_true_prism_heterogeneous_matrix_v4",
+        common=dict(schema="h40_true_prism_heterogeneous_matrix_v5_signed80",
                     policy_sha256="policy",actor_sha256="weights",
                     robot_model_sha256="model",actor_training_source={"step":120061952},
                     exam_source_sha256="same-exam-source",
