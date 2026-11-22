@@ -106,6 +106,28 @@ def compatible_academy_evidence_recipe(parent: TrainingConfig,
                    'solver_iterations', 'solver_ls_iterations'))
 
 
+def cap_restored_stair_frontiers(governor, *, ordinary_cap_m: float,
+                                 academy_cap_m: float) -> dict[str, tuple[float, float]]:
+    """Clamp inherited lesson frontiers at a deliberately LOWER research cap.
+
+    Loading a 120M governor restores its previously earned UP/DOWN heights.
+    A new child CLI height cap alone cannot undo those old values, so the
+    learner could unknowingly train >5.5cm despite a supposed 5.5cm cap.
+    This is a fork-time safety operation, not an optimiser/actor change.
+    """
+    changes = {}
+    for name, cap in (
+        ("terrain_height_m", ordinary_cap_m),
+        ("academy_height_up_m", academy_cap_m),
+        ("academy_height_down_m", academy_cap_m),
+    ):
+        prior = float(getattr(governor.params, name))
+        if prior > cap:
+            setattr(governor.params, name, float(cap))
+            changes[name] = (prior, float(cap))
+    return changes
+
+
 def env_kwargs_from_args(args) -> dict:
     """One source of truth for the physical/sensor envelope used by training."""
     return dict(
@@ -375,6 +397,31 @@ def train(args: TrainingConfig) -> int:
                     print(f'{LOG_PREFIX} new or unverified step-success recipe: '
                           'reset inherited Academy/STEP evidence '
                           '(height frontiers retained)',flush=True)
+            # Physical step capability from the parent is preserved,
+            # but a new bounded stair-school may intentionally LOWER both
+            # the ordinary-prism and Academy heights. Applied after restore,
+            # before the FIRST resumed PPO rollout.
+            limited = cap_restored_stair_frontiers(
+                governor, ordinary_cap_m=args.terrain_step_max_m,
+                academy_cap_m=args.academy_height_cap_m)
+            if limited:
+                print(f"{LOG_PREFIX} inherited step frontiers capped for "
+                      f"this new curriculum: {limited}", flush=True)
+                governor.terrain_evidence = governor._empty_terrain_evidence()
+                governor.academy_evidence = governor._empty_academy_evidence()
+            # A newly introduced goal/transfer payment changes what
+            # attempts mean. Don't reuse accumulated near/easy evidence
+            # from a parent with different objectives.
+            if (ancestor_sha != source_provenance_from_env().get('git_commit')
+                    and (args.science_step_goal_weight > 0.
+                         or args.science_bilateral_support_bonus > 0.
+                         or args.science_followthrough_bonus > 0.)
+                    and not limited):
+                governor.terrain_evidence = governor._empty_terrain_evidence()
+                governor.academy_evidence = governor._empty_academy_evidence()
+                print(f"{LOG_PREFIX} new stair tutor: reset inherited "
+                      "near/easy evidence; kept earned physical heights "
+                      "within explicit caps", flush=True)
             health.load_state_dict(resumed_payload['health_state'])
             print(f"{LOG_PREFIX} --resume: restored curriculum + training health "
                   f"(updates={governor._updates_done_total}, core_bad_streak={governor.core_bad_streak}, "
