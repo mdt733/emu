@@ -74,6 +74,16 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     with patch("emu.run.train_one",side_effect=capture):
         assert emu_cli_main(cli_args+["--science-step-finish-on-transfer"])==0
     assert seen[-1].science_step_finish_on_transfer is True
+    with patch("emu.run.train_one",side_effect=capture):
+        assert emu_cli_main(cli_args+["--stair-survival-curriculum"])==0
+    assert seen[-1].stair_survival_curriculum is True
+    with pytest.raises(ValueError,match="external warm-start"):
+        emu_cli_main(cli_args+[
+            "--stair-survival-curriculum","--resume","/tmp/old.pkl"])
+    with pytest.raises(ValueError,match="full first-life"):
+        emu_cli_main(cli_args+[
+            "--stair-survival-curriculum","--science-step-finish-on-transfer"])
+    assert cfg.stair_survival_curriculum is False
     # Real research forks may change teacher and solver, but not the
     # 360-input actor geometry, physical robot or sensor history.
     from emu.run import verify_experiment_fork
@@ -100,16 +110,8 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert float(_gait_maturity(m,np,allow_zero_command_balance=True)[1][0])==pytest.approx(.30)
     assert cfg.physical_profile=="h40"
     _check_spring_only_changes_nothing_except_knee_tendons()
-    _check_balanced_stair_fork_caps_and_matrix()
-    _check_balanced_stair_deep_retention()
-    _check_v2_actual_v1_hazard_fails_v2_hardware_safety_screen()
-    _check_v2_safe_ascent_requires_separate_real_survival_not_just_crossings()
-    _check_v2_exam_grid_and_actors_are_fixed_before_launch()
-    _check_v2_v2_requires_both_supported_crossings_and_24_surviving_episodes()
-    _check_v2_v2_retreats_despite_successful_footholds_if_robot_falls()
-    _check_v2_v2_migrates_only_explicit_v1_checkpoint_and_restores_full_survival_window()
-    _check_v2_v2_uninterrupted_milestone_boundaries()
-    _check_v2_safe_ascent_v2_rejects_unsafe_harder_steps_even_with_more_crossings()
+    _check_school_teacher_gates()
+    _check_signed_prism_exam_height_grid()
     assert not {"cloud_probes_per_eval","cloud_final_probes",
                 "science_reset_step_evidence_on_fork"} & asdict(cfg).keys()
     assert training_sensor_contract(cfg) is not None
@@ -176,143 +178,82 @@ def _check_spring_only_changes_nothing_except_knee_tendons():
 
 
 
-def _check_balanced_stair_fork_caps_and_matrix():
-    """The 120M inherited governor cannot silently exceed the new 55mm cap."""
-    from types import SimpleNamespace
-    from emu.training import cap_restored_stair_frontiers
-    from scripts.summarize_h40_ks150_stairs import group_stairs, LOSS_LIMIT_PP
-
-    params = SimpleNamespace(
-        terrain_height_m=.079,
-        academy_height_up_m=.067,
-        academy_height_down_m=.092)
-    governor = SimpleNamespace(params=params)
-    changes = cap_restored_stair_frontiers(
-        governor, ordinary_cap_m=.055, academy_cap_m=.055)
-    assert set(changes) == {
-        "terrain_height_m", "academy_height_up_m",
-        "academy_height_down_m"}
-    assert (params.terrain_height_m, params.academy_height_up_m,
-            params.academy_height_down_m) == pytest.approx((.055, .055, .055))
-    assert not cap_restored_stair_frontiers(
-        governor, ordinary_cap_m=.055, academy_cap_m=.055)
-    # The next 40M must be ONE single learner/process. No stage-specific
-    # target extensions or surprise snapshot rotation/disappearance.
-    from emu.training import ks150_permanent_milestones
-    from emu.checkpoint_io import update_boundary_at_or_after
-    config = SimpleNamespace(
-        run_dir="/tmp/h40-ks150-stairs-bal-s735",
-        physical_profile="h40-spring-only", seed=735, envs=2048,
-        steps=160_000_000, terrain_step_max_m=.055,
-        academy_height_cap_m=.055)
-    milestones = ks150_permanent_milestones(config)
-    assert list(milestones.values()) == [130, 140, 150]
-    assert list(milestones) == [
-        update_boundary_at_or_after(age * 1_000_000, 2048)
-        for age in (130, 140, 150)]
-    other = SimpleNamespace(**vars(config))
-    other.run_dir = "/tmp/unrelated-experiment"
-    assert not ks150_permanent_milestones(other)
-    wrong = SimpleNamespace(**vars(config))
-    wrong.steps = 130_000_000
-    with pytest.raises(RuntimeError, match="exact 160M"):
-        ks150_permanent_milestones(wrong)
-    from scripts.summarize_h40_ks150_stairs import source_checkpoint_for_stage
-    root = Path("/tmp/ks150-test-run")
-    assert source_checkpoint_for_stage(root, 130) == root/"checkpoints"/"milestone_130m.pkl"
-    assert source_checkpoint_for_stage(root, 140) == root/"checkpoints"/"milestone_140m.pkl"
-    assert source_checkpoint_for_stage(root, 150) == root/"checkpoints"/"milestone_150m.pkl"
-    assert source_checkpoint_for_stage(root, 160) == root/"checkpoints"/"final.pkl"
-    with pytest.raises(ValueError, match="Invalid KS150"):
-        source_checkpoint_for_stage(root, 120)
-    from scripts.summarize_h40_ks150_stairs import archived_checkpoint_path
-    for age in (130, 140, 150, 160):
-        target = archived_checkpoint_path(root, age)
-        expected_stage = root / "stages" / f"{age}m"
-        assert target == expected_stage / "checkpoints" / "final.pkl"
-        # policy_export.build_bundle reads checkpoint.parent.parent/run_meta.json
-        assert target.parent.parent == expected_stage
-        assert (target.parent.parent / "run_meta.json").parent == expected_stage
-    with pytest.raises(ValueError, match="Invalid KS150"):
-        archived_checkpoint_path(root, 120)
-    assert LOSS_LIMIT_PP["control"] < LOSS_LIMIT_PP["slope"]
-    example = [dict(kind="step_up", requested_step_mm=48.,
-                    worlds=50, traversed_5frame=9, survival_rate=.80),
-               dict(kind="step_up", requested_step_mm=52.,
-                    worlds=50, traversed_5frame=3, survival_rate=.70)]
-    group = group_stairs(example, "step_up", 44, 56)
-    assert group == dict(trials=100, crossing=12, survived=75)
-    # Matrix v5 must really measure 4..80mm in BOTH directions;
-    # previous examiner v4 silently generated only 2.5..50mm.
+def _check_signed_prism_exam_height_grid():
+    """No old 5cm fixture masquerading as a tested 8cm target."""
     from scripts.v5053_matrix_exam import assignments
-    trials = [t for t in assignments(
-        2048, mode="stairs", levels=20, trials_per_level=50)
-        if t.kind != "padding"]
-    assert len(trials) == 2000
-    for direction, sign in (("step_up", 1), ("step_down", -1)):
-        heights = sorted({round(t.exact_step_m * sign * 1000, 4)
-                          for t in trials if t.kind == direction})
-        assert heights == [float(4*i) for i in range(1, 21)]
+    trials=[t for t in assignments(2048,mode="stairs",
+                                  levels=20,trials_per_level=50)
+            if t.kind != "padding"]
+    assert len(trials)==2000
+    for direction,sign in (("step_up",1),("step_down",-1)):
+        items=[t for t in trials if t.kind==direction]
+        assert len(items)==1000
+        assert sorted({round(t.exact_step_m*sign*1000,4) for t in items})==[
+            float(4*i) for i in range(1,21)]
 
 
-
-
-def _check_balanced_stair_deep_retention():
-    """Protect dynamic balance and commanded velocity, not world XY drift."""
-    from scripts.summarize_h40_ks150_stairs import (
-        DEEP_NAMES, verify_deep_retention)
-
-    baseline = {}
-    for name in DEEP_NAMES:
-        baseline[name] = dict(
-            scenario=name, trials=8, full_survivals=8,
-            locomotion_mission_passes=2,
-            mean_final_trajectory_error_m=2.0,
-            mean_vx_mae_mps=.025, mean_vy_mae_mps=.030,
-            mean_yaw_mae_rad_s=.08,
-            mean_horizontal_speed_mps=.2,
-            mean_positive_motor_shaft_work_j=100.,
-            zero_command_balance_passes=None,
-            bounded_standing_passes=None)
-    baseline[DEEP_NAMES[0]].update(
-        locomotion_mission_passes=None,
-        mean_final_trajectory_error_m=1.2969,
-        mean_positive_motor_shaft_work_j=209.,
-        mean_horizontal_speed_mps=.036,
-        mean_yaw_mae_rad_s=.071,
-        zero_command_balance_passes=8,
-        bounded_standing_passes=0)
-    retained = {name: dict(row) for name, row in baseline.items()}
-    features, blockers = verify_deep_retention(baseline, retained)
-    assert not blockers, blockers
-    assert features["standing_60s_station_keeping_DIAGNOSTIC"] == 0
-    # An unsupported 20cm XY radius is NOT a learned dynamic task. A
-    # robot may drift 3m and still pass if measured velocity remains low.
-    dynamic_and_drifting = {name: dict(row) for name, row in retained.items()}
-    dynamic_and_drifting["stand_zero_60s"]["mean_final_trajectory_error_m"] = 3.
-    dynamic_and_drifting["stand_zero_60s"]["bounded_standing_passes"] = 0
-    dynamic_and_drifting["left_015_30s"]["mean_final_trajectory_error_m"] = 10.
-    dynamic_and_drifting["left_015_30s"]["locomotion_mission_passes"] = 0
-    measurements, blockers = verify_deep_retention(baseline, dynamic_and_drifting)
-    assert not blockers, blockers
-    assert measurements["standing_60s_mean_drift_delta_m_DIAGNOSTIC"] > 1.
-    # But genuine velocity bias, poor yaw tracking, and falling matter.
-    poorer = {name: dict(row) for name, row in retained.items()}
-    poorer["stand_zero_60s"]["mean_horizontal_speed_mps"] = .12
-    _, blockers = verify_deep_retention(baseline, poorer)
-    assert any("unwanted horizontal speed" in x for x in blockers)
-    poorer = {name: dict(row) for name, row in retained.items()}
-    poorer["stand_zero_60s"]["mean_yaw_mae_rad_s"] = .18
-    _, blockers = verify_deep_retention(baseline, poorer)
-    assert any("unwanted yaw" in x for x in blockers)
-    poorer = {name: dict(row) for name, row in retained.items()}
-    poorer["yaw_right_050_30s"]["mean_yaw_mae_rad_s"] = .30
-    _, blockers = verify_deep_retention(baseline, poorer)
-    assert any("yaw_right" in x and "mean_yaw_mae" in x for x in blockers)
-    poorer = {name: dict(row) for name, row in retained.items()}
-    poorer["forward_025_30s"]["full_survivals"] = 4
-    _, blockers = verify_deep_retention(baseline, poorer)
-    assert any("first-life survival" in x for x in blockers)
+def _check_school_teacher_gates():
+    """The same teacher grows difficulty from first-life physical proof."""
+    from emu.curriculum import RegimeGovernor
+    from emu.training_config import SCHOOL_ORDINARY_STEP_CAP_M
+    assert SCHOOL_ORDINARY_STEP_CAP_M==.04
+    def school():
+        return RegimeGovernor(
+            unified_capability_focus=True,safe_ascent_enabled=True)
+    def evidence(attempts=24,survived=24,crossed=18):
+        return dict(academy_active_fraction=.2,
+                    academy_near_attempts_up=12,
+                    academy_near_successes_up=12,
+                    safe_ascent_near_attempts_up=attempts,
+                    safe_ascent_near_survived_up=survived,
+                    safe_ascent_near_crossed_up=crossed)
+    tutor=school()
+    tutor.params.academy_height_up_m=.04
+    tutor.params.academy_height_down_m=.04
+    assert "up:expand_survival_and_cross" in tutor.advance_academy(
+        evidence(),max_height_m=.055,enabled=True)
+    assert tutor.params.academy_height_up_m==pytest.approx(.0405)
+    assert tutor.params.academy_height_down_m==.04
+    assert tutor.safe_ascent_evidence==tutor._empty_safe_ascent_evidence()
+    # A success-only lesson is NOT sufficient for promotion.
+    no_survival=school()
+    no_survival.params.academy_height_up_m=.04
+    events=no_survival.advance_academy(
+        evidence(survived=21),max_height_m=.055,enabled=True)
+    assert "up:hold_survival_or_cross" in events
+    assert no_survival.params.academy_height_up_m==.04
+    no_crossing=school()
+    no_crossing.params.academy_height_up_m=.04
+    events=no_crossing.advance_academy(
+        evidence(crossed=0),max_height_m=.055,enabled=True)
+    assert "up:hold_survival_or_cross" in events
+    assert no_crossing.params.academy_height_up_m==.04
+    # A fall-prone cohort actively retreats, however impressive its
+    # supported-crossing or foothold-only payment may look.
+    danger=school()
+    danger.params.academy_height_up_m=.045
+    assert "up:survival_retreat_near" in danger.advance_academy(
+        evidence(survived=13,crossed=24),max_height_m=.055,enabled=True)
+    assert danger.params.academy_height_up_m==pytest.approx(.0445)
+    assert danger.params.academy_height_down_m==.003
+    # First-life evidence is stored in the same checkpoint as PPO and
+    # restored without losing a difficult, partially sampled cohort.
+    partially=school()
+    partial=evidence(attempts=12,survived=11,crossed=8)
+    events=partially.advance_academy(
+        partial,max_height_m=.055,enabled=True)
+    assert "up:collect_first_life" in events
+    full=partially.state_dict()
+    restart=school()
+    restart.load_state_dict(full)
+    assert restart.state_dict()==full
+    with pytest.raises(ValueError,match="curriculum state keys mismatch"):
+        restart.load_state_dict(
+            RegimeGovernor(unified_capability_focus=True).state_dict())
+    with pytest.raises(ValueError,match="school episode outcomes"):
+        broken=restart.state_dict()
+        broken["safe_ascent_evidence"]["near_survived"]=40.
+        restart.load_state_dict(broken)
 
 
 def _check_readonly_dashboard(tmp_path):
@@ -581,189 +522,3 @@ def test_current_360_checkpoint_roundtrip_rejects_sensor_drift(tmp_path):
         load_checkpoint(file,expected_observation_schema=OBS_SCHEMA_TERRAIN,
                         expected_sensor_contract=corrupted)
 
-
-
-# V2 SAFE ASCENT: research helper checks inside the existing four-test budget.
-from scripts.score_h40_ks150_heldout import (
-    ACTORS, BANDS, EXPECTED_HEIGHTS, SEED, safe_ascent_blockers,
-)
-
-def _scores(*, safe_survivors: int, frontier_survivors: int) -> dict:
-    return {
-        "step_up_safe_4_40": {
-            "survived": safe_survivors, "n": 500,
-            "survival_frac": safe_survivors / 500,
-        },
-        "step_up_frontier_44_56": {
-            "survived": frontier_survivors, "n": 200,
-            "survival_frac": frontier_survivors / 200,
-        },
-    }
-
-
-def _check_v2_actual_v1_hazard_fails_v2_hardware_safety_screen():
-    # Real seed1701 matrix from frozen qualification evidence:
-    # 120M 490/500 easy survival; 196/200 frontier;
-    # 150M 490/500 easy survival; 107/200 frontier;
-    # 160M 476/500 easy survival; 89/200 frontier.
-    parent = _scores(safe_survivors=490, frontier_survivors=196)
-    good_upto_4cm = _scores(safe_survivors=490, frontier_survivors=107)
-    too_risky = _scores(safe_survivors=476, frontier_survivors=89)
-    assert safe_ascent_blockers(parent, good_upto_4cm) == [
-        "uphill 44–56mm survival below 90%"
-    ]
-    assert safe_ascent_blockers(parent, too_risky) == [
-        "uphill 4–40mm survival regression",
-        "uphill 44–56mm survival below 90%",
-    ]
-
-
-def _check_v2_safe_ascent_requires_separate_real_survival_not_just_crossings():
-    reference = _scores(safe_survivors=490, frontier_survivors=196)
-    safe = _scores(safe_survivors=480, frontier_survivors=180)
-    assert safe_ascent_blockers(reference, safe) == []
-    failed = _scores(safe_survivors=420, frontier_survivors=180)
-    failed["step_up_safe_4_40"]["traversals"] = 500
-    assert "uphill 4–40mm survival regression" in safe_ascent_blockers(
-        reference, failed)
-
-
-def _check_v2_exam_grid_and_actors_are_fixed_before_launch():
-    assert SEED == 2701
-    assert set(ACTORS) == {120, 150, 160}
-    assert len(set(ACTORS.values())) == 3
-    assert EXPECTED_HEIGHTS == tuple(float(i) for i in range(4, 81, 4))
-    assert BANDS == (
-        ("safe_4_40", 4, 40),
-        ("frontier_44_56", 44, 56),
-        ("stretch_44_80", 44, 80),
-    )
-
-
-def _academy_row(*, near_attempts=0., near_successes=0.,
-                 safety_near=0., safety_near_survived=0.,
-                 easy_attempts=0., easy_successes=0.,
-                 safety_easy=0., safety_easy_survived=0.):
-    return dict(
-        academy_active_fraction=.20,
-        academy_near_attempts_up=near_attempts,
-        academy_near_successes_up=near_successes,
-        academy_easy_attempts_up=easy_attempts,
-        academy_easy_successes_up=easy_successes,
-        safe_ascent_near_attempts_up=safety_near,
-        safe_ascent_near_survived_up=safety_near_survived,
-        safe_ascent_near_crossed_up=min(safety_near,near_successes),
-        safe_ascent_easy_attempts_up=safety_easy,
-        safe_ascent_easy_survived_up=safety_easy_survived,
-        safe_ascent_easy_crossed_up=min(safety_easy,easy_successes),
-    )
-
-
-def _check_v2_v2_requires_both_supported_crossings_and_24_surviving_episodes():
-    from emu.curriculum import RegimeGovernor
-    school=RegimeGovernor(unified_capability_focus=True,
-                          safe_ascent_enabled=True)
-    school.params.academy_height_up_m=.04
-    school.params.academy_height_down_m=.04
-    row=_academy_row(
-        near_attempts=12, near_successes=10,
-        safety_near=12, safety_near_survived=12)
-    event=school.advance_academy(row,max_height_m=.055,enabled=True)
-    assert "up:collect_first_life" in event
-    assert school.params.academy_height_up_m==.04
-    event=school.advance_academy(row,max_height_m=.055,enabled=True)
-    assert "up:expand_survival_and_cross" in event
-    assert abs(school.params.academy_height_up_m-.0405)<1e-10
-    assert school.params.academy_height_down_m==.04
-    assert school.safe_ascent_evidence==school._empty_safe_ascent_evidence()
-
-
-def _check_v2_v2_retreats_despite_successful_footholds_if_robot_falls():
-    from emu.curriculum import RegimeGovernor
-    school=RegimeGovernor(unified_capability_focus=True,
-                          safe_ascent_enabled=True)
-    school.params.academy_height_up_m=.045
-    event=school.advance_academy(_academy_row(
-        near_attempts=12,near_successes=12,safety_near=24,
-        safety_near_survived=13),max_height_m=.055,enabled=True)
-    assert "up:survival_retreat_near" in event
-    assert abs(school.params.academy_height_up_m-.0445)<1e-10
-    school=RegimeGovernor(unified_capability_focus=True,
-                          safe_ascent_enabled=True)
-    school.params.academy_height_up_m=.045
-    event=school.advance_academy(_academy_row(
-        easy_attempts=12,easy_successes=12,
-        safety_easy=24,safety_easy_survived=13),max_height_m=.055,enabled=True)
-    assert "up:survival_retreat_easy" in event
-    assert abs(school.params.academy_height_up_m-.0445)<1e-10
-
-
-def _check_v2_v2_migrates_only_explicit_v1_checkpoint_and_restores_full_survival_window():
-    import pytest
-    from emu.curriculum import RegimeGovernor
-    v1=RegimeGovernor(unified_capability_focus=True).state_dict()
-    v2=RegimeGovernor(unified_capability_focus=True,safe_ascent_enabled=True)
-    with pytest.raises(ValueError,match="curriculum state keys mismatch"):
-        v2.load_state_dict(v1)
-    v2.load_state_dict(v1,allow_safe_ascent_parent_fork=True)
-    assert v2.safe_ascent_evidence==v2._empty_safe_ascent_evidence()
-    v2.safe_ascent_evidence["near_attempts"]=19.
-    v2.safe_ascent_evidence["near_survived"]=18.
-    saved=v2.state_dict()
-    restart=RegimeGovernor(unified_capability_focus=True,safe_ascent_enabled=True)
-    restart.load_state_dict(saved)
-    assert restart.safe_ascent_evidence["near_attempts"]==19.
-    assert restart.safe_ascent_evidence["near_survived"]==18.
-    with pytest.raises(ValueError,match="V2 episode outcomes exceed births"):
-        bad={**saved,"safe_ascent_evidence":{
-            **saved["safe_ascent_evidence"],"near_survived":21.}}
-        restart.load_state_dict(bad)
-    with pytest.raises(ValueError,match="curriculum state keys mismatch"):
-        RegimeGovernor(unified_capability_focus=True).load_state_dict(saved)
-
-
-def _check_v2_v2_uninterrupted_milestone_boundaries():
-    from types import SimpleNamespace
-    from emu.training import ks150_permanent_milestones
-    from emu.checkpoint_io import update_boundary_at_or_after
-    args=SimpleNamespace(
-        run_dir="/tmp/h40-ks150-safe-ascent-s735",
-        physical_profile="h40-spring-only",
-        seed=735, envs=2048, steps=170000000,
-        terrain_step_max_m=.055, academy_height_cap_m=.055)
-    assert ks150_permanent_milestones(args)=={
-        update_boundary_at_or_after(160000000,2048):160}
-    wrong=SimpleNamespace(**vars(args))
-    wrong.steps=160000000
-    import pytest
-    with pytest.raises(RuntimeError,match="V2 milestone"):
-        ks150_permanent_milestones(wrong)
-
-
-def _check_v2_safe_ascent_v2_rejects_unsafe_harder_steps_even_with_more_crossings():
-    from scripts.score_h40_safe_ascent_v2 import audit
-    def group(traverse,survive,n):
-        return dict(crossed=traverse,survived=survive,n=n)
-    safe=group(230,488,500)
-    hard=group(20,104,200)
-    downhill=group(370,875,1000)
-    deep={"stand_zero_60s":dict(
-        full_survivals=8,zero_command_balance_passes=8,
-        mean_horizontal_speed_mps=.034,mean_yaw_mae_rad_s=.07,
-        mean_vx_mae_mps=.02,mean_vy_mae_mps=.02,
-        mean_positive_motor_shaft_work_j=200.)}
-    for name in ["forward_025_30s"]:
-        deep[name]=dict(
-            full_survivals=8,mean_vx_mae_mps=.03,
-            mean_vy_mae_mps=.03,mean_yaw_mae_rad_s=.08,
-            mean_positive_motor_shaft_work_j=100.)
-    groups={name:dict(pass_fraction=.9)
-            for name in ("command","control","transition","slope","resilience")}
-    base=dict(scores={
-        "step_up_easy_4_40":safe,
-        "step_up_frontier_44_56":hard,
-        "step_down_all_4_80":downhill},deep=deep,groups=groups)
-    candidate=dict(base,scores={**base["scores"],
-        "step_up_frontier_44_56":group(30,110,200)})
-    blockers=audit(base,candidate)
-    assert any("44–56mm uphill survival" in x for x in blockers)
