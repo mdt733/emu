@@ -3,7 +3,7 @@
 # Modes: plan (default), preflight, all, report. All outputs separate.
 # This does not choose or publish a champion. Requires completed V1 exports.
 set -euo pipefail
-MODE="\${1:-plan}"
+MODE="${1:-plan}"
 case "$MODE" in plan|preflight|all|report) ;; *)
   echo "Usage: bash $0 plan|preflight|all|report" >&2; exit 2 ;;
 esac
@@ -87,9 +87,9 @@ for AGE in 120 150 160; do
   if [[ "$AGE" == 120 ]]; then
     POLICY="$SOURCE/reference/actor.emupolicy"
   else
-    POLICY="$SOURCE/stages/\${AGE}m/actor.emupolicy"
+    POLICY="$SOURCE/stages/${AGE}m/actor.emupolicy"
   fi
-  OUT="$DEST/\${AGE}m"
+  OUT="$DEST/${AGE}m"
   mkdir -p "$OUT"
   if [[ ! -e "$OUT/pulse-s2701.zip" ]]; then
     "$PY" -m scripts.examine_h40_specialties \
