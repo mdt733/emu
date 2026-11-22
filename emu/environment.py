@@ -2175,7 +2175,11 @@ class EmuMJXEnv(TaskSampler):
                     # this first-lip birth. Goal-lip arming is authentic
                     # first destination-tile supported contact, *not*
                     # the optional 60cm precision-parking completion.
-                    ('crossed',stepped.academy_goal_lip_armed))},
+                    ('crossed',stepped.academy_goal_lip_armed),
+                    # The genuine target: a verified FIRST-lip supported
+                    # transfer AND no subsequent fall in that same life.
+                    ('safe_crossed',stepped.academy_goal_lip_armed &
+                                    ~terminal_fail))},
             'academy_active':state.academy_active.astype(jnp.float32),
             'academy_lip_index':academy['lip_index'].astype(jnp.float32),
             'academy_lip_height_m':academy['height_m'],
