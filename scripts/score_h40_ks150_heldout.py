@@ -92,6 +92,23 @@ def read_stage(root: Path, age: int, seed: int) -> dict:
             "deep_manifest": deep_m}
 
 
+def safe_ascent_blockers(reference_scores: dict, candidate_scores: dict) -> list[str]:
+    """Predeclared SAFETY screen, never infer safety from traverse-only gain.
+
+    These are engineering thresholds for future confirmation, not a
+    probabilistic confidence or a retrospectively revised V1 selection.
+    """
+    reference_safe = reference_scores["step_up_safe_4_40"]["survival_frac"]
+    candidate_safe = candidate_scores["step_up_safe_4_40"]["survival_frac"]
+    frontier = candidate_scores["step_up_frontier_44_56"]["survival_frac"]
+    problems = []
+    if candidate_safe < reference_safe - .02 - 1e-10:
+        problems.append("uphill 4–40mm survival regression")
+    if frontier < .90:
+        problems.append("uphill 44–56mm survival below 90%")
+    return problems
+
+
 def review(root: Path, seed: int = SEED) -> str:
     assert seed >= 0
     stages = {}
@@ -166,16 +183,9 @@ def review(root: Path, seed: int = SEED) -> str:
               "",
     ]
     if len(stages) == 3:
-        base=stages[120]["scores"]["step_up_safe_4_40"]["survival_frac"]
         for age in (150,160):
             v=stages[age]["scores"]
-            easy=v["step_up_safe_4_40"]["survival_frac"]
-            hard=v["step_up_frontier_44_56"]["survival_frac"]
-            reasons=[]
-            if easy < base-.02-1e-10:
-                reasons.append("uphill 4–40mm survival regression")
-            if hard < .90:
-                reasons.append("uphill 44–56mm survival below 90%")
+            reasons = safe_ascent_blockers(stages[120]["scores"], v)
             lines.append(
                 f"- **{age}M**: " +
                 ("meets both survival floors (still requires all-skill review)"
