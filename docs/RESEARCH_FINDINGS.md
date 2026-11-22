@@ -90,7 +90,11 @@ physical height cohort**, with evidence windows saved in checkpoints.
 Downhill advancement is independent. Ordinary bidirectional prism
 training remains bounded at 40mm while Academy may earn harder
 individual signed lessons up to the predeclared 55mm research ceiling.
-No GPS-like parked-position reward is required for dynamic standing.
+The actor has no global-XY position feedback; precision parking
+is **not** a standing or stair-graduation criterion. The teacher retains
+V1's bounded progress/arrival shaping as a research hypothesis, but it
+must grant uphill advancement only for an authentic supported first-lip
+crossing **that also survives the same complete first-life episode**.
 
 **The current hypothesis is ONE consolidated cold teacher**, not a
 150M/170M hand-selected student's continuation. See the single active
