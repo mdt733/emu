@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# H40-KS150 / STAIRS-BAL. One automated 120M->160M campaign.
+# H40-KS150 / STAIRS-BAL. One UNINTERRUPTED 120M->160M PPO process.
 # Modes: plan (default), preflight, all, report. No implicit GPU launch.
-# Stage checkpoints are immutable; never touches 120M source or showcase.
+# Mid-run milestones are immutable; exams occur AFTER PPO, not between ages.
 set -euo pipefail
 MODE="plan"
 if (( $# )); then MODE="$1"; fi
@@ -79,43 +79,33 @@ if [[ "$MODE" == plan ]]; then
   "$PY" -m emu.cli train --steps 160000000 --plan "$@"
   exit 0
 fi
-if [[ ! -e "$ROOT/training_config.json" ]]; then
-  "$PY" -m emu.cli train --steps 130000000 \
-    --resume "$PARENT" --research-parent-source "$PARENT_SOURCE" \
-    --research-parent-sha256 "$PARENT_SHA" --check-resume-only "$@"
+# Before launch, prove the exact parent/resume. No training, no output.
+if [[ -e "$ROOT/training_config.json" ]]; then
+  FORK=(--resume auto)
+else
+  FORK=(--resume "$PARENT" --research-parent-source "$PARENT_SOURCE" \
+        --research-parent-sha256 "$PARENT_SHA")
 fi
 if [[ "$MODE" == preflight ]]; then
-  echo "PREFLIGHT PASS: frozen parent and Spring-only model verified; no training."
+  "$PY" -m emu.cli train --steps 160000000 \
+    --check-resume-only "${FORK[@]}" "$@"
+  echo "PREFLIGHT PASS: source/robot/parent checkpoint pinned; no training."
   exit 0
 fi
 
-# Automatic phases, same optimizer/governor/source. NOT four new learners.
+# ONE continuous 120->160M PPO process (or same-source crash recovery).
+# The trainer writes full 130/140/150M immutable milestones in-process.
+# Fixed evaluations at 10M cadence are read-only; no heavy specialty exams
+# run during the train, and there are NO intermediate process restarts.
+"$PY" -m emu.cli train --steps 160000000 "${FORK[@]}" "$@"
+echo "=== 160M PPO COMPLETE; begin read-only frozen actor exams ==="
+
+# Matched 120M reference exams, then each immutable 130/140/150/160M age.
+# These archives cannot modify the PPO learner or original champion.
 for AGE in 130 140 150 160; do
   STAGE="$ROOT/stages/$AGE"m
-  TARGET=$((AGE*1000000))
-  echo "=== KS150 BALANCED STAIRS $AGE M ==="
-  if [[ ! -f "$STAGE/stage_manifest.json" ]]; then
-    if [[ -e "$ROOT/training_config.json" ]]; then
-      CFG_TARGET="$("$PY" - "$ROOT" <<'PY'
-import sys
-from pathlib import Path
-from emu.training_config import TrainingConfig
-print(TrainingConfig.load(Path(sys.argv[1])/"training_config.json").steps)
-PY
-)"
-      if (( CFG_TARGET > TARGET )); then
-        echo "Missing archived $AGE M stage after a later training target; refusing false snapshot" >&2
-        exit 1
-      fi
-      "$PY" -m emu.cli train --steps "$TARGET" --resume auto "$@"
-    else
-      "$PY" -m emu.cli train --steps "$TARGET" \
-        --resume "$PARENT" --research-parent-source "$PARENT_SOURCE" \
-        --research-parent-sha256 "$PARENT_SHA" "$@"
-    fi
-  fi
-  # The root must first have a trainer-created config and run_meta.
-  # Matched 120M reference exams are read-only and do not mutate parent.
+  echo "=== FROZEN KS150 EXAM $AGE M ==="
+  # The root now has a validated trainer-created config and run_meta.
   mkdir -p "$ROOT/reference"
   if [[ ! -e "$ROOT/reference/pulse-s1701.zip" ]]; then
     "$PY" -m scripts.examine_h40_specialties --policy "$PARENT" \
