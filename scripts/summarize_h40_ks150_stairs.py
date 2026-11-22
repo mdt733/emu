@@ -69,12 +69,34 @@ def freeze_stage(root: Path, age: int, parent: Path, parent_sha: str) -> None:
     assert sha256_file(parent) == parent_sha, "Frozen 120M parent changed"
     stage = root / "stages" / f"{age}m"
     source = source_checkpoint_for_stage(root, age)
-    target = stage / "final.pkl"
+    # Exporter requires checkpoint.parent.parent/run_meta.json; preserve
+    # canonical run structure so 130M never exports under v5014 defaults.
+    target = stage / "checkpoints" / "final.pkl"
     marker = stage / "stage_manifest.json"
     source_git = subprocess.check_output(
         ["git", "rev-parse", "HEAD"],
         cwd=Path(__file__).resolve().parents[1], text=True).strip()
     stage.mkdir(parents=True, exist_ok=True)
+    (stage / "checkpoints").mkdir(parents=True, exist_ok=True)
+    # Copy the COMPLETE run provenance (incl. v5015 pitch, streaming prism
+    # topology, phase speed and reward settings) alongside each checkpoint.
+    # Policy exports read exactly parent.parent/run_meta.json.
+    parent_meta = root / "run_meta.json"
+    parent_cfg = root / "training_config.json"
+    if not parent_meta.is_file() or not parent_cfg.is_file():
+        raise RuntimeError("Stage export requires source run_meta.json and training_config.json")
+    root_meta = json.loads(parent_meta.read_text())
+    if ((root_meta.get("source_provenance") or {}).get("git_commit")
+            != source_git):
+        raise RuntimeError("Run metadata source differs from active Git commit")
+    for original in (parent_meta, parent_cfg):
+        archived = stage / original.name
+        if archived.exists():
+            if sha256_file(archived) != sha256_file(original):
+                raise RuntimeError(
+                    f"Archived {original.name} no longer matches source run")
+        else:
+            shutil.copy2(original, archived)
     if marker.exists():
         manifest = json.loads(marker.read_text())
         assert manifest["age_m"] == age
@@ -83,6 +105,8 @@ def freeze_stage(root: Path, age: int, parent: Path, parent_sha: str) -> None:
         assert manifest["parent_checkpoint_sha256"] == parent_sha
         assert manifest["milestone_source_file"] == source.name
         assert target.is_file() and sha256_file(target) == manifest["checkpoint_sha256"]
+        assert sha256_file(stage / "run_meta.json") == manifest["run_meta_sha256"]
+        assert sha256_file(stage / "training_config.json") == manifest["config_sha256"]
         print(f"IMMUTABLE STAGE VERIFIED: {age}M")
         return
 
@@ -97,30 +121,35 @@ def freeze_stage(root: Path, age: int, parent: Path, parent_sha: str) -> None:
     assert cfg.science_bilateral_support_bonus == 6.
     assert cfg.science_followthrough_bonus == 7.
     assert hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest() == MODEL_SHA
-    if not source.is_file() or target.exists():
-        raise RuntimeError("Missing completed checkpoint or unexpected partial stage archive")
+    if not source.is_file():
+        raise RuntimeError("Missing exact in-process milestone checkpoint")
+    if target.exists() and sha256_file(target) != sha256_file(source):
+        raise RuntimeError("Existing stage checkpoint has different bytes; refuse overwrite")
     payload = load_checkpoint(source, expected_sensor_contract=training_sensor_contract(cfg))
     step = int(payload["meta"]["step"])
     assert step == update_boundary_at_or_after(age * 1000000, cfg.envs), (age, step)
     assert (payload["meta"].get("source_provenance") or {}).get("git_commit") == source_git
 
-    temp = stage / ".final.pkl.partial"
-    if temp.exists():
-        raise FileExistsError(f"Interrupted stage copy: {temp}")
-    try:
-        shutil.copy2(source, temp)
-        if sha256_file(temp) != sha256_file(source):
-            raise RuntimeError("Stage copy checksum mismatch")
-        os.replace(temp, target)
-    finally:
-        temp.unlink(missing_ok=True)
+    if not target.exists():
+        temp = target.with_name(".final.pkl.partial")
+        if temp.exists():
+            raise FileExistsError(f"Interrupted stage copy: {temp}")
+        try:
+            shutil.copy2(source, temp)
+            if sha256_file(temp) != sha256_file(source):
+                raise RuntimeError("Stage copy checksum mismatch")
+            os.replace(temp, target)
+        finally:
+            temp.unlink(missing_ok=True)
     data = dict(
         schema="emu_ks150_balanced_stairs_stage_v1", age_m=age,
         actual_step=step, source_git_commit=source_git,
         milestone_source_file=source.name,
         physical_sha256=MODEL_SHA, checkpoint_sha256=sha256_file(target),
         parent_checkpoint_sha256=parent_sha, parent_source_git=PARENT_SOURCE,
-        config_sha256=sha256_file(root / "training_config.json"),
+        config_sha256=sha256_file(stage / "training_config.json"),
+        run_meta_sha256=sha256_file(stage / "run_meta.json"),
+        checkpoint_relpath="checkpoints/final.pkl",
         actor_export="actor.emupolicy", pulse="pulse-s1701.zip",
         signed_stair_matrix="stairs/matrix_summary.json",
         note="Complete PPO optimizer, normalizer, governor, field and health state; not just actor weights",
