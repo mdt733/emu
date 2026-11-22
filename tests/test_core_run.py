@@ -78,11 +78,18 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
         assert emu_cli_main(cli_args+[
             "--stair-survival-curriculum","--science-step-goal-weight",".12"])==0
     assert seen[-1].stair_survival_curriculum is True
-    with pytest.raises(ValueError,match="external warm-start"):
-        emu_cli_main(cli_args+[
-            "--stair-survival-curriculum","--resume","/tmp/old.pkl"])
-    with pytest.raises(ValueError,match="positive .*science-step-goal-weight"):
-        emu_cli_main(cli_args+["--stair-survival-curriculum"])
+    # Teacher method and checkpoint origin are independent. A real fork
+    # is authenticated later by inspect_run using physical/model/source
+    # SHA and the *actual* checkpoint bytes.
+    with patch("emu.run.train_one",side_effect=capture):
+        assert emu_cli_main(cli_args+[
+            "--stair-survival-curriculum",
+            "--resume","/tmp/research-parent/checkpoints/milestone_140m.pkl"])==0
+        assert emu_cli_main(cli_args+["--stair-survival-curriculum"])==0
+    assert seen[-2].stair_survival_curriculum
+    assert seen[-1].stair_survival_curriculum
+    # An optional goal-position reward is not required just to gather
+    # real first-lip support and full first-life survival evidence.
     with pytest.raises(ValueError,match="full first-life"):
         emu_cli_main(cli_args+[
             "--stair-survival-curriculum","--science-step-goal-weight",".12",
@@ -201,18 +208,30 @@ def _check_school_teacher_gates():
     from emu.curriculum import RegimeGovernor
     from emu.training_config import SCHOOL_ORDINARY_STEP_CAP_M
     assert SCHOOL_ORDINARY_STEP_CAP_M==.04
+    from emu.environment import school_step_envelope
+    base_up=np.array([.055,.055])
+    base_down=np.array([.055,.055])
+    ordinary=np.array([False,True])
+    up,down=school_step_envelope(
+        np,ordinary,base_up,base_down,SCHOOL_ORDINARY_STEP_CAP_M)
+    np.testing.assert_allclose(up,[.04,.055])
+    np.testing.assert_allclose(down,[.04,.055])
+    up,down=school_step_envelope(np,ordinary,base_up,base_down,None)
+    np.testing.assert_allclose(up,base_up)
+    np.testing.assert_allclose(down,base_down)
     def school():
         return RegimeGovernor(
             unified_capability_focus=True,safe_ascent_enabled=True)
-    def evidence(attempts=24,survived=24,crossed=18):
+    def evidence(attempts=24,survived=24,crossed=18,safe_crossed=None):
         return dict(academy_active_fraction=.2,
                     academy_near_attempts_up=12,
                     academy_near_successes_up=12,
                     safe_ascent_near_attempts_up=attempts,
                     safe_ascent_near_survived_up=survived,
                     safe_ascent_near_crossed_up=crossed,
-                    safe_ascent_near_safe_crossed_up=min(
-                        attempts,survived,crossed))
+                    safe_ascent_near_safe_crossed_up=(
+                        min(attempts,survived,crossed)
+                        if safe_crossed is None else safe_crossed))
     tutor=school()
     tutor.params.academy_height_up_m=.04
     tutor.params.academy_height_down_m=.04
@@ -221,6 +240,15 @@ def _check_school_teacher_gates():
     assert tutor.params.academy_height_up_m==pytest.approx(.0405)
     assert tutor.params.academy_height_down_m==.04
     assert tutor.safe_ascent_evidence==tutor._empty_safe_ascent_evidence()
+    # A frontier move invalidates the old EASY height too, even if it
+    # did not yet reach its minimum sample count.
+    old_height=school()
+    old_height.params.academy_height_up_m=.04
+    old_height.safe_ascent_evidence["easy_attempts"]=12.
+    old_height.safe_ascent_evidence["easy_survived"]=12.
+    old_height.advance_academy(
+        evidence(),max_height_m=.055,enabled=True)
+    assert old_height.safe_ascent_evidence==old_height._empty_safe_ascent_evidence()
     # A success-only lesson is NOT sufficient for promotion.
     no_survival=school()
     no_survival.params.academy_height_up_m=.04
@@ -234,6 +262,13 @@ def _check_school_teacher_gates():
         evidence(crossed=0),max_height_m=.055,enabled=True)
     assert "up:hold_survival_or_cross" in events
     assert no_crossing.params.academy_height_up_m==.04
+    disconnected=school()
+    disconnected.params.academy_height_up_m=.04
+    events=disconnected.advance_academy(
+        evidence(survived=24,crossed=18,safe_crossed=4),
+        max_height_m=.055,enabled=True)
+    assert "up:hold_survival_or_cross" in events
+    assert disconnected.params.academy_height_up_m==.04
     # A fall-prone cohort actively retreats, however impressive its
     # supported-crossing or foothold-only payment may look.
     danger=school()
@@ -256,6 +291,18 @@ def _check_school_teacher_gates():
     with pytest.raises(ValueError,match="curriculum state keys mismatch"):
         restart.load_state_dict(
             RegimeGovernor(unified_capability_focus=True).state_dict())
+    # The identical actor architecture may be used with either teacher
+    # in a NEW research fork. The old checkpoint's PPO state is restored
+    # by the trainer; only the added/removed teacher evidence changes.
+    legacy=RegimeGovernor(unified_capability_focus=True)
+    classic_state=legacy.state_dict()
+    migrated=school()
+    migrated.load_state_dict(classic_state,allow_teacher_fork=True)
+    assert migrated.safe_ascent_evidence==migrated._empty_safe_ascent_evidence()
+    legacy.load_state_dict(migrated.state_dict(),allow_teacher_fork=True)
+    assert legacy.state_dict()==classic_state
+    with pytest.raises(ValueError,match="curriculum state keys mismatch"):
+        school().load_state_dict(classic_state)
     with pytest.raises(ValueError,match="school episode outcomes"):
         broken=restart.state_dict()
         broken["safe_ascent_evidence"]["near_survived"]=40.
