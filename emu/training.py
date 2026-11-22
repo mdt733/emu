@@ -49,9 +49,8 @@ from .training_config import (
 )
 from .curriculum import RegimeGovernor
 from .training_health import TrainingHealth
-from .capability_focus import (teaching_profile, attention_weights, FOCUS_NAMES,
-                               academy_birth_allocation, academy_focus_mix,
-                               academy_conditional_birth_share)
+from .capability_focus import (teaching_profile, birth_lesson_weights,
+                               FOCUS_NAMES)
 from .ppo import (make_trainer, update_running_stats, build_obs_norm_mask,
                   PerfBook, configure_jax, require_backend)
 from .results import (
@@ -432,36 +431,21 @@ def train(args: TrainingConfig) -> int:
             d['steering_attention']=(1.0 if (
                 args.teaching_schedule=='steering' and
                 step>args.foundation_steps) else 0.0)
-            weights=list(attention_weights(
-                schedule=args.teaching_schedule,step=step,
-                foundation_steps=args.foundation_steps))
-            # Reserve a deterministic share of all focused births for
-            # useful moving, low-disturbance retention (CONTROL role).
-            # The ordinary control role remains unchanged in baseline arms.
-            if step>args.foundation_steps and args.retention_share>0.:
-                base_control=weights[-1]
-                other_total=1.-base_control
-                target_control=max(base_control,args.retention_share)
-                weights=[w*(1.-target_control)/other_total for w in weights[:-1]]
-                weights.append(target_control)
-            # Academy is an additional episode birth role, not a separate
-            # optimizer or policy. Its share is relative to ALL worlds.
-            # Original role fractions survive inside non-Academy births.
-            academy_probability=0.0
-            if args.academy_stream and profile.adaptive_specialists:
-                academy_share=academy_birth_allocation(
-                    step=step,intro_steps=args.academy_intro_steps,
-                    start_steps=args.academy_start_steps,
-                    ramp_steps=args.academy_ramp_steps,
-                    intro_share=args.academy_intro_share,
-                    max_share=args.academy_max_share)
-                # Fast rehearsal was reserved BEFORE focus assignment.
-                # Honour 50% of ALL births rather than accidentally 50% of
-                # the remaining 75% when 25% of worlds rehearse fast gait.
-                conditional,actual_share=academy_conditional_birth_share(
-                    academy_share,float(d['athletic_rehearsal_frac']))
-                weights,academy_probability=academy_focus_mix(
-                    weights,conditional)
+            # A SINGLE host allocation applies the schedule, retained
+            # CONTROL share, fast rehearsal reservation, and Academy share.
+            # One six-focus plan; no overlapping later lesson schedulers.
+            weights, academy_probability=birth_lesson_weights(
+                schedule=args.teaching_schedule,
+                step=step, foundation_steps=args.foundation_steps,
+                retention_share=args.retention_share,
+                academy_enabled=(args.academy_stream and
+                                 profile.adaptive_specialists),
+                athletic_share=float(d['athletic_rehearsal_frac']),
+                academy_intro_steps=args.academy_intro_steps,
+                academy_start_steps=args.academy_start_steps,
+                academy_ramp_steps=args.academy_ramp_steps,
+                academy_intro_share=args.academy_intro_share,
+                academy_max_share=args.academy_max_share)
             d['academy_episode_probability']=academy_probability
             for name,weight in zip(FOCUS_NAMES,weights):
                 d['focus_weight_'+name]=weight
