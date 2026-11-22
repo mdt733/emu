@@ -122,8 +122,11 @@ PY
       --seed 1701 --device cuda --worlds 2048 --horizon 600 \
       --output "$ROOT/reference/pulse-s1701.zip"
   fi
+  if [[ ! -e "$ROOT/reference/actor.emupolicy" ]]; then
+    "$PY" -m emu.cli export-policy "$PARENT" "$ROOT/reference/actor.emupolicy"
+  fi
   if [[ ! -f "$ROOT/reference/stairs/matrix_summary.json" ]]; then
-    "$PY" scripts/v5053_matrix_exam.py --policy "$PARENT" \
+    "$PY" scripts/v5053_matrix_exam.py --policy "$ROOT/reference/actor.emupolicy" \
       --output "$ROOT/reference/stairs" --mode stairs --worlds 2048 \
       --horizon 350 --levels 20 --trials-per-level 50 --seed 1701 --device cuda
   fi
