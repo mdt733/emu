@@ -55,6 +55,13 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertEqual(out.state.academy_progress_origin_xy.shape,(4,2))
         self.assertIn("academy_followthrough_new",out.metrics)
         self.assertIn("academy_goal_complete_new",out.metrics)
+        # The ONE cold teacher consumes completed first-life episodes;
+        # these six counters are not policy inputs or reward terms.
+        for band in ("near", "easy"):
+            for outcome in ("attempts", "survived", "crossed"):
+                name=f"safe_ascent_{band}_{outcome}_up"
+                self.assertIn(name,out.metrics)
+                self.assertEqual(out.metrics[name].shape,(4,))
         self.assertIn("academy_episode_first_lip_armed",out.metrics)
         self.assertIn("academy_episode_two_foot_ready",out.metrics)
         self.assertIn("hip_roll_motor_load_frac_left",out.metrics)
