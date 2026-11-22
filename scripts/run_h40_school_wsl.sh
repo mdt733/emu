@@ -118,6 +118,10 @@ FINAL="$ROOT/checkpoints/final.pkl"
 [[ -f "$FINAL" ]] || {
   echo "No completed cold-school final checkpoint to evaluate" >&2; exit 1; }
 
+# One truly held-out FIRST-LIFE physical seed for the complete final
+# capability suite. 1701/2701 were used to DESIGN this teacher and may
+# not be called independent out-of-sample qualification.
+EXAM_SEED=4701
 # Read-only final exams; one actor, no comparison clutter in the run root.
 POLICY="$ROOT/final.emupolicy"
 if [[ ! -f "$POLICY" ]]; then
@@ -131,17 +135,17 @@ if [[ ! -f "$OUT/stairs/matrix_summary.json" ]]; then
   "$PY" scripts/v5053_matrix_exam.py --policy "$POLICY" \
     --output "$OUT/stairs" --mode stairs --worlds 2048 \
     --horizon 350 --levels 20 --trials-per-level 50 \
-    --seed 2701 --device cuda
+    --seed "$EXAM_SEED" --device cuda
 fi
-if [[ ! -f "$OUT/pulse-s1701.zip" ]]; then
+if [[ ! -f "$OUT/pulse-s4701.zip" ]]; then
   "$PY" -m scripts.examine_h40_specialties --policy "$POLICY" \
-    --output "$OUT/pulse-s1701.zip" --worlds 2048 \
-    --horizon 600 --seed 1701 --device cuda
+    --output "$OUT/pulse-s4701.zip" --worlds 2048 \
+    --horizon 600 --seed "$EXAM_SEED" --device cuda
 fi
-if [[ ! -f "$OUT/deep-s3701.zip" ]]; then
+if [[ ! -f "$OUT/deep-s4701.zip" ]]; then
   "$PY" -m emu.physical_capability_exam --policy "$POLICY" \
-    --output "$OUT/deep-s3701.zip" --worlds 8 \
-    --seed 3701 --device cuda
+    --output "$OUT/deep-s4701.zip" --worlds 8 \
+    --seed "$EXAM_SEED" --device cuda
 fi
 "$PY" -m emu.results --root "$ROOT" --no-bundle >/dev/null
 "$PY" - "$ROOT" <<'PY'
@@ -155,7 +159,7 @@ rel=[Path("training_config.json"),Path("run_meta.json"),
      Path("exam/stairs/matrix_summary.json"),
      Path("exam/stairs/matrix_curve.csv"),
      Path("exam/stairs/matrix_worlds.csv"),
-     Path("exam/pulse-s1701.zip"),Path("exam/deep-s3701.zip")]
+     Path("exam/pulse-s4701.zip"),Path("exam/deep-s4701.zip")]
 for path in rel:
     if not (root/path).is_file():
         raise RuntimeError(f"Missing required physical evidence: {path}")
