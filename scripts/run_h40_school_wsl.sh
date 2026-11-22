@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # ONE H40 cold school. One teacher, random policy at birth, one PPO process.
+# Optional: EMU_SCHOOL_STEPS=120000000 for an isolated 0→120M shakeout.
 # Usage: bash scripts/run_h40_school_wsl.sh plan|preflight|gpu-smoke|all|report
 set -euo pipefail
 MODE="${1:-plan}"
@@ -11,10 +12,22 @@ cd "$REPO"
 PY="$REPO/.venv/bin/python"
 [[ -x "$PY" ]] || { echo "Install the repo's .venv before running" >&2; exit 1; }
 SEED="${EMU_SCHOOL_SEED:-735}"
+STEPS="${EMU_SCHOOL_STEPS:-180000000}"
 [[ "$SEED" =~ ^[0-9]+$ ]] || {
   echo "EMU_SCHOOL_SEED must be a nonnegative integer" >&2; exit 2; }
-ROOT="$HOME/emu-data/runs/h40-school-cold-s$SEED"
-STEPS=180000000
+[[ "$STEPS" =~ ^[1-9][0-9]*$ ]] || {
+  echo "EMU_SCHOOL_STEPS must be a positive integer count of environment steps" >&2; exit 2; }
+# Keep the original 180M study path stable. Every other training budget
+# has a distinct run identity; never reuse old 180M or 120M checkpoints
+# silently across target lengths. A deliberate same-source extension
+# remains available through the general emu train CLI.
+if [[ "$STEPS" == 180000000 ]]; then
+  ROOT="$HOME/emu-data/runs/h40-school-cold-s$SEED"
+elif (( STEPS % 1000000 == 0 )); then
+  ROOT="$HOME/emu-data/runs/h40-school-cold-$((STEPS/1000000))m-s$SEED"
+else
+  ROOT="$HOME/emu-data/runs/h40-school-cold-${STEPS}steps-s$SEED"
+fi
 export PYTHONPATH="$REPO"
 export EMU_PHYSICAL_PROFILE=h40-spring-only
 export EMU_UNIFIED_CONTINUOUS=cold-growth-approved
@@ -51,7 +64,9 @@ RECIPE=(
 if [[ "$MODE" == plan ]]; then
   "$PY" -m emu.cli train --plan "${RECIPE[@]}"
   echo "COLD SOURCE-PINNED school: seed $SEED, 0 -> $STEPS steps."
-  echo "No warm forks, no mid-age teacher edits; no files created."
+  echo "Experiment root: $ROOT"
+  echo "This study chooses no external parent. Generic emu train still supports authenticated warm forks."
+  echo "No mid-age teacher edits; no files created."
   exit 0
 fi
 
