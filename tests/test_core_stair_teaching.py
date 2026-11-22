@@ -21,6 +21,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
             terrain_step_max_m=.08,observation_schema=OBS_SCHEMA_TERRAIN,
             unified_capability_focus=True,terrain_carpet=True,
             terrain_carpet_prisms=True,academy_stream=True,
+            stair_survival_curriculum=True,ordinary_step_cap_m=.04,
             terrain_lesson="coherent-careful",
             solver_iterations=2,solver_ls_iterations=4,
             science_gate_mode="zero-only",
@@ -55,8 +56,8 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertEqual(out.state.academy_progress_origin_xy.shape,(4,2))
         self.assertIn("academy_followthrough_new",out.metrics)
         self.assertIn("academy_goal_complete_new",out.metrics)
-        # The ONE cold teacher consumes completed first-life episodes;
-        # these six counters are not policy inputs or reward terms.
+        # The one school consumes completed first-life episode counters;
+        # they never become actor observations or independent rewards.
         for band in ("near", "easy"):
             for outcome in ("attempts", "survived", "crossed", "safe_crossed"):
                 name=f"safe_ascent_{band}_{outcome}_up"
