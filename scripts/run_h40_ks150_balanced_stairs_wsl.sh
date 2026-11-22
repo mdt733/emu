@@ -89,19 +89,6 @@ if [[ "$MODE" == preflight ]]; then
   exit 0
 fi
 
-# Fresh matched baseline under the exact source of the successor examiner.
-mkdir -p "$ROOT/reference"
-if [[ ! -e "$ROOT/reference/pulse-s1701.zip" ]]; then
-  "$PY" -m scripts.examine_h40_specialties --policy "$PARENT" \
-    --seed 1701 --device cuda --worlds 2048 --horizon 600 \
-    --output "$ROOT/reference/pulse-s1701.zip"
-fi
-if [[ ! -f "$ROOT/reference/stairs/matrix_summary.json" ]]; then
-  "$PY" scripts/v5053_matrix_exam.py --policy "$PARENT" \
-    --output "$ROOT/reference/stairs" --mode stairs --worlds 2048 \
-    --horizon 350 --levels 20 --trials-per-level 50 --seed 1701 --device cuda
-fi
-
 # Automatic phases, same optimizer/governor/source. NOT four new learners.
 for AGE in 130 140 150 160; do
   STAGE="$ROOT/stages/$AGE"m
@@ -126,6 +113,19 @@ PY
         --resume "$PARENT" --research-parent-source "$PARENT_SOURCE" \
         --research-parent-sha256 "$PARENT_SHA" "$@"
     fi
+  fi
+  # The root must first have a trainer-created config and run_meta.
+  # Matched 120M reference exams are read-only and do not mutate parent.
+  mkdir -p "$ROOT/reference"
+  if [[ ! -e "$ROOT/reference/pulse-s1701.zip" ]]; then
+    "$PY" -m scripts.examine_h40_specialties --policy "$PARENT" \
+      --seed 1701 --device cuda --worlds 2048 --horizon 600 \
+      --output "$ROOT/reference/pulse-s1701.zip"
+  fi
+  if [[ ! -f "$ROOT/reference/stairs/matrix_summary.json" ]]; then
+    "$PY" scripts/v5053_matrix_exam.py --policy "$PARENT" \
+      --output "$ROOT/reference/stairs" --mode stairs --worlds 2048 \
+      --horizon 350 --levels 20 --trials-per-level 50 --seed 1701 --device cuda
   fi
   "$PY" scripts/summarize_h40_ks150_stairs.py --archive-stage "$AGE" \
     --root "$ROOT" --parent "$PARENT" --parent-sha256 "$PARENT_SHA"
