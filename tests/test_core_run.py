@@ -209,6 +209,14 @@ def _check_balanced_stair_fork_caps_and_matrix():
     wrong.steps = 130_000_000
     with pytest.raises(RuntimeError, match="exact 160M"):
         ks150_permanent_milestones(wrong)
+    from scripts.summarize_h40_ks150_stairs import source_checkpoint_for_stage
+    root = Path("/tmp/ks150-test-run")
+    assert source_checkpoint_for_stage(root, 130) == root/"checkpoints"/"milestone_130m.pkl"
+    assert source_checkpoint_for_stage(root, 140) == root/"checkpoints"/"milestone_140m.pkl"
+    assert source_checkpoint_for_stage(root, 150) == root/"checkpoints"/"milestone_150m.pkl"
+    assert source_checkpoint_for_stage(root, 160) == root/"checkpoints"/"final.pkl"
+    with pytest.raises(ValueError, match="Invalid KS150"):
+        source_checkpoint_for_stage(root, 120)
     assert LOSS_LIMIT_PP["control"] < LOSS_LIMIT_PP["slope"]
     example = [dict(kind="step_up", requested_step_mm=48.,
                     worlds=50, traversed_5frame=9, survival_rate=.80),
