@@ -115,6 +115,9 @@ def env_kwargs_from_args(args) -> dict:
         science_step_approach_m=args.science_step_approach_m,
         science_step_finish_on_transfer=args.science_step_finish_on_transfer,
         academy_stream=args.academy_stream,
+        stair_survival_curriculum=args.stair_survival_curriculum,
+        ordinary_step_cap_m=(SCHOOL_ORDINARY_STEP_CAP_M
+                             if args.stair_survival_curriculum else None),
         terrain_carpet=args.terrain_carpet,
         terrain_carpet_prisms=args.terrain_carpet_prisms,
         solver_iterations=args.solver_iterations,
