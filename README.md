@@ -60,7 +60,7 @@ physical robot + 4×4 ToF + four-tile MJX world
          export-policy → browser viewer
 ```
 
-Training starts from scratch; historical models and incompatible sensor contracts are not silently migrated. Use `emu train --help`, `emu prism-exam --help`, and [the core skeleton](docs/CORE_SKELETON.md) for the supported interfaces. Keep training and policy evaluation pinned to the exact source SHA, generated robot XML and observation contract.
+Training defaults to a fresh learner. Explicit research warm starts are supported for compatible actor/robot/sensor contracts, with the source commit and complete ancestor checkpoint hash authenticated when changing source. No incompatible sensor/model migration is implicit. Use `emu train --help`, `emu prism-exam --help`, and [the core skeleton](docs/CORE_SKELETON.md) for supported interfaces. Keep training and policy evaluation pinned to the exact source SHA, generated robot XML and observation contract.
 
 ### Current research school: teach from birth, not checkpoint by checkpoint
 
