@@ -34,6 +34,9 @@ LOG_EVERY_UPDATES = 10
 CHECKPOINT_EVERY_UPDATES = 20
 SNAPSHOT_EVERY_STEPS = 2_000_000
 SNAPSHOT_KEEP = 10
+# Shared signed ordinary terrain remains <=4cm during school, while
+# independent uphill/downhill Academy can earn the aspirational 5.5cm.
+SCHOOL_ORDINARY_STEP_CAP_M = 0.040
 PROFILE_PERFORMANCE = True
 MAX_EPISODE_STEPS = 700
 FRONTIER_GROWTH_FRAC = 0.0015
@@ -200,6 +203,10 @@ class TrainingConfig:
     science_step_promotion_mm: float = 0.0  # zero = max(1mm, 18%) rule
     science_step_retreat_mm: float = 0.0    # zero = 0.82 multiplier
     science_step_min_attempts: int = 4     # per direction / near or easy
+    # Single from-birth teacher: finished first-life uphill survival AND
+    # physically supported crossing must both authorise Academy expansion.
+    # Persisted as run identity; never inferred from experiment folder name.
+    stair_survival_curriculum: bool = False
     # Streaming three-platform teaching from scratch; share ramps through births.
     terrain_carpet: bool = False  # H40 requires true 2x2 one-metre tile terrain
     terrain_carpet_prisms: bool = False  # H40 requires eight physical convex prisms
