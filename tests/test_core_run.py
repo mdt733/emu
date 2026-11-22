@@ -101,6 +101,7 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert cfg.physical_profile=="h40"
     _check_spring_only_changes_nothing_except_knee_tendons()
     _check_balanced_stair_fork_caps_and_matrix()
+    _check_balanced_stair_deep_retention()
     assert not {"cloud_probes_per_eval","cloud_final_probes",
                 "science_reset_step_evidence_on_fork"} & asdict(cfg).keys()
     assert training_sensor_contract(cfg) is not None
@@ -195,6 +196,46 @@ def _check_balanced_stair_fork_caps_and_matrix():
     group = group_stairs(example, "step_up", 44, 56)
     assert group == dict(trials=100, crossing=12, survived=75)
 
+
+
+
+def _check_balanced_stair_deep_retention():
+    """Deep long-horizon failures cannot hide behind a perfect 12s pulse."""
+    from scripts.summarize_h40_ks150_stairs import (
+        DEEP_NAMES, verify_deep_retention)
+
+    baseline = {}
+    for name in DEEP_NAMES:
+        baseline[name] = dict(
+            scenario=name, trials=8, full_survivals=8,
+            locomotion_mission_passes=2,
+            mean_final_trajectory_error_m=2.0,
+            mean_positive_motor_shaft_work_j=100.,
+            zero_command_balance_passes=None,
+            bounded_standing_passes=None)
+    baseline[DEEP_NAMES[0]].update(
+        locomotion_mission_passes=None,
+        mean_final_trajectory_error_m=1.2969,
+        mean_positive_motor_shaft_work_j=209.,
+        zero_command_balance_passes=8,
+        bounded_standing_passes=0)
+    retained = {name: dict(row) for name, row in baseline.items()}
+    features, blockers = verify_deep_retention(baseline, retained)
+    assert not blockers, blockers
+    assert features["standing_60s_position_heading_passes"] == 0
+    # 0/8 passes is not free permission to drift arbitrarily far.
+    poorer = {name: dict(row) for name, row in retained.items()}
+    poorer["left_015_30s"]["mean_final_trajectory_error_m"] = 3.
+    _, blockers = verify_deep_retention(baseline, poorer)
+    assert any("left_015_30s: 30s route error" in x for x in blockers)
+    poorer = {name: dict(row) for name, row in retained.items()}
+    poorer["stand_zero_60s"]["mean_final_trajectory_error_m"] = 1.6
+    _, blockers = verify_deep_retention(baseline, poorer)
+    assert any("standing drift" in x for x in blockers)
+    poorer = {name: dict(row) for name, row in retained.items()}
+    poorer["yaw_right_050_30s"]["locomotion_mission_passes"] = 0
+    _, blockers = verify_deep_retention(baseline, poorer)
+    assert any("yaw_right" in x for x in blockers)
 
 
 
