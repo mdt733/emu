@@ -200,7 +200,7 @@ def _check_balanced_stair_fork_caps_and_matrix():
 
 
 def _check_balanced_stair_deep_retention():
-    """Deep long-horizon failures cannot hide behind a perfect 12s pulse."""
+    """Protect dynamic balance and commanded velocity, not world XY drift."""
     from scripts.summarize_h40_ks150_stairs import (
         DEEP_NAMES, verify_deep_retention)
 
@@ -210,6 +210,9 @@ def _check_balanced_stair_deep_retention():
             scenario=name, trials=8, full_survivals=8,
             locomotion_mission_passes=2,
             mean_final_trajectory_error_m=2.0,
+            mean_vx_mae_mps=.025, mean_vy_mae_mps=.030,
+            mean_yaw_mae_rad_s=.08,
+            mean_horizontal_speed_mps=.2,
             mean_positive_motor_shaft_work_j=100.,
             zero_command_balance_passes=None,
             bounded_standing_passes=None)
@@ -217,26 +220,41 @@ def _check_balanced_stair_deep_retention():
         locomotion_mission_passes=None,
         mean_final_trajectory_error_m=1.2969,
         mean_positive_motor_shaft_work_j=209.,
+        mean_horizontal_speed_mps=.036,
+        mean_yaw_mae_rad_s=.071,
         zero_command_balance_passes=8,
         bounded_standing_passes=0)
     retained = {name: dict(row) for name, row in baseline.items()}
     features, blockers = verify_deep_retention(baseline, retained)
     assert not blockers, blockers
-    assert features["standing_60s_position_heading_passes"] == 0
-    # 0/8 passes is not free permission to drift arbitrarily far.
+    assert features["standing_60s_station_keeping_DIAGNOSTIC"] == 0
+    # An unsupported 20cm XY radius is NOT a learned dynamic task. A
+    # robot may drift 3m and still pass if measured velocity remains low.
+    dynamic_and_drifting = {name: dict(row) for name, row in retained.items()}
+    dynamic_and_drifting["stand_zero_60s"]["mean_final_trajectory_error_m"] = 3.
+    dynamic_and_drifting["stand_zero_60s"]["bounded_standing_passes"] = 0
+    dynamic_and_drifting["left_015_30s"]["mean_final_trajectory_error_m"] = 10.
+    dynamic_and_drifting["left_015_30s"]["locomotion_mission_passes"] = 0
+    measurements, blockers = verify_deep_retention(baseline, dynamic_and_drifting)
+    assert not blockers, blockers
+    assert measurements["standing_60s_mean_drift_delta_m_DIAGNOSTIC"] > 1.
+    # But genuine velocity bias, poor yaw tracking, and falling matter.
     poorer = {name: dict(row) for name, row in retained.items()}
-    poorer["left_015_30s"]["mean_final_trajectory_error_m"] = 3.
+    poorer["stand_zero_60s"]["mean_horizontal_speed_mps"] = .12
     _, blockers = verify_deep_retention(baseline, poorer)
-    assert any("left_015_30s: 30s route error" in x for x in blockers)
+    assert any("unwanted horizontal speed" in x for x in blockers)
     poorer = {name: dict(row) for name, row in retained.items()}
-    poorer["stand_zero_60s"]["mean_final_trajectory_error_m"] = 1.6
+    poorer["stand_zero_60s"]["mean_yaw_mae_rad_s"] = .18
     _, blockers = verify_deep_retention(baseline, poorer)
-    assert any("standing drift" in x for x in blockers)
+    assert any("unwanted yaw" in x for x in blockers)
     poorer = {name: dict(row) for name, row in retained.items()}
-    poorer["yaw_right_050_30s"]["locomotion_mission_passes"] = 0
+    poorer["yaw_right_050_30s"]["mean_yaw_mae_rad_s"] = .30
     _, blockers = verify_deep_retention(baseline, poorer)
-    assert any("yaw_right" in x for x in blockers)
-
+    assert any("yaw_right" in x and "mean_yaw_mae" in x for x in blockers)
+    poorer = {name: dict(row) for name, row in retained.items()}
+    poorer["forward_025_30s"]["full_survivals"] = 4
+    _, blockers = verify_deep_retention(baseline, poorer)
+    assert any("first-life survival" in x for x in blockers)
 
 
 def _check_readonly_dashboard(tmp_path):
