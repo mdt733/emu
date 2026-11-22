@@ -246,7 +246,7 @@ class RegimeGovernor:
         return {
             f'{band}_{outcome}': 0.0
             for band in ('near', 'easy')
-            for outcome in ('attempts', 'survived', 'crossed')
+            for outcome in ('attempts', 'survived', 'crossed', 'safe_crossed')
         }
 
     def state_dict(self) -> dict[str, Any]:
@@ -339,7 +339,9 @@ class RegimeGovernor:
             for band in ('near', 'easy'):
                 n = float(saved[f'{band}_attempts'])
                 if (saved[f'{band}_survived'] > n or
-                        saved[f'{band}_crossed'] > n):
+                        saved[f'{band}_crossed'] > n or
+                        saved[f'{band}_safe_crossed'] > saved[f'{band}_survived'] or
+                        saved[f'{band}_safe_crossed'] > saved[f'{band}_crossed']):
                     raise ValueError('school episode outcomes exceed births')
             self.safe_ascent_evidence = {k: float(v) for k,v in saved.items()}
         if self.unified_capability_focus:
@@ -640,7 +642,7 @@ class RegimeGovernor:
             # closure, using measured birth lip and its own birth frontier.
             # 24 is a minimum evidence count, not a statistical guarantee.
             for band in ('near', 'easy'):
-                for outcome in ('attempts', 'survived', 'crossed'):
+                for outcome in ('attempts', 'survived', 'crossed', 'safe_crossed'):
                     key=f'safe_ascent_{band}_{outcome}_up'
                     value=float(row.get(key,0.))
                     if not math.isfinite(value) or value<0.:
@@ -648,8 +650,12 @@ class RegimeGovernor:
                     self.safe_ascent_evidence[f'{band}_{outcome}'] += value
                 n=self.safe_ascent_evidence[f'{band}_attempts']
                 if (self.safe_ascent_evidence[f'{band}_survived']>n+1e-6 or
-                        self.safe_ascent_evidence[f'{band}_crossed']>n+1e-6):
-                    raise ValueError('V2 survival/traverse count exceeds births')
+                        self.safe_ascent_evidence[f'{band}_crossed']>n+1e-6 or
+                        self.safe_ascent_evidence[f'{band}_safe_crossed']>
+                            self.safe_ascent_evidence[f'{band}_survived']+1e-6 or
+                        self.safe_ascent_evidence[f'{band}_safe_crossed']>
+                            self.safe_ascent_evidence[f'{band}_crossed']+1e-6):
+                    raise ValueError('school safety/crossing counts exceed births')
         events=[]
         for direction in ('up','down'):
             for band in ('near','easy'):
@@ -695,11 +701,11 @@ class RegimeGovernor:
                     # completed first-life survival threshold are required.
                     # No evidence => HOLD rather than optimistic expansion.
                     enough_safe = safe_n >= 24
-                    # Crucially, crossing and survival share the SAME
-                    # 24+ completed birth cohort. Raw per-lip events can
+                    # Crucially, safe crossing means BOTH events occur
+                    # in the SAME LIFE of this 24+ birth cohort. Raw per-lip events can
                     # otherwise certify the wrong height or another lip.
                     crossed = (enough_safe and
-                               school['near_crossed']/safe_n >= .55)
+                               school['near_safe_crossed']/safe_n >= .55)
                     safe = (enough_safe and
                             school['near_survived']/safe_n >= .90)
                     if crossed and safe and kl_ok:
@@ -729,10 +735,10 @@ class RegimeGovernor:
                 # Reset only the severity cohort that actually received
                 # a statistically finite decision.
                 if safe_n >= 24:
-                    for outcome in ('attempts','survived','crossed'):
+                    for outcome in ('attempts','survived','crossed','safe_crossed'):
                         school[f'near_{outcome}']=0.
                 if easy_s >= 24:
-                    for outcome in ('attempts','survived','crossed'):
+                    for outcome in ('attempts','survived','crossed','safe_crossed'):
                         school[f'easy_{outcome}']=0.
                 events.append('up:'+event)
                 continue
