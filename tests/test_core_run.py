@@ -188,6 +188,27 @@ def _check_balanced_stair_fork_caps_and_matrix():
             params.academy_height_down_m) == pytest.approx((.055, .055, .055))
     assert not cap_restored_stair_frontiers(
         governor, ordinary_cap_m=.055, academy_cap_m=.055)
+    # The next 40M must be ONE single learner/process. No stage-specific
+    # target extensions or surprise snapshot rotation/disappearance.
+    from emu.training import ks150_permanent_milestones
+    from emu.checkpoint_io import update_boundary_at_or_after
+    config = SimpleNamespace(
+        run_dir="/tmp/h40-ks150-stairs-bal-s735",
+        physical_profile="h40-spring-only", seed=735, envs=2048,
+        steps=160_000_000, terrain_step_max_m=.055,
+        academy_height_cap_m=.055)
+    milestones = ks150_permanent_milestones(config)
+    assert list(milestones.values()) == [130, 140, 150]
+    assert list(milestones) == [
+        update_boundary_at_or_after(age * 1_000_000, 2048)
+        for age in (130, 140, 150)]
+    other = SimpleNamespace(**vars(config))
+    other.run_dir = "/tmp/unrelated-experiment"
+    assert not ks150_permanent_milestones(other)
+    wrong = SimpleNamespace(**vars(config))
+    wrong.steps = 130_000_000
+    with pytest.raises(RuntimeError, match="exact 160M"):
+        ks150_permanent_milestones(wrong)
     assert LOSS_LIMIT_PP["control"] < LOSS_LIMIT_PP["slope"]
     example = [dict(kind="step_up", requested_step_mm=48.,
                     worlds=50, traversed_5frame=9, survival_rate=.80),
