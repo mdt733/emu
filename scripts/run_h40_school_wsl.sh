@@ -93,7 +93,8 @@ if [[ "$MODE" == preflight ]]; then
 fi
 if [[ "$MODE" == gpu-smoke ]]; then
   "$PY" scripts/smoke_gpu_carpet.py --worlds 2048 --frames 2 \
-    --device cuda --prisms --ppo --full-update
+    --device cuda --prisms --ppo --full-update \
+    --stair-survival-curriculum
   echo "COLD SCHOOL GPU smoke PASS. No training started."
   exit 0
 fi
