@@ -2210,14 +2210,14 @@ class EmuMJXEnv(TaskSampler):
                 for outcome,condition in (
                     ('attempts',jnp.ones_like(done,dtype=jnp.bool_)),
                     ('survived',~terminal_fail),
-                    # A later stair in the course cannot be credited to
-                    # this first-lip birth. Goal-lip arming is authentic
-                    # first destination-tile supported contact, *not*
-                    # the optional 60cm precision-parking completion.
-                    ('crossed',stepped.academy_goal_lip_armed),
-                    # The genuine target: a verified FIRST-lip supported
-                    # transfer AND no subsequent fall in that same life.
-                    ('safe_crossed',stepped.academy_goal_lip_armed &
+                    # FIRST-LIP arming alone proves only ONE upper foot.
+                    # Each foot must independently earn five real upper-tile
+                    # support frames before the birth has a full transfer.
+                    # No precise 60cm parked position or later lip credit.
+                    ('crossed',stepped.academy_goal_transfer_ready),
+                    # Graduation additionally requires the same episode
+                    # to survive until its natural timeout.
+                    ('safe_crossed',stepped.academy_goal_transfer_ready &
                                     ~terminal_fail))},
             'academy_active':state.academy_active.astype(jnp.float32),
             'academy_lip_index':academy['lip_index'].astype(jnp.float32),
