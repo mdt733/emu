@@ -47,3 +47,60 @@ The owner reports pleasing viewer walking and slopes approaching 15°; these are
 - All 18 retired pages are recoverable from the [source-pinned old docs tree](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs). GPU data and the original run bundles are not embedded in this repository.
 
 **Rule for future studies:** one concise measured result in this ledger, plus a source-pinned commit/run and the relevant externally retained evidence. Remove one-off run instructions and inactive branches when a study ends. Git is the archive, not the working tree.
+
+## KS150 spring-only stair-school evidence — 22–23 November 2026
+
+**Research evidence, not the approved browser champion and not hardware
+validation.** In two independent *evaluation* seeds (1701 and 2701), we
+compared the same KS150 spring-only physical robot (`h40-spring-only`,
+model SHA256 `21b5856b7a248e5d5b988e2735255d57ec79bae1a7cab0bcb72f481bfc36f470`)
+using its independently trained 120M source and then its V1 150M/160M
+warm continuations. The physical test was the v5 exact signed 4–80mm,
+50 trials/height/direction, 350-frame first-life prism matrix; short
+six-specialty and eight-world 60s/30s deep exams also matched. [V1 frozen
+evidence/qualification](https://github.com/mdt733/emu/pull/101) and
+[V2 seed-2701 replication](https://github.com/mdt733/emu/pull/102)
+preserve complete source and examiner fingerprints.
+
+| Seed2701, physical trials | KS150 120M | KS150 150M | KS150 160M |
+|---|---:|---:|---:|
+| Uphill 4–40mm: controlled traversals /500 | 120 | **236** | 151 |
+| Uphill 4–40mm: full first-life survival /500 | 485 | **488** | 471 |
+| Uphill 44–56mm: traversals /200 | 0 | 19 | 21 |
+| Uphill 44–56mm: first-life survival /200 | **196** | 104 | 91 |
+| Downhill 44–80mm: full first-life survival /500 | 131 | **377** | 359 |
+
+Seed1701 showed the same **directional trade-off**: 150M uphill
+4–40mm crossings 245/500 versus 120M 111/500, with survival 490/500
+for both. At 44–56mm uphill, 150M survived only 107/200 versus the
+120M 196/200; 160M was worse (89/200). Good stair *traversal* must be
+distinguished from upright survival after the attempt and from strict
+world-XY precision parking. H40 has velocity feedback, not global-XY
+station-keeping feedback; the 60s zero-command test had 8/8 dynamic
+balance for all and unwanted mean horizontal speeds around 3–4cm/s.
+
+**Teacher-design lessons:** Keep the one learned 360-input actuator policy
+and the measured Spring-only tendon physics. A cold foundation, gradual
+Academy births, authentic supported two-foot transfers and continued
+flat/command/slope/recovery rehearsal improve trainability; but an
+uphill teacher which advances solely on transfers can buy more crossings
+at the price of dangerously many falls. Uphill promotion therefore needs
+**completed first-life survival and supported crossing from the SAME
+physical height cohort**, with evidence windows saved in checkpoints.
+Downhill advancement is independent. Ordinary bidirectional prism
+training remains bounded at 40mm while Academy may earn harder
+individual signed lessons up to the predeclared 55mm research ceiling.
+No GPS-like parked-position reward is required for dynamic standing.
+
+**The current hypothesis is ONE consolidated cold teacher**, not a
+150M/170M hand-selected student's continuation. See the single active
+`scripts/run_h40_school_wsl.sh` runner on the cold-school research branch:
+0→180M PPO steps on exactly one source/config, no external warm parent
+and no teacher change at 20M intervals; then repeat whole cold runs with
+other training seeds using that SAME source and budget. Age-dependent
+lesson scheduling inside the saved governor is automatic and allowed.
+The new cold teacher is **not yet tested**; the two existing fresh
+physical-evaluation seeds are **not independent training seeds**.
+Compare completed cold-seed cohorts, including failures and the worst
+learner, against equal-budget baseline teacher cold runs before claiming
+the education method is superior. No automatic champion promotion.
