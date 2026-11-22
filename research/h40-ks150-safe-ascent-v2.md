@@ -88,33 +88,86 @@ changes to the V1 qualification screen and not statistical guarantees.
 The seed2701 scorer now **rejects** V1-style crossing improvements with
 large first-life survival regressions, but it makes no automatic promotion.
 
-## Gate 3 — proposed V2 PPO research hypothesis (NOT YET IMPLEMENTED)
+## Gate 3 — source-pinned Safe Ascent V2 continuation (IMPLEMENTED, NOT RUN)
 
-Only after the heldout physical replication:
-- Fork from the immutable stage
-  `~/emu-data/runs/h40-ks150-stairs-bal-s735/stages/150m/checkpoints/final.pkl`
-  with full policy, critic, optimiser, normaliser, governor, health and field.
-  Checkpoint step **150,011,904**, actor SHA256
-  `9a6e5f4bd09ff6fc258d8e32055f7b258c04ac1206f872d517d5a22821280240`.
-  Exact parent checkpoint SHA256:
-  `c66d664d251d7ee441f42e6ca322cd3240e04f45087bad1a1543a7e2ce855d4f`.
-- Begin at **≤40mm uphill frontiers**, preserving retained easy steps
-  and meaningful downhill and regular-command births. Remove any inherited
-  over-high Academy/terrain frontier and reset its old near/easy evidence
-  at the source-pinned fork.
-- Investigate instrumenting **completed first-life episode survival/fall
-  counts** stratified by actual physically measured uphill lip height;
-  do NOT equate contact or crossing "success" to survival. An extended
-  learner must hold the upper frontier unless both traversal AND a
-  sufficiently sampled first-life survival threshold pass. Penalise/retreat
-  on actual easy-band falls, not a global aggregate over easy flat births.
-  Closed evidence windows and explicit minimum attempts are essential.
-- Keep signed uphill and downhill goals separate and keep the 360-channel
-  actor, motor limits, feedback, phase, and physical springs unchanged.
-- Prefer a narrow, bounded **150→170M** warm continuation as V2 A/B,
-  with an unchanged-teacher same-source 150M→170M control if attributing
-  any performance change to the new curriculum. Preserve a 160M snapshot.
-  No train/launch script is authorised by this document.
+**The seed2701 replication passed:** unchanged V1 150M traversed 236/500
++4–40mm uphill with 488/500 first-life survivors, versus 120M 120/500
+traversals and 485/500 survivors. But at +44–56mm the V1 150M robot
+survived only 104/200 versus 196/200 for 120M. This is a documented
+hazard, **not** a qualified safe ≥5cm robot.
 
-**Do not merge this branch, alter `showcase/champion.emupolicy`, or promote
-a policy based on a single evaluation seed or the old screen's pass flag.**
+The V2 research branch now implements a separate **150→170M** protected
+continuation. It has NOT trained or been locally GPU validated:
+
+```bash
+cd ~/emu
+git fetch origin
+git switch research/h40-ks150-safe-ascent-v2
+git pull --ff-only
+bash scripts/run_h40_safe_ascent_v2_wsl.sh plan
+bash scripts/run_h40_safe_ascent_v2_wsl.sh preflight
+bash scripts/run_h40_safe_ascent_v2_wsl.sh gpu-smoke
+# Only after those gates pass:
+bash scripts/run_h40_safe_ascent_v2_wsl.sh all
+```
+
+### Training treatment
+
+- Parent: immutable full actor+critic+optimizer+normalizer+governor+field+
+  health checkpoint `stages/150m/checkpoints/final.pkl`, step 150011904,
+  actor SHA256 `9a6e5f4bd09ff6fc258d8e32055f7b258c04ac1206f872d517d5a22821280240`,
+  pickle SHA256 `c66d664d251d7ee441f42e6ca322cd3240e04f45087bad1a1543a7e2ce855d4f`,
+  parent training SHA `4504ac2c7219e5df8a106a224b77825fee219ead`.
+- Research child `~/emu-data/runs/h40-ks150-safe-ascent-s735`
+  restores this exact parent with explicit cross-source authorization.
+  **One continuous PPO process** to 170M, 2048 GPU worlds, seed 735,
+  unchanged 360-channel actor and servo/physical model; permanent 160M
+  full-state milestone saved while learning, final at 170M.
+- At the *one-time external fork*, reset only stale stair
+  evidence; clamp Academy **uphill** and ordinary (mixed-up/down) step
+  frontiers to **40mm**. Preserve separate Academy **downhill** up to its
+  already-earned height, capped at 55mm.
+- Independent and persistent **24-completed-first-life-episode**
+  uphill birth windows at each *actual first physical lip height relative
+  to its own birth frontier*. For a promotion, require both ≥55% real
+  near-height supported crossings and ≥90% completed-first-life survival;
+  fewer than 24 survival trials means HOLD. Retreat on sustained near
+  survival below 85% or easy-band survival below 94%. Academy DOWN still
+  learns separately. These are preliminary research thresholds.
+- The ordinary STEP classroom cannot silently bypass the safety mechanism
+  by expanding its *shared signed* height beyond 40mm: the ordinary
+  governor receives the protected 40mm cap throughout V2.
+- V2 survival state is saved in the same full PPO checkpoint; the
+  checkpoint schema migrates from the exact V1 150M governor only on
+  an authorised external fork. Same-run resume preserves the window,
+  never regenerates it. Physical metric `safe_ascent_*` records full
+  episode outcomes, never per-frame survival or a rewarded foothold.
+- PPO loss, optimiser, action space, physics, solver, struts, sensor
+  contract, locomotion and existing step rewards remain unchanged from
+  the original Balanced Stairs run. Only uphill teacher difficulty
+  progression and its host-side evidence change.
+
+### After training
+
+Without interrupting PPO, the driver then freezes and independently
+re-examines the 150M original, new 160M and 170M actors, all on
+**seed3701**, with one same-source 2048-world signed stair matrix,
+six-specialty pulse and 60s/30s dynamic exam per actor. The V2 scorecard
+requires, relative to the same-seed 150M parent: ≤2pp loss of 4–40mm uphill
+survival, ≤5pp loss of controlled 4–40mm uphill crossing and downhill
+4–80mm survival/crossing, ≥90% first-life survival AND ≥15% supported
+crossing at 44–56mm, and locomotion/recovery retention. A robot that avoids
+the hard climb cannot pass merely by surviving. No global-XY parking gate.
+
+The launcher builds an immutable uploadable evidence bundle at
+`~/emu-data/runs/h40-ks150-safe-ascent-s735/v2-evidence-s3701.zip`.
+No automatic promotion.
+
+### Constraints
+
+This is **one warm-start training seed**, not causal evidence of V2 versus
+the unchanged V1 teacher. A same-source, same-parent 150→170M control
+would be needed before attributing any observed benefit to the survival
+gate; another independent cold seed is needed for reproducibility.
+Only the owner can initiate costly training with the explicit `all` mode.
+Do not merge either research PR or replace the showcase champion yet.
