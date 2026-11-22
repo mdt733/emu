@@ -126,6 +126,25 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
         _validate_cross_source_research_parent(
             other,payload=payload,expected_source="c"*40,
             expected_sha256=parent_sha,provenance={"commit":new_source})
+    # Historical checkpoint config did not know about this NEW school.
+    # Only deliberate ancestor reads may default exactly that one flag.
+    from emu.training_config import TrainingConfig
+    import json
+    original=asdict(cfg)
+    parent_recipe=tmp_path/"old-parent-config.json"
+    parent_recipe.write_text(json.dumps({
+        k:v for k,v in original.items() if k!="stair_survival_curriculum"}))
+    with pytest.raises(ValueError,match="training config keys mismatch"):
+        TrainingConfig.load(parent_recipe)
+    recovered=TrainingConfig.load_research_ancestor(parent_recipe)
+    assert recovered.stair_survival_curriculum is False
+    assert asdict(recovered)==original
+    # A second missing field is NOT silently filled in.
+    parent_recipe.write_text(json.dumps({
+        k:v for k,v in original.items()
+        if k not in ("stair_survival_curriculum","retention_share")}))
+    with pytest.raises(ValueError,match="research ancestor config keys mismatch"):
+        TrainingConfig.load_research_ancestor(parent_recipe)
     # Real research forks may change teacher and solver, but not the
     # 360-input actor geometry, physical robot or sensor history.
     from emu.run import verify_experiment_fork
@@ -332,6 +351,22 @@ def _check_school_teacher_gates():
     assert migrated.safe_ascent_evidence==migrated._empty_safe_ascent_evidence()
     legacy.load_state_dict(migrated.state_dict(),allow_teacher_fork=True)
     assert legacy.state_dict()==classic_state
+    # Earlier V2 carried six crossing/survival counters, but its
+    # 'crossed' was NOT joint two-foot+same-life survival. A signed
+    # external research fork must retain PPO/other teacher state while
+    # discarding those stale 6 fields.
+    old_v2=school().state_dict()
+    old_v2["safe_ascent_evidence"]={
+        k:v for k,v in old_v2["safe_ascent_evidence"].items()
+        if not k.endswith("_safe_crossed")}
+    old_v2["safe_ascent_evidence"]["near_attempts"]=24.
+    old_v2["safe_ascent_evidence"]["near_crossed"]=16.
+    old_v2["safe_ascent_evidence"]["near_survived"]=18.
+    historical=school()
+    with pytest.raises(ValueError,match="school survival window"):
+        historical.load_state_dict(old_v2)
+    historical.load_state_dict(old_v2,allow_teacher_fork=True)
+    assert historical.safe_ascent_evidence==historical._empty_safe_ascent_evidence()
     with pytest.raises(ValueError,match="curriculum state keys mismatch"):
         school().load_state_dict(classic_state)
     with pytest.raises(ValueError,match="school episode outcomes"):
