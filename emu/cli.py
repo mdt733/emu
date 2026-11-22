@@ -75,19 +75,19 @@ def main(argv=None) -> int:
     q.add_argument('--foundation-steps',type=int,choices=(10000000,20000000),default=20000000,
                    help='cold foundation length: experiment at 10M or reference 20M')
     q.add_argument('--fixed-eval-every-steps',type=int,default=60000000,
-                   help='source-pinned frozen exam interval (overnight comparison: 10M)')
+                   help='steps between independent read-only retention exams')
     q.add_argument('--teaching-schedule',choices=('balanced','staged','terrain-early','steering'),
-                   default='balanced',help='per-episode attention: balanced, staged, or terrain-early')
+                   default='balanced',help='per-episode focus weights: balanced, staged, terrain-early or steering')
     q.add_argument('--foundation-mix',choices=('main','command-heavy','curious'),default='main',
                    help='one learner; compare original regime allocation with command-heavy or gentle grace nursery')
     q.add_argument('--growth-recipe',choices=('legacy','main-mature'),default='legacy',
                    help='experiment: old 360 recipe or restore main mature commands/phase/rehearsal')
     q.add_argument('--athletic-rehearsal-share',type=float,default=None,
-                   help='v5029: 0..0.5 of unified growth births keep full-speed flat steady gait; default inherits profile')
+                   help='0..0.5 of growth births reserved for fast-gait rehearsal; default inherits profile')
     q.add_argument('--temporal-vx-reward-share',type=float,default=0.,
                    help='v5030 B: 0..1 rolling 25-frame (0.5s) forward tracking blend; OFF by default')
     q.add_argument('--stillness-birth-frac',type=float,default=0.,
-                   help='v5047 research: 0..0.25 true 0-vx/vy/yaw command births, with safe zero-command posture credit')
+                   help='0..0.25 new episodes with exactly zero commanded vx/vy/yaw')
     # v5051 PPO SCIENCE (default baseline, all source/checkpoint-pinned).
     q.add_argument('--science-gate-mode',choices=('legacy','zero-only','off'),default='legacy',
                    help='post-1s posture/contact stepping gate experiment')
@@ -122,7 +122,7 @@ def main(argv=None) -> int:
     q.add_argument('--science-step-retreat-mm',type=float,default=0.,
                    help='v5047 frontier A/B: fixed step retreat mm, 0 uses 0.82x rule')
     q.add_argument('--stair-survival-curriculum',action='store_true',
-                   help='single from-birth school: uphill lessons require supported crossings and completed first-life survival; saved teacher identity')
+                   help='survival-aware Academy teacher: two-foot first-lip transfer plus same-life survival; independent of warm/cold start')
     q.add_argument('--science-step-min-attempts',type=int,default=4,
                    help='v5047 frontier A/B: actual signed near/easy attempts in 4..32')
     q.add_argument('--retention-share',type=float,default=0.0,
@@ -156,7 +156,7 @@ def main(argv=None) -> int:
     q.add_argument('--research-parent-source',default='',
                    help='explicit cross-source fork only: full 40-char parent Git SHA (requires parent SHA256)')
     q.add_argument('--research-parent-sha256',default='',
-                   help='explicit cross-source fork only: SHA256 of immutable parent final.pkl')
+                   help='explicit cross-source fork: SHA256 of exact immutable parent checkpoints/*.pkl file')
     q.add_argument('--check-resume-only',action='store_true',
                    help='validate source/parent/checkpoint now, exit before any PPO training')
     q.add_argument('--plan',action='store_true',help='print exact resolved config without training or writing files')
