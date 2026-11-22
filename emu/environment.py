@@ -2171,7 +2171,11 @@ class EmuMJXEnv(TaskSampler):
                 for outcome,condition in (
                     ('attempts',jnp.ones_like(done,dtype=jnp.bool_)),
                     ('survived',~terminal_fail),
-                    ('crossed',stepped.academy_up_crossings>0))},
+                    # A later stair in the course cannot be credited to
+                    # this first-lip birth. Goal-lip arming is authentic
+                    # first destination-tile supported contact, *not*
+                    # the optional 60cm precision-parking completion.
+                    ('crossed',stepped.academy_goal_lip_armed))},
             'academy_active':state.academy_active.astype(jnp.float32),
             'academy_lip_index':academy['lip_index'].astype(jnp.float32),
             'academy_lip_height_m':academy['height_m'],
