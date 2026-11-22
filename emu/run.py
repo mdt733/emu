@@ -180,13 +180,8 @@ def one_run_config(args) -> TrainingConfig:
         if not academy_stream:
             raise ValueError(
                 '--stair-survival-curriculum requires an active Academy')
-        if science_args['science_step_goal_weight'] <= 0.:
-            # The first physical target-tile arming state is populated in
-            # the Academy goal path, even when strict 60cm parking never
-            # completes. Do not silently starve the safety proof counter.
-            raise ValueError(
-                '--stair-survival-curriculum requires a positive '
-                '--science-step-goal-weight for first-lip proof')
+        # First-tile physical proof is now observed regardless of whether
+        # this research arm enables optional goal-progress reward shaping.
     finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
     if survival_school and finish_on_transfer:
         # Early success reset would falsely score an untested post-transfer
