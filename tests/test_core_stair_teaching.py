@@ -1,4 +1,4 @@
-"""Core stair physics and gait-payment contracts (former v5051 investigation)."""
+"""Current physical stair-school and gait-payment contracts."""
 
 from __future__ import annotations
 import unittest
@@ -56,7 +56,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertEqual(out.state.academy_progress_origin_xy.shape,(4,2))
         self.assertIn("academy_followthrough_new",out.metrics)
         self.assertIn("academy_goal_complete_new",out.metrics)
-        # The one school consumes completed first-life episode counters;
+        # The optional survival-aware school consumes full-episode counters;
         # they never become actor observations or independent rewards.
         for band in ("near", "easy"):
             for outcome in ("attempts", "survived", "crossed", "safe_crossed"):
