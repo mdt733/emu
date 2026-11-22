@@ -684,6 +684,7 @@ class RegimeGovernor:
             easy_n=evidence[f'{direction}_easy_attempts']
             near_n=evidence[f'{direction}_near_attempts']
             if self.safe_ascent_enabled and direction == 'up':
+                previous_frontier=float(getattr(self.params, frontier))
                 school=self.safe_ascent_evidence
                 safe_n=school['near_attempts']
                 easy_s=school['easy_attempts']
@@ -740,16 +741,25 @@ class RegimeGovernor:
                     for kind in ('attempts','successes'):
                         evidence[f'up_{band}_{kind}']=0.
                 evidence['up_updates']=0.
-                # Never discard less-frequently sampled EASY safety
-                # evidence just because a NEAR window closed (or vice versa).
-                # Reset only the severity cohort that actually received
-                # a statistically finite decision.
-                if safe_n >= 24:
-                    for outcome in ('attempts','survived','crossed','safe_crossed'):
-                        school[f'near_{outcome}']=0.
-                if easy_s >= 24:
-                    for outcome in ('attempts','survived','crossed','safe_crossed'):
-                        school[f'easy_{outcome}']=0.
+                # Frontier change makes BOTH old-height cohorts stale,
+                # even those still awaiting 24 completed births. Otherwise
+                # a surviving 3mm cohort could promote the next 3.5mm
+                # lesson. If height is unchanged, retain the unclosed band.
+                height_changed=(
+                    abs(float(getattr(self.params,frontier)) -
+                        previous_frontier) > 1e-9)
+                if height_changed:
+                    for k in school:
+                        school[k]=0.
+                else:
+                    if safe_n>=24:
+                        for outcome in ('attempts','survived','crossed',
+                                        'safe_crossed'):
+                            school[f'near_{outcome}']=0.
+                    if easy_s>=24:
+                        for outcome in ('attempts','survived','crossed',
+                                        'safe_crossed'):
+                            school[f'easy_{outcome}']=0.
                 events.append('up:'+event)
                 continue
             if (easy_n>=nmin and evidence[f'{direction}_easy_successes']/easy_n<.25):
