@@ -85,6 +85,18 @@ bash scripts/run_h40_school_wsl.sh gpu-smoke
 bash scripts/run_h40_school_wsl.sh all  # ONLY after local gates pass
 ```
 
+For a **separate 0→120M from-scratch sanity run**, set
+`export EMU_SCHOOL_STEPS=120000000` before running the same commands.
+The school recipe is unchanged; only the requested final budget differs.
+That run is isolated at
+`~/emu-data/runs/h40-school-cold-120m-s735/` (for default seed 735),
+whereas the 180M study retains its original root
+`~/emu-data/runs/h40-school-cold-s735/`. Each has its own source-pinned
+full-state checkpoints, final examiner and single evidence ZIP; no
+automatic checkpoint continuation or teacher switch between them.
+The 120M run is an **execution/reproducibility shakeout**; don't treat
+a successful first run as proof of the best possible teaching method.
+
 Use `EMU_SCHOOL_SEED=736` or another new seed with the **same frozen
 source and flags** for an independent from-scratch replication. The
 run's original checkpoints, optimiser and observation normaliser all
