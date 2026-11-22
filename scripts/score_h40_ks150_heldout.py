@@ -153,8 +153,8 @@ def review(root: Path, seed: int = SEED) -> str:
         lines.append(
             f"| {age}M | {stand['zero_command_balance_passes']}/8 | "
             f"{stand['mean_horizontal_speed_mps']:.4f} m/s | "
-            f"{steps['passed']}/{steps['worlds']} | "
-            f"{resilience['passed']}/{resilience['worlds']} |")
+            f"{steps['passed']}/{steps['attempted']} | "
+            f"{resilience['passed']}/{resilience['attempted']} |")
 
     lines += ["", "## Safety-first qualification", "",
               "The V1 screen rewarded additional traversals but missed uphill fall-rate regression.",
