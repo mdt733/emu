@@ -289,6 +289,19 @@ class RegimeGovernor:
                   saved_keys == expected | {'safe_ascent_evidence'}):
                 d = {k:v for k,v in d.items()
                      if k != 'safe_ascent_evidence'}
+            elif (self.safe_ascent_enabled and saved_keys == expected):
+                old_school=d.get('safe_ascent_evidence')
+                legacy_keys={f'{band}_{outcome}'
+                             for band in ('near','easy')
+                             for outcome in ('attempts','survived','crossed')}
+                if isinstance(old_school,dict) and set(old_school)==legacy_keys:
+                    # Diagnostic V2 research used raw first-foot crossing
+                    # and independent survival. Current school requires
+                    # JOINT two-foot transfer + survival in the same life.
+                    # Preserve neural/optimizer/other governor state but
+                    # never reuse incomparable evidence from V2.
+                    d={**d,'safe_ascent_evidence':
+                       self._empty_safe_ascent_evidence()}
         if not isinstance(d, dict) or set(d) != expected:
             raise ValueError(
                 f"curriculum state keys mismatch: expected={sorted(expected)} "
