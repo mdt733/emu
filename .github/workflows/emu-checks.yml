@@ -47,6 +47,7 @@ jobs:
           python -m compileall -q emu scripts tests
           bash -n scripts/run_h40_ks150_balanced_stairs_wsl.sh
           bash -n scripts/run_h40_ks150_heldout_wsl.sh
+          bash -n scripts/run_h40_safe_ascent_v2_wsl.sh
           # Main carries one real H40 inference actor. Validate its full
           # observation contract independently of manual Pages approval.
           python - <<'PY'
