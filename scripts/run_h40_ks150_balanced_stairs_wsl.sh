@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # H40-KS150 / STAIRS-BAL. One UNINTERRUPTED 120M->160M PPO process.
-# Modes: plan (default), preflight, all, report. No implicit GPU launch.
+# Modes: plan (default), preflight, gpu-smoke, all, report. No implicit training.
 # Mid-run milestones are immutable; exams occur AFTER PPO, not between ages.
 set -euo pipefail
 MODE="plan"
 if (( $# )); then MODE="$1"; fi
-case "$MODE" in plan|preflight|all|report) ;; *)
-  echo "Usage: bash $0 plan|preflight|all|report" >&2; exit 2 ;;
+case "$MODE" in plan|preflight|gpu-smoke|all|report) ;; *)
+  echo "Usage: bash $0 plan|preflight|gpu-smoke|all|report" >&2; exit 2 ;;
 esac
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
@@ -18,7 +18,7 @@ export EMU_UNIFIED_CONTINUOUS=cold-growth-approved
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 PARENT="$HOME/emu-data/runs/h40-spring-ab-s735/checkpoints/final.pkl"
 ROOT="$HOME/emu-data/runs/h40-ks150-stairs-bal-s735"
-if [[ "$MODE" == all ]]; then
+if [[ "$MODE" == all || "$MODE" == gpu-smoke ]]; then
   [[ "$(git branch --show-current)" == "research/h40-ks150-balanced-stairs" ]] || {
     echo "Wrong branch; refusing to train" >&2; exit 1; }
   [[ -z "$(git status --porcelain)" ]] || {
@@ -90,6 +90,18 @@ if [[ "$MODE" == preflight ]]; then
   "$PY" -m emu.cli train --steps 160000000 \
     --check-resume-only "${FORK[@]}" "$@"
   echo "PREFLIGHT PASS: source/robot/parent checkpoint pinned; no training."
+  exit 0
+fi
+
+if [[ "$MODE" == gpu-smoke ]]; then
+  # Same physical profile as the real run, *inside* this subprocess.
+  # A separate invocation of smoke_gpu_carpet.py would revert to default
+  # H40 without EMU_PHYSICAL_PROFILE exported by the caller.
+  "$PY" -m emu.cli train --steps 160000000 \
+    --check-resume-only "${FORK[@]}" "$@"
+  "$PY" scripts/smoke_gpu_carpet.py --worlds 2048 --frames 2 \
+    --device cuda --prisms --ppo --full-update
+  echo "KS150 2048-world GPU smoke PASS. No 40M training launched."
   exit 0
 fi
 
