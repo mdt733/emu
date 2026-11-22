@@ -273,6 +273,26 @@ class TrainingConfig:
                 f"extra={sorted(extra)}")
         return cls(**data)
 
+    @classmethod
+    def load_research_ancestor(cls, path: Path) -> "TrainingConfig":
+        """Read an older, separately authenticated parent's complete recipe.
+
+        The new survival-school flag did not exist in v1/V2/main research
+        checkpoints. Its precise historical value was OFF; accept only
+        this one known field omission for explicit external research forks.
+        Same-run recovery still uses strict load() with no missing keys.
+        """
+        data=json.loads(path.read_text(encoding="utf-8"))
+        expected={f.name for f in dataclass_fields(cls)}
+        keys=set(data)
+        if keys == expected-{'stair_survival_curriculum'}:
+            data={**data,'stair_survival_curriculum':False}
+        elif keys != expected:
+            raise ValueError(
+                f"research ancestor config keys mismatch: "
+                f"missing={sorted(expected-keys)} extra={sorted(keys-expected)}")
+        return cls(**data)
+
 
 # These are run identity / motor-contract parameters, not experiment knobs.
 # Algorithm-independent aspects (physical commands, teaching, curriculum,
