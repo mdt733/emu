@@ -29,7 +29,7 @@ controlled crossing **and** surviving first life, never GPS-like parking.
 
 Run this before ANY new PPO training:
 
-\`\`\`bash
+```bash
 cd ~/emu
 git fetch origin
 git switch research/h40-ks150-safe-ascent-v2
@@ -37,7 +37,7 @@ git pull --ff-only
 bash scripts/run_h40_ks150_heldout_wsl.sh plan
 bash scripts/run_h40_ks150_heldout_wsl.sh preflight
 bash scripts/run_h40_ks150_heldout_wsl.sh all
-\`\`\`
+```
 
 One source/actor-authenticated WSL command performs, for each original 120M,
 balanced-stairs 150M and 160M **unchanged actor**:
@@ -48,16 +48,16 @@ balanced-stairs 150M and 160M **unchanged actor**:
 
 The RNG seed is **2701**, not the previous 1701. That is a NEW *evaluation*
 seed, not an independent cold PPO training seed. The output root is uniquely
-\`~/emu-data/exams/h40-ks150-heldout-s2701\` and the source run is read-only.
-\`all\` is resumable for complete immutable exams; missing outputs are
+`~/emu-data/exams/h40-ks150-heldout-s2701` and the source run is read-only.
+`all` is resumable for complete immutable exams; missing outputs are
 recomputed. No checkpoint is edited and there are zero optimiser updates.
 
-The resulting \`heldout-report.md\` and its supporting exam artifacts are
+The resulting `heldout-report.md` and its supporting exam artifacts are
 needed before any new training choice. Report mode:
 
-\`\`\`bash
+```bash
 bash scripts/run_h40_ks150_heldout_wsl.sh report
-\`\`\`
+```
 
 ## Gate 2 — safe height frontier, *not* an optimistic reward score
 
@@ -86,12 +86,12 @@ large first-life survival regressions, but it makes no automatic promotion.
 
 Only after the heldout physical replication:
 - Fork from the immutable stage
-  \`~/emu-data/runs/h40-ks150-stairs-bal-s735/stages/150m/checkpoints/final.pkl\`
+  `~/emu-data/runs/h40-ks150-stairs-bal-s735/stages/150m/checkpoints/final.pkl`
   with full policy, critic, optimiser, normaliser, governor, health and field.
   Checkpoint step **150,011,904**, actor SHA256
-  \`9a6e5f4bd09ff6fc258d8e32055f7b258c04ac1206f872d517d5a22821280240\`.
+  `9a6e5f4bd09ff6fc258d8e32055f7b258c04ac1206f872d517d5a22821280240`.
   Exact parent checkpoint SHA256:
-  \`c66d664d251d7ee441f42e6ca322cd3240e04f45087bad1a1543a7e2ce855d4f\`.
+  `c66d664d251d7ee441f42e6ca322cd3240e04f45087bad1a1543a7e2ce855d4f`.
 - Begin at **≤40mm uphill frontiers**, preserving retained easy steps
   and meaningful downhill and regular-command births. Remove any inherited
   over-high Academy/terrain frontier and reset its old near/easy evidence
@@ -110,5 +110,5 @@ Only after the heldout physical replication:
   any performance change to the new curriculum. Preserve a 160M snapshot.
   No train/launch script is authorised by this document.
 
-**Do not merge this branch, alter \`showcase/champion.emupolicy\`, or promote
+**Do not merge this branch, alter `showcase/champion.emupolicy`, or promote
 a policy based on a single evaluation seed or the old screen's pass flag.**
