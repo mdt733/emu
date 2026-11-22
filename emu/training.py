@@ -99,6 +99,38 @@ def is_external_research_checkpoint(resume: str, run_dir: Path) -> bool:
                              'checkpoints')
 
 
+def clamp_external_research_frontiers(
+        governor, *, terrain_cap_m: float, academy_cap_m: float,
+        ordinary_school_cap_m: float | None = None) -> dict:
+    """Respect the NEW fork's actual limits, not old checkpoint claims.
+
+    Only call on a distinct new run. Same-run recovery must restore the
+    exact governor and its partially observed school windows. On a fork,
+    an older learned stair frontier may be higher than the newly selected
+    lesson cap; cap its state and invalidate stale physical evidence.
+    """
+    terrain_cap=(min(terrain_cap_m,ordinary_school_cap_m)
+                 if ordinary_school_cap_m is not None else terrain_cap_m)
+    caps=(
+        ('terrain_height_m',terrain_cap),
+        ('academy_height_up_m',academy_cap_m),
+        ('academy_height_down_m',academy_cap_m),
+    )
+    changes={}
+    for name,cap in caps:
+        previous=float(getattr(governor.params,name))
+        if previous>cap:
+            setattr(governor.params,name,float(cap))
+            changes[name]=(previous,float(cap))
+    if changes:
+        governor.terrain_evidence=governor._empty_terrain_evidence()
+        governor.academy_evidence=governor._empty_academy_evidence()
+        if governor.safe_ascent_enabled:
+            governor.safe_ascent_evidence=(
+                governor._empty_safe_ascent_evidence())
+    return changes
+
+
 def env_kwargs_from_args(args) -> dict:
     """One source of truth for the physical/sensor envelope used by training."""
     return dict(
@@ -349,9 +381,14 @@ def train(args: TrainingConfig) -> int:
             # An interrupted SAME run must restore the exact saved window,
             # not quietly fabricate one on --resume auto.
             if parent_is_external:
+                limited=clamp_external_research_frontiers(
+                    governor,terrain_cap_m=args.terrain_step_max_m,
+                    academy_cap_m=args.academy_height_cap_m,
+                    ordinary_school_cap_m=(
+                        SCHOOL_ORDINARY_STEP_CAP_M if school else None))
                 print(f'{LOG_PREFIX} research fork: teacher evidence '
-                      'matched or explicitly migrated at new-run boundary; '
-                      'parent weights/optimizer retained', flush=True)
+                      'matched/migrated; parent weights+optimizer retained; '
+                      f'inherited frontiers adjusted={limited}', flush=True)
             health.load_state_dict(resumed_payload['health_state'])
             print(f"{LOG_PREFIX} --resume: restored curriculum + training health "
                   f"(updates={governor._updates_done_total}, core_bad_streak={governor.core_bad_streak}, "
