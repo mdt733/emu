@@ -316,7 +316,10 @@ def _validate_cross_source_research_parent(
     """Explicitly approve ONE immutable external research ancestor.
 
     Shape, normalizer, optimizer and sensor identity are already checked by
-    load_checkpoint. This additionally binds the *entire checkpoint bytes*
+    load_checkpoint. final.pkl, named milestones and explicit snapshots
+    are equally usable when their full source and exact checkpoint SHA256
+    are authenticated; a filename is NOT evidence of valid training.
+    This additionally binds the *entire checkpoint bytes*
     and its recorded source to the operator's exact declaration. Never use
     for automatic resume; checkpoints in an interrupted study must retain
     their new source SHA and resume via --resume auto.
@@ -327,8 +330,11 @@ def _validate_cross_source_research_parent(
             or any(c not in '0123456789abcdef' for c in expected_sha256)):
         raise RuntimeError('Research ancestor requires full lower-case source SHA and SHA256')
     if (source != expected_source or source == provenance['commit']
-            or parent.name != 'final.pkl' or parent.parent.name != 'checkpoints'):
-        raise RuntimeError('Research parent must be completed final.pkl from exact declared earlier source')
+            or parent.suffix != '.pkl' or parent.parent.name != 'checkpoints'):
+        raise RuntimeError(
+            'Research parent must be a complete checkpoint/*.pkl with '
+            'the exact declared earlier source, full SHA256 and saved '
+            'actor/sensor/optimizer state')
     digest = hashlib.sha256()
     with parent.open('rb') as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b''):
