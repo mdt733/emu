@@ -174,12 +174,9 @@ def one_run_config(args) -> TrainingConfig:
         science_args[key]=value
     survival_school=bool(getattr(args, 'stair_survival_curriculum', False))
     if survival_school:
-        # This *teacher* starts from random networks: the only legal resume
-        # is the SAME run's own checkpoint after a process interruption.
-        # A warm research fork would not establish a from-birth school.
-        if getattr(args, 'resume', '') not in ('', 'auto'):
-            raise ValueError(
-                '--stair-survival-curriculum refuses external warm-start parents')
+        # This feature selects a teaching method, NOT the student's birth
+        # checkpoint. The cold-school runner chooses zero-step initiation,
+        # while the generic CLI retains fully authenticated research forks.
         if not academy_stream:
             raise ValueError(
                 '--stair-survival-curriculum requires an active Academy')
