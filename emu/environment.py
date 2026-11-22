@@ -1194,6 +1194,9 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('stair survival teacher flag must be boolean')
         if stair_survival_curriculum and not self.academy_stream:
             raise ValueError('stair survival teacher requires streaming Academy')
+        if stair_survival_curriculum and science_step_finish_on_transfer:
+            raise ValueError(
+                'survival school cannot certify prematurely ended lessons')
         if ordinary_step_cap_m is not None and (
                 not math.isfinite(ordinary_step_cap_m)
                 or not 0.001 <= ordinary_step_cap_m <= 0.08):
@@ -2051,7 +2054,12 @@ class EmuMJXEnv(TaskSampler):
         safe_ascent_first_up = (
             done & state.academy_active &
             (state.academy_birth_lip_m > .0015) &
-            (state.academy_birth_frontier_m >= .003))
+            (state.academy_birth_frontier_m >= .003) &
+            # An episode generated before a frontier expansion may finish
+            # afterward. Count only births at the CURRENT up frontier,
+            # never let easy old lessons qualify a harder new height.
+            (jnp.abs(state.academy_birth_frontier_m -
+                     params[P.academy_height_up_m]) <= .00020))
         safe_ascent_birth_ratio = (
             state.academy_birth_lip_m /
             jnp.maximum(state.academy_birth_frontier_m, .001))
