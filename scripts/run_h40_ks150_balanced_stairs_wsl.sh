@@ -143,7 +143,7 @@ for AGE in 130 140 150 160; do
     --root "$ROOT" --parent "$PARENT" --parent-sha256 "$PARENT_SHA"
   POLICY="$STAGE/actor.emupolicy"
   if [[ ! -e "$POLICY" ]]; then
-    "$PY" -m emu.cli export-policy "$STAGE/final.pkl" "$POLICY"
+    "$PY" -m emu.cli export-policy "$STAGE/checkpoints/final.pkl" "$POLICY"
   fi
   if [[ ! -e "$STAGE/pulse-s1701.zip" ]]; then
     "$PY" -m scripts.examine_h40_specialties --policy "$POLICY" \
