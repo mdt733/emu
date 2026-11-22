@@ -245,6 +245,29 @@ def _check_one_birth_allocation():
                         expected=min(
                             requested,max(0.,1.-athletic-.15))
                         assert actual==pytest.approx(expected,abs=1e-14)
+    # Shadow is only a competence ledger: it must not waste CPU cycles
+    # choosing dormant lessons or silently influence PPO observations.
+    from emu.capability_field import CapabilityField
+    from emu.contracts import FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
+    shadow=CapabilityField()
+    with patch.object(
+            shadow,'node_anchor_packet',
+            side_effect=AssertionError('shadow selected node lessons')), \
+         patch.object(
+            shadow,'edge_anchor_packet',
+            side_effect=AssertionError('shadow selected edge lessons')):
+        packet=shadow.teaching_packet(
+            step=60_000_000,mode='shadow',
+            start=20_000_000,full=30_000_000,maximum=.40)
+        assert packet['field_node_frac']==0.
+        assert packet['field_edge_frac']==0.
+        assert packet['field_node_anchors'].shape==(FIELD_NODE_ANCHORS,5)
+        assert packet['field_edge_anchors'].shape==(FIELD_EDGE_ANCHORS,7)
+        assert np.count_nonzero(packet['field_node_anchors'])==0
+        assert np.count_nonzero(packet['field_edge_anchors'])==0
+    # Capability evidence and saved state remain present, even when it
+    # contributes no actual teaching selection.
+    assert 'node_success' in shadow.state_dict()
     with pytest.raises(ValueError,match="invalid retention"):
         birth_lesson_weights(
             schedule='balanced',step=1,foundation_steps=0,
