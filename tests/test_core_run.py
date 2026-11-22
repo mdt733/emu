@@ -272,6 +272,25 @@ def _check_school_teacher_gates():
     def school():
         return RegimeGovernor(
             unified_capability_focus=True,safe_ascent_enabled=True)
+    from emu.training import clamp_external_research_frontiers
+    high=school()
+    high.params.terrain_height_m=.075
+    high.params.academy_height_up_m=.068
+    high.params.academy_height_down_m=.078
+    high.safe_ascent_evidence["near_attempts"]=12.
+    high.safe_ascent_evidence["near_survived"]=12.
+    limited=clamp_external_research_frontiers(
+        high,terrain_cap_m=.055,academy_cap_m=.055,
+        ordinary_school_cap_m=.040)
+    assert set(limited)=={
+        "terrain_height_m","academy_height_up_m","academy_height_down_m"}
+    assert (high.params.terrain_height_m,high.params.academy_height_up_m,
+            high.params.academy_height_down_m)==pytest.approx(
+                (.040,.055,.055))
+    assert high.safe_ascent_evidence==high._empty_safe_ascent_evidence()
+    assert clamp_external_research_frontiers(
+        high,terrain_cap_m=.055,academy_cap_m=.055,
+        ordinary_school_cap_m=.040)=={}
     def evidence(attempts=24,survived=24,crossed=18,safe_crossed=None):
         return dict(academy_active_fraction=.2,
                     academy_near_attempts_up=12,
