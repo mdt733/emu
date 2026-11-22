@@ -504,7 +504,11 @@ def train_one(args) -> int:
     # changing the validated checkpoint. Independent physical exams remain separate.
     try:
         from .results import write_report
-        for report_path in write_report(Path(config.run_dir)):
+        # School produces ONE final independent evidence ZIP after its
+        # physical exams; don't also emit a duplicate training-only ZIP.
+        for report_path in write_report(
+                Path(config.run_dir),
+                bundle=not config.stair_survival_curriculum):
             print(f'Run report: {report_path}')
     except (OSError, ValueError, RuntimeError, KeyError) as exc:
         print(f'WARNING: checkpoint is validated but offline report failed: {exc}; '
