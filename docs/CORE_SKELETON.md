@@ -1,6 +1,6 @@
 # EMU — core skeleton (H40 mainline)
 
-**Purpose:** one page for understanding which piece owns what. The **H40 / six C018 12 V / rated-torque** robot is the active `main` implementation, promoted through [PR #53](https://github.com/mdt733/emu/pull/53). Its exact 120M actor is checked in; publication to GitHub Pages remains a separate approval. See [current handover](../handover.md).
+**Purpose:** one page for understanding which piece owns what. The **H40 / six C018 12 V / rated-torque** robot and immutable 120M actor remain on `main`. The opt-in **`h40-spring-only`** research profile changes passive knee springs while preserving the motor, ROM and 360-input contract; it is *not* the deployed mainline model or a build-ready spring cartridge. The current draft research experiment tests **one survival-aware teacher trained from scratch**, not a new champion. See [current handover](../handover.md).
 
 ## Loop
 
@@ -50,7 +50,7 @@ C018 motors + knee support + shin flex + two spherical feet
 
 ## Hardware and timing
 
-- `h40` is the sole active and default model (~400 mm neutral height, ~506 g provisional total (460 g chassis with all six C018 servos, ~40 g hip carriers/feet, ~6 g carbon rods), 36 mm ball-foot diameter, six position actuators and two unpowered shin-flex hinges).
+- `h40` is the **default/mainline** model (~400 mm neutral height, ~506 g provisional mass, 36 mm ball feet, six position actuators, passive knees and two unpowered shin-flex hinges). `h40-spring-only` is the active **opt-in research** physical profile; its 150 N/m preloaded knee tendon/rocker needs an actual manufacturable design before real-world claims.
 - C018 12 V rated actuator force limit: **±0.980665 N·m**; stall torque is *not* continuously available. Actual torque-speed, thermal behaviour and the provisional actuator kv=0.624 N·m·s/rad speed-feedback term are **not yet hardware calibrated**. Unlike the retired passive motor-joint damping, kv is now inside the ±0.980665 N·m actuator force cap.
 - Each knee uses a scaled **compression** support strut; passive shin bending and 2 N·m/rad hip-roll centring are separate from the motor force limit.
 - Physics timestep 5 ms, four substeps per 20 ms actor frame (200 Hz physics / 50 Hz control). A one-frame servo-command delivery delay is modelled.
@@ -60,7 +60,7 @@ C018 motors + knee support + shin flex + two spherical feet
 
 ## Learning / reporting
 
-The six specialist focuses are **command, resilience, slope, step, transition, control**. They are episode assignments sharing one set of actor weights. A fresh **20M** cold-start is the minimum standard foundation test. The Academy exposure grows after its configured introduction age; an Academy frontier is a teaching target, not proven step competence.
+The six specialist focuses are **command, resilience, slope, step, transition, control**. They are episode assignments sharing one actor and optimiser. In the current 0→180M research study, the same source-pinned teacher schedules a 20M foundation, later Academy exposure and continued generalist rehearsal. Its optional `--stair-survival-curriculum` requires two-foot first-lip crossing **and survival through the same completed life** to graduate uphill height. The **nominal** ordinary step frontier is bounded to 40 mm; Academy can earn **up to 55 mm**. The desired 80 mm step is tested as a stretch target, not yet within the explicit teaching ceiling. Researchers may still use authenticated warm-start forks via the generic trainer; this study simply chooses a cold birth.
 
 Every run lives outside Git at `~/emu-data/runs/<name>/` and includes resolved config, source/robot hash, policy+optimizer checkpoints, normalizer, teacher state, `metrics.csv`, independent `fixed_eval.csv`, and reproducible `results.md`/bundle. Exported `.emupolicy` is inference-only, not a complete learner rewind.
 
@@ -74,7 +74,7 @@ The frozen `.emupolicy` is current in `main`. Independent matched
 real-prism exams have **not** been supplied; stepping remains unsolved.
 Earlier h40 checkpoints are incompatible.
 4. **Contact acceleration:** non-foot colliders are disabled in the fast solver and monitored by virtual safety probes. 2/4 solver iterations is experimental, not a certified physically faithful engine.
-5. **Software debt:** `environment.py`, `training.py`, `curriculum.py`, `ppo.py`, `results.py` contain historical experimental options. Remove *proven unreachable* branches as their last source-pinned study finishes, without changing this active baseline's arithmetic.
+5. **Software debt:** `environment.py`, `training.py`, `curriculum.py`, `ppo.py`, `results.py` still contain optional historical teaching controls and compatibility code. The active cold study selects one recipe rather than deleting the generic warm-fork path. Separate verified dead teaching branches from useful experiment knobs; freeze the new source before cleaning shared arithmetic. Retired standalone stair-campaign drivers were removed from this research branch, while Git preserves them.
 
 ## Quality gates
 
