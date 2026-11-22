@@ -69,6 +69,18 @@ from .contracts import (
     TASK_PARAM_FIELDS, P
 )
 
+def school_step_envelope(xp, academy_mask, up_m, down_m, ordinary_cap_m):
+    """Cap ordinary signed birth lips without reducing independent Academy lessons.
+
+    Academy up/down frontiers are learned separately and may exceed the
+    cautious ordinary rehearsal height. No physical model or sensor changes.
+    """
+    if ordinary_cap_m is None:
+        return up_m, down_m
+    return (xp.where(academy_mask, up_m, xp.minimum(up_m, ordinary_cap_m)),
+            xp.where(academy_mask, down_m, xp.minimum(down_m, ordinary_cap_m)))
+
+
 # Deployable actor observation excludes training-only
 # teacher signals (regime id, exact contact/fall classifiers, phase grading and
 # step-evidence composites) from the policy input. Every remaining field has a
@@ -1012,6 +1024,8 @@ class EmuMJXEnv(TaskSampler):
                  science_step_approach_m: float = 0.0,
                  science_step_finish_on_transfer: bool = False,
                  academy_stream: bool = False,
+                 stair_survival_curriculum: bool = False,
+                 ordinary_step_cap_m: float | None = None,
                  terrain_carpet: bool = False,
                  carpet_transition_cap_deg: float = 3.0,
                  terrain_carpet_prisms: bool = False,
@@ -1176,6 +1190,18 @@ class EmuMJXEnv(TaskSampler):
         self.terrain_carpet=bool(terrain_carpet)
         self.terrain_carpet_prisms=bool(terrain_carpet_prisms)
         self.academy_stream=bool(academy_stream)
+        if type(stair_survival_curriculum) is not bool:
+            raise ValueError('stair survival teacher flag must be boolean')
+        if stair_survival_curriculum and not self.academy_stream:
+            raise ValueError('stair survival teacher requires streaming Academy')
+        if ordinary_step_cap_m is not None and (
+                not math.isfinite(ordinary_step_cap_m)
+                or not 0.001 <= ordinary_step_cap_m <= 0.08):
+            raise ValueError('ordinary signed step cap must be within 1..80mm')
+        if stair_survival_curriculum and ordinary_step_cap_m is None:
+            raise ValueError('stair survival teacher requires an explicit ordinary step cap')
+        self.stair_survival_curriculum=stair_survival_curriculum
+        self.ordinary_step_cap_m=ordinary_step_cap_m
         self.academy_height_cap_m=float(academy_height_cap_m)
         if (type(academy_course_episode_frames) is not int or
             not 700<=academy_course_episode_frames<=1500):
@@ -1768,7 +1794,9 @@ class EmuMJXEnv(TaskSampler):
         goal_foot_seen=state.academy_goal_foot_seen
         goal_stable_streak=state.academy_goal_stable_streak
         goal_completed=state.academy_goal_completed
-        if self.science_step_goal_weight > 0. or self.science_step_finish_on_transfer:
+        if (self.science_step_goal_weight > 0.
+                or self.science_step_finish_on_transfer
+                or self.stair_survival_curriculum):
             from .step_goal import (
                 arrival_quality, stable_arrival, short_climb_quality,
                 CLIMB_STABLE_FRAMES)
@@ -1832,7 +1860,10 @@ class EmuMJXEnv(TaskSampler):
                    8.*finish_new.astype(jnp.float32))
             reward=reward+bonus
             ep_return=ep_return+bonus
-            done=done | goal_new | finish_new
+            # The survival-school episode must run to its natural horizon
+            # (or actual fall). Optional precise-goal completion can still
+            # pay a research reward, but cannot certify short-lived survival.
+            done=done | (goal_new & ~self.stair_survival_curriculum) | finish_new
         else:
             goal_new=jnp.zeros_like(done)
             finish_new=jnp.zeros_like(done)
@@ -2753,6 +2784,11 @@ class EmuMJXEnv(TaskSampler):
         down=jnp.where(academy,params[P.academy_height_down_m],
                            jnp.maximum(params[P.terrain_height_m],
                                        params[P.academy_height_down_m]))
+        # The ordinary envelope previously inherited max(terrain,Academy)
+        # and therefore bypassed the claimed 40mm school safety ceiling
+        # whenever Academy had earned 55mm. Enforce it in actual births.
+        up,down=school_step_envelope(
+            jnp,academy,up,down,self.ordinary_step_cap_m)
         slope,up,down=carpet_role_envelope(
             jnp,focus_id,specialist_active,task[:,T.athletic_rehearsal],
             params[P.slope_max_deg],up,down,academy,
