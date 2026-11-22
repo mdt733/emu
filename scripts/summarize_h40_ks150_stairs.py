@@ -59,15 +59,6 @@ def freeze_stage(root: Path, age: int, parent: Path, parent_sha: str) -> None:
 
     assert age in AGENUM and len(parent_sha) == 64
     assert sha256_file(parent) == parent_sha, "Frozen 120M parent changed"
-    cfg = TrainingConfig.load(root / "training_config.json")
-    assert cfg.steps == age * 1000000, "Stage target must be completed first"
-    assert cfg.physical_profile == "h40-spring-only" and cfg.seed == 735
-    assert cfg.terrain_step_max_m == cfg.academy_height_cap_m == .055
-    assert cfg.science_step_goal_weight == .12
-    assert cfg.science_bilateral_support_bonus == 6.
-    assert cfg.science_followthrough_bonus == 7.
-    assert hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest() == MODEL_SHA
-
     stage = root / "stages" / f"{age}m"
     source = root / "checkpoints" / "final.pkl"
     target = stage / "final.pkl"
@@ -86,6 +77,16 @@ def freeze_stage(root: Path, age: int, parent: Path, parent_sha: str) -> None:
         print(f"IMMUTABLE STAGE VERIFIED: {age}M")
         return
 
+    # An archived earlier age must remain verifiable even when the active
+    # one-run training config has since been extended to a later target.
+    cfg = TrainingConfig.load(root / "training_config.json")
+    assert cfg.steps == age * 1000000, "Stage target must be completed first"
+    assert cfg.physical_profile == "h40-spring-only" and cfg.seed == 735
+    assert cfg.terrain_step_max_m == cfg.academy_height_cap_m == .055
+    assert cfg.science_step_goal_weight == .12
+    assert cfg.science_bilateral_support_bonus == 6.
+    assert cfg.science_followthrough_bonus == 7.
+    assert hashlib.sha256(ROBOT_XML.read_bytes()).hexdigest() == MODEL_SHA
     if not source.is_file() or target.exists():
         raise RuntimeError("Missing completed checkpoint or unexpected partial stage archive")
     payload = load_checkpoint(source, expected_sensor_contract=training_sensor_contract(cfg))
@@ -219,7 +220,7 @@ def score(root: Path):
         # Specific baseline regressions must not be averaged away.
         for kind, level, label in (
             ("reverse", 2, "reverse_025"),
-            ("step_down", 10, "down_5cm"),
+            ("step_down", 6, "down_5cm"),
         ):
             specialty = "command" if kind == "reverse" else "step"
             before = bc[(specialty, kind, level)]
