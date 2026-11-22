@@ -87,17 +87,27 @@ uphill teacher which advances solely on transfers can buy more crossings
 at the price of dangerously many falls. Uphill promotion therefore needs
 **completed first-life survival and supported crossing from the SAME
 physical height cohort**, with evidence windows saved in checkpoints.
-Downhill advancement is independent. Ordinary bidirectional prism
-training remains bounded at 40mm while Academy may earn harder
-individual signed lessons up to the predeclared 55mm research ceiling.
-The actor has no global-XY position feedback; precision parking
-is **not** a standing or stair-graduation criterion. The teacher retains
-V1's bounded progress/arrival shaping as a research hypothesis, but it
-must grant uphill advancement only for an authentic supported first-lip
-crossing **that also survives the same complete first-life episode**.
+Downhill advancement is independent. The **nominal ordinary-world**
+signed frontier is capped at 40mm; the procedural generator deliberately
+offers some later lip challenges above the nominal height. Academy up
+and down frontiers are independently allowed to earn a nominal 55mm.
+The teacher uses measured physical **first-birth** height and does not
+mix a cohort from an older frontier with a newly graduated height.
 
-**The current hypothesis is ONE consolidated cold teacher**, not a
-150M/170M hand-selected student's continuation. See the single active
+The actor has no global-XY position feedback: neither precision parking
+nor static world-coordinate station keeping is a graduation condition.
+The teacher may retain bounded forward-progress shaping, but **strict
+world-XY parked-arrival reward is disabled in the school**. Its actual
+graduation evidence is full first-life survival with **both feet
+independently supported on the first assigned destination tile**, not
+a single upper foothold or merely crossing a world coordinate.
+
+**The current hypothesis is ONE consolidated cold study**, not a
+150M/170M hand-selected student's continuation. The general training
+tool still supports explicitly authenticated research warm starts,
+including frozen source-pinned milestone checkpoints; this study
+simply selects step zero to measure teaching from birth.
+See the single active
 `scripts/run_h40_school_wsl.sh` runner on the cold-school research branch:
 0→180M PPO steps on exactly one source/config, no external warm parent
 and no teacher change at 20M intervals; then repeat whole cold runs with
