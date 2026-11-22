@@ -4,7 +4,7 @@ The [core skeleton](CORE_SKELETON.md) owns architecture; the [H40 handover](../h
 
 ## One authority per concept
 
-- **Hardware:** `robot.xml` defines six powered joints, two passive shins, springs and motor limits; `physical_variants.py` deterministically generates only the default H40. The retired height/spring profile sweep lives in Git history.
+- **Hardware:** `robot.xml` defines six powered joints, passive shins, springs and motor limits; `physical_variants.py` generates the default/mainline H40 and the explicitly opted-in `h40-spring-only` research model. Retired morphology sweeps live in Git history; neither model has a validated real-hardware BOM.
 - **Physics:** `environment.py` steps one true-prism MJX world; `terrain_carpet_mjx.py` and `carpet_prism_mjx.py` own terrain; `domain_randomization.py` owns manufacturing spread.
 - **Actor:** `contracts.py` fixes the 360-field observation and six actions; `ppo.py` owns the single actor/critic and optimiser.
 - **Teacher:** `rewards.py` pays, `curriculum.py` selects challenge, `capability_focus.py` allocates six cohorts, `capability_field.py` aggregates evidence. There are not six independent networks.
@@ -24,7 +24,7 @@ Quick validation: `bash scripts/check.sh --quick`; full Python/browser checks: `
 
 ### Current hardware placement contract
 
-**All six servo motors are mounted in the chassis.** The two knee drives
+**All six servo motors are mounted in the chassis.** The Spring-only research strut differs from the original and remains mechanically provisional. The two knee drives
 act through an unmodelled transmission. No explicit knee-mounted motors,
 motor masses, fake viewer braces or height-dependent chassis translations.
 A source change to `robot.xml` changes the generated H40 physical model
