@@ -149,7 +149,8 @@ from pathlib import Path
 from zipfile import ZipFile,ZIP_DEFLATED
 root=Path(sys.argv[1]).expanduser()
 rel=[Path("training_config.json"),Path("run_meta.json"),
-     Path("results_data.json"),
+     Path("results_data.json"),Path("results.md"),
+     Path("metrics.csv"),
      Path("exam/stairs/matrix_summary.json"),
      Path("exam/stairs/matrix_curve.csv"),
      Path("exam/stairs/matrix_worlds.csv"),
@@ -157,6 +158,12 @@ rel=[Path("training_config.json"),Path("run_meta.json"),
 for path in rel:
     if not (root/path).is_file():
         raise RuntimeError(f"Missing required physical evidence: {path}")
+# Teacher quality requires the whole progression, not just a winning
+# policy. Preserve fixed evaluations and throughput/health if available.
+rel += [p for p in (Path("fixed_eval.csv"),
+                    Path("performance.json"),
+                    Path("capability_field_summary.json"))
+        if (root/p).is_file()]
 out=root/"school-evidence.zip"
 if out.exists():
     print(f"Previous evidence bundle retained (not overwritten): {out}")
