@@ -100,6 +100,7 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert float(_gait_maturity(m,np,allow_zero_command_balance=True)[1][0])==pytest.approx(.30)
     assert cfg.physical_profile=="h40"
     _check_spring_only_changes_nothing_except_knee_tendons()
+    _check_balanced_stair_fork_caps_and_matrix()
     assert not {"cloud_probes_per_eval","cloud_final_probes",
                 "science_reset_step_evidence_on_fork"} & asdict(cfg).keys()
     assert training_sensor_contract(cfg) is not None
@@ -163,6 +164,37 @@ def _check_spring_only_changes_nothing_except_knee_tendons():
             torques.append(float(data.qfrc_passive[model.jnt_dofadr[jid]]))
         assert torques[0] > torques[1] > 0.0, torques
         assert torques[1] < .980665, torques
+
+
+
+def _check_balanced_stair_fork_caps_and_matrix():
+    """The 120M inherited governor cannot silently exceed the new 55mm cap."""
+    from types import SimpleNamespace
+    from emu.training import cap_restored_stair_frontiers
+    from scripts.summarize_h40_ks150_stairs import group_stairs, LOSS_LIMIT_PP
+
+    params = SimpleNamespace(
+        terrain_height_m=.079,
+        academy_height_up_m=.067,
+        academy_height_down_m=.092)
+    governor = SimpleNamespace(params=params)
+    changes = cap_restored_stair_frontiers(
+        governor, ordinary_cap_m=.055, academy_cap_m=.055)
+    assert set(changes) == {
+        "terrain_height_m", "academy_height_up_m",
+        "academy_height_down_m"}
+    assert (params.terrain_height_m, params.academy_height_up_m,
+            params.academy_height_down_m) == pytest.approx((.055, .055, .055))
+    assert not cap_restored_stair_frontiers(
+        governor, ordinary_cap_m=.055, academy_cap_m=.055)
+    assert LOSS_LIMIT_PP["control"] < LOSS_LIMIT_PP["slope"]
+    example = [dict(kind="step_up", requested_step_mm=48.,
+                    worlds=50, traversed_5frame=9, survival_rate=.80),
+               dict(kind="step_up", requested_step_mm=52.,
+                    worlds=50, traversed_5frame=3, survival_rate=.70)]
+    group = group_stairs(example, "step_up", 44, 56)
+    assert group == dict(trials=100, crossing=12, survived=75)
+
 
 
 
