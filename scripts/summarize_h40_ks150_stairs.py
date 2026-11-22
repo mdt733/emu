@@ -138,13 +138,24 @@ def read_pulse(path: Path):
 def read_stairs(path: Path):
     data = json.loads(path.read_text())
     m = data["manifest"]
-    assert m["schema"] == "h40_true_prism_heterogeneous_matrix_v4"
+    assert m["schema"] == "h40_true_prism_heterogeneous_matrix_v5_signed80"
     assert m["robot_model_sha256"] == MODEL_SHA
     assert m["seed"] == 1701 and m["worlds"] == 2048
     assert m["mode"] == "stairs" and m["horizon"] == 350
     assert m["zero_optimizer_updates"] and m["first_life_only"]
     assert m["assigned_worlds"] == 2000
-    return m, data["curves"]
+    assert m["levels"] == 20 and m["trials_per_level"] == 50
+    curves = data["curves"]
+    # Fail closed: no stage can claim to have examined 8cm if the actual
+    # signed-height grid silently stops at 5cm (old v4 did exactly that).
+    expected = {4.0 * i for i in range(1, 21)}
+    for direction, sign in (("step_up", 1), ("step_down", -1)):
+        rows = [r for r in curves if r["kind"] == direction]
+        assert len(rows) == 20, f"{direction}: missing 4-80mm physical levels"
+        heights = {float(r["requested_step_mm"]) * sign for r in rows}
+        assert heights == expected, (direction, sorted(heights))
+        assert all(int(r["worlds"]) == 50 for r in rows)
+    return m, curves
 
 
 DEEP_NAMES = (
