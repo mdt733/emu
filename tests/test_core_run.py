@@ -171,6 +171,7 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert float(_gait_maturity(m,np,allow_zero_command_balance=True)[1][0])==pytest.approx(.30)
     assert cfg.physical_profile=="h40"
     _check_spring_only_changes_nothing_except_knee_tendons()
+    _check_one_birth_allocation()
     _check_school_teacher_gates()
     _check_signed_prism_exam_height_grid()
     assert not {"cloud_probes_per_eval","cloud_final_probes",
@@ -179,6 +180,78 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     # Keep 24 core tests: this UI is another assertion of the *existing*
     # public CLI contract, not a new training experiment/test family.
     _check_readonly_dashboard(tmp_path)
+
+
+def _check_one_birth_allocation():
+    """Pure birth planner equals pre-cleanup 4-stage arithmetic exactly.
+
+    No extra source files, new test family, teacher state or GPU tensors.
+    Keep the existing 24-test CI budget while proving this code reduction
+    didn't quietly starve a cohort or change the Academy share.
+    """
+    from emu.capability_focus import (
+        birth_lesson_weights, attention_weights, STEP, CONTROL)
+    for schedule in ('balanced','staged','terrain-early','steering'):
+        for step in (0,20_000_000,20_000_001,60_000_000,
+                     70_000_000,80_000_000,90_000_000,
+                     100_000_000,120_000_000):
+            for retention in (0.,.30,.50):
+                for athletic in (0.,.15,.35,.75):
+                    for enabled in (False,True):
+                        weights,probability=birth_lesson_weights(
+                            schedule=schedule,step=step,
+                            foundation_steps=20_000_000,
+                            retention_share=retention,
+                            academy_enabled=enabled,
+                            athletic_share=athletic,
+                            academy_intro_steps=60_000_000,
+                            academy_start_steps=80_000_000,
+                            academy_ramp_steps=20_000_000,
+                            academy_intro_share=.10,
+                            academy_max_share=.28)
+                        # Historical arithmetic, written independently to
+                        # make exact equivalence check meaningful.
+                        old=list(attention_weights(
+                            schedule=schedule,step=step,
+                            foundation_steps=20_000_000))
+                        if step>20_000_000 and retention>0.:
+                            target=max(old[CONTROL],retention)
+                            old=[v*(1.-target)/(1.-old[CONTROL])
+                                 for v in old[:-1]]+[target]
+                        old_probability=0.
+                        requested=0.
+                        if enabled:
+                            if step < 60_000_000:
+                                requested=0.
+                            elif step < 80_000_000:
+                                requested=.10*min(
+                                    1.,(step-60_000_000)/20_000_000)
+                            else:
+                                requested=.10+(.28-.10)*min(
+                                    1.,(step-80_000_000)/20_000_000)
+                            conditional=min(
+                                requested,max(0.,1.-athletic-.15))/(1.-athletic)
+                            old=[v*(1.-conditional) for v in old]
+                            old[STEP]+=conditional
+                            old_probability=(
+                                conditional/old[STEP] if old[STEP]>0. else 0.)
+                        assert tuple(weights)==pytest.approx(tuple(old),abs=1e-14)
+                        assert probability==pytest.approx(
+                            old_probability,abs=1e-14)
+                        assert sum(weights)==pytest.approx(1.,abs=1e-14)
+                        assert all(0.<=v<=1. for v in weights)
+                        assert 0.<=probability<=1.
+                        actual=(1.-athletic)*weights[STEP]*probability
+                        expected=min(
+                            requested,max(0.,1.-athletic-.15))
+                        assert actual==pytest.approx(expected,abs=1e-14)
+    with pytest.raises(ValueError,match="invalid retention"):
+        birth_lesson_weights(
+            schedule='balanced',step=1,foundation_steps=0,
+            retention_share=1.1,academy_enabled=False,
+            athletic_share=0.,academy_intro_steps=0,
+            academy_start_steps=0,academy_ramp_steps=1,
+            academy_intro_share=.1,academy_max_share=.5)
 
 
 def _check_spring_only_changes_nothing_except_knee_tendons():
