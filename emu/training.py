@@ -816,7 +816,13 @@ def train(args: TrainingConfig) -> int:
         governor_t0 = time.perf_counter()
         health_ppo = health.observe_ppo(row)
         report = governor.advance_curriculum(
-            row, step=total_steps, max_height_m=args.terrain_step_max_m,
+            # Ordinary STEP worlds share one signed terrain ceiling, so
+            # cap that ceiling at the already-safe 40mm for V2. Only the
+            # Academy UP frontier can then graduate beyond 40mm, and it
+            # must pass the separate first-life survival gate.
+            row, step=total_steps,
+            max_height_m=(min(args.terrain_step_max_m,.040)
+                          if safe_ascent_run else args.terrain_step_max_m),
             foundation_steps=args.foundation_steps,
             kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']),
             academy_max_height_m=(args.academy_height_cap_m if args.academy_stream else 0.))
