@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # KS150 SAFE ASCENT V2: one protected 150M->170M PPO continuation.
-# plan, preflight, gpu-smoke, all, report. No implicit training/promotion.
+# plan, preflight, gpu-smoke, all, report, bundle. No implicit promotion.
 set -euo pipefail
 MODE="${1:-plan}"
-case "$MODE" in plan|preflight|gpu-smoke|all|report) ;; *)
-  echo "Usage: bash $0 plan|preflight|gpu-smoke|all|report" >&2; exit 2 ;;
+case "$MODE" in plan|preflight|gpu-smoke|all|report|bundle) ;; *)
+  echo "Usage: bash $0 plan|preflight|gpu-smoke|all|report|bundle" >&2; exit 2 ;;
 esac
 REPO="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO"
@@ -148,5 +148,38 @@ for AGE in 150 160 170; do
   fi
 done
 "$PY" scripts/score_h40_safe_ascent_v2.py --root "$ROOT" --seed 3701
+if [[ ! -e "$ROOT/v2-evidence-s3701.zip" ]]; then
+  "$PY" - "$ROOT" <<'PY'
+from pathlib import Path
+from zipfile import ZipFile,ZIP_DEFLATED
+import sys,os
+root=Path(sys.argv[1]).expanduser()
+files=[Path("v2-exam-report.md"),
+       Path("training_config.json"),Path("run_meta.json"),
+       Path("results_data.json")]
+for age in (150,160,170):
+    d=Path("exams")/f"{age}m"
+    files.extend([
+        d/"stairs"/"matrix_summary.json",
+        d/"stairs"/"matrix_curve.csv",
+        d/"stairs"/"matrix_worlds.csv",
+        d/"pulse-s3701.zip",
+        d/"deep-s3701.zip",
+    ])
+files=[p for p in files if p.name!="results_data.json" or (root/p).is_file()]
+for rel in files:
+    assert (root/rel).is_file(),f"Missing complete evidence: {rel}"
+out=root/"v2-evidence-s3701.zip"
+temp=root/"v2-evidence-s3701.zip.partial"
+if out.exists() or temp.exists(): raise FileExistsError("V2 evidence bundle exists")
+try:
+    with ZipFile(temp,"x",ZIP_DEFLATED) as z:
+        for rel in files: z.write(root/rel,arcname=str(rel))
+    os.replace(temp,out)
+finally:
+    temp.unlink(missing_ok=True)
+print(f"UPLOAD AUDIT: {out}")
+PY
+fi
 echo "Complete. No automatic promotion or source/checkpoint changes."
-echo "Review $ROOT/v2-exam-report.md"
+echo "Review $ROOT/v2-exam-report.md and $ROOT/v2-evidence-s3701.zip"
