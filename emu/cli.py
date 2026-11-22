@@ -121,6 +121,8 @@ def main(argv=None) -> int:
                    help='v5047 frontier A/B: fixed step promotion mm, 0 uses mature +18% rule')
     q.add_argument('--science-step-retreat-mm',type=float,default=0.,
                    help='v5047 frontier A/B: fixed step retreat mm, 0 uses 0.82x rule')
+    q.add_argument('--stair-survival-curriculum',action='store_true',
+                   help='single from-birth school: uphill lessons require supported crossings and completed first-life survival; saved teacher identity')
     q.add_argument('--science-step-min-attempts',type=int,default=4,
                    help='v5047 frontier A/B: actual signed near/easy attempts in 4..32')
     q.add_argument('--retention-share',type=float,default=0.0,
