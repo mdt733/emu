@@ -51,6 +51,14 @@ def write_new_json(path: Path, data: dict) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def source_checkpoint_for_stage(root: Path, age: int) -> Path:
+    """Select the immutable *in-process* milestone, never a later latest.pkl."""
+    if age not in AGENUM:
+        raise ValueError(f"Invalid KS150 milestone age: {age}")
+    checkpoint = "final.pkl" if age == 160 else f"milestone_{age}m.pkl"
+    return root / "checkpoints" / checkpoint
+
+
 def freeze_stage(root: Path, age: int, parent: Path, parent_sha: str) -> None:
     """Copy entire exact PPO temporal state before the next same-source age."""
     from emu.checkpoint_io import load_checkpoint, update_boundary_at_or_after
@@ -60,8 +68,7 @@ def freeze_stage(root: Path, age: int, parent: Path, parent_sha: str) -> None:
     assert age in AGENUM and len(parent_sha) == 64
     assert sha256_file(parent) == parent_sha, "Frozen 120M parent changed"
     stage = root / "stages" / f"{age}m"
-    source = (root / "checkpoints" /
-              ("final.pkl" if age == 160 else f"milestone_{age}m.pkl"))
+    source = source_checkpoint_for_stage(root, age)
     target = stage / "final.pkl"
     marker = stage / "stage_manifest.json"
     source_git = subprocess.check_output(
@@ -74,6 +81,7 @@ def freeze_stage(root: Path, age: int, parent: Path, parent_sha: str) -> None:
         assert manifest["source_git_commit"] == source_git
         assert manifest["physical_sha256"] == MODEL_SHA
         assert manifest["parent_checkpoint_sha256"] == parent_sha
+        assert manifest["milestone_source_file"] == source.name
         assert target.is_file() and sha256_file(target) == manifest["checkpoint_sha256"]
         print(f"IMMUTABLE STAGE VERIFIED: {age}M")
         return
