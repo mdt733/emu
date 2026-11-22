@@ -1833,7 +1833,12 @@ class EmuMJXEnv(TaskSampler):
                 goal_transfer_ready)
             strict=(strict & state.academy_active & step_focus &
                     ~terminal_fail & ~timeout)
-            strict=strict & (self.science_step_goal_weight>0.)
+            # The school trains a velocity-driven climber, NOT a robot
+            # with observable world-XY station keeping. Optional bounded
+            # progress shaping may stay on, but the strict parked-position
+            # goal payment is disabled for this teacher.
+            strict=(strict & (self.science_step_goal_weight>0.)
+                    & ~self.stair_survival_curriculum)
             goal_stable_streak,goal_new=stable_arrival(
                 jnp,strict,goal_stable_streak,goal_completed)
             goal_completed=goal_completed|goal_new
@@ -1863,9 +1868,9 @@ class EmuMJXEnv(TaskSampler):
                    8.*finish_new.astype(jnp.float32))
             reward=reward+bonus
             ep_return=ep_return+bonus
-            # The survival-school episode must run to its natural horizon
-            # (or actual fall). Optional precise-goal completion can still
-            # pay a research reward, but cannot certify short-lived survival.
+            # The school's complete episode runs to natural timeout/fall.
+            # Other research teachers may retain an optional terminal
+            # precision-arrival reward; it never applies to this school.
             done=done | (goal_new & ~self.stair_survival_curriculum) | finish_new
         else:
             goal_new=jnp.zeros_like(done)
