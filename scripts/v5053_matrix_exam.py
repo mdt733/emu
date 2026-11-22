@@ -83,12 +83,12 @@ def trial_spec(kind: str, level: int, levels: int, replicate: int, world: int) -
         grade=-12.*f
     elif kind=="step_up":
         vx=.25
-        step=.05*f
+        step=.08*f
     elif kind=="flat_control":
         vx=.25
     elif kind=="step_down":
         vx=.25
-        step=-.05*f
+        step=-.08*f
     return Trial(world,kind,level,replicate,vx,vy,yaw,step,grade,kick)
 
 
@@ -322,7 +322,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     save_csv(output/"matrix_worlds.csv",detail)
     save_csv(output/"matrix_curve.csv",curves)
     manifest=dict(
-        schema="h40_true_prism_heterogeneous_matrix_v4",
+        schema="h40_true_prism_heterogeneous_matrix_v5_signed80",
         exam_source_sha256=exam_source_fingerprint(),
         policy_sha256=actor['artifact_sha256'],
         actor_sha256=actor['source']['actor_sha256'],
@@ -476,7 +476,7 @@ def compare_paired_exams(stair_summary,stair_rows,flat_summary,flat_rows):
         if a.get(key)!=b.get(key):
             raise ValueError(f"Unmatched frozen exam: {key}")
     if (not a.get("exam_source_sha256") or
-            a["schema"]!="h40_true_prism_heterogeneous_matrix_v4" or
+            a["schema"]!="h40_true_prism_heterogeneous_matrix_v5_signed80" or
             not a["first_life_only"] or not a["zero_optimizer_updates"]):
         raise ValueError("Unsupported or trainable exam")
     flat={int(r["world"]):r for r in flat_rows}
