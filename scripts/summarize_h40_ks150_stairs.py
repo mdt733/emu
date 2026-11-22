@@ -60,7 +60,8 @@ def freeze_stage(root: Path, age: int, parent: Path, parent_sha: str) -> None:
     assert age in AGENUM and len(parent_sha) == 64
     assert sha256_file(parent) == parent_sha, "Frozen 120M parent changed"
     stage = root / "stages" / f"{age}m"
-    source = root / "checkpoints" / "final.pkl"
+    source = (root / "checkpoints" /
+              ("final.pkl" if age == 160 else f"milestone_{age}m.pkl"))
     target = stage / "final.pkl"
     marker = stage / "stage_manifest.json"
     source_git = subprocess.check_output(
@@ -80,7 +81,8 @@ def freeze_stage(root: Path, age: int, parent: Path, parent_sha: str) -> None:
     # An archived earlier age must remain verifiable even when the active
     # one-run training config has since been extended to a later target.
     cfg = TrainingConfig.load(root / "training_config.json")
-    assert cfg.steps == age * 1000000, "Stage target must be completed first"
+    assert cfg.steps == 160_000_000, (
+        "Only the completed continuous 160M campaign may be archived")
     assert cfg.physical_profile == "h40-spring-only" and cfg.seed == 735
     assert cfg.terrain_step_max_m == cfg.academy_height_cap_m == .055
     assert cfg.science_step_goal_weight == .12
@@ -107,6 +109,7 @@ def freeze_stage(root: Path, age: int, parent: Path, parent_sha: str) -> None:
     data = dict(
         schema="emu_ks150_balanced_stairs_stage_v1", age_m=age,
         actual_step=step, source_git_commit=source_git,
+        milestone_source_file=source.name,
         physical_sha256=MODEL_SHA, checkpoint_sha256=sha256_file(target),
         parent_checkpoint_sha256=parent_sha, parent_source_git=PARENT_SOURCE,
         config_sha256=sha256_file(root / "training_config.json"),
