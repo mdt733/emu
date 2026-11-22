@@ -172,7 +172,24 @@ def one_run_config(args) -> TrainingConfig:
         if not math.isfinite(value) or not lo<=value<=hi:
             raise ValueError(f'{key} must be finite and in [{lo},{hi}]')
         science_args[key]=value
+    survival_school=bool(getattr(args, 'stair_survival_curriculum', False))
+    if survival_school:
+        # This *teacher* starts from random networks: the only legal resume
+        # is the SAME run's own checkpoint after a process interruption.
+        # A warm research fork would not establish a from-birth school.
+        if getattr(args, 'resume', '') not in ('', 'auto'):
+            raise ValueError(
+                '--stair-survival-curriculum refuses external warm-start parents')
+        if not academy_stream:
+            raise ValueError(
+                '--stair-survival-curriculum requires an active Academy')
     finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
+    if survival_school and finish_on_transfer:
+        # Early success reset would falsely score an untested post-transfer
+        # interval as survival; use complete first-life lessons instead.
+        raise ValueError(
+            'survival school requires full first-life Academy episodes; '
+            'disable --science-step-finish-on-transfer')
     if finish_on_transfer and not academy_stream:
         raise ValueError('--science-step-finish-on-transfer requires Academy stream')
     approach=science_args['science_step_approach_m']
@@ -207,6 +224,7 @@ def one_run_config(args) -> TrainingConfig:
                    science_step_promotion_mm=science_promotion,
                    science_step_retreat_mm=science_retreat,
                    science_step_min_attempts=science_attempts,
+                   stair_survival_curriculum=survival_school,
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
