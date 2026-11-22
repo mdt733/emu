@@ -210,7 +210,9 @@ def _check_school_teacher_gates():
                     academy_near_successes_up=12,
                     safe_ascent_near_attempts_up=attempts,
                     safe_ascent_near_survived_up=survived,
-                    safe_ascent_near_crossed_up=crossed)
+                    safe_ascent_near_crossed_up=crossed,
+                    safe_ascent_near_safe_crossed_up=min(
+                        attempts,survived,crossed))
     tutor=school()
     tutor.params.academy_height_up_m=.04
     tutor.params.academy_height_down_m=.04
@@ -257,6 +259,11 @@ def _check_school_teacher_gates():
     with pytest.raises(ValueError,match="school episode outcomes"):
         broken=restart.state_dict()
         broken["safe_ascent_evidence"]["near_survived"]=40.
+        restart.load_state_dict(broken)
+    with pytest.raises(ValueError,match="school episode outcomes"):
+        broken=restart.state_dict()
+        broken["safe_ascent_evidence"]["near_safe_crossed"]=12.
+        broken["safe_ascent_evidence"]["near_crossed"]=8.
         restart.load_state_dict(broken)
 
 
