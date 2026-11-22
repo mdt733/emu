@@ -84,6 +84,21 @@ TRAIN_PERF_TIMER_NAMES = (
 # Utilities / artifacts.
 # ---------------------------------------------------------------------------
 
+def is_external_research_checkpoint(resume: str, run_dir: Path) -> bool:
+    """Classify a RESOLVED checkpoint by ancestry, not CLI word spelling.
+
+    The public CLI resolves '--resume auto' into checkpoints/latest.pkl
+    BEFORE calling this trainer. A path in the SAME run is recovery,
+    whereas a full, authenticated checkpoint in another run is a research
+    fork. The latter may migrate optional *teacher evidence only*.
+    """
+    if not resume or resume == 'auto':
+        return False
+    parent=Path(resume).expanduser().resolve()
+    return parent.parent != (Path(run_dir).expanduser().resolve() /
+                             'checkpoints')
+
+
 def env_kwargs_from_args(args) -> dict:
     """One source of truth for the physical/sensor envelope used by training."""
     return dict(
@@ -300,9 +315,8 @@ def train(args: TrainingConfig) -> int:
     # point '--resume auto' has been resolved to an actual file path, so
     # treating a path as a forbidden warm start would BREAK crash recovery.
     parent_is_external = (
-        resumed_payload is not None and bool(args.resume) and
-        Path(args.resume).expanduser().resolve().parent !=
-        (run_dir / 'checkpoints').resolve())
+        resumed_payload is not None and
+        is_external_research_checkpoint(args.resume, run_dir))
     governor = RegimeGovernor(fall_target=args.fall_target,
                               difficulty_base_step=args.difficulty_base_step,
                               regime_command_frac=args.regime_command_frac,
