@@ -53,10 +53,16 @@ seed, not an independent cold PPO training seed. The output root is uniquely
 recomputed. No checkpoint is edited and there are zero optimiser updates.
 
 The resulting `heldout-report.md` and its supporting exam artifacts are
-needed before any new training choice. Report mode:
+needed before any new training choice. The `all` mode automatically packages
+**`~/emu-data/exams/h40-ks150-heldout-s2701.zip`**, including all three
+full raw stair matrices, pulses, deep ZIP archives and the scorecard.
+Neither old results nor a previous bundle are overwritten.
+
+Report and manual bundle modes:
 
 ```bash
 bash scripts/run_h40_ks150_heldout_wsl.sh report
+bash scripts/run_h40_ks150_heldout_wsl.sh bundle
 ```
 
 ## Gate 2 — safe height frontier, *not* an optimistic reward score
