@@ -147,6 +147,80 @@ def read_stairs(path: Path):
     return m, data["curves"]
 
 
+DEEP_NAMES = (
+    "stand_zero_60s", "forward_025_30s", "reverse_020_30s",
+    "left_015_30s", "right_015_30s", "yaw_left_050_30s",
+    "yaw_right_050_30s", "combined_30s",
+    "forward_stop_reverse_30s",
+)
+
+
+def read_deep(path: Path):
+    with zipfile.ZipFile(path) as archive:
+        manifest = json.loads(archive.read("manifest.json"))
+        summary = json.loads(archive.read("summary.json"))
+    assert manifest["schema"] == "emu_physical_capability_v1"
+    assert manifest["gates_revision"] == "provisional-2"
+    assert manifest["robot_model_sha256"] == MODEL_SHA
+    assert manifest["physical_profile"] == "h40-spring-only"
+    assert manifest["seed"] == 1701 and manifest["worlds"] == 8
+    assert manifest["first_life_only"] and manifest["no_optimizer_updates"]
+    assert tuple(manifest["scenarios"]) == DEEP_NAMES
+    scenarios = {r["scenario"]: r for r in summary["scenarios"]}
+    assert set(scenarios) == set(DEEP_NAMES)
+    assert all(r["trials"] == 8 for r in scenarios.values())
+    return manifest, scenarios
+
+
+def verify_deep_retention(reference: dict, candidate: dict):
+    """Explain all long-duration regressions; never average away directions.
+
+    Both policies are tested under *the same physics*, examiner and seed.
+    A 12s perfect control pulse does not certify actual 30s route tracking.
+    Thresholds are provisional tolerances against imperfect 120M baseline.
+    """
+    reasons = []
+    measurements = {}
+    stand = "stand_zero_60s"
+    r, c = reference[stand], candidate[stand]
+    drift_delta = c["mean_final_trajectory_error_m"] - r["mean_final_trajectory_error_m"]
+    measurements["standing_60s_mean_drift_delta_m"] = round(drift_delta, 3)
+    measurements["standing_60s_balance_passes"] = c["zero_command_balance_passes"]
+    measurements["standing_60s_position_heading_passes"] = c["bounded_standing_passes"]
+    if c["full_survivals"] < 7 or c["zero_command_balance_passes"] < 7:
+        reasons.append("60s dynamic balance / survival declined")
+    if drift_delta > .20:
+        reasons.append(f"60s standing drift worsened by {drift_delta:+.2f}m")
+    for name in DEEP_NAMES[1:]:
+        old, new = reference[name], candidate[name]
+        keep = max(0, old["locomotion_mission_passes"] - 1)
+        if new["locomotion_mission_passes"] < keep:
+            reasons.append(
+                f"{name}: 30s route passes "
+                f"{old['locomotion_mission_passes']}->"
+                f"{new['locomotion_mission_passes']}")
+        if new["full_survivals"] < 7:
+            reasons.append(f"{name}: 30s first-life survival under 7/8")
+        # Even when parent scored 0/8, it must not be allowed to drift
+        # arbitrarily farther just because the strict pass count stayed 0.
+        parent_error = old["mean_final_trajectory_error_m"]
+        current_error = new["mean_final_trajectory_error_m"]
+        tolerance = max(1.25 * parent_error, parent_error + .08)
+        if current_error > tolerance:
+            reasons.append(
+                f"{name}: 30s route error {parent_error:.2f}m -> "
+                f"{current_error:.2f}m")
+        if new["mean_positive_motor_shaft_work_j"] > (
+                1.25 * old["mean_positive_motor_shaft_work_j"]):
+            reasons.append(f"{name}: positive shaft work rose >25%")
+        measurements[f"{name}_mission_passes"] = new["locomotion_mission_passes"]
+        measurements[f"{name}_route_error_m"] = round(current_error, 3)
+    if c["mean_positive_motor_shaft_work_j"] > (
+            1.25 * r["mean_positive_motor_shaft_work_j"]):
+        reasons.append("60s standing positive shaft work rose >25%")
+    return measurements, reasons
+
+
 def group_stairs(curves: list[dict], kind: str, lo: float, hi: float) -> dict:
     rows = [r for r in curves if r["kind"] == kind
             and lo - 0.01 <= abs(float(r["requested_step_mm"])) <= hi + 0.01]
@@ -161,24 +235,33 @@ def group_stairs(curves: list[dict], kind: str, lo: float, hi: float) -> dict:
 def score(root: Path):
     base = root / "reference"
     if not (base / "pulse-s1701.zip").is_file() or not (
-            base / "stairs" / "matrix_summary.json").is_file():
-        print("Missing matched baseline exams; no selection yet")
+            base / "stairs" / "matrix_summary.json").is_file() or not (
+            base / "deep-s1701.zip").is_file():
+        print("Missing matched baseline pulse/stairs/deep exams; no selection yet")
         return
     bm, bg, bc = read_pulse(base / "pulse-s1701.zip")
     assert bm["actor_sha256"] == BASE_ACTOR_SHA
     bsm, bsc = read_stairs(base / "stairs" / "matrix_summary.json")
     assert bsm["actor_sha256"] == BASE_ACTOR_SHA
+    bdm, bds = read_deep(base / "deep-s1701.zip")
+    assert bdm["actor_weights_sha256"] == BASE_ACTOR_SHA
     rows = []
     for age in AGENUM:
         stage = root / "stages" / f"{age}m"
         if not (stage / "pulse-s1701.zip").is_file() or not (
-                stage / "stairs" / "matrix_summary.json").is_file():
+                stage / "stairs" / "matrix_summary.json").is_file() or not (
+                stage / "deep-s1701.zip").is_file():
             continue
         marker = json.loads((stage / "stage_manifest.json").read_text())
         assert marker["age_m"] == age and marker["physical_sha256"] == MODEL_SHA
         m, groups, curves = read_pulse(stage / "pulse-s1701.zip")
         sm, stair_curves = read_stairs(stage / "stairs" / "matrix_summary.json")
         assert m["actor_sha256"] == sm["actor_sha256"]
+        dm, ds = read_deep(stage / "deep-s1701.zip")
+        assert dm["actor_weights_sha256"] == m["actor_sha256"]
+        assert dm["source_files_sha256"] == bdm["source_files_sha256"], (
+            "Changed 60s/30s examiner or inference source; invalid comparison")
+        assert dm["sensor_contract_sha256"] == bdm["sensor_contract_sha256"]
         assert m["actor_step"] == marker["actual_step"]
         assert m["source_sha256"] == bm["source_sha256"], "Changed compact examiner; invalid comparison"
         assert sm["exam_source_sha256"] == bsm["exam_source_sha256"], "Changed stair examiner; invalid comparison"
@@ -186,6 +269,11 @@ def score(root: Path):
         good = True
         issues = []
         row = dict(age_m=age, actor_sha256=m["actor_sha256"])
+        deep_values, deep_issues = verify_deep_retention(bds, ds)
+        row.update(deep_values)
+        if deep_issues:
+            good = False
+            issues.extend(deep_issues)
         for name in PULSE_GROUPS:
             current = groups[name]["pass_fraction"]
             original = bg[name]["pass_fraction"]
@@ -251,7 +339,9 @@ def score(root: Path):
     md = ["# H40-KS150 balanced stair school — qualification screen", "",
           "Both exams: same 1701 seed, 2048 worlds, first-life, one physics model.",
           "This is *not* an automatic promotion or physical hardware validation.",
-          "A full deep flat-ground exam and independent seed are still required.", "",
+          "A matched 60s/30s exam is REQUIRED for every selected stage.",
+          "Reference station keeping 0/8: success is NOT inferred from balance.",
+          "A second independent training seed and viewer parity remain required.", "",
           "| Stage | Compact step gain | Up 28–56mm crossing gain | Down 44–80mm crossing change | Eligible? |",
           "|---|---:|---:|---:|---|"]
     for r in rows:
@@ -263,7 +353,11 @@ def score(root: Path):
                "specialties plus ≥3pp compact steps and ≥5pp controlled",
                "28–56mm uphill crossings; downhill 4–56 and 44–80mm",
                "controlled crossing each within −5pp; reverse and 5cm",
-               "downhill checks. These are exploratory thresholds.",
+               "downhill checks. DEEP: 60s balance >=7/8, standing drift",
+               "no more than +20cm, each 30s route success at most one pass",
+               "below parent and endpoint error no more than 25% / 8cm worse;",
+               "positive shaft work no more than +25%, and >=7/8 survival.",
+               "These are exploratory tolerances, not proof of generalization.",
                "No candidate may claim proven safe 8cm climbing just from",
                "first-foot top contact.", ""])
     md.append(
