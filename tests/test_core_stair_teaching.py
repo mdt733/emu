@@ -58,7 +58,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
         # The ONE cold teacher consumes completed first-life episodes;
         # these six counters are not policy inputs or reward terms.
         for band in ("near", "easy"):
-            for outcome in ("attempts", "survived", "crossed"):
+            for outcome in ("attempts", "survived", "crossed", "safe_crossed"):
                 name=f"safe_ascent_{band}_{outcome}_up"
                 self.assertIn(name,out.metrics)
                 self.assertEqual(out.metrics[name].shape,(4,))
