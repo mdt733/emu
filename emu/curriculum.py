@@ -272,19 +272,13 @@ class RegimeGovernor:
                    self.slope_evidence.items()}} if self.unified_capability_focus else {}),
         }
 
-    def load_state_dict(self, d: dict[str, Any], *,
-                        allow_safe_ascent_parent_fork: bool = False) -> None:
+    def load_state_dict(self, d: dict[str, Any]) -> None:
         # Source-pinned v5045 checkpoints must provide the complete current
         # governor state. Historical layouts belong to historical commits;
         # do not synthesize evidence after a silent schema migration.
         expected = set(self.state_dict())
-        # One explicitly allowed migration: full saved V1 150M governor
-        # with no survival window -> V2 zeroed window. SAME-source crash
-        # recovery already contains a saved window and cannot fabricate it.
-        if (allow_safe_ascent_parent_fork and self.safe_ascent_enabled and
-                isinstance(d, dict) and
-                set(d) == expected - {'safe_ascent_evidence'}):
-            d = {**d, 'safe_ascent_evidence': self._empty_safe_ascent_evidence()}
+        # A continuing school must restore its entire safety evidence, not
+        # fabricate a fresh window from an incompatible older checkpoint.
         if not isinstance(d, dict) or set(d) != expected:
             raise ValueError(
                 f"curriculum state keys mismatch: expected={sorted(expected)} "
@@ -341,12 +335,12 @@ class RegimeGovernor:
                     set(saved) != set(self._empty_safe_ascent_evidence()) or
                     any(not math.isfinite(float(v)) or float(v) < 0.
                         for v in saved.values())):
-                raise ValueError('V2 survival window checkpoint mismatch')
+                raise ValueError('school survival window checkpoint mismatch')
             for band in ('near', 'easy'):
                 n = float(saved[f'{band}_attempts'])
                 if (saved[f'{band}_survived'] > n or
                         saved[f'{band}_crossed'] > n):
-                    raise ValueError('V2 episode outcomes exceed births')
+                    raise ValueError('school episode outcomes exceed births')
             self.safe_ascent_evidence = {k: float(v) for k,v in saved.items()}
         if self.unified_capability_focus:
             entries=d['command_evidence']
@@ -650,7 +644,7 @@ class RegimeGovernor:
                     key=f'safe_ascent_{band}_{outcome}_up'
                     value=float(row.get(key,0.))
                     if not math.isfinite(value) or value<0.:
-                        raise ValueError(f'invalid V2 first-life metric {key}')
+                        raise ValueError(f'invalid school first-life metric {key}')
                     self.safe_ascent_evidence[f'{band}_{outcome}'] += value
                 n=self.safe_ascent_evidence[f'{band}_attempts']
                 if (self.safe_ascent_evidence[f'{band}_survived']>n+1e-6 or
@@ -696,12 +690,16 @@ class RegimeGovernor:
                         self.ACADEMY_MIN_LIP_M,
                         previous-self.ACADEMY_HEIGHT_GROWTH_M))
                     event='retreat_easy_crossing_failure'
-                elif near_n>=nmin:
+                elif near_n>=nmin or safe_n>=24:
                     # BOTH a true supported-crossing threshold and a
                     # completed first-life survival threshold are required.
                     # No evidence => HOLD rather than optimistic expansion.
-                    crossed = evidence['up_near_successes']/near_n >= .55
                     enough_safe = safe_n >= 24
+                    # Crucially, crossing and survival share the SAME
+                    # 24+ completed birth cohort. Raw per-lip events can
+                    # otherwise certify the wrong height or another lip.
+                    crossed = (enough_safe and
+                               school['near_crossed']/safe_n >= .55)
                     safe = (enough_safe and
                             school['near_survived']/safe_n >= .90)
                     if crossed and safe and kl_ok:
@@ -726,9 +724,16 @@ class RegimeGovernor:
                     for kind in ('attempts','successes'):
                         evidence[f'up_{band}_{kind}']=0.
                 evidence['up_updates']=0.
-                if safe_n>=24 or event.startswith('survival_retreat'):
-                    for k in school:
-                        school[k]=0.
+                # Never discard less-frequently sampled EASY safety
+                # evidence just because a NEAR window closed (or vice versa).
+                # Reset only the severity cohort that actually received
+                # a statistically finite decision.
+                if safe_n >= 24:
+                    for outcome in ('attempts','survived','crossed'):
+                        school[f'near_{outcome}']=0.
+                if easy_s >= 24:
+                    for outcome in ('attempts','survived','crossed'):
+                        school[f'easy_{outcome}']=0.
                 events.append('up:'+event)
                 continue
             if (easy_n>=nmin and evidence[f'{direction}_easy_successes']/easy_n<.25):
