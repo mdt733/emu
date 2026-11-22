@@ -293,8 +293,13 @@ def train(args: TrainingConfig) -> int:
     # The teacher is a SAVED recipe, active from step zero. It is not
     # inferred from a run name, checkpoint age or a human intervention.
     school = bool(args.stair_survival_curriculum)
-    if school and args.resume not in ('', 'auto'):
-        raise RuntimeError('Cold school refuses external checkpoint parents')
+    # inspect_run has already authorised any explicit parent. At this
+    # point '--resume auto' has been resolved to an actual file path, so
+    # treating a path as a forbidden warm start would BREAK crash recovery.
+    parent_is_external = (
+        resumed_payload is not None and bool(args.resume) and
+        Path(args.resume).expanduser().resolve().parent !=
+        (run_dir / 'checkpoints').resolve())
     governor = RegimeGovernor(fall_target=args.fall_target,
                               difficulty_base_step=args.difficulty_base_step,
                               regime_command_frac=args.regime_command_frac,
@@ -319,9 +324,17 @@ def train(args: TrainingConfig) -> int:
     health = TrainingHealth()
     if resumed_payload is not None:
         try:
-            governor.load_state_dict(resumed_payload['curriculum_state'])
-            # Same-run rewind must restore every teaching evidence window.
-            # No birth-time reset and no source-handoff reinterpretation.
+            governor.load_state_dict(
+                resumed_payload['curriculum_state'],
+                allow_teacher_fork=parent_is_external)
+            # Only a deliberately new research run may begin or retire a
+            # survival-evidence window absent from its parent school.
+            # An interrupted SAME run must restore the exact saved window,
+            # not quietly fabricate one on --resume auto.
+            if parent_is_external:
+                print(f'{LOG_PREFIX} research fork: teacher evidence '
+                      'matched or explicitly migrated at new-run boundary; '
+                      'parent weights/optimizer retained', flush=True)
             health.load_state_dict(resumed_payload['health_state'])
             print(f"{LOG_PREFIX} --resume: restored curriculum + training health "
                   f"(updates={governor._updates_done_total}, core_bad_streak={governor.core_bad_streak}, "
