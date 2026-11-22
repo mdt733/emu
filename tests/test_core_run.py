@@ -217,6 +217,16 @@ def _check_balanced_stair_fork_caps_and_matrix():
     assert source_checkpoint_for_stage(root, 160) == root/"checkpoints"/"final.pkl"
     with pytest.raises(ValueError, match="Invalid KS150"):
         source_checkpoint_for_stage(root, 120)
+    from scripts.summarize_h40_ks150_stairs import archived_checkpoint_path
+    for age in (130, 140, 150, 160):
+        target = archived_checkpoint_path(root, age)
+        expected_stage = root / "stages" / f"{age}m"
+        assert target == expected_stage / "checkpoints" / "final.pkl"
+        # policy_export.build_bundle reads checkpoint.parent.parent/run_meta.json
+        assert target.parent.parent == expected_stage
+        assert (target.parent.parent / "run_meta.json").parent == expected_stage
+    with pytest.raises(ValueError, match="Invalid KS150"):
+        archived_checkpoint_path(root, 120)
     assert LOSS_LIMIT_PP["control"] < LOSS_LIMIT_PP["slope"]
     example = [dict(kind="step_up", requested_step_mm=48.,
                     worlds=50, traversed_5frame=9, survival_rate=.80),
