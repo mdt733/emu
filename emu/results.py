@@ -164,20 +164,6 @@ def write_json(path: Path, payload: Any) -> None:
 
 
 
-def write_rows_csv(path: Path, rows: list[dict[str, Any]]) -> None:
-    """Write heterogeneous row dicts using first-seen column order."""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fields: list[str] = []
-    for row in rows:
-        for key in row:
-            if key not in fields:
-                fields.append(key)
-    with path.open('w', newline='', encoding='utf-8') as f:
-        writer = csv.DictWriter(f, fieldnames=fields)
-        writer.writeheader()
-        writer.writerows(rows)
-
-
 def read_csv_rows(path: Path) -> list[dict[str, str]]:
     if not path.exists():
         return []
