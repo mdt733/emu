@@ -95,6 +95,38 @@ fi
 if [[ "$MODE" == preflight || "$MODE" == gpu-smoke ]]; then
   "$PY" -m emu.cli train --steps 170000000 \
     --check-resume-only "${FORK[@]}" "$@"
+  # Exercise *actual* V1 checkpoint -> V2 governor schema migration on CPU.
+  # The CLI's generic rewind check verifies PPO tensors but not the new
+  # safety-window migration, so fail fast before allocating 8GB GPU.
+  "$PY" - "$PARENT" <<'PY'
+from pathlib import Path
+from emu.checkpoint_io import load_checkpoint
+from emu.training_config import TrainingConfig, training_sensor_contract
+from emu.curriculum import RegimeGovernor
+import sys
+p=Path(sys.argv[1])
+cfg=TrainingConfig.load(p.parent.parent/"training_config.json")
+ck=load_checkpoint(p,expected_sensor_contract=training_sensor_contract(cfg))
+governor=RegimeGovernor(unified_capability_focus=True,
+                        safe_ascent_enabled=True)
+governor.load_state_dict(ck["curriculum_state"],
+                         allow_safe_ascent_parent_fork=True)
+old_down=governor.params.academy_height_down_m
+governor.params.academy_height_up_m=min(.040,governor.params.academy_height_up_m)
+governor.params.terrain_height_m=min(.040,governor.params.terrain_height_m)
+governor.terrain_evidence=governor._empty_terrain_evidence()
+governor.academy_evidence=governor._empty_academy_evidence()
+assert governor.params.academy_height_up_m<=.040
+assert governor.params.terrain_height_m<=.040
+assert governor.params.academy_height_down_m==old_down
+assert governor.safe_ascent_evidence==governor._empty_safe_ascent_evidence()
+state=governor.state_dict()
+again=RegimeGovernor(unified_capability_focus=True,safe_ascent_enabled=True)
+again.load_state_dict(state)
+assert again.state_dict()==state, "V2 checkpoint/resume roundtrip failed"
+print("V2 fork migration PASS: full 150M governor, 40mm uphill, "
+      "downhill unchanged, survival evidence restartable")
+PY
   if [[ "$MODE" == preflight ]]; then
     echo "SOURCE-PINNED PREFLIGHT PASS; no training."
     exit 0
