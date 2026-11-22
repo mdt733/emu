@@ -99,12 +99,71 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     m["cmd_vx"]=np.asarray([.12],np.float32)
     assert float(_gait_maturity(m,np,allow_zero_command_balance=True)[1][0])==pytest.approx(.30)
     assert cfg.physical_profile=="h40"
+    _check_spring_only_changes_nothing_except_knee_tendons()
     assert not {"cloud_probes_per_eval","cloud_final_probes",
                 "science_reset_step_evidence_on_fork"} & asdict(cfg).keys()
     assert training_sensor_contract(cfg) is not None
     # Keep 24 core tests: this UI is another assertion of the *existing*
     # public CLI contract, not a new training experiment/test family.
     _check_readonly_dashboard(tmp_path)
+
+
+def _check_spring_only_changes_nothing_except_knee_tendons():
+    """Research variant must not silently carry Spring V1 ROM/actuation changes."""
+    import hashlib
+    import math
+    from xml.etree import ElementTree as ET
+
+    import mujoco
+    from emu.contracts import PACKAGE_ROOT
+    from emu.physical_variants import (
+        SPRING_ONLY_PROFILE, generate_xml, profile_numbers)
+
+    source = (PACKAGE_ROOT / "robot.xml").read_text(encoding="utf-8")
+    baseline = generate_xml(source, "h40")
+    candidate = generate_xml(source, SPRING_ONLY_PROFILE)
+    # Frozen original champion model bytes remain intact.
+    assert hashlib.sha256(baseline.encode()).hexdigest() == (
+        "b513bb3326a73d9ca661f761f1352b22c36d0f1b6d51be72c2eca15d8712ef5b")
+    assert profile_numbers(SPRING_ONLY_PROFILE)["knee_strut_k_n_m"] == 150.
+    assert baseline != candidate
+
+    original = ET.fromstring(baseline)
+    modified = ET.fromstring(candidate)
+    original.set("model", modified.get("model"))
+    for side in "rl":
+        for tag, name, attr in (
+            ("site", f"{side}_knee_strut_thigh", "pos"),
+            ("site", f"{side}_knee_strut_shin", "pos"),
+            ("spatial", f"{side}_knee_support", "stiffness"),
+            ("spatial", f"{side}_knee_support", "springlength"),
+        ):
+            left = original.find(f".//{tag}[@name='{name}']")
+            right = modified.find(f".//{tag}[@name='{name}']")
+            assert left is not None and right is not None
+            left.set(attr, right.get(attr))
+    assert ET.tostring(original) == ET.tostring(modified), (
+        "Spring-only candidate changed non-spring H40 XML or actuator limits")
+
+    a = mujoco.MjModel.from_xml_string(baseline)
+    c = mujoco.MjModel.from_xml_string(candidate)
+    np.testing.assert_array_equal(a.jnt_range, c.jnt_range)
+    np.testing.assert_array_equal(a.actuator_ctrlrange, c.actuator_ctrlrange)
+    np.testing.assert_array_equal(a.actuator_forcerange, c.actuator_forcerange)
+    np.testing.assert_allclose(c.tendon_stiffness, [150., 150.])
+    for side in "rl":
+        torques = []
+        for model in (a, c):
+            jid = mujoco.mj_name2id(
+                model, mujoco.mjtObj.mjOBJ_JOINT, f"{side}_knee")
+            assert jid >= 0
+            data = mujoco.MjData(model)
+            data.qpos[model.jnt_qposadr[jid]] = math.radians(-55.)
+            mujoco.mj_forward(model, data)
+            torques.append(float(data.qfrc_passive[model.jnt_dofadr[jid]]))
+        assert torques[0] > torques[1] > 0.0, torques
+        assert torques[1] < .980665, torques
+
 
 
 def _check_readonly_dashboard(tmp_path):
