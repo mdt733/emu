@@ -272,13 +272,23 @@ class RegimeGovernor:
                    self.slope_evidence.items()}} if self.unified_capability_focus else {}),
         }
 
-    def load_state_dict(self, d: dict[str, Any]) -> None:
-        # Source-pinned v5045 checkpoints must provide the complete current
-        # governor state. Historical layouts belong to historical commits;
-        # do not synthesize evidence after a silent schema migration.
+    def load_state_dict(self, d: dict[str, Any], *,
+                        allow_teacher_fork: bool = False) -> None:
+        # A SAME-RUN restore is exact, including every completed first-life
+        # safety window. A deliberately new research run may adopt or drop
+        # ONLY the opt-in survival window; all other governor contracts
+        # remain strict. The CLI independently authenticates the parent.
         expected = set(self.state_dict())
-        # A continuing school must restore its entire safety evidence, not
-        # fabricate a fresh window from an incompatible older checkpoint.
+        if allow_teacher_fork and isinstance(d, dict):
+            saved_keys = set(d)
+            if (self.safe_ascent_enabled and
+                    saved_keys == expected - {'safe_ascent_evidence'}):
+                d = {**d, 'safe_ascent_evidence':
+                     self._empty_safe_ascent_evidence()}
+            elif (not self.safe_ascent_enabled and
+                  saved_keys == expected | {'safe_ascent_evidence'}):
+                d = {k:v for k,v in d.items()
+                     if k != 'safe_ascent_evidence'}
         if not isinstance(d, dict) or set(d) != expected:
             raise ValueError(
                 f"curriculum state keys mismatch: expected={sorted(expected)} "
