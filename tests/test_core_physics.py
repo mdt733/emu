@@ -5,6 +5,7 @@ A 4-world MJX physical trajectory probe is run separately in CI.
 """
 from __future__ import annotations
 from types import SimpleNamespace
+import math
 
 import numpy as np
 import pytest
