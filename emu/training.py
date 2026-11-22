@@ -501,9 +501,15 @@ def train(args: TrainingConfig) -> int:
     print(f"{LOG_PREFIX} training start run={run_name} backend=mjx steps={args.steps:,} envs={args.envs} rollout={ROLLOUT_STEPS} epochs={PPO_EPOCHS} device={args.device} jax_backend={jax.default_backend()}", flush=True)
     print(f"{LOG_PREFIX} obs_dim={obs_dim} schema={args.observation_schema} action_dim={ACTION_DIM} regimes=steady/transition/resilience + posture", flush=True)
     if args.terrain_step_max_m:
-        print(f"{LOG_PREFIX} finite terrain topology allocated (ceiling={args.terrain_step_max_m:.3f}m), "
-              "but physical exposure/height remain ZERO until independently proven crossing-based "
-              "curriculum activation is implemented.", flush=True)
+        print(
+            f'{LOG_PREFIX} real signed-prism topology: '
+            f'configured height range <= {args.terrain_step_max_m:.3f}m; '
+            f'current ordinary exposure={float(params.get("terrain_exposure", 0.)):.3f}, '
+            f'earned ordinary height={float(params.get("terrain_height_m", 0.)):.3f}m; '
+            f'Academy UP/DOWN={float(params.get("academy_height_up_m", 0.)):.3f}/'
+            f'{float(params.get("academy_height_down_m", 0.)):.3f}m '
+            f'(all measured from restored/current curriculum, not claimed competence)',
+            flush=True)
     print(f"{LOG_PREFIX} compiling MJX/JAX update...", flush=True)
     import jax.numpy as jnp
     obs_mean = jnp.zeros((obs_dim,), dtype=jnp.float32)
