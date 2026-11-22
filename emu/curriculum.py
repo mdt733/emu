@@ -977,6 +977,11 @@ class RegimeGovernor:
         report['academy_height_down_m']=self.params.academy_height_down_m
         report.update({f'academy_window_{key}':value
                        for key,value in self.academy_evidence.items()})
+        if self.safe_ascent_enabled:
+            # Explain WHY the teacher is advancing or holding uphill
+            # difficulty, not just the raw end-of-run stair count.
+            report.update({f'uphill_school_window_{key}':value
+                           for key,value in self.safe_ascent_evidence.items()})
         if self.unified_capability_focus:
             report['slope_event'] = (
                 self.advance_slope(row, kl_ok=kl_ok_to_expand)
