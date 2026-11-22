@@ -62,6 +62,32 @@ physical robot + 4×4 ToF + four-tile MJX world
 
 Training starts from scratch; historical models and incompatible sensor contracts are not silently migrated. Use `emu train --help`, `emu prism-exam --help`, and [the core skeleton](docs/CORE_SKELETON.md) for the supported interfaces. Keep training and policy evaluation pinned to the exact source SHA, generated robot XML and observation contract.
 
+### Current research school: teach from birth, not checkpoint by checkpoint
+
+The research-only cold-school branch integrates our repeated KS150
+stair evidence into **one teacher**. A single shared 360-input policy
+learns from random initial weights; the same saved Academy/retention/
+survival-aware curriculum autonomously adjusts lessons throughout
+180 million environment steps. It never imports an older student's brain.
+Changing the teacher halfway through is not part of this experiment.
+
+```bash
+bash scripts/run_h40_school_wsl.sh plan
+bash scripts/run_h40_school_wsl.sh preflight
+bash scripts/run_h40_school_wsl.sh gpu-smoke
+bash scripts/run_h40_school_wsl.sh all  # ONLY after local gates pass
+```
+
+Use `EMU_SCHOOL_SEED=736` or another new seed with the **same frozen
+source and flags** for an independent from-scratch replication. The
+run's original checkpoints, optimiser and observation normaliser all
+live outside Git in `~/emu-data/runs/h40-school-cold-s<seed>/`;
+the only final independently audited upload is `school-evidence.zip`.
+No auto-promotion or public showcase change. This new teacher has
+**not yet passed an independent cold training run**. Historical lesson
+evidence and honest limits: [retained research findings](docs/RESEARCH_FINDINGS.md).
+
+
 **Release is separate from source promotion.** GitHub Pages deployment is manual and requires `showcase/release_approval.json` matching the exact actor and the original checkpoint SHA-256; `python scripts/verify_showcase_release.py` must pass before the public build can deploy. A merge alone does not update GitHub Pages.
 
 ## Architecture
