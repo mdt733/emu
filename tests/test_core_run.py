@@ -508,8 +508,10 @@ def _check_readonly_dashboard(tmp_path):
     assert target_from_config(directory)==120000000
     rows=[
         dict(step=95000000,reward_mean=2.0,fall_rate=.2,
+             height=.345,height_error_m=-.005,
              academy_near_attempts_up=10,academy_near_successes_up=1),
         dict(step=100000000,reward_mean=2.5,fall_rate=.1,
+             height=.340,height_error_m=-.010,
              academy_near_attempts_up=8,academy_near_successes_up=1),
     ]
     source=directory/"metrics.csv"
@@ -529,6 +531,9 @@ def _check_readonly_dashboard(tmp_path):
     assert "not yet evaluated" in screen
     assert cli_main(["dashboard","--run-dir",str(directory),
                      "--once","--plain"]) == 0
+    # This is another ACTIVE public CLI consumer of results.py; don't
+    # incorrectly prune the posture reporter as orphaned code.
+    assert cli_main(["posture-report","--root",str(directory)]) == 0
     assert source.read_bytes()==before
 
     # Switching Git branches must never leave a stale compiled Meadow visible.
