@@ -65,11 +65,18 @@ Training starts from scratch; historical models and incompatible sensor contract
 ### Current research school: teach from birth, not checkpoint by checkpoint
 
 The research-only cold-school branch integrates our repeated KS150
-stair evidence into **one teacher**. A single shared 360-input policy
-learns from random initial weights; the same saved Academy/retention/
-survival-aware curriculum autonomously adjusts lessons throughout
-180 million environment steps. It never imports an older student's brain.
-Changing the teacher halfway through is not part of this experiment.
+stair evidence into **one teacher**. In this particular research study,
+a single shared 360-input policy starts from random initial weights;
+the same saved Academy/retention/survival-aware curriculum autonomously
+adjusts lessons throughout 180 million environment steps.
+
+**Warm starts remain supported by the general `emu train` tool.**
+Researchers can choose a compatible checkpoint from another run and
+authorise cross-source forks with its full source Git SHA and checkpoint
+SHA256. The school feature is a teaching method, not a ban on the
+origin of a student's weights. This study deliberately omits a parent
+checkpoint so its outcome measures teaching from birth, not a
+hand-selected rescue.
 
 ```bash
 bash scripts/run_h40_school_wsl.sh plan
