@@ -130,6 +130,13 @@ PY
       --output "$ROOT/reference/stairs" --mode stairs --worlds 2048 \
       --horizon 350 --levels 20 --trials-per-level 50 --seed 1701 --device cuda
   fi
+  # Re-examine parent and child identically for 60s standing + 30s commands.
+  if [[ ! -e "$ROOT/reference/deep-s1701.zip" ]]; then
+    "$PY" -m emu.physical_capability_exam \
+      --policy "$ROOT/reference/actor.emupolicy" \
+      --output "$ROOT/reference/deep-s1701.zip" \
+      --worlds 8 --seed 1701 --device cuda
+  fi
   "$PY" scripts/summarize_h40_ks150_stairs.py --archive-stage "$AGE" \
     --root "$ROOT" --parent "$PARENT" --parent-sha256 "$PARENT_SHA"
   POLICY="$STAGE/actor.emupolicy"
@@ -145,6 +152,11 @@ PY
     "$PY" scripts/v5053_matrix_exam.py --policy "$POLICY" \
       --output "$STAGE/stairs" --mode stairs --worlds 2048 \
       --horizon 350 --levels 20 --trials-per-level 50 --seed 1701 --device cuda
+  fi
+  if [[ ! -e "$STAGE/deep-s1701.zip" ]]; then
+    "$PY" -m emu.physical_capability_exam \
+      --policy "$POLICY" --output "$STAGE/deep-s1701.zip" \
+      --worlds 8 --seed 1701 --device cuda
   fi
   "$PY" scripts/summarize_h40_ks150_stairs.py --root "$ROOT"
 done
