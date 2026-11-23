@@ -204,6 +204,47 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     (snapshot/"school_diagnostic_heights.csv").write_text("level\n1\n")
     assert _exam_valid("stair_speed_horizon",snapshot,raw_actor,6901)
 
+    # A repaired supervisor may run on a newer Git commit, but PPO and
+    # independent physics MUST remain on the old study's exact clean
+    # source. Exercise a REAL local Git detached worktree (no network,
+    # GPU, or repository checkout switch) to reproduce that recovery.
+    import subprocess as git_subprocess
+    from scripts.stair_school_lesson_lab import _attach_locked_training_checkout
+    git_repo=tmp_path/"independent-source-git"
+    git_subprocess.run(["git","init","-q",str(git_repo)],check=True)
+    (git_repo/"README").write_text("original training source\n")
+    git_subprocess.run(
+        ["git","-C",str(git_repo),"add","README"],check=True)
+    git_subprocess.run(
+        ["git","-C",str(git_repo),"-c","user.name=EMU CI",
+         "-c","user.email=ci@example.invalid",
+         "commit","-qm","original locked experiment"],check=True)
+    first_sha=git_subprocess.check_output(
+        ["git","-C",str(git_repo),"rev-parse","HEAD"],text=True).strip()
+    (git_repo/"README").write_text("newer supervisor source\n")
+    git_subprocess.run(["git","-C",str(git_repo),"add","README"],check=True)
+    git_subprocess.run(
+        ["git","-C",str(git_repo),"-c","user.name=EMU CI",
+         "-c","user.email=ci@example.invalid",
+         "commit","-qm","newer supervisor"],check=True)
+    worktree_root=tmp_path/"locked-training-study"
+    worktree_root.mkdir()
+    (worktree_root/"study_lock.json").write_text(
+        json.dumps({"source_commit":first_sha}))
+    with patch("scripts.stair_school_lesson_lab.REPO",git_repo):
+        _attach_locked_training_checkout(worktree_root)
+        from scripts import stair_school_lesson_lab as school_lab
+        assert school_lab._source_identity()==first_sha
+        assert school_lab.REPO.parent==worktree_root
+        assert (school_lab.REPO/"README").read_text()=="original training source\n"
+    # Repeated GO uses the same pinned worktree without changing the lock.
+    with patch("scripts.stair_school_lesson_lab.REPO",git_repo):
+        _attach_locked_training_checkout(worktree_root)
+        from scripts import stair_school_lesson_lab as school_lab
+        assert school_lab._source_identity()==first_sha
+    assert json.loads((worktree_root/"study_lock.json").read_text())[
+        "source_commit"]==first_sha
+
     # The lesson laboratory's 13 arms must all parse through the REAL
     # training CLI. Every experimental arm changes exactly ONE config
     # field from the same control, without running PPO or opening a GPU.
