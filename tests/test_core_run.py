@@ -160,8 +160,10 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
             assert json.loads((study/"study_lock.json").read_text())[
                 "source_commit"]=="2"*40
         control_parent.write_bytes(b"synthetic mutated ancestor")
-        with pytest.raises(RuntimeError,match="changed since study lock"):
-            _read_lock(study)
+        with patch("scripts.stair_school_lesson_lab._source_identity",
+                   return_value="2"*40):
+            with pytest.raises(RuntimeError,match="changed since study lock"):
+                _read_lock(study)
 
 
     # Exported .emupolicy stores robot identity in source provenance, not
