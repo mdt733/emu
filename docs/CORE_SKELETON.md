@@ -70,11 +70,15 @@ Every run lives outside Git at `~/emu-data/runs/<name>/` and includes resolved c
 
 1. **VL53L8CX physical contract updated:** current h40 training and viewer use one 45°×45° square optical frustum (16 zone-centre rays), 70° down, 30mm below torso, zero forward/lateral/yaw; the 360 observation width is unchanged but its cryptographically-pinned geometry revision is new. The ST 4×4 zone-ID map explicitly accounts for the **two-axis lens inversion** in UM3109; verify PCB rotation before feeding ranges to the actor. A zone-centre ray is still an approximation of the sensor's multi-return optical histogram; validate foot occlusion against actual hardware.
 2. **Terrain upgraded:** current MJX training uses four 1m rolling source tiles and eight convex triangular prisms, with midpoint recycling and foot-clearance protection. The **viewer** independently runs a CPU MuJoCo 15×15m ring of 225 mutable 2×2 heightfields, representing infinite deterministic world coordinates without reloading the robot. Its generated 1m surfaces and sensor height samples agree, and no occupied tile moves. Difficulty depends on world +Y (north); east–west varies the seed at fixed latitude. The viewer heightfield collider is **not** the trainer's convex prism and cannot certify matched MJX stepping.
-3. **New cold start completed and source promoted:** seed 735, 2048 worlds,
-120,061,952 steps on the central-servo/carbon/1m/physical-ToF model.
-The frozen `.emupolicy` is current in `main`. Independent matched
-real-prism exams have **not** been supplied; stepping remains unsolved.
-Earlier h40 checkpoints are incompatible.
+3. **Mainline and research are distinct:** the original H40 seed-735
+120M champion remains protected on `main`; its viewer is not a matched
+Spring-only exam. One research cold student on source `1fa832fc` (seed
+735) and a revised source `4048e845` (seed 736) each completed
+120,061,952 steps, but their teacher and held-out exam seeds differed.
+The revised student traversed 64/500 uphill 4–40 mm and 0/500
+44–80 mm on exact held-out prisms (seed 5701); this is not proof of
+superiority over `main` or robust stair competence. Post-training
+maintenance commits cannot resume those frozen checkpoints.
 4. **Contact acceleration:** non-foot colliders are disabled in the fast solver and monitored by virtual safety probes. 2/4 solver iterations is experimental, not a certified physically faithful engine.
 5. **Software debt:** `environment.py`, `training.py`, `curriculum.py`, `ppo.py`, `results.py` still contain optional historical teaching controls and compatibility code. The active cold study selects one recipe rather than deleting the generic warm-fork path. Separate verified dead teaching branches from useful experiment knobs; freeze the new source before cleaning shared arithmetic. Retired standalone stair-campaign drivers were removed from this research branch, while Git preserves them.
 

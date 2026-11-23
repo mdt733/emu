@@ -103,56 +103,54 @@ showcase/Pages barrier.
   **3mm**; downhill reached **55mm**. Full source/evidence audit in
   [research findings](docs/RESEARCH_FINDINGS.md). This is **a
   successful execution shakeout, not a proven good teacher**.
-- **Source isolation:** the branch has continued evolving **since**
-  that completed 120M student. For any replay or recovery, use its
-  original commit `1fa832fc7cd9241e2772b44ad434613c6080adfa`,
-  not the latest branch head. Trainer source fingerprints protect
-  checkpoint continuity.
-- The intended longer school experiment is **0→180M** with the same
-  predefined teacher; new full cold seeds must use one frozen code/
-  configuration/budget. Final physical exams use preregistered
-  evaluation seed **5701** (1701/2701 and now 4701 are inspected
-  design-time evidence).
-  An interesting single learner is not proof of teacher quality.
+- **Revised 120M cold student (not promoted):** seed **736**, source
+  `4048e8450c36882501cbb624f4ca656e11da9419`, reached
+  **120,061,952** steps and completed held-out physical exams at seed
+  **5701**. Signed five-frame traversals: **uphill 64/500** at
+  4–40 mm and **0/500** at 44–80 mm; **downhill 132/500** and
+  **84/500** respectively. The uphill Academy frontier ended
+  **3.5 mm**, downhill **55 mm**. Short pulse command scores improved
+  in some tasks, but long missions and station keeping remain weak.
+  Different training/evaluation seeds and teacher sources mean this
+  is not controlled proof of improvement, nor an actor qualified to
+  replace the original H40 on `main`. Results and caveats live in
+  [research findings](docs/RESEARCH_FINDINGS.md).
+- **Source isolation:** the finished seed-735 run is pinned to
+  `1fa832fc7cd9241e2772b44ad434613c6080adfa`; revised seed-736
+  is pinned to `4048e8450c36882501cbb624f4ca656e11da9419`.
+  Neither can be resumed from a newer cleanup commit. Trainer
+  source fingerprints protect checkpoint continuity.
+- The intended longer school experiment is **0→180M** with a
+  predeclared, unchanged teacher; new full cold seeds require one
+  frozen code/configuration/budget. Exam seed **5701** was first held
+  out for the revised seed-736 run and is now **inspected evidence**:
+  use a new preregistered unseen exam seed for future revisions.
+  A single successful learner is not proof of repeatable teacher quality.
 
 ## Operator commands and next work
 
 ```bash
-# Only in a SEPARATE checkout with no active/resumable GPU learner:
+# In the research checkout: reproducible baseline checks always select
+# original h40 inside check.sh (no caller-shell profile mutation).
 cd ~/emu
-git fetch origin
-git switch research/h40-unified-school-cold-v1
-git pull --ff-only
-source .venv/bin/activate
-
-# One new independent cold seed; preserves completed s735 directory:
-export EMU_SCHOOL_SEED=736
-export EMU_SCHOOL_STEPS=120000000
 bash scripts/check.sh --full
-bash scripts/run_h40_school_wsl.sh plan
-bash scripts/run_h40_school_wsl.sh preflight
-bash scripts/run_h40_school_wsl.sh gpu-smoke
-# Only if all checks pass, and with the intended source SHA frozen:
-bash scripts/run_h40_school_wsl.sh all
+
+# Run only against the appropriate frozen source identity:
+# seed-735: 1fa832fc7cd9241e2772b44ad434613c6080adfa
+# seed-736: 4048e8450c36882501cbb624f4ca656e11da9419
+# Do not resume completed training from the moving branch head.
 ```
 
-For a **new** `180M` run, unset `EMU_SCHOOL_STEPS`; its separate
-default directory is `~/emu-data/runs/h40-school-cold-s<seed>/`.
-An interrupted student must resume at its original Git commit with
-the exact seed/recipe, **never** at an arbitrarily newer branch head.
-
-**Next priorities:** source inspection found a testable confound:
-an UP-first 3mm Academy birth must survive 1200 frames even as its
-unrelated DOWN course frontier grew to 55mm. The current one-branch
-candidate uses the SAME seeded real first +X lip but, on UP-first
-births only, caps later DOWN height to that UP frontier. DOWN-first
-lessons retain full earned DOWN severity. No lowered graduation
-threshold, extra teacher or reward. This is a **source-grounded
-hypothesis, not a demonstrated failure cause**; run green tests,
-full CUDA school smoke, then one source-pinned cold comparison and
-fresh unseen **5701** qualification. Guard generalist walking, long
-mission completion and robust true uphill crossings; only then
-consider multiple independent cold seeds or promotion.
+**Next priorities:** preserve both complete checkpoint/export identities
+and the external evidence bundle; perform a matched authenticated
+original-H40-versus-Spring-only task comparison for *selection*, not
+causal teacher attribution. The revised teacher's downstream-descents
+correction is still a **hypothesis**: small uphill traversals increased
+in one revised cold student, but the uphill Academy frontier remains
+near 3 mm and no 44–80 mm uphill traversal was achieved.
+For a future cold replicate, pre-register an unused training seed,
+one frozen source/config/budget and an unseen qualification seed.
+No actor promotion or Pages release without separate owner approval.
 
 **Research principle:** one student, one teacher for its whole life;
 one improving research branch; physical crossing **plus** survival and

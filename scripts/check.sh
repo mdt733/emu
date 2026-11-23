@@ -2,6 +2,10 @@
 # Quick source sanity by default; full test suite only when explicitly asked.
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+# The frozen public champion and default regression fixtures use original H40.
+# Isolate this script from a caller's opt-in Spring-only training profile.
+# This export affects only the check.sh process, not the parent shell.
+export EMU_PHYSICAL_PROFILE=h40
 case "${1:---quick}" in
   --quick) FULL=0 ;;
   --full) FULL=1 ;;

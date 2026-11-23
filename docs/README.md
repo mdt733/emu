@@ -18,13 +18,16 @@ The maintained entry points are the [core skeleton](CORE_SKELETON.md), [H40 hand
 **One active improvement branch:** `research/h40-unified-school-cold-v1`
 ([draft PR #103](https://github.com/mdt733/emu/pull/103)).
 It keeps the same one 360-input actor/PPO and explores a coherent
-survival-aware school on opt-in Spring-only physics. Its ongoing
-0→120M sanity run was launched from **source
-`1fa832fc7cd9241e2772b44ad434613c6080adfa`**, not the
-subsequently edited branch head. New source commits are **not
-interchangeable** with that run's resumable checkpoint. The full
-current state is in the [handover](../handover.md). No other research
-branch is actively maintained.
+survival-aware school on opt-in Spring-only physics. Two **completed**
+cold 120M studies have different frozen sources: seed **735** used
+`1fa832fc7cd9241e2772b44ad434613c6080adfa`; revised seed
+**736** used `4048e8450c36882501cbb624f4ca656e11da9419`, with
+independent stair exam seed **5701**. The revised student improved
+some small-step crossings but still had no 44–80 mm uphill traversals;
+it is **not** the published champion. Source commits after these runs,
+including docs maintenance, are **not interchangeable** with their
+checkpoints. Details: [handover](../handover.md) and [research findings](RESEARCH_FINDINGS.md).
+No other research branch is actively maintained.
 
 **Known limitation:** the owner reports a good gait and about 15° slopes in the viewer, but robust stair traversal and held-out equivalent MJX physical exams remain open.
 

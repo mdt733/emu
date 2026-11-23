@@ -204,8 +204,48 @@ See the single active
 and no teacher change at 20M intervals; then repeat whole cold runs with
 other training seeds using that SAME source and budget. Age-dependent
 lesson scheduling inside the saved governor is automatic and allowed.
-The new cold teacher is **not yet tested**; the two existing fresh
-physical-evaluation seeds are **not independent training seeds**.
-Compare completed cold-seed cohorts, including failures and the worst
-learner, against equal-budget baseline teacher cold runs before claiming
-the education method is superior. No automatic champion promotion.
+One initial seed-735 cold study and one revised seed-736 cold study
+have now completed, **on different source revisions**, and were evaluated
+with different independent exam seeds. This is evidence of real cold
+execution and promising small-step transfer, **not** a matched-seed
+causal test or a multi-seed qualification. Compare completed cold-seed
+cohorts, including failures and the worst learner, against equal-budget
+baseline-teacher cold runs before claiming the education method is
+superior. No automatic champion promotion.
+
+## Revised cold-school qualification — seed 736, 23 November 2026
+
+The operator-supplied `school-evidence(1).zip` verifies a single cold
+0→120M student, source commit `4048e8450c36882501cbb624f4ca656e11da9419`,
+training seed **736**, **120,061,952** environment steps, 2,048 MJX
+worlds, no warm-start ancestor. Profile `h40-spring-only` uses the
+original 400 mm H40 morphology and six-motor/360-input interface with
+KS150 knee support; its generated XML SHA256 is
+`21b5856b7a248e5d5b988e2735255d57ec79bae1a7cab0bcb72f481bfc36f470`.
+Held-out first-life real-prism stair exam **5701** used 50 trials per
+4 mm level and direction, 350 control frames and 2,000 assigned worlds.
+
+| Signed real-prism traversal | Initial cold seed 735 (exam 4701) | Revised cold seed 736 (exam 5701) |
+| --- | ---: | ---: |
+| Uphill +4–40 mm, five-frame traversal | 39/500 | **64/500** |
+| Uphill +44–80 mm, five-frame traversal | 0/500 | **0/500** |
+| Downhill −4–40 mm, five-frame traversal | 138/500 | **132/500** |
+| Downhill −44–80 mm, five-frame traversal | 71/500 | **84/500** |
+
+The revised uphill Academy frontier finished at **3.5 mm** and
+downhill at **55 mm**; the recorded `academy_short_climb_successes`
+counter stayed zero. Short command pulses passed **360/384**,
+recovery pulses **218/256**; 30–60s deep survival was **72/72**
+across nine 8-world scenarios, but 60s stationary position control
+was **0/8**, and several long command missions were **0/8** despite
+survival. The apparent small-step gain is not evidence of solved tall
+uphill climbing. Student source revisions, training seeds, and exam
+seeds differ, so this is **descriptive**, not a controlled proof of
+teacher improvement. The released `main` actor uses different knee
+physics and has not been ranked against this student on an identical
+authenticated mission protocol.
+
+Preserve the complete `final.pkl` and exported `.emupolicy` separately:
+the submitted evidence ZIP contains provenance/results/exams but not
+the bytes needed for exact checkpoint replay. This candidate is not
+approved to replace the immutable `main` actor or its public release.

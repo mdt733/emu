@@ -97,14 +97,20 @@ automatic checkpoint continuation or teacher switch between them.
 The 120M run is an **execution/reproducibility shakeout**; don't treat
 a successful first run as proof of the best possible teaching method.
 
-Use `EMU_SCHOOL_SEED=736` or another new seed with the **same frozen
-source and flags** for an independent from-scratch replication. The
-run's original checkpoints, optimiser and observation normaliser all
-live outside Git in `~/emu-data/runs/h40-school-cold-s<seed>/`;
-the only final independently audited upload is `school-evidence.zip`.
-No auto-promotion or public showcase change. This new teacher has
-**not yet passed an independent cold training run**. Historical lesson
-evidence and honest limits: [retained research findings](docs/RESEARCH_FINDINGS.md).
+**Completed revised 120M shakeout:** seed **736**, source
+[`4048e845`](https://github.com/mdt733/emu/commit/4048e8450c36882501cbb624f4ca656e11da9419),
+reached **120,061,952** steps on `h40-spring-only`. Held-out seed
+**5701** measured **64/500** supported uphill traversals at 4–40 mm,
+but **0/500** at 44–80 mm; long-duration command missions remain weak.
+Its final uphill Academy frontier was **3.5 mm**. This is one successful
+cold execution, **not** proof of a superior teacher or a new mainline
+champion. Full examination and provenance: [research findings](docs/RESEARCH_FINDINGS.md).
+
+For future independent cold runs, choose an **unused training seed**
+and one frozen source/config/budget. Keep the finished seed-736
+checkpoints and evidence at `~/emu-data/runs/h40-school-cold-120m-s736/`
+outside Git; do not resume those checkpoints from newer cleanup
+commits. No auto-promotion or public showcase change.
 
 
 **Release is separate from source promotion.** GitHub Pages deployment is manual and requires `showcase/release_approval.json` matching the exact actor and the original checkpoint SHA-256; `python scripts/verify_showcase_release.py` must pass before the public build can deploy. A merge alone does not update GitHub Pages.
