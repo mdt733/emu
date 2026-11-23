@@ -1,5 +1,34 @@
 # EMU KS150 Stair Teaching: Lessons Laboratory v1
 
+## ONE-BUTTON GO — unattended 13-arm teaching study
+
+One command is sufficient to lock the existing full 120M seed-736
+checkpoint and launch every branch sequentially on the local CUDA GPU:
+
+```bash
+python scripts/stair_school_lesson_lab.py go --detach
+```
+
+GO runs C00 control, followed by H01–H12, at the common 130M, 140M
+and 160M checkpoints. It performs **both** discovery seeds (6901, 6902)
+at each stage, with signed stairs, generalist retention and genuine
+same-trajectory 350/1200-frame stair tests. It creates durable run logs,
+source-pinned exam receipts, and a physical-evidence lesson_ledger.md.
+Interrupted study runs may be resumed with the same command; prior
+completed exams are reused, not overwritten.
+
+**No manual stage approval is required in GO mode.** More than five
+percentage points of core-skill regression is flagged. A loss of
+at least fifteen percentage points in the SAME core capability on BOTH
+exam seeds automatically stops that treatment's later stages; other
+arms continue. Invalid checkpoint provenance, GPU failure or corrupted
+physical evidence stops the campaign, preserving all prior outputs.
+
+The maximum is about 519.7M additional environment steps plus an
+extensive GPU evaluation budget. This is design-time teaching research,
+not newborn-school proof, and never promotes a champion. The old
+manual plan/preflight/run/examine commands remain optional.
+
 **Status:** preregistered **design**, not trained evidence. **Purpose:** discover which teaching methods are worth building into a *new, from-scratch* EMU school. This is **not** an actor tournament to select a champion from the forks.
 
 **Source and ancestry:** the currently completed `h40-spring-only` seed-736 student at **120,061,952** PPO environment steps was trained at Git SHA `4048e8450c36882501cbb624f4ca656e11da9419`. Its exported actor SHA256 `f1e808b2c1fd3cb6433ddbcea9f1c9e1afce69c69eb768fabf678907e7deecbc` is **not** a training checkpoint. The tournament requires the original, full, immutable `checkpoints/final.pkl` outside Git. The local launcher pins *its exact SHA256*, checks its trained actor's

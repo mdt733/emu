@@ -886,8 +886,8 @@ def main(argv: list[str] | None = None) -> int:
                          "go","--root",str(root),"--worker"]
             with logfile.open("ab",buffering=0) as stream:
                 process=subprocess.Popen(
-                    argv_worker,cwd=REPO,stdout=stream,
-                    stderr=subprocess.STDOUT,
+                    argv_worker,cwd=REPO,stdin=subprocess.DEVNULL,
+                    stdout=stream,stderr=subprocess.STDOUT,
                     start_new_session=True,env=_launch_env())
             print(f"GO STARTED on this computer: PID {process.pid}. "
                   f"Follow {logfile}. Study is source/checkpoint locked.",
