@@ -646,6 +646,21 @@ def _read_stair_funnel(root:Path,arm:str,steps:int,seed:int) -> dict:
             if not 0<=count<=denom:
                 raise RuntimeError("Invalid signed stair gate")
             outcomes[f"{label}_{alias}"]=count/denom
+    # The previous 120M investigation showed an almost saturated small-
+    # height first foothold but a separate 32mm+ acquisition cliff.
+    # Never hide both phenomena behind one 4..80mm mean.
+    uphill=[r for r in matrix["curves"] if r["kind"]=="step_up"]
+    for band,low,high,expected in (
+            ("uphill_4_28mm",4.,28.,70),
+            ("uphill_32_80mm",32.,80.,130)):
+        rows=[r for r in uphill if low<=float(r["requested_step_mm"])<=high]
+        n=sum(int(r["worlds"]) for r in rows)
+        if n!=expected:
+            raise RuntimeError(f"Stair height band {band} is incomplete")
+        for gate,alias in (("leading_top","first_foot"),
+                           ("each_foot_top_five","both_feet"),
+                           ("traversed_5frame","traversal")):
+            outcomes[f"{band}_{alias}"]=sum(int(r[gate]) for r in rows)/n
     t=diagnostic["totals"]
     if t.get("worlds_per_condition")!=200:
         raise RuntimeError("Changed same-trajectory diagnostic cohort")
@@ -734,8 +749,8 @@ def _write_lesson_progress(root:Path) -> None:
            "No automatic champion selection, newborn teaching change or "
            "release claim.",
            "",
-           "| Treatment | 130M | 140M | 160M | Uphill 2-foot Δpp | "
-           "Uphill traversal Δpp | Core retention cautions |",
+           "| Treatment | 130M | 140M | 160M | Small uphill 2-foot Δpp | "
+           "All uphill traversal Δpp | Core retention cautions |",
            "|---|---|---|---|---:|---:|---|"]
     for arm in ARMS:
         cells=[]
@@ -753,7 +768,7 @@ def _write_lesson_progress(root:Path) -> None:
                          f" {steps//1_000_000}M"
                          for w in review["warnings"])
         stair=(latest or {}).get("stair_gate_deltas_pp_vs_control",{})
-        bilateral=f"{stair['uphill_both_feet']:+.2f}" if stair else "—"
+        bilateral=f"{stair['uphill_4_28mm_both_feet']:+.2f}" if stair else "—"
         traversal=f"{stair['uphill_traversal']:+.2f}" if stair else "—"
         lines.append(f"| {arm} | "+" | ".join(cells)+
                      f" | {bilateral} | {traversal} | "+
@@ -897,7 +912,12 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("Invalid detached worker argument")
         if args.worker and not _lock_path(root).exists():
             raise RuntimeError("Worker cannot create an unverified study")
-        return _go_run(root,lock)
+        try:
+            return _go_run(root,lock)
+        except Exception as exc:
+            _event(root,"study_failed",failure_type=type(exc).__name__,
+                   message=str(exc))
+            raise
     if args.detach or args.worker:
         parser.error("--detach belongs only to the one-button GO action")
     lock = _read_lock(args.root)
