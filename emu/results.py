@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import math
 import zipfile
+from collections import Counter
 from pathlib import Path
 from statistics import median
 from typing import Any
@@ -45,6 +47,143 @@ def _read_optional_json(path: Path) -> dict:
         return value if isinstance(value,dict) else {}
     except (OSError,UnicodeError,ValueError):
         return {}
+
+def audit_school_evidence(source: Path) -> dict[str, Any]:
+    """Read-only stair-teacher funnel from one source-pinned run or evidence ZIP.
+
+    Logged metrics are sparse single-rollout snapshots, NOT full-run totals.
+    Raw per-lip crossing events and first-life survival/transfer episodes have
+    different denominators and must never be compared as a success rate.
+    Exam results are a separate, frozen-policy cohort and cannot graduate the
+    live teacher or establish superiority over another physical robot.
+    """
+    source = Path(source).expanduser()
+    names = (
+        'training_config.json', 'run_meta.json', 'metrics.csv',
+        'exam/stairs/matrix_curve.csv', 'exam/stairs/matrix_summary.json')
+    if source.is_dir():
+        blobs = {name: (source / name).read_text(encoding='utf-8-sig')
+                 for name in names if (source / name).is_file()}
+    elif source.is_file() and zipfile.is_zipfile(source):
+        with zipfile.ZipFile(source) as archive:
+            available = set(archive.namelist())
+            blobs = {name: archive.read(name).decode('utf-8-sig')
+                     for name in names if name in available}
+    else:
+        raise ValueError(f'Expected school run directory or evidence ZIP: {source}')
+
+    for required in names[:3]:
+        if required not in blobs:
+            raise ValueError(f'School audit requires {required} in {source}')
+    cfg = json.loads(blobs['training_config.json'])
+    meta = json.loads(blobs['run_meta.json'])
+    rows = list(csv.DictReader(io.StringIO(blobs['metrics.csv'])))
+    if not cfg.get('stair_survival_curriculum'):
+        raise ValueError('This run did not use the survival-aware stair school')
+    if not rows:
+        raise ValueError('School audit found no logged PPO metrics')
+
+    def nonnegative_count(rows: list[dict], key: str) -> int:
+        total = 0
+        for row in rows:
+            try:
+                value = float(row[key])
+            except (KeyError, TypeError, ValueError) as exc:
+                raise ValueError(f'Invalid or missing school evidence: {key}') from exc
+            if not math.isfinite(value) or value < 0 or not value.is_integer():
+                raise ValueError(f'Invalid nonnegative event count: {key}={value}')
+            total += int(value)
+        return total
+
+    sampled = {
+        'raw_near_lip_attempts': nonnegative_count(
+            rows, 'academy_near_attempts_up'),
+        'raw_near_lip_successes': nonnegative_count(
+            rows, 'academy_near_successes_up'),
+        'first_life_near_births': nonnegative_count(
+            rows, 'safe_ascent_near_attempts_up'),
+        'first_life_survived': nonnegative_count(
+            rows, 'safe_ascent_near_survived_up'),
+        'first_life_two_foot_transfer': nonnegative_count(
+            rows, 'safe_ascent_near_crossed_up'),
+        'first_life_transfer_and_survived': nonnegative_count(
+            rows, 'safe_ascent_near_safe_crossed_up'),
+    }
+    n = sampled['first_life_near_births']
+    if (sampled['first_life_survived'] > n or
+            sampled['first_life_two_foot_transfer'] > n or
+            sampled['first_life_transfer_and_survived'] >
+            min(sampled['first_life_survived'],
+                sampled['first_life_two_foot_transfer']) or
+            sampled['raw_near_lip_successes'] >
+            sampled['raw_near_lip_attempts']):
+        raise ValueError('School evidence violates first-life event bounds')
+
+    last = max(rows, key=lambda row: float(row['step']))
+    events = Counter(row['academy_event'] for row in rows
+                     if row.get('academy_event'))
+    result = {
+        'schema': 'emu_school_readonly_funnel_v1',
+        'training_source_commit': (meta.get('source_provenance') or {}).get(
+            'git_commit', ''),
+        'training_seed': cfg.get('seed'),
+        'physical_profile': cfg.get('physical_profile'),
+        'last_logged_step': int(float(last['step'])),
+        'logged_rollout_rows': len(rows),
+        'logged_every_n_updates': (meta.get('doctrine') or {}).get(
+            'LOG_EVERY_UPDATES'),
+        'latest_up_frontier_mm': 1000. * float(last['academy_height_up_m']),
+        'latest_down_frontier_mm': 1000. * float(last['academy_height_down_m']),
+        'school_episode_frames': cfg.get('academy_course_episode_frames'),
+        'latest_academy_requested_vx_mps': float(
+            last['academy_actual_cmd_vx_mps']),
+        'short_climb_completion_enabled': bool(
+            cfg.get('science_step_finish_on_transfer')),
+        'sampled_training_rollouts_only': sampled,
+        'sampled_first_life_survival_fraction': (
+            sampled['first_life_survived'] / n if n else None),
+        'sampled_first_life_safe_transfer_fraction': (
+            sampled['first_life_transfer_and_survived'] / n if n else None),
+        'logged_academy_decisions_only': dict(sorted(events.items())),
+        'independent_exam': None,
+        'limits': (
+            'Sampled log rows omit intervening PPO rollouts; counts are NOT '
+            'complete-run totals or one governor evidence window. '
+            'Short-climb zero is uninformative when completion is disabled. '
+            'Frozen examiner cohorts differ in task velocity and horizon.')
+    }
+    if 'exam/stairs/matrix_curve.csv' in blobs:
+        curve = list(csv.DictReader(io.StringIO(
+            blobs['exam/stairs/matrix_curve.csv'])))
+        manifest = (json.loads(blobs['exam/stairs/matrix_summary.json'])
+                    .get('manifest', {}) if
+                    'exam/stairs/matrix_summary.json' in blobs else {})
+        exam_source = (manifest.get('actor_training_source') or {}).get(
+            'git_commit')
+        if exam_source and exam_source != result['training_source_commit']:
+            raise ValueError('Exam actor source does not match training run')
+        uphill = [row for row in curve if row.get('kind') == 'step_up']
+
+        def count_stage(low: float, high: float) -> dict[str, int]:
+            band = [row for row in uphill
+                    if low <= float(row['requested_step_mm']) <= high]
+            return {
+                'worlds': nonnegative_count(band, 'worlds'),
+                'leading_foot_on_destination_top': nonnegative_count(
+                    band, 'leading_top'),
+                'both_feet_five_frame_support': nonnegative_count(
+                    band, 'each_foot_top_five'),
+                'controlled_five_frame_traversal': nonnegative_count(
+                    band, 'traversed_5frame'),
+            }
+        result['independent_exam'] = {
+            'seed': manifest.get('seed'),
+            'horizon_frames': manifest.get('horizon'),
+            'up_4_to_28_mm': count_stage(4., 28.),
+            'up_32_to_80_mm': count_stage(32., 80.),
+        }
+    return result
+
 
 def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
     """Report ONE source-pinned run, not a superseded four-arm tournament.
@@ -1386,6 +1525,7 @@ def main(argv=None) -> int:
     parser=argparse.ArgumentParser(description='Read-only single-run report or held-out comparison')
     mode=parser.add_mutually_exclusive_group(required=True)
     mode.add_argument('--root',type=Path)
+    mode.add_argument('--school-audit',type=Path,metavar='RUN_DIR_OR_EVIDENCE_ZIP')
     mode.add_argument('--compare-fixed',type=Path,nargs=2,
                       metavar=('REFERENCE_CSV','CANDIDATE_CSV'))
     parser.add_argument('--no-bundle',action='store_true')
@@ -1396,6 +1536,10 @@ def main(argv=None) -> int:
     if args.root:
         for path in write_report(args.root,bundle=not args.no_bundle):
             print(path)
+        return 0
+    if args.school_audit:
+        print(json.dumps(audit_school_evidence(args.school_audit),
+                         indent=2,sort_keys=True))
         return 0
     if not args.reference_protocol or not args.candidate_protocol:
         parser.error('--compare-fixed requires two matching exam protocol fingerprints')

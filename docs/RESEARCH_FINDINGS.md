@@ -13,7 +13,8 @@ no recorded resume; frozen training source
 `h40-spring-only` exact generated robot SHA
 `21b5856b7a248e5d5b988e2735255d57ec79bae1a7cab0bcb72f481bfc36f470`,
 frozen actor SHA `2a5f56992dc715470d9adf49ef06f7063f3df437890131353c97256994fc4336`.
-The release `main` H40 has **different physical geometry and actor**.
+The release `main` H40 shares the nominal **400 mm morphology**
+but has **different knee-spring mechanics, generated model hash and actor**.
 The current research branch has advanced **past this training commit**; never
 attribute this learner to newer cleanup commits. Complete checkpoint bytes
 are *not* in the uploaded evidence ZIP; full restartable state stays with
@@ -233,8 +234,11 @@ Held-out first-life real-prism stair exam **5701** used 50 trials per
 | Downhill −44–80 mm, five-frame traversal | 71/500 | **84/500** |
 
 The revised uphill Academy frontier finished at **3.5 mm** and
-downhill at **55 mm**; the recorded `academy_short_climb_successes`
-counter stayed zero. Short command pulses passed **360/384**,
+downhill at **55 mm**. The recorded `academy_short_climb_successes`
+counter was always zero **by configuration**:
+`science_step_finish_on_transfer=false` explicitly disables that
+short-completion event in the survival school. Zero here is **not**
+evidence that no partial climbs happened. Short command pulses passed **360/384**,
 recovery pulses **218/256**; 30–60s deep survival was **72/72**
 across nine 8-world scenarios, but 60s stationary position control
 was **0/8**, and several long command missions were **0/8** despite
@@ -249,3 +253,60 @@ Preserve the complete `final.pkl` and exported `.emupolicy` separately:
 the submitted evidence ZIP contains provenance/results/exams but not
 the bytes needed for exact checkpoint replay. This candidate is not
 approved to replace the immutable `main` actor or its public release.
+
+
+### Seed-736 first-lip funnel autopsy — source and evidence, not a new policy
+
+Post-hoc breakdown of the *same* independently frozen seed-5701 exam,
+350 frames at a fixed +0.25 m/s command:
+
+| Positive real lip | Leading top support | Both feet supported for five frames | Controlled five-frame traversal |
+| --- | ---: | ---: | ---: |
+| +4 to +28 mm (350 worlds) | **350** | **184** | **64** |
+| +32 to +80 mm (650 worlds) | **1** | **1** | **0** |
+
+On small steps, *first* foothold acquisition is not the observed
+bottleneck; bilateral transfer and controlled continuation are. On tall
+steps, a distinct first-foot acquisition cliff starts near +32 mm.
+The 350-frame exam is **not** a full Academy lesson: it has a different
+command and duration from the training cohort.
+
+To separate raw lip-count events from the governor's actual safe-ascent
+evidence, the **184 periodically saved metrics rows** contain these
+*sampled-rollout* event counts (not full 120M totals or a single closed
+24-birth governor window):
+
+| Evidence source / gate | Observed sampled count |
+| --- | ---: |
+| Raw near-height uphill lip encounters / successes | **1,356 / 1,294** |
+| First-life near-height uphill births | **254** |
+| Those births that survived the complete course | **187 / 254** |
+| Those births with verified assigned two-foot transfer | **107 / 254** |
+| Those births with both transfer and full-life survival | **106 / 254** |
+
+The last distinction matters: 106 of the 107 observed transferred births
+survived. In this limited log sample, **failure to reach two-foot transfer**
+and falls **before** transfer appear more important than late post-transfer
+falls. The governor rightly does not treat 1,294 raw per-lip crossings as
+1,294 independent safe completed lessons. Its promotion requires at least
+24 same-frontier births, >=55% *same-life safe* transfers and >=90%
+survival; <85% near-frontier survival can cause retreat. These sampled
+logs are not a substitute for its actual checkpointed decision windows.
+
+**Specific untested hypothesis:** the nursery teaches around **0.10
+m/s** requested forward command for **1,200 frames**; the independent
+stair exam uses **0.25 m/s** for **350 frames**. Faster approach or a
+shorter exposure may improve observed crossing without teaching durable
+course survival. Compare the same frozen seed-736 actor with the same
+KS150 model, assigned first-lip geometry, matched seeds and both
+command/horizon variants as a **diagnostic**. Report first-top,
+bilateral contact, full-life falls and controlled continuation
+separately. This is not a qualifying holdout once the design is chosen
+from seed-5701 evidence. Do not weaken the governor or stack a new
+reward before that experiment.
+
+Reproduce the static logged-rollout-versus-exam funnel without loading
+checkpoints or doing PPO:
+\`python -m emu.results --school-audit ~/emu-data/runs/h40-school-cold-120m-s736\`
+or pass the saved \`school-evidence.zip\`. The report labels its sparse
+rollout counts explicitly; it is descriptive and cannot rank policies.

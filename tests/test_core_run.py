@@ -756,6 +756,89 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
         {},global_fall=.20,global_retreat=False,specialist_growth_enabled=False) == {}
 
 
+
+
+def test_readonly_school_evidence_funnel_keeps_episodes_distinct(tmp_path):
+    """One evidence ZIP and an extracted run must yield the same safe audit."""
+    import csv
+    import json
+    import zipfile
+    from emu.results import audit_school_evidence, main as results_main
+
+    root=tmp_path/'school'
+    (root/'exam'/'stairs').mkdir(parents=True)
+    config=dict(stair_survival_curriculum=True,
+                science_step_finish_on_transfer=False,
+                academy_course_episode_frames=1200,seed=736,
+                physical_profile='h40-spring-only')
+    meta=dict(source_provenance={'git_commit':'fixed-source'},
+              doctrine={'LOG_EVERY_UPDATES':10})
+    (root/'training_config.json').write_text(json.dumps(config))
+    (root/'run_meta.json').write_text(json.dumps(meta))
+    rows=[
+        dict(step=65536,academy_event='up:collect',
+             academy_height_up_m=.003,academy_height_down_m=.01,
+             academy_actual_cmd_vx_mps=.10,
+             academy_near_attempts_up=8,academy_near_successes_up=8,
+             safe_ascent_near_attempts_up=4,safe_ascent_near_survived_up=3,
+             safe_ascent_near_crossed_up=2,safe_ascent_near_safe_crossed_up=2),
+        dict(step=131072,academy_event='up:survival_retreat_near',
+             academy_height_up_m=.0035,academy_height_down_m=.055,
+             academy_actual_cmd_vx_mps=.11,
+             academy_near_attempts_up=10,academy_near_successes_up=9,
+             safe_ascent_near_attempts_up=6,safe_ascent_near_survived_up=4,
+             safe_ascent_near_crossed_up=3,safe_ascent_near_safe_crossed_up=2),
+    ]
+    with (root/'metrics.csv').open('w',newline='') as stream:
+        writer=csv.DictWriter(stream,fieldnames=list(rows[0]))
+        writer.writeheader()
+        writer.writerows(rows)
+    curve=[
+        dict(kind='step_up',requested_step_mm=4.,worlds=50,leading_top=50,
+             each_foot_top_five=25,traversed_5frame=11),
+        dict(kind='step_up',requested_step_mm=32.,worlds=50,leading_top=1,
+             each_foot_top_five=1,traversed_5frame=0),
+    ]
+    with (root/'exam'/'stairs'/'matrix_curve.csv').open(
+            'w',newline='') as stream:
+        writer=csv.DictWriter(stream,fieldnames=list(curve[0]))
+        writer.writeheader()
+        writer.writerows(curve)
+    (root/'exam'/'stairs'/'matrix_summary.json').write_text(
+        json.dumps({'manifest':{'seed':5701,'horizon':350,
+               'actor_training_source':{'git_commit':'fixed-source'}}}))
+    metric_bytes=(root/'metrics.csv').read_bytes()
+    audit=audit_school_evidence(root)
+    counts=audit['sampled_training_rollouts_only']
+    assert counts['raw_near_lip_successes']==17
+    assert counts['first_life_near_births']==10
+    assert counts['first_life_survived']==7
+    assert counts['first_life_two_foot_transfer']==5
+    assert counts['first_life_transfer_and_survived']==4
+    assert audit['sampled_first_life_safe_transfer_fraction']==.4
+    assert audit['short_climb_completion_enabled'] is False
+    assert audit['latest_up_frontier_mm']==3.5
+    assert audit['independent_exam']['up_4_to_28_mm'] == {
+        'worlds':50,'leading_foot_on_destination_top':50,
+        'both_feet_five_frame_support':25,
+        'controlled_five_frame_traversal':11}
+    assert audit['independent_exam']['up_32_to_80_mm'][
+        'controlled_five_frame_traversal']==0
+    zip_path=tmp_path/'school-evidence.zip'
+    with zipfile.ZipFile(zip_path,'w') as archive:
+        for name in ('training_config.json','run_meta.json','metrics.csv',
+                     'exam/stairs/matrix_curve.csv',
+                     'exam/stairs/matrix_summary.json'):
+            archive.write(root/name,arcname=name)
+    assert audit_school_evidence(zip_path)==audit
+    assert (root/'metrics.csv').read_bytes()==metric_bytes
+    with pytest.raises(ValueError,match='Exam actor source'):
+        (root/'exam'/'stairs'/'matrix_summary.json').write_text(
+            json.dumps({'manifest':{
+                'actor_training_source':{'git_commit':'different-source'}}}))
+        audit_school_evidence(root)
+
+
 class _SavedLearner(NamedTuple):
     params: Any
     opt_state: Any
