@@ -241,7 +241,8 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
                worlds:int=2048,horizon:int=350,seed:int=1701,
                levels:int=20,trials_per_level:int|None=None,
                device:str="cuda",school_diagnostic:bool=False,
-               stair_vx_mps:float|None=None):
+               stair_vx_mps:float|None=None,
+               snapshot_frame:int|None=None):
     from emu.contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN
     from emu.policy_export import load_exported_actor_for_exam
     from emu.ppo import make_trainer,configure_jax,require_backend
@@ -257,6 +258,10 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
             raise ValueError("Diagnostic requires uphill 0.10/0.25 m/s, 350/1200 frames and <=1024 worlds")
     elif not 80<=horizon<=700 or stair_vx_mps is not None:
         raise ValueError("Official exam requires 80..700 frames and fixed .25m/s commands")
+    if snapshot_frame is not None and (
+            not school_diagnostic or snapshot_frame!=350 or horizon!=1200):
+        raise ValueError("Paired horizon snapshot requires 1200-frame school diagnostic")
+
     if mode=="flat":
         levels=1
     trials=assignments(worlds,mode=mode,levels=levels,
@@ -342,7 +347,8 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
         params,env.params_array(teacher),
         jnp.asarray(norm["mean"]),jnp.asarray(norm["std"]),
         jnp.asarray(cmd),jnp.asarray(score_mask),
-        jax.random.PRNGKey(seed),horizon))
+        jax.random.PRNGKey(seed),horizon,
+        snapshot_frame=snapshot_frame))
     wall=time.perf_counter()-started
     # HARD acceptance: no matrix may silently label a random ±lip as an
     # exact 2.5mm/5mm/.. step. Measure the physical mesh-backed surfaces.
@@ -386,6 +392,10 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
             episode_limit_frames=SCHOOL_DIAGNOSTIC_EPISODE_LIMIT,
             diagnostic_scope="one first lip and fixed speed, no Academy governor",
             historical_heldout=False)
+        if snapshot_frame is not None:
+            manifest.update(
+                same_rollout_snapshot_frame=snapshot_frame,
+                same_rollout_snapshot_gates=list(SCHOOL_DIAGNOSTIC_GATES))
     (output/"matrix_summary.json").write_text(
         json.dumps(dict(manifest=manifest,curves=curves),indent=2)+"\n")
     stair_rows=[x for x in curves if x["kind"] in ("step_up","step_down","flat_control")]
@@ -638,8 +648,9 @@ def compare_school_diagnostic_cases(cases:dict) -> dict:
 def run_school_diagnostic_suite(*,policy:Path,output:Path,
                                 worlds:int=256,seed:int=5701,
                                 levels:int=20,trials_per_level:int=10,
-                                device:str="cuda") -> dict:
-    """Launch four separate GPU processes, never retraining or overwriting."""
+                                device:str="cuda",
+                                same_trajectory_snapshots:bool=False) -> dict:
+    """Launch two snapshot or four legacy GPU cases, no PPO and no overwrite."""
     policy,output=policy.expanduser().resolve(),output.expanduser().resolve()
     if (not policy.is_file() or policy.suffix!=".emupolicy" or
             output.exists() or output==policy.parent or
@@ -658,7 +669,11 @@ def run_school_diagnostic_suite(*,policy:Path,output:Path,
     env=os.environ.copy()
     env.update(EMU_PHYSICAL_PROFILE="h40-spring-only",
                XLA_PYTHON_CLIENT_PREALLOCATE="false")
-    for label,vx,horizon in SCHOOL_DIAGNOSTIC_CASES:
+    if same_trajectory_snapshots:
+        conditions=(("slow_1200",.10,1200),("fast_1200",.25,1200))
+    else:
+        conditions=SCHOOL_DIAGNOSTIC_CASES
+    for label,vx,horizon in conditions:
         cmd=[sys.executable,str(Path(__file__).resolve()),
              "--school-diagnostic-case",
              "--policy",str(policy),"--output",str(output/label),
@@ -666,9 +681,47 @@ def run_school_diagnostic_suite(*,policy:Path,output:Path,
              "--levels",str(levels),"--trials-per-level",str(trials_per_level),
              "--horizon",str(horizon),"--stair-vx-mps",str(vx),
              "--seed",str(seed),"--device",device]
+        if same_trajectory_snapshots:
+            cmd.extend(("--snapshot-frame","350"))
         print(f"Frozen school first-lip diagnostic: {label}",flush=True)
         subprocess.run(cmd,env=env,check=True)
     return summarize_existing_school_diagnostic(output)
+
+
+def _same_trajectory_school_cases(output:Path) -> dict:
+    """Construct four *logical* cases from TWO physical 1200-frame runs.
+
+    The 350-frame event fields were captured inside each 1200-frame JAX
+    carry, not replayed. The source case CSV stays immutable. Reject a
+    missing capture or an unpaired source before attempting aggregation.
+    """
+    cases={}
+    for speed,vx in (("slow",.10),("fast",.25)):
+        label=speed+"_1200"
+        directory=output/label
+        summary=json.loads((directory/"matrix_summary.json").read_text())
+        manifest=summary["manifest"]
+        if (manifest.get("same_rollout_snapshot_frame")!=350 or
+                manifest.get("same_rollout_snapshot_gates")!=list(SCHOOL_DIAGNOSTIC_GATES) or
+                manifest.get("horizon")!=1200 or
+                manifest.get("diagnostic_vx_mps")!=vx):
+            raise ValueError(f"{label}: missing authenticated same-rollout capture")
+        with (directory/"matrix_worlds.csv").open(newline="",encoding="utf-8") as fd:
+            rows=list(csv.DictReader(fd))
+        if not rows:
+            raise ValueError(f"{label}: no saved first-life worlds")
+        fields=tuple("snapshot_"+gate for gate in SCHOOL_DIAGNOSTIC_GATES)
+        if any(any(field not in row for field in fields) for row in rows):
+            raise ValueError(f"{label}: incomplete early frame snapshots")
+        # Only the four event gates are relabelled for the short window;
+        # other 1200-frame aggregations remain in their original CSV and
+        # are not presented as short-horizon measurements.
+        early=[{**row,**{gate:row["snapshot_"+gate]
+                        for gate in SCHOOL_DIAGNOSTIC_GATES}} for row in rows]
+        short_summary={"manifest":{**manifest,"horizon":350}}
+        cases[speed+"_350"]=(short_summary,early)
+        cases[label]=(summary,rows)
+    return cases
 
 
 def summarize_existing_school_diagnostic(output:Path) -> dict:
@@ -689,13 +742,32 @@ def summarize_existing_school_diagnostic(output:Path) -> dict:
         raise FileExistsError(
             "Refusing to overwrite prior school diagnostic summary: "+
             ", ".join(str(p) for p in existing))
-    cases={}
-    for label,_,_ in SCHOOL_DIAGNOSTIC_CASES:
-        directory=output/label
-        summary=json.loads((directory/"matrix_summary.json").read_text())
-        with (directory/"matrix_worlds.csv").open(newline="",encoding="utf-8") as fd:
-            cases[label]=(summary,list(csv.DictReader(fd)))
+    same_trajectory=not (output/"slow_350").exists() and not (output/"fast_350").exists()
+    if same_trajectory:
+        cases=_same_trajectory_school_cases(output)
+    else:
+        cases={}
+        for label,_,_ in SCHOOL_DIAGNOSTIC_CASES:
+            directory=output/label
+            summary=json.loads((directory/"matrix_summary.json").read_text())
+            with (directory/"matrix_worlds.csv").open(newline="",encoding="utf-8") as fd:
+                cases[label]=(summary,list(csv.DictReader(fd)))
     report=compare_school_diagnostic_cases(cases)
+    if same_trajectory:
+        if report["horizon_prefix_disagreement_count"]:
+            raise RuntimeError("Same-trajectory 350-frame snapshot violates event monotonicity")
+        report.update(
+            same_trajectory_prefix_verified=True,
+            early_horizon_captured_from_same_rollout=True,
+            physical_gpu_runs=2,
+            warning=("Each 350-frame outcome was captured at frame 350 of "
+                     "the SAME 1200-frame first-life MJX rollout. Speed "
+                     "conditions are separate programs with matched fixtures. "
+                     "Design-time first-lip results, not curriculum or actor "
+                     "qualification."))
+    else:
+        report["early_horizon_captured_from_same_rollout"]=False
+        report["physical_gpu_runs"]=4
     # All fail-closed identity and physical fixture checks happen before
     # touching any combined output. Original case files are never rewritten.
     (output/"school_diagnostic.json").write_text(
@@ -714,7 +786,9 @@ def summarize_existing_school_diagnostic(output:Path) -> dict:
            f"Source commit: {report['source_sha']}",
            f"KS150 model SHA256: {report['model_sha256']}",
            f"Same indexed initial-world seeds, fixtures and actor.",
-           "**Different horizon cases are independently JIT-compiled rollouts.**",
+           ("**350- and 1200-frame gates come from the SAME physical rollout.**"
+            if same_trajectory else
+            "**Different horizon cases are independently JIT-compiled rollouts.**"),
            "",
            "| Speed / frames | Trials | First top | Both feet (5f) | Traversed (5f) | First-life survived |",
            "|---|---:|---:|---:|---:|---:"+"|"]
@@ -749,6 +823,14 @@ def summarize_existing_school_diagnostic(output:Path) -> dict:
             "700-frame timeout cannot cause a false long-horizon failure.",
             "This is a fixed-velocity first-lip test, NOT the complete Academy.",
             "Per-height CSV and four original per-world CSV files are preserved."]
+    if same_trajectory:
+        lines.extend((
+            "",
+            "For this new snapshot design, 350-frame gates were saved from",
+            "the exact JAX carry that advanced to 1200 frames. Short versus",
+            "long comparisons for each speed are therefore same-trajectory;",
+            "the original four-JIT-run comparison remains separate evidence."
+        ))
     (output/"school_diagnostic.md").write_text(
         "\n".join(lines)+"\n",encoding="utf-8")
     print(f"Offline school diagnostic summary: {output/'school_diagnostic.md'}")
@@ -879,12 +961,16 @@ def main(argv=None):
     p.add_argument("--compare-stairs",type=Path)
     p.add_argument("--compare-flat",type=Path)
     p.add_argument("--school-diagnostic-suite",action="store_true",
-                   help="four frozen KS150 first-lip speed/horizon exams, NOT qualification")
+                   help="legacy four separately compiled first-lip GPU exams")
+    p.add_argument("--school-diagnostic-snapshot-suite",action="store_true",
+                   help="two frozen KS150 GPU exams; capture 350 within same 1200 frames")
     p.add_argument("--school-diagnostic-summarize",action="store_true",
                    help="aggregate four existing cases on CPU without rerunning GPU physics")
     p.add_argument("--school-diagnostic-case",action="store_true",
                    help=argparse.SUPPRESS)
     p.add_argument("--stair-vx-mps",type=float,default=None,
+                   help=argparse.SUPPRESS)
+    p.add_argument("--snapshot-frame",type=int,default=None,
                    help=argparse.SUPPRESS)
     p.add_argument("--output",type=Path,required=True)
     p.add_argument("--mode",choices=("balanced","stairs","stairs_up","stairs_down","flat"),default="balanced")
@@ -895,9 +981,24 @@ def main(argv=None):
     p.add_argument("--trials-per-level",type=int,default=None)
     p.add_argument("--device",choices=("cpu","cuda"),default="cuda")
     a=p.parse_args(argv)
+    if a.school_diagnostic_snapshot_suite:
+        if (a.policy is None or a.school_diagnostic_suite or
+                a.school_diagnostic_summarize or a.school_diagnostic_case or
+                a.snapshot_frame is not None or a.stair_vx_mps is not None or
+                a.compare_stairs is not None or a.compare_flat is not None):
+            p.error("Snapshot suite requires one frozen policy and new output only")
+        return run_school_diagnostic_suite(
+            policy=a.policy,output=a.output,
+            worlds=(256 if a.worlds is None else a.worlds),
+            levels=a.levels,trials_per_level=(
+                10 if a.trials_per_level is None else a.trials_per_level),
+            seed=a.seed,device=a.device,
+            same_trajectory_snapshots=True)
     if a.school_diagnostic_summarize:
         if (a.policy is not None or a.school_diagnostic_suite or
-                a.school_diagnostic_case or a.stair_vx_mps is not None or
+                a.school_diagnostic_snapshot_suite or
+                a.school_diagnostic_case or a.snapshot_frame is not None or
+                a.stair_vx_mps is not None or
                 a.compare_stairs is not None or a.compare_flat is not None):
             p.error("Offline summarize requires only --output CASES_DIRECTORY")
         summarize_existing_school_diagnostic(a.output)
@@ -905,7 +1006,8 @@ def main(argv=None):
     if a.school_diagnostic_suite:
         if (a.policy is None or a.compare_stairs is not None or
                 a.compare_flat is not None or a.school_diagnostic_case or
-                a.stair_vx_mps is not None):
+                a.school_diagnostic_snapshot_suite or
+                a.snapshot_frame is not None or a.stair_vx_mps is not None):
             p.error("School diagnostic requires one frozen policy and a new output directory")
         return run_school_diagnostic_suite(
             policy=a.policy,output=a.output,
@@ -926,6 +1028,7 @@ def main(argv=None):
         kw.pop("compare_stairs")
         kw.pop("compare_flat")
         kw.pop("school_diagnostic_suite")
+        kw.pop("school_diagnostic_snapshot_suite")
         kw.pop("school_diagnostic_summarize")
         kw["school_diagnostic"]=kw.pop("school_diagnostic_case")
         kw["worlds"]=2048 if kw["worlds"] is None else kw["worlds"]

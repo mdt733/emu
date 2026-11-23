@@ -384,3 +384,38 @@ effect causally** if the same-speed short and long runs have discordant
 prefixes; a future rigorous horizon study would capture the 350-frame
 snapshot within a single 1200-frame compiled trajectory. The raw results
 remain useful for descriptive speed-and-survival screening.
+
+
+### Same-trajectory 350/1200-frame follow-up (two GPU cases)
+
+The original four separately JIT-compiled speed × horizon cases have 23
+discordant prefix gates. They remain valuable descriptive evidence, but
+**horizon causality cannot be inferred** from that separately compiled
+comparison. The read-only examiner now captures its 350-frame event gates
+**inside** a 1200-frame MJX rollout, before continuing the same JAX carry.
+One long rollout each at 0.10 and 0.25 m/s therefore supplies both
+observation windows with **no separate short-run compilation**, no actor
+update, and no new training.
+
+On the local CUDA machine (use a NEW output directory, leaving the first
+four-condition experiment untouched):
+
+```bash
+cd ~/emu
+python scripts/v5053_matrix_exam.py \
+  --school-diagnostic-snapshot-suite \
+  --policy ~/emu-data/runs/h40-school-cold-120m-s736/final.emupolicy \
+  --output ~/emu-data/exams/ks150-s736-speed-horizon-same-trajectory-v2 \
+  --seed 5701 --device cuda
+```
+
+Two independent 1200-frame GPU cases write per-world fields
+`snapshot_lead_foot_top`, `snapshot_both_feet_top_five`,
+`snapshot_traversed_5frame`, and `snapshot_survived` from the actual
+350-frame state. The combined report is prepared only after source,
+model, per-world geometry, actor identity and event monotonicity checks.
+If the two GPU cases finish but aggregation fails, the existing
+`--school-diagnostic-summarize --output <same-dir>` path can recover
+the report without physics re-execution. All original seed-5701 evidence
+is **inspected design-time evidence**, not an independent validation seed;
+this diagnostic cannot directly rank the Spring-only student against main.
