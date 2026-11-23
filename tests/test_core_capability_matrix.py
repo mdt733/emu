@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import unittest
+import csv
 import io
+import json
 import tempfile
 import zipfile
 from pathlib import Path
@@ -13,7 +15,8 @@ from scripts.v5053_matrix_exam import (
     assignments,reduce_results,wilson_95,compare_paired_exams,PAIRED_GATES,
     compare_school_diagnostic_cases,SCHOOL_DIAGNOSTIC_CASES,
     SCHOOL_DIAGNOSTIC_MODEL,SCHOOL_DIAGNOSTIC_SOURCE,
-    SCHOOL_DIAGNOSTIC_EPISODE_LIMIT)
+    SCHOOL_DIAGNOSTIC_EPISODE_LIMIT,
+    summarize_existing_school_diagnostic)
 from emu.physical_capability_exam import (
     Scenario, score_first_life, summarize, save_evidence,
     capture_representative_traces)
@@ -220,6 +223,34 @@ class MatrixExamTests(unittest.TestCase):
             wrong["fast_350"][0]["manifest"],robot_model_sha256="main")
         with self.assertRaisesRegex(ValueError,"wrong frozen KS150"):
             compare_school_diagnostic_cases(wrong)
+
+        # The expensive four GPU cases may finish even if the old host-side
+        # comparator rejects one non-monotonic independently compiled prefix.
+        # Recovery MUST reuse those original files: no new MJX/JAX/PPO call.
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            for label,(manifest,records) in failing.items():
+                directory=root/label
+                directory.mkdir()
+                (directory/"matrix_summary.json").write_text(
+                    json.dumps(manifest),encoding="utf-8")
+                with (directory/"matrix_worlds.csv").open(
+                        "w",newline="",encoding="utf-8") as fd:
+                    writer=csv.DictWriter(fd,fieldnames=tuple(records[0]))
+                    writer.writeheader()
+                    writer.writerows(records)
+            original=(root/"slow_350"/"matrix_worlds.csv").read_bytes()
+            recovered=summarize_existing_school_diagnostic(root)
+            self.assertEqual(recovered["horizon_prefix_disagreement_count"],1)
+            self.assertEqual(json.loads((root/"school_diagnostic.json").read_text())[
+                "horizon_prefix_disagreement_count"],1)
+            self.assertIn("Horizon-prefix disagreement audit",
+                          (root/"school_diagnostic.md").read_text())
+            self.assertTrue((root/"school_diagnostic_prefix_disagreements.csv").is_file())
+            self.assertEqual((root/"slow_350"/"matrix_worlds.csv").read_bytes(),
+                             original)
+            with self.assertRaises(FileExistsError):
+                summarize_existing_school_diagnostic(root)
 
         # The new v1 first-life scoring checks share the existing physical
         # examiner contract case; no test-per-experiment growth.

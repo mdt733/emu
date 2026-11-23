@@ -615,7 +615,8 @@ def compare_school_diagnostic_cases(cases:dict) -> dict:
     }
     return dict(schema="emu_school_speed_horizon_diagnostic_v1",
                 qualification_eligible=False,same_initial_worlds=True,
-                same_trajectory_prefix_verified=(not prefix_disagreements),
+                prefix_event_gates_consistent=(not prefix_disagreements),
+                same_trajectory_prefix_verified=False,
                 independently_compiled_executables=True,
                 horizon_prefix_disagreement_count=len(prefix_disagreements),
                 horizon_prefix_disagreements=prefix_disagreements,
@@ -698,7 +699,7 @@ def summarize_existing_school_diagnostic(output:Path) -> dict:
     # All fail-closed identity and physical fixture checks happen before
     # touching any combined output. Original case files are never rewritten.
     (output/"school_diagnostic.json").write_text(
-        json.dumps(report,indent=2,sort_keys=True)+"\\n",encoding="utf-8")
+        json.dumps(report,indent=2,sort_keys=True)+"\n",encoding="utf-8")
     save_csv(output/"school_diagnostic_heights.csv",report["curves"])
     with (output/"school_diagnostic_prefix_disagreements.csv").open(
             "w",newline="",encoding="utf-8") as fd:
@@ -749,7 +750,7 @@ def summarize_existing_school_diagnostic(output:Path) -> dict:
             "This is a fixed-velocity first-lip test, NOT the complete Academy.",
             "Per-height CSV and four original per-world CSV files are preserved."]
     (output/"school_diagnostic.md").write_text(
-        "\\n".join(lines)+"\\n",encoding="utf-8")
+        "\n".join(lines)+"\n",encoding="utf-8")
     print(f"Offline school diagnostic summary: {output/'school_diagnostic.md'}")
     if report["horizon_prefix_disagreement_count"]:
         print(f"CAUTION: {report['horizon_prefix_disagreement_count']} "
