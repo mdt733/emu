@@ -192,8 +192,9 @@ def _lock(root: Path, parent: Path, seed: int) -> Path:
     root = root.expanduser().resolve()
     if seed < 0:
         raise ValueError("Branch seed must be a nonnegative integer")
+    parent_run = parent.expanduser().resolve().parent.parent
     if (REPO == root or REPO in root.parents or root == Path.home() or
-            root.exists() or parent.expanduser().resolve() in root.parents):
+            root.exists() or root == parent_run or parent_run in root.parents):
         raise RuntimeError("Choose a NEW study root outside Git and the parent lineage")
     source = _source_identity()
     parent_info = _parent_identity(parent)

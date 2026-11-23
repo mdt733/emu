@@ -72,6 +72,29 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert cfg.stillness_birth_frac==0.
     assert cfg.science_step_finish_on_transfer is False
 
+    # The lesson laboratory's 13 arms must all parse through the REAL
+    # training CLI. Every experimental arm changes exactly ONE config
+    # field from the same control, without running PPO or opening a GPU.
+    from scripts.stair_school_lesson_lab import ARMS as LAB_ARMS, _recipe
+    assert len(LAB_ARMS)==13
+    saved=[]
+    def record_lab(ns):
+        saved.append(one_run_config(ns))
+        return 0
+    prefix=["train","--run-dir",str(tmp_path/"lesson-lab"),
+            "--steps","160000000","--envs","2048","--seed","8200",
+            "--device","cuda"]
+    with patch("emu.run.train_one",side_effect=record_lab):
+        for arm in LAB_ARMS:
+            assert emu_cli_main(prefix+_recipe(arm))==0
+    reference=asdict(saved[0])
+    for arm,config in zip(LAB_ARMS,saved):
+        changed=[name for name,value in asdict(config).items()
+                 if value!=reference[name]]
+        flag=LAB_ARMS[arm][0]
+        expected=[] if flag is None else [flag[2:].replace("-","_")]
+        assert changed==expected, (arm,changed,expected)
+
     # Final and intermediate training reports must describe the identical
     # resolved next-birth allocation; this helper never changes the teacher.
     from emu.training import _annotate_teaching_report
