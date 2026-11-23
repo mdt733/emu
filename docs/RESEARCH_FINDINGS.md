@@ -307,6 +307,6 @@ reward before that experiment.
 
 Reproduce the static logged-rollout-versus-exam funnel without loading
 checkpoints or doing PPO:
-\`python -m emu.results --school-audit ~/emu-data/runs/h40-school-cold-120m-s736\`
-or pass the saved \`school-evidence.zip\`. The report labels its sparse
+`python -m emu.results --school-audit ~/emu-data/runs/h40-school-cold-120m-s736`
+or pass the saved `school-evidence.zip`. The report labels its sparse
 rollout counts explicitly; it is descriptive and cannot rank policies.

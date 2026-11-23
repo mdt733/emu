@@ -761,8 +761,10 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
 def test_readonly_school_evidence_funnel_keeps_episodes_distinct(tmp_path):
     """One evidence ZIP and an extracted run must yield the same safe audit."""
     import csv
+    import io
     import json
     import zipfile
+    from contextlib import redirect_stdout
     from emu.results import audit_school_evidence, main as results_main
 
     root=tmp_path/'school'
@@ -831,6 +833,10 @@ def test_readonly_school_evidence_funnel_keeps_episodes_distinct(tmp_path):
                      'exam/stairs/matrix_summary.json'):
             archive.write(root/name,arcname=name)
     assert audit_school_evidence(zip_path)==audit
+    captured=io.StringIO()
+    with redirect_stdout(captured):
+        assert results_main(['--school-audit',str(zip_path)])==0
+    assert json.loads(captured.getvalue())==audit
     assert (root/'metrics.csv').read_bytes()==metric_bytes
     with pytest.raises(ValueError,match='Exam actor source'):
         (root/'exam'/'stairs'/'matrix_summary.json').write_text(
