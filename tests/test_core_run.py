@@ -71,6 +71,44 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert cfg.freeze_obs_norm_after_steps==0
     assert cfg.stillness_birth_frac==0.
     assert cfg.science_step_finish_on_transfer is False
+
+    # Final and intermediate training reports must describe the identical
+    # resolved next-birth allocation; this helper never changes the teacher.
+    from types import SimpleNamespace
+    from emu.training import _annotate_teaching_report
+    from emu.capability_focus import FOCUS_NAMES, teaching_profile
+    expected_params = {
+        'regime_frac_steady': .4,
+        'regime_frac_transition': .35,
+        'regime_frac_resilience': .25,
+        'foundation_control_mix': .12,
+        'athletic_rehearsal_frac': .10,
+        'specialist_mix': .8,
+        'focus_weight_step': .25,
+        'academy_episode_probability': .3,
+        **{'focus_weight_' + name: .25 for name in FOCUS_NAMES},
+    }
+    report = {'already_measured': 7}
+    _annotate_teaching_report(
+        report, expected_params, step=cfg.foundation_steps+1,
+        args=cfg, steady_difficulty=.2)
+    assert report['already_measured'] == 7
+    assert tuple(report['regime_frac_'+r] for r in (
+        'steady','transition','resilience')) == (.4,.35,.25)
+    assert report['academy_expected_birth_fraction'] == pytest.approx(
+        (1.-.10)*.8*.25*.3)
+    assert report['foundation_control_mix'] == .12
+    assert all(report['focus_alloc_'+name] == .25 for name in FOCUS_NAMES)
+    assert report['teaching_profile'] == teaching_profile(
+        step=cfg.foundation_steps+1, foundation_steps=cfg.foundation_steps,
+        foundation_mix=cfg.foundation_mix, steady_difficulty=.2).name
+    plain={'already_measured': 7}
+    _annotate_teaching_report(
+        plain, expected_params, step=cfg.foundation_steps+1,
+        args=replace(cfg, unified_capability_focus=False),
+        steady_difficulty=.2)
+    assert plain == {'already_measured': 7}
+
     with patch("emu.run.train_one",side_effect=capture):
         assert emu_cli_main(cli_args+["--science-step-finish-on-transfer"])==0
     assert seen[-1].science_step_finish_on_transfer is True

@@ -10,11 +10,17 @@ Read this file in order:
 5. Durable logs and checkpoints preserve the policy and its learning state.
 6. The final checkpoint and report are published only after validation.
 
-Training DOES NOT define the reward mathematics (see rewards.py) or choose the
-stable cold-start training followed by evidence-driven capability growth.
+Training DOES NOT define reward mathematics (see rewards.py), choose a
+showcase champion, or publish the actor. The run is source-pinned.
 
-KNOWN DEBT: most of these stages still inhabit a long `train` body.
-Keep extraction local to existing modules; avoid new wrapper mazes.
+This deliberately remains one cohesive orchestration file. Within train():
+  - open an authenticated run and construct the physical MJX/PPO world;
+  - restore complete teacher, network, normalizer and health state;
+  - collect PPO rollouts, record their source-consistent evidence;
+  - update next-birth teaching, checkpoint and periodically examine;
+  - finish the last rollout, write a validated full checkpoint and report.
+The periodic and terminal next-birth reports share one in-file helper.
+Avoid splitting stateful training into tiny wrapper modules.
 """
 from __future__ import annotations
 
@@ -191,8 +197,37 @@ def env_kwargs_from_args(args) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Run modes.
+# Run modes and one next-birth reporting path.
 # ---------------------------------------------------------------------------
+
+def _annotate_teaching_report(
+    report: dict[str, Any], params: dict[str, Any], *,
+    step: int, args: TrainingConfig, steady_difficulty: float,
+) -> None:
+    """Record the *actual next-birth* allocation in both periodic and final reports.
+
+    The host birth planner can override the governor's default regime mix.
+    Use the same resolved packet for periodic and terminal evidence instead
+    of maintaining two nearly identical report formulas. This is reporting
+    only: no task sampling, learning, reward or governor state is modified.
+    """
+    if not args.unified_capability_focus:
+        return
+    for name in ('steady', 'transition', 'resilience'):
+        key = 'regime_frac_' + name
+        report[key] = float(params[key])
+    report['foundation_control_mix'] = float(params['foundation_control_mix'])
+    report['academy_expected_birth_fraction'] = float(
+        (1. - params['athletic_rehearsal_frac']) *
+        params['specialist_mix'] * params['focus_weight_step'] *
+        params['academy_episode_probability'])
+    for name in FOCUS_NAMES:
+        report['focus_alloc_' + name] = float(params['focus_weight_' + name])
+    report['teaching_profile'] = teaching_profile(
+        step=step, foundation_steps=args.foundation_steps,
+        foundation_mix=args.foundation_mix,
+        steady_difficulty=steady_difficulty).name
+
 
 def unified_launch_mode(args: TrainingConfig) -> str:
     """Explicit authorisation boundary; deliberately independent of JAX/GPU.
@@ -338,6 +373,7 @@ def train(args: TrainingConfig) -> int:
               'walking exams disabled; use independent frozen policy exam '
               'after checkpoint/resume/export verification', flush=True)
 
+    # --- Saved teacher and all-state resume --------------------------------
     # No track-level flags to validate here -- a regime's difficulty is judged directly by RegimeGovernor, with no scheduling layer in between.
     # The teacher is a SAVED recipe, active from step zero. It is not
     # inferred from a run name, checkpoint age or a human intervention.
@@ -482,6 +518,7 @@ def train(args: TrainingConfig) -> int:
         d.update(packet)
         return d
 
+    # --- Initial policy, normalizer and first genuine PPO update ------------
     params = params_with_field(resumed_step)
     state = trainer['make_initial_state'](params)
     if resumed_payload is not None:
@@ -573,6 +610,7 @@ def train(args: TrainingConfig) -> int:
     perf.add('host_metric_transfer', time.perf_counter() - metric_transfer_t0)
     print(f"{LOG_PREFIX} compile+first_update={time.time()-t0:.2f}s", flush=True)
 
+    # --- Durable run evidence, exam cadence and checkpoint bookkeeping ------
     # --steps is the absolute target step count, not "how many more steps
     # to run" -- so a resumed run's warm-up update above is counted against
     # the restored step total, and log/save cadence continues from where
@@ -710,24 +748,9 @@ def train(args: TrainingConfig) -> int:
                   f"{health.KL_STRESS_CHRONIC_WINDOW} updates -- ignoring the KL-stress gate so it can't freeze "
                   "expansion indefinitely. Retreat is unaffected (driven by fall rate/competence only).", flush=True)
         params = params_with_field(total_steps)
-        if args.unified_capability_focus:
-            # The fixed experimental nursery mix may override the ordinary
-            # governor's NEXT-birth regime allocation. Report what worlds
-            # will really sample, never only the governor's unused proposal.
-            for name in ('steady','transition','resilience'):
-                key='regime_frac_'+name
-                report[key]=float(params[key])
-            report['foundation_control_mix']=float(params['foundation_control_mix'])
-            report['academy_expected_birth_fraction']=float(
-                (1.-params['athletic_rehearsal_frac'])*
-                params['specialist_mix']*params['focus_weight_step']*
-                params['academy_episode_probability'])
-            for name in FOCUS_NAMES:
-                report['focus_alloc_'+name]=float(params['focus_weight_'+name])
-            report['teaching_profile']=teaching_profile(
-                step=total_steps,foundation_steps=args.foundation_steps,
-                foundation_mix=args.foundation_mix,
-                steady_difficulty=governor.params.steady_difficulty).name
+        _annotate_teaching_report(
+            report, params, step=total_steps, args=args,
+            steady_difficulty=governor.params.steady_difficulty)
         report['rollback_count']=rollback_count
         attach_field_influence(report, params)
         p = env.params_array(params)
@@ -995,7 +1018,8 @@ def train(args: TrainingConfig) -> int:
         perf.add('obs_norm_and_sync', time.perf_counter() - norm_t0)
         total_steps = next_total_steps
 
-    # final write. The last rollout was not reduced by the while-loop; in a
+    # --- Terminal evidence and checkpoint publication -----------------------
+    # Final write. The last rollout was not reduced by the while-loop; in a
     # one-update smoke the reward history is otherwise EMPTY and prints 0.000,
     # although PPO really saw nonzero rewards. Include the last rollout once.
     recent_rewards.append(float(np.asarray(aux['rollout_reward_mean'])))
@@ -1029,21 +1053,9 @@ def train(args: TrainingConfig) -> int:
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
     params = params_with_field(total_steps)
-    if args.unified_capability_focus:
-        for name in ('steady','transition','resilience'):
-            key='regime_frac_'+name
-            report[key]=float(params[key])
-        report['foundation_control_mix']=float(params['foundation_control_mix'])
-        report['academy_expected_birth_fraction']=float(
-            (1.-params['athletic_rehearsal_frac'])*
-            params['specialist_mix']*params['focus_weight_step']*
-            params['academy_episode_probability'])
-        for name in FOCUS_NAMES:
-            report['focus_alloc_'+name]=float(params['focus_weight_'+name])
-        report['teaching_profile']=teaching_profile(
-            step=total_steps,foundation_steps=args.foundation_steps,
-            foundation_mix=args.foundation_mix,
-            steady_difficulty=governor.params.steady_difficulty).name
+    _annotate_teaching_report(
+        report, params, step=total_steps, args=args,
+        steady_difficulty=governor.params.steady_difficulty)
     report['rollback_count']=rollback_count
     attach_field_influence(report, params)
     elapsed = time.time() - start

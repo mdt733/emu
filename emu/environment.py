@@ -10,11 +10,17 @@ physical world: reset, motor delivery, disturbances, stepping, sensor packets
 and measured events. rewards.py owns the scalar teaching payment.
 
 Read from top to bottom:
-  1. Fixed robot/contact contracts, terrain XML construction and state packets.
-  2. TaskSampler: teacher requests and command transitions (NOT actor truth).
-  3. EmuMJXEnv: the single batched reset/physics/observation implementation.
-     Within it: motor/physics -> lesson/world reset -> sensor simulation
-     -> supported terrain evidence -> reward facts and deployable observations.
+  1. Constants, frozen state/measurement packets and pure physical helpers.
+  2. TaskSampler: lesson births and command transitions (NOT actor truth).
+  3. EmuMJXEnv: ONE world constructor and public reset/step/obs facade.
+  4. Private implementation, ordered by ownership:
+       step and episode evidence -> actuator/physics integration
+       -> birth and terrain reset -> delayed sensor acquisition
+       -> supported terrain events -> reward/evaluation physical facts
+       -> deployable actor packet.
+Methods stay together so a reader can follow one real physics control frame.
+The teacher never sees future observations, and the policy never receives
+privileged exact-contact/reward fields.
 No hidden alternate physics engine and no per-experiment environment subclass.
 
 Teacher-only task fields never become privileged actor sensor channels.
@@ -92,6 +98,7 @@ def school_step_envelope(xp, academy_mask, up_m, down_m, ordinary_cap_m):
 # Channel order is fixed by the 360-input terrain sensor observation contract.
 # A fixed-size four-frame history models measurement and actuation latency;
 # its JIT shape cannot vary between training and the frozen examiner.
+# --- Physical constants and deployable observation bounds -------------------
 FOOT_BODIES = ['r_foot', 'l_foot']
 BAD_BODIES = ['torso', 'r_thigh', 'l_thigh', 'r_shin', 'l_shin']
 TARGET_SPAN = np.array([0.38, 0.48, 0.58, 0.38, 0.48, 0.58], dtype=np.float32)
@@ -151,6 +158,7 @@ STEADY_RESILIENCE_BORROW_FRAC = 0.15
 #     toward zero the moment a push lands.
 
 
+# --- Frozen JAX-compatible state and per-frame packets -----------------------
 class EnvState(NamedTuple):
     data: Any
     hist: Any
@@ -305,6 +313,7 @@ class StepOut(NamedTuple):
     metrics: dict[str, Any]
 
 
+# --- Shared pure physical/control measurements (NumPy or JAX) ---------------
 def horizontal_tracking_motion(xp, rotation_world, linear_world, angular_world):
     """Body-heading velocity across the contact plane, independent of torso pitch.
 
@@ -498,6 +507,7 @@ class CommandEnvelope(NamedTuple):
     yaw: Any
 
 
+# --- TaskSampler: physical requests, not privileged actor inputs -----------
 # Teacher-side commands, specialist lessons and ramp timing. This class
 # samples requests; it never overrides the policy's six motor actions.
 class TaskSampler:
@@ -968,6 +978,7 @@ class TaskSampler:
             hold_left_next=cmd_hold_left_next,
         )
 
+# --- EmuMJXEnv: one model, one vectorized control-step implementation -------
 # One production MJX environment, one six-servo robot, one vectorised JAX
 # stepping path. Keep its physical model and deployment sensor contract here.
 class EmuMJXEnv(TaskSampler):
@@ -1573,7 +1584,8 @@ class EmuMJXEnv(TaskSampler):
     def obs(self, state: EnvState):
         return state.hist.reshape((self.num_envs, self.obs_dim))
 
-    # ---------------- JAX-only implementation below ----------------
+    # --- One batched reset -> step -> truthful next-frame record -------------
+    # All below operate on JAX arrays; Python host bookkeeping lives in training.py.
 
     def _split_batch(self, keys, n: int):
         jax = self.jax
@@ -2750,7 +2762,7 @@ class EmuMJXEnv(TaskSampler):
         task=task.at[:,T.birth_resilience_d].set(birth)
         return task,active
 
-    # ---- Teacher-only physical terrain placement at episode birth ----
+    # --- New lesson births and physical rolling-tile reset ------------------
     def _academy_birth(self, keys, params, focus_id,
                        specialist_active, athletic_rehearsal):
         """Assign a real prism STEP cohort; old three-slab bodies are gone.
@@ -2956,6 +2968,12 @@ class EmuMJXEnv(TaskSampler):
 
     def _reset_with_keys(self, keys, params, carryover_qvel=None,
                          reset_mask=None):
+        """Reset only selected worlds with independent keys and saved teacher packets.
+
+        Shares the same physical birth process as _reset_impl; a terminating
+        world can enter its next episode without resetting its neighbours.
+        Do not change split-key order: it is part of exact seeded lessons.
+        """
         # Same as reset_impl but accepts a key per env so done envs can be reset inside jit.
         # carryover_qvel, when given, is the just-ended episode's actual
         # final qvel (already rolled back to finite by _step_impl's
@@ -3146,7 +3164,7 @@ class EmuMJXEnv(TaskSampler):
     def _rotation_body_to_world(self, data):
         return data.xmat[:, self.torso_id, :].reshape((self.num_envs, 3, 3))
 
-    # ---- Sensor simulation and delayed deployable observations ----
+    # --- Real sensor timing, sample delay and deployable input packets ------
     def _body_packets(self, data):
         jnp = self.jnp
         R = self._rotation_body_to_world(data)
@@ -3564,8 +3582,7 @@ class EmuMJXEnv(TaskSampler):
                 moved&fresh&shared_lip,rise,zero),
             completed=false)
 
-    # ---- Teacher/evaluator-only supported crossing evidence ----
-    # ---- Physical facts for reward and report, not hidden actor inputs ----
+    # --- Truthful reward and evaluation facts (never extra actor inputs) ----
     def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos,
                  carpet_heights=None):
         """Measure physical facts (not a score or the deployable actor packet).
