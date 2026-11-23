@@ -255,6 +255,12 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
         assert _go_run(lab_root,dummy_go_lock)==0
     assert launches==[
         (arm,stage) for arm in sample_arms for stage in STAGES]
+    for arm in sample_arms:
+        for stage in STAGES:
+            full=lab_root/"milestones"/arm/f"{stage//1_000_000}m"/"final.pkl"
+            assert full.is_file()
+            assert (full.parent/"milestone.json").is_file()
+            assert full.read_bytes()==f"fake full state {stage}".encode("ascii")
     assert exams==[(arm,stage,seed)
                    for arm in sample_arms for stage in STAGES
                    for seed in (6901,6902)]

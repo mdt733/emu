@@ -26,6 +26,7 @@ import json
 import os
 import pickle
 import shlex
+import shutil
 import subprocess
 import sys
 import time
@@ -803,6 +804,56 @@ def _write_lesson_progress(root:Path) -> None:
     os.replace(tmp,root/"lesson_ledger.md")
 
 
+def _save_stage_ancestor(root:Path,lock:dict,arm:str,steps:int) -> Path:
+    """Retain the FULL original optimizer/teacher checkpoint at every stage.
+
+    Future same-run extensions replace checkpoints/final.pkl atomically.
+    Link into the milestone archive before that replacement (copy across
+    filesystems) so 130M/140M rewind points remain research-reproducible.
+    This is a distinct immutable checkpoint, not an inference-only actor.
+    """
+    source=root/"runs"/arm/"checkpoints"/"final.pkl"
+    directory=root/"milestones"/arm/f"{steps//1_000_000}m"
+    directory.mkdir(parents=True,exist_ok=True)
+    final=directory/"final.pkl"
+    manifest=directory/"milestone.json"
+    if final.exists():
+        if not manifest.is_file():
+            raise RuntimeError(f"Milestone final exists without immutable manifest: {final}")
+        previous=json.loads(manifest.read_text(encoding="utf-8"))
+        if (previous.get("source_commit")!=lock["source_commit"] or
+                previous.get("arm")!=arm or previous.get("requested_steps")!=steps or
+                _sha256(final)!=previous.get("sha256")):
+            raise RuntimeError(f"Milestone ancestor bytes/provenance changed: {final}")
+        return final
+    if manifest.exists():
+        raise RuntimeError(f"Milestone manifest exists without its checkpoint: {manifest}")
+    digest=_sha256(source)
+    temporary=directory/".final.pkl.partial"
+    if temporary.exists():
+        temporary.unlink()  # unpublished crashed copy, never an exam
+    try:
+        try:
+            os.link(source,temporary)
+        except OSError:
+            with source.open("rb") as inp, temporary.open("xb") as out:
+                shutil.copyfileobj(inp,out,1024*1024)
+                out.flush();os.fsync(out.fileno())
+        if _sha256(temporary)!=digest:
+            raise RuntimeError("Milestone full-state checkpoint copy mismatch")
+        os.replace(temporary,final)
+    finally:
+        temporary.unlink(missing_ok=True)
+    receipt=dict(schema="emu_school_milestone_full_state_v1",arm=arm,
+                 source_commit=lock["source_commit"],requested_steps=steps,
+                 sha256=digest,checkpoint="final.pkl")
+    with manifest.open("x",encoding="utf-8") as out:
+        json.dump(receipt,out,indent=2,sort_keys=True)
+        out.write("\n")
+        out.flush();os.fsync(out.fileno())
+    return final
+
+
 def _go_run(root:Path,lock:dict) -> int:
     """Run one ordered study in this LOCAL process, guarded against duplicates."""
     root=root.resolve()
@@ -832,6 +883,11 @@ def _go_run(root:Path,lock:dict) -> int:
                             archive=root/"evidence"/arm/f"{steps//1_000_000}m-s{seed}"/"exam_receipt.json"
                             if not archive.is_file():
                                 raise RuntimeError(f"{arm} advanced before prior exams: {archive}")
+                        milestone=root/"milestones"/arm/f"{steps//1_000_000}m"
+                        if not (milestone/"milestone.json").is_file():
+                            raise RuntimeError(
+                                f"{arm} advanced without full-stage archival: {milestone}")
+                        _save_stage_ancestor(root,lock,arm,steps)
                         review=_review_stage(lock,root,arm,steps)
                         _write_lesson_progress(root)
                         if review["hard_stops"]:
@@ -852,7 +908,9 @@ def _go_run(root:Path,lock:dict) -> int:
                 subprocess.run([*cmd,"--check-resume-only"],cwd=REPO,env=env,check=True)
                 subprocess.run(cmd,cwd=REPO,env=env,check=True)
                 _validate_completed_arm(lock,root,arm,steps)
-                _event(root,"arm_stage_trained",arm=arm,requested_steps=steps)
+                archive=_save_stage_ancestor(root,lock,arm,steps)
+                _event(root,"arm_stage_trained",arm=arm,requested_steps=steps,
+                       preserved_full_state=str(archive))
                 for seed in lock["evaluation"]["discovery_seeds"]:
                     receipt=_physical_evidence(lock,root,arm,steps,seed,env=env)
                     _event(root,"arm_stage_examined",arm=arm,
