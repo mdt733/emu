@@ -217,6 +217,7 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     # Keep 24 core tests: this UI is another assertion of the *existing*
     # public CLI contract, not a new training experiment/test family.
     _check_readonly_dashboard(tmp_path)
+    _check_readonly_school_evidence_funnel(tmp_path)
 
 
 def _check_one_birth_allocation():
@@ -758,7 +759,7 @@ def test_prism_two_update_checkpoint_lifecycle_recipe(tmp_path):
 
 
 
-def test_readonly_school_evidence_funnel_keeps_episodes_distinct(tmp_path):
+def _check_readonly_school_evidence_funnel(tmp_path):
     """One evidence ZIP and an extracted run must yield the same safe audit."""
     import csv
     import io
