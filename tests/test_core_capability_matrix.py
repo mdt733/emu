@@ -15,7 +15,7 @@ from scripts.v5053_matrix_exam import (
     assignments,reduce_results,wilson_95,compare_paired_exams,PAIRED_GATES,
     compare_school_diagnostic_cases,SCHOOL_DIAGNOSTIC_CASES,
     SCHOOL_DIAGNOSTIC_MODEL,SCHOOL_DIAGNOSTIC_SOURCE,
-    SCHOOL_DIAGNOSTIC_EPISODE_LIMIT,
+    SCHOOL_DIAGNOSTIC_EPISODE_LIMIT,SCHOOL_DIAGNOSTIC_GATES,
     summarize_existing_school_diagnostic)
 from emu.physical_capability_exam import (
     Scenario, score_first_life, summarize, save_evidence,
@@ -251,6 +251,42 @@ class MatrixExamTests(unittest.TestCase):
                              original)
             with self.assertRaises(FileExistsError):
                 summarize_existing_school_diagnostic(root)
+
+        # New paired-snapshot format: only TWO physical 1200-frame files;
+        # the early 350-frame gates were recorded from each SAME JAX carry.
+        # This verifies a zero-discordance offline merge and read-only CSVs.
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            for speed in ("slow","fast"):
+                label=speed+"_1200"
+                manifest,records=cases[label]
+                source_manifest=dict(
+                    manifest["manifest"],
+                    same_rollout_snapshot_frame=350,
+                    same_rollout_snapshot_gates=list(SCHOOL_DIAGNOSTIC_GATES))
+                directory=root/label
+                directory.mkdir()
+                (directory/"matrix_summary.json").write_text(
+                    json.dumps({"manifest":source_manifest}),encoding="utf-8")
+                early=cases[speed+"_350"][1][0]
+                record=dict(records[0],**{
+                    "snapshot_"+gate:early[gate]
+                    for gate in SCHOOL_DIAGNOSTIC_GATES})
+                with (directory/"matrix_worlds.csv").open(
+                        "w",newline="",encoding="utf-8") as fd:
+                    writer=csv.DictWriter(fd,fieldnames=tuple(record))
+                    writer.writeheader()
+                    writer.writerow(record)
+            original=(root/"slow_1200"/"matrix_worlds.csv").read_bytes()
+            recovered=summarize_existing_school_diagnostic(root)
+            self.assertTrue(recovered["same_trajectory_prefix_verified"])
+            self.assertTrue(recovered["early_horizon_captured_from_same_rollout"])
+            self.assertEqual(recovered["physical_gpu_runs"],2)
+            self.assertEqual(recovered["horizon_prefix_disagreement_count"],0)
+            self.assertEqual(recovered["totals"]["slow_350_survived"],1)
+            self.assertEqual(recovered["totals"]["slow_1200_survived"],0)
+            self.assertEqual((root/"slow_1200"/"matrix_worlds.csv").read_bytes(),
+                             original)
 
         # The new v1 first-life scoring checks share the existing physical
         # examiner contract case; no test-per-experiment growth.
