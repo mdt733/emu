@@ -807,6 +807,10 @@ def _go_run(root:Path,lock:dict) -> int:
         for arm in ARMS:
             stopped=False
             for steps in STAGES:
+                # Prevent source drift across a multi-day campaign before
+                # doing another expensive PPO update.
+                if _source_identity()!=lock["source_commit"]:
+                    raise RuntimeError("Study Git source drift during unattended GO")
                 existing_cfg=root/"runs"/arm/"training_config.json"
                 if existing_cfg.is_file():
                     age=json.loads(existing_cfg.read_text(encoding="utf-8")).get("steps")

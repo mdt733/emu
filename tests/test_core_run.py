@@ -246,6 +246,8 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
             side_effect=fake_training), patch(
             "scripts.stair_school_lesson_lab._physical_evidence",
             side_effect=fake_evidence), patch(
+            "scripts.stair_school_lesson_lab._source_identity",
+            return_value="1"*40), patch(
             "scripts.stair_school_lesson_lab._review_stage",
             side_effect=harmless_review), patch(
             "scripts.stair_school_lesson_lab._validate_completed_arm"), patch(
@@ -281,6 +283,8 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
             side_effect=fake_training), patch(
             "scripts.stair_school_lesson_lab._physical_evidence",
             side_effect=fake_evidence), patch(
+            "scripts.stair_school_lesson_lab._source_identity",
+            return_value="1"*40), patch(
             "scripts.stair_school_lesson_lab._review_stage",
             side_effect=safety_review), patch(
             "scripts.stair_school_lesson_lab._validate_completed_arm"), patch(
