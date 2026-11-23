@@ -803,7 +803,7 @@ def main(argv=None):
                    help=argparse.SUPPRESS)
     p.add_argument("--output",type=Path,required=True)
     p.add_argument("--mode",choices=("balanced","stairs","stairs_up","stairs_down","flat"),default="balanced")
-    p.add_argument("--worlds",type=int,default=2048)
+    p.add_argument("--worlds",type=int,default=None)
     p.add_argument("--horizon",type=int,default=350)
     p.add_argument("--seed",type=int,default=1701)
     p.add_argument("--levels",type=int,default=20)
@@ -817,7 +817,7 @@ def main(argv=None):
             p.error("School diagnostic requires one frozen policy and a new output directory")
         return run_school_diagnostic_suite(
             policy=a.policy,output=a.output,
-            worlds=(256 if a.worlds==2048 else a.worlds),
+            worlds=(256 if a.worlds is None else a.worlds),
             levels=a.levels,trials_per_level=(
                 10 if a.trials_per_level is None else a.trials_per_level),
             seed=a.seed,device=a.device)
@@ -835,6 +835,7 @@ def main(argv=None):
         kw.pop("compare_flat")
         kw.pop("school_diagnostic_suite")
         kw["school_diagnostic"]=kw.pop("school_diagnostic_case")
+        kw["worlds"]=2048 if kw["worlds"] is None else kw["worlds"]
         run_matrix(**kw)
 
 
