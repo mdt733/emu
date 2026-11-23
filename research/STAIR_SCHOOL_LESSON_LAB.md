@@ -325,3 +325,27 @@ and not automatic clearance for the next stage.
 GO preserves full 130M/140M/160M learner/optimizer/teacher checkpoints
 under milestones/<arm>/<stage>/final.pkl before proceeding, without overwriting
 previous stage ancestry. Actor exports are separate immutable physical evidence.
+
+
+### Recovery after signed-stairs exam/validator crash at C00 130M
+
+A source-pinned C00 parent continuation already reached **130,023,424**
+steps, passed the internal read-only physical panels, saved `final.pkl`,
+archived its full-state 130M checkpoint and completed the signed 400-world
+physical exam. The outer supervisor then crashed, not PPO: the raw
+schema-3 exported actor keeps `robot_model_sha256` under `source`, whereas
+the supervisor's `_exam_valid` read a nonexistent top-level field.
+The supervisor now uses `actor['source']['robot_model_sha256']` for signed
+stairs, generalist pulse, and same-trajectory first-lip validation.
+GO also recognizes the archived 130M milestone and **does not retrain**
+that completed stage. It reuses the existing signed exam and proceeds to
+the missing core pulse and first-lip diagnostics.
+
+A further provenance safeguard keeps the **original locked training source**
+even after a supervisor-only Git fix: GO creates a clean detached Git
+worktree at the study's exact locked commit beneath its study folder,
+runs every PPO update and physical exam there, and leaves the source
+recorded in `study_lock.json` and in existing checkpoints unchanged.
+The supervisor script may be newer; this is reported explicitly and
+does not constitute a new PPO training revision. Never rewrite the
+original trained checkpoint or its study lock to fix a report parser.

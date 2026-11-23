@@ -407,6 +407,53 @@ def _go_lock(root:Path,parent:Path,seed:int) -> dict:
     return _read_lock(root)
 
 
+def _attach_locked_training_checkout(root:Path) -> None:
+    """Keep the TRAINER on the study's original Git SHA across supervisor fixes.
+
+    This script is a read-only/launch supervisor running from the current
+    checkout. If an existing study is locked to an older commit, create a
+    clean detached Git worktree of THAT exact source, then run all training
+    and CUDA exams from it. No checkpoint or study-lock source is changed.
+    The worker reattaches on restart. The supervisor revision is separately
+    reported rather than mislabelled as the PPO training provenance.
+    """
+    global REPO
+    root=root.expanduser().resolve()
+    lockfile=_lock_path(root)
+    if not lockfile.is_file():
+        return
+    lock=json.loads(lockfile.read_text(encoding="utf-8"))
+    source=lock.get("source_commit")
+    if (not isinstance(source,str) or len(source)!=40 or
+            any(ch not in "0123456789abcdef" for ch in source)):
+        raise RuntimeError("Malformed locked training Git SHA")
+    current=_source_identity()
+    if current==source:
+        return
+    original_repo=REPO
+    pinned=root/("training_source_"+source[:12])
+    if pinned.exists():
+        if not (pinned/".git").exists():
+            raise RuntimeError("Locked-source checkout exists but is not a Git worktree")
+    else:
+        # The old commit must be available in the user's local Git history.
+        # No network access, checkout switch, or source rewrite is required.
+        subprocess.run(
+            ["git","-C",str(original_repo),"cat-file","-e",source+"^{commit}"],
+            check=True)
+        subprocess.run(
+            ["git","-C",str(original_repo),"worktree","add","--detach",
+             str(pinned),source],
+            check=True)
+    REPO=pinned
+    if _source_identity()!=source:
+        REPO=original_repo
+        raise RuntimeError("Detached training source is not the exact clean locked Git commit")
+    print(f"GO: supervisor runs from {original_repo}, while every PPO run "
+          f"and physical exam stays at locked source {source[:12]} in {pinned}.",
+          flush=True)
+
+
 def _stage_extension_allowed(root: Path, arm: str, to_steps: int) -> bool:
     """Reject stage skips and incomplete intermediate milestones.
 
@@ -587,13 +634,13 @@ def _exam_valid(kind:str,path:Path,actor:dict,seed:int) -> bool:
             if (m.get("seed")!=seed or m.get("mode")!="stairs" or
                     m.get("assigned_worlds")!=400 or m.get("horizon")!=350 or
                     m.get("actor_sha256")!=actor["source"]["actor_sha256"] or
-                    m.get("robot_model_sha256")!=actor["robot_model_sha256"] or
+                    m.get("robot_model_sha256")!=actor["source"]["robot_model_sha256"] or
                     m.get("actor_training_source")!=actor["source"]):
                 raise RuntimeError(f"Signed-stair exam provenance mismatch: {path}")
             return (path/"matrix_worlds.csv").is_file()
         if (meta.get("seed")!=seed or
                 meta.get("actor_sha256")!=actor["source"]["actor_sha256"] or
-                meta.get("model_sha256")!=actor["robot_model_sha256"] or
+                meta.get("model_sha256")!=actor["source"]["robot_model_sha256"] or
                 not meta.get("same_trajectory_prefix_verified") or
                 not meta.get("early_horizon_captured_from_same_rollout") or
                 meta.get("horizon_prefix_disagreement_count")!=0):
@@ -609,7 +656,7 @@ def _exam_valid(kind:str,path:Path,actor:dict,seed:int) -> bool:
                 m.get("worlds")!=2048 or m.get("horizon_frames")!=600 or
                 m.get("actor_sha256")!=actor["source"]["actor_sha256"] or
                 m.get("actor_source")!=actor["source"] or
-                m.get("robot_model_sha256")!=actor["robot_model_sha256"] or
+                m.get("robot_model_sha256")!=actor["source"]["robot_model_sha256"] or
                 not {"summary.json","pulse.csv","worlds.csv"}.issubset(keys)):
             raise RuntimeError(f"Generalist pulse provenance mismatch: {path}")
         return True
@@ -1003,14 +1050,28 @@ def _go_run(root:Path,lock:dict) -> int:
                         stopped=True
                         break
                 _event(root,"arm_stage_start",arm=arm,requested_steps=steps)
-                cmd=_command(lock,root,arm,steps)
-                extending=_stage_extension_allowed(root,arm,steps)
-                subprocess.run([*cmd,"--check-resume-only"],cwd=REPO,env=env,check=True)
-                subprocess.run(cmd,cwd=REPO,env=env,check=True)
-                _validate_completed_arm(lock,root,arm,steps)
-                archive=_save_stage_ancestor(root,lock,arm,steps)
-                _event(root,"arm_stage_trained",arm=arm,requested_steps=steps,
-                       preserved_full_state=str(archive))
+                milestone=(root/"milestones"/arm/
+                           f"{steps//1_000_000}m"/"milestone.json")
+                if milestone.is_file():
+                    # A previous attempt already completed the ENTIRE PPO
+                    # stage. Never re-run 10M updates or its final fixed
+                    # exams just because a later evidence validator failed.
+                    _validate_completed_arm(lock,root,arm,steps)
+                    archive=_save_stage_ancestor(root,lock,arm,steps)
+                    _event(root,"arm_stage_reused",arm=arm,
+                           requested_steps=steps,
+                           preserved_full_state=str(archive))
+                else:
+                    cmd=_command(lock,root,arm,steps)
+                    _stage_extension_allowed(root,arm,steps)
+                    subprocess.run([*cmd,"--check-resume-only"],
+                                   cwd=REPO,env=env,check=True)
+                    subprocess.run(cmd,cwd=REPO,env=env,check=True)
+                    _validate_completed_arm(lock,root,arm,steps)
+                    archive=_save_stage_ancestor(root,lock,arm,steps)
+                    _event(root,"arm_stage_trained",arm=arm,
+                           requested_steps=steps,
+                           preserved_full_state=str(archive))
                 for seed in lock["evaluation"]["discovery_seeds"]:
                     receipt=_physical_evidence(lock,root,arm,steps,seed,env=env)
                     _event(root,"arm_stage_examined",arm=arm,
@@ -1062,6 +1123,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.action == "go":
         root=args.root.expanduser().resolve()
+        _attach_locked_training_checkout(root)
         lock=_go_lock(root,args.parent,args.seed)
         if args.detach and not args.worker:
             logfile=root/"go.log"

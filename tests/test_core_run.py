@@ -47,6 +47,7 @@ def training_flags(run_dir: Path, seed: int = 735) -> list[str]:
 
 
 def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
+    import json
     from emu.cli import main as emu_cli_main
     cli_args=training_flags(tmp_path/"run")
     seen=[]
@@ -161,6 +162,47 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
         control_parent.write_bytes(b"synthetic mutated ancestor")
         with pytest.raises(RuntimeError,match="changed since study lock"):
             _read_lock(study)
+
+
+    # Exported .emupolicy stores robot identity in source provenance, not
+    # at the JSON top level. Reproduce the exact post-C00 signed-exam crash
+    # with an otherwise completed 400-world immutable physical manifest.
+    from scripts.stair_school_lesson_lab import _exam_valid
+    raw_actor={"source":{"actor_sha256":"weights-sha",
+                          "robot_model_sha256":"model-sha",
+                          "git_commit":"1"*40}}
+    signed=tmp_path/"complete-signed-exam"
+    signed.mkdir()
+    (signed/"matrix_worlds.csv").write_text("world\n0\n")
+    (signed/"matrix_summary.json").write_text(json.dumps(
+        {"manifest":{"seed":6901,"mode":"stairs",
+                     "assigned_worlds":400,"horizon":350,
+                     "actor_sha256":"weights-sha",
+                     "robot_model_sha256":"model-sha",
+                     "actor_training_source":raw_actor["source"]}}))
+    assert _exam_valid("signed_stairs",signed,raw_actor,6901)
+    with pytest.raises(RuntimeError,match="provenance"):
+        _exam_valid("signed_stairs",signed,raw_actor,6902)
+    import zipfile
+    pulse=tmp_path/"complete-generalist.zip"
+    with zipfile.ZipFile(pulse,"w") as archive:
+        archive.writestr("manifest.json",json.dumps(
+            {"seed":6901,"worlds":2048,"horizon_frames":600,
+             "actor_sha256":"weights-sha","robot_model_sha256":"model-sha",
+             "actor_source":raw_actor["source"]}))
+        for name in ("summary.json","pulse.csv","worlds.csv"):
+            archive.writestr(name,"{}")
+    assert _exam_valid("generalist_pulse",pulse,raw_actor,6901)
+    snapshot=tmp_path/"complete-stair-snapshot"
+    snapshot.mkdir()
+    (snapshot/"school_diagnostic.json").write_text(json.dumps(
+        {"seed":6901,"actor_sha256":"weights-sha",
+         "model_sha256":"model-sha",
+         "same_trajectory_prefix_verified":True,
+         "early_horizon_captured_from_same_rollout":True,
+         "horizon_prefix_disagreement_count":0}))
+    (snapshot/"school_diagnostic_heights.csv").write_text("level\n1\n")
+    assert _exam_valid("stair_speed_horizon",snapshot,raw_actor,6901)
 
     # The lesson laboratory's 13 arms must all parse through the REAL
     # training CLI. Every experimental arm changes exactly ONE config
@@ -289,6 +331,24 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert exams==[(arm,stage,seed)
                    for arm in sample_arms for stage in STAGES
                    for seed in (6901,6902)]
+    # A failed/aborted read-only exam must NEVER make GO retrain an
+    # already preserved PPO milestone. Its final full-state ancestor
+    # is the authority, not a missing later exam receipt.
+    launches.clear()
+    with patch.dict("scripts.stair_school_lesson_lab.ARMS",
+                    sample_arms,clear=True), patch(
+            "scripts.stair_school_lesson_lab.subprocess.run",
+            side_effect=fake_training), patch(
+            "scripts.stair_school_lesson_lab._physical_evidence",
+            side_effect=fake_evidence), patch(
+            "scripts.stair_school_lesson_lab._source_identity",
+            return_value="1"*40), patch(
+            "scripts.stair_school_lesson_lab._review_stage",
+            side_effect=harmless_review), patch(
+            "scripts.stair_school_lesson_lab._validate_completed_arm"), patch(
+            "scripts.stair_school_lesson_lab._write_lesson_progress"):
+        assert _go_run(lab_root,dummy_go_lock)==0
+    assert not launches, "GO must reuse 130M/140M/160M full-state milestones"
     assert any(lab_json.loads(line)["event"]=="study_finished"
                for line in (lab_root/"go_events.jsonl").read_text().splitlines())
     assert GO_CORE==("command","control","transition","slope","resilience")
