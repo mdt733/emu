@@ -2,7 +2,10 @@
 
 **Status:** preregistered **design**, not trained evidence. **Purpose:** discover which teaching methods are worth building into a *new, from-scratch* EMU school. This is **not** an actor tournament to select a champion from the forks.
 
-**Source and ancestry:** the currently completed `h40-spring-only` seed-736 student at **120,061,952** PPO environment steps was trained at Git SHA `4048e8450c36882501cbb624f4ca656e11da9419`. Its exported actor SHA256 `f1e808b2c1fd3cb6433ddbcea9f1c9e1afce69c69eb768fabf678907e7deecbc` is **not** a training checkpoint. The tournament requires the original, full, immutable `checkpoints/final.pkl` outside Git. The local launcher pins *its exact SHA256* and prevents a parent change. It also freezes the **new tournament Git source**, which may differ from the parent's original source; the existing authenticated cross-source research fork gate still applies.
+**Source and ancestry:** the currently completed `h40-spring-only` seed-736 student at **120,061,952** PPO environment steps was trained at Git SHA `4048e8450c36882501cbb624f4ca656e11da9419`. Its exported actor SHA256 `f1e808b2c1fd3cb6433ddbcea9f1c9e1afce69c69eb768fabf678907e7deecbc` is **not** a training checkpoint. The tournament requires the original, full, immutable `checkpoints/final.pkl` outside Git. The local launcher pins *its exact SHA256*, checks its trained actor's
+float32 weight/bias digest against the independently examined frozen
+seed-736 actor SHA256 `f1e808b2c1fd3cb6433ddbcea9f1c9e1afce69c69eb768fabf678907e7deecbc`,
+and prevents a parent change. It also freezes the **new tournament Git source**, which may differ from the parent's original source; the existing authenticated cross-source research fork gate still applies.
 
 **Physical contract:** original Spring-only KS150 variant, not original `main` H40; 360 inputs, 6 servos, one PPO actor, 2,048 MJX environments, source-matched sensors and prism geometry. All forked children retain policy, optimizer, observation normalizer, curriculum/field/health state and checkpoint provenance. No branch changes robot physics, sensor meanings, PPO algorithm, or exported `main` asset.
 

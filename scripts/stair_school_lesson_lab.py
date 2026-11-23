@@ -29,6 +29,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 PARENT_SOURCE = "4048e8450c36882501cbb624f4ca656e11da9419"
 PARENT_STEPS = 120_061_952
+PARENT_ACTOR_SHA256 = "f1e808b2c1fd3cb6433ddbcea9f1c9e1afce69c69eb768fabf678907e7deecbc"
 TARGET_STEPS = 160_000_000  # ultimate absolute requested target
 STAGES = (130_000_000, 140_000_000, TARGET_STEPS)
 PPO_BATCH_STEPS = 2048 * 32  # 2,048 worlds x 32 rollout frames
@@ -120,6 +121,23 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _actor_weights_sha256(payload:dict) -> str:
+    """The original immutable export's exact float32 actor byte contract.
+
+    Only invoked when locking a complete parent checkpoint, never to
+    inspect running actors or rewrite their weights.
+    """
+    import numpy as np
+    sha=hashlib.sha256()
+    layers=payload["state"]["params"]["pi"]
+    if len(layers)!=3:
+        raise RuntimeError("Parent checkpoint has an unexpected actor layout")
+    for layer in layers:
+        for key in ("w","b"):
+            sha.update(np.asarray(layer[key],dtype="<f4").tobytes(order="C"))
+    return sha.hexdigest()
+
+
 def _parent_identity(path: Path) -> dict:
     parent = path.expanduser().resolve()
     if not parent.is_file() or parent.name != "final.pkl" or parent.parent.name != "checkpoints":
@@ -174,12 +192,18 @@ def _parent_identity(path: Path) -> dict:
             checkpoint_meta.get("robot_model_sha256") !=
             "21b5856b7a248e5d5b988e2735255d57ec79bae1a7cab0bcb72f481bfc36f470"):
         raise RuntimeError("Parent checkpoint bytes are not the exact finished seed-736 KS150 study")
+    actor_sha=_actor_weights_sha256(payload)
+    if actor_sha!=PARENT_ACTOR_SHA256:
+        raise RuntimeError(
+            "Parent actor weights differ from the independently examined "
+            "frozen 120M seed-736 actor; do not fork a mislabeled checkpoint")
     del payload
     # Git-authorized checkpoint validation remains the duty of emu.cli train:
     # it checks source, full state, sensor, optimizer and signed bytes.
     return {"path": str(parent), "sha256": _sha256(parent),
             "source_commit": PARENT_SOURCE, "step": PARENT_STEPS,
-            "training_seed": 736, "physical_profile": PROFILE}
+            "training_seed": 736, "physical_profile": PROFILE,
+            "actor_sha256": actor_sha}
 
 
 def _recipe(arm: str) -> list[str]:

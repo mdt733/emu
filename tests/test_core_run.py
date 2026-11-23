@@ -101,7 +101,17 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     # GPU state required). JSON changes tuples to arrays; lock and reader
     # must agree on the canonical wire representation.
     import hashlib
-    from scripts.stair_school_lesson_lab import _lock, _read_lock, REFERENCE
+    from scripts.stair_school_lesson_lab import (
+        _lock, _read_lock, _actor_weights_sha256, REFERENCE)
+    # The parent gate computes the SAME canonical float32 weights+bias
+    # byte digest used by the frozen .emupolicy examiner.
+    tiny_pi=[dict(w=np.asarray([[1.,2.]],np.float32),
+                  b=np.asarray([3.,4.],np.float32))]*3
+    little=hashlib.sha256()
+    for layer in tiny_pi:
+        little.update(np.asarray(layer["w"],dtype="<f4").tobytes(order="C"))
+        little.update(np.asarray(layer["b"],dtype="<f4").tobytes(order="C"))
+    assert _actor_weights_sha256({"state":{"params":{"pi":tiny_pi}}})==little.hexdigest()
     control_parent=tmp_path/"verified-parent"/"checkpoints"/"final.pkl"
     control_parent.parent.mkdir(parents=True)
     control_parent.write_bytes(b"synthetic full ancestor; do not train")
