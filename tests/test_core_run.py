@@ -224,8 +224,9 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
         (run_dir/"checkpoints").mkdir(parents=True,exist_ok=True)
         (run_dir/"training_config.json").write_text(
             lab_json.dumps({"steps":target}))
-        (run_dir/"checkpoints"/"final.pkl").write_bytes(
-            f"fake full state {target}".encode("ascii"))
+        candidate=run_dir/"checkpoints"/"checkpoint-candidate.pkl"
+        candidate.write_bytes(f"fake full state {target}".encode("ascii"))
+        candidate.replace(run_dir/"checkpoints"/"final.pkl")
         launches.append((run_dir.name,target))
         return 0
     def fake_evidence(_lock,root,arm,steps,seed,*,env):

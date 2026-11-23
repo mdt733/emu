@@ -314,3 +314,8 @@ folder. An existing evidence folder is never overwritten. If any GPU
 sub-exam fails, its completed outputs remain untouched for inspection.
 This is deliberately NOT a CI regression check, not a new training run,
 and not automatic clearance for the next stage.
+
+
+GO preserves full 130M/140M/160M learner/optimizer/teacher checkpoints
+under milestones/<arm>/<stage>/final.pkl before proceeding, without overwriting
+previous stage ancestry. Actor exports are separate immutable physical evidence.
