@@ -619,6 +619,46 @@ def _read_pulse(root:Path,arm:str,steps:int,seed:int) -> dict[str,dict]:
     return result
 
 
+def _read_stair_funnel(root:Path,arm:str,steps:int,seed:int) -> dict:
+    """Extract immutable physical gates, not school reward/frontier scores."""
+    evidence=root/"evidence"/arm/f"{steps//1_000_000}m-s{seed}"
+    receipt=json.loads((evidence/"exam_receipt.json").read_text(encoding="utf-8"))
+    signed=evidence/receipt["evidence"]["signed_stairs"]/"matrix_summary.json"
+    snapshot=evidence/receipt["evidence"]["stair_speed_horizon"]/"school_diagnostic.json"
+    matrix=json.loads(signed.read_text(encoding="utf-8"))
+    diagnostic=json.loads(snapshot.read_text(encoding="utf-8"))
+    if (matrix["manifest"].get("seed")!=seed or
+            diagnostic.get("seed")!=seed or
+            not diagnostic.get("early_horizon_captured_from_same_rollout")):
+        raise RuntimeError("Stair funnel lacks matched-seed physical evidence")
+    outcomes={}
+    for kind,label in (("step_up","uphill"),("step_down","downhill")):
+        curve=[r for r in matrix["curves"] if r["kind"]==kind]
+        if len(curve)!=20:
+            raise RuntimeError(f"Missing signed stair heights for {kind}")
+        denom=sum(int(r["worlds"]) for r in curve)
+        if denom!=200:
+            raise RuntimeError("Stair diagnostic changed the assigned exam cohort")
+        for gate,alias in (("leading_top","first_foot"),
+                           ("each_foot_top_five","both_feet"),
+                           ("traversed_5frame","traversal")):
+            count=sum(int(r[gate]) for r in curve)
+            if not 0<=count<=denom:
+                raise RuntimeError("Invalid signed stair gate")
+            outcomes[f"{label}_{alias}"]=count/denom
+    t=diagnostic["totals"]
+    if t.get("worlds_per_condition")!=200:
+        raise RuntimeError("Changed same-trajectory diagnostic cohort")
+    for label in ("slow_350","slow_1200","fast_350","fast_1200"):
+        for gate in ("lead_foot_top","both_feet_top_five",
+                     "traversed_5frame","survived"):
+            count=int(t[label+"_"+gate])
+            if not 0<=count<=200:
+                raise RuntimeError("Invalid first-life stair gate")
+            outcomes[label+"_"+gate]=count/200
+    return outcomes
+
+
 def _review_stage(lock:dict,root:Path,arm:str,steps:int) -> dict:
     """Objective retention comparison against SAME-AGE control, both seeds.
 
@@ -629,12 +669,20 @@ def _review_stage(lock:dict,root:Path,arm:str,steps:int) -> dict:
     """
     seeds=tuple(lock["evaluation"]["discovery_seeds"])
     samples={seed:_read_pulse(root,arm,steps,seed) for seed in seeds}
+    stair={seed:_read_stair_funnel(root,arm,steps,seed) for seed in seeds}
     warnings=[]
     severe=[]
     contrasts={}
+    stair_deltas={}
     if arm!="C00_control":
         controls={seed:_read_pulse(root,"C00_control",steps,seed)
                   for seed in seeds}
+        control_stair={seed:_read_stair_funnel(
+            root,"C00_control",steps,seed) for seed in seeds}
+        for gate in stair[seeds[0]]:
+            stair_deltas[gate]=round(
+                sum(stair[seed][gate]-control_stair[seed][gate]
+                    for seed in seeds)/len(seeds)*100.,3)
         for specialty in GO_CORE:
             diffs={}
             for gate in ("pass_fraction","survival_fraction"):
@@ -655,7 +703,12 @@ def _review_stage(lock:dict,root:Path,arm:str,steps:int) -> dict:
                  automatic_hard_stop_threshold=GO_HARD_STOP_DROP,
                  warnings=warnings,hard_stops=severe,
                  advancement="stop_this_arm" if severe else "continue",
-                 contrast_vs_control=contrasts)
+                 contrast_vs_control=contrasts,
+                 stair_gate_deltas_pp_vs_control=stair_deltas,
+                 stair_gate_fractions={
+                     gate:round(sum(stair[seed][gate] for seed in seeds)/
+                                len(seeds),6)
+                     for gate in stair[seeds[0]]})
     location=root/"reviews"/arm
     location.mkdir(parents=True,exist_ok=True)
     dest=location/f"{steps//1_000_000}m.json"
@@ -674,30 +727,46 @@ def _write_lesson_progress(root:Path) -> None:
     """Synthesize factual reviews; never decide which policy to publish."""
     lines=["# Stair-school lesson ledger (automatic, provisional)",
            "",
-           "Single-seed-parent causal screen. All effects are relative to "
-           "the same-stage, same-physical-world control.",
+           "Single-seed-parent explanatory screen. All effects are relative "
+           "to same-stage, same-physical-world control, averaged across "
+           "discovery seeds 6901 and 6902.",
            "A treatment can hurt or help; negative results are retained.",
            "No automatic champion selection, newborn teaching change or "
            "release claim.",
            "",
-           "| Treatment | 130M | 140M | 160M | Noteworthy core risks |",
-           "|---|---|---|---|---|"]
+           "| Treatment | 130M | 140M | 160M | Uphill 2-foot Δpp | "
+           "Uphill traversal Δpp | Core retention cautions |",
+           "|---|---|---|---|---:|---:|---|"]
     for arm in ARMS:
         cells=[]
         risks=[]
+        latest=None
         for steps in STAGES:
             path=root/"reviews"/arm/f"{steps//1_000_000}m.json"
             if not path.exists():
                 cells.append("not measured")
                 continue
             review=json.loads(path.read_text(encoding="utf-8"))
+            latest=review
             cells.append("STOP" if review["hard_stops"] else "measured")
             risks.extend(f"{w['specialty']} {w['gate']} @"
                          f" {steps//1_000_000}M"
                          for w in review["warnings"])
+        stair=(latest or {}).get("stair_gate_deltas_pp_vs_control",{})
+        bilateral=f"{stair['uphill_both_feet']:+.2f}" if stair else "—"
+        traversal=f"{stair['uphill_traversal']:+.2f}" if stair else "—"
         lines.append(f"| {arm} | "+" | ".join(cells)+
-                     " | "+(", ".join(sorted(set(risks))) or "none flagged")+" |")
-    lines+=["","This is a descriptive dashboard, not twelve confirmed "
+                     f" | {bilateral} | {traversal} | "+
+                     (", ".join(sorted(set(risks))) or "none flagged")+" |")
+    lines+=["","Deltas are **percentage points**, not policy rankings. "
+            "Each latest-stage contrast is calculated at the same "
+            "requested training age, with identical signed 4–80mm "
+            "physical fixtures and discovery seeds.",
+            "The raw evidence also preserves downward transfer, "
+            "slow/fast 350/1200-frame first-life gates and exact "
+            "per-height stair counts.",
+            "",
+            "This is a descriptive dashboard, not twelve confirmed "
             "developmental lessons. For every arm, examine the frozen "
             "signed-height curves, two-foot transfer funnel, 350/1200-frame "
             "same-trajectory snapshots, and actual teacher birth counts.",
