@@ -109,8 +109,8 @@ showcase/Pages barrier.
   **5701**. Signed five-frame traversals: **uphill 64/500** at
   4–40 mm and **0/500** at 44–80 mm; **downhill 132/500** and
   **84/500** respectively. The uphill Academy frontier ended
-  **3.5 mm**, downhill **55 mm**. Short pulse command scores improved
-  in some tasks, but long missions and station keeping remain weak.
+  **3.5 mm**, downhill **55 mm**. Short command pulses passed
+  **360/384**, but long missions and station keeping remain weak.
   Different training/evaluation seeds and teacher sources mean this
   is not controlled proof of improvement, nor an actor qualified to
   replace the original H40 on `main`. Results and caveats live in
