@@ -103,16 +103,16 @@ showcase/Pages barrier.
   **3mm**; downhill reached **55mm**. Full source/evidence audit in
   [research findings](docs/RESEARCH_FINDINGS.md). This is **a
   successful execution shakeout, not a proven good teacher**.
-- **Branch continues to evolve during that trial.** Current
-  `research/h40-unified-school-cold-v1` head is intentionally newer
-  than the running student's source. Do **not** pull the moving head
-  into a checkout used to resume the original trial. The trainer
-  verifies source fingerprints. Assess the result using its own
-  source-pinned config and checkpoint.
+- **Source isolation:** the branch has continued evolving **since**
+  that completed 120M student. For any replay or recovery, use its
+  original commit `1fa832fc7cd9241e2772b44ad434613c6080adfa`,
+  not the latest branch head. Trainer source fingerprints protect
+  checkpoint continuity.
 - The intended longer school experiment is **0→180M** with the same
   predefined teacher; new full cold seeds must use one frozen code/
   configuration/budget. Final physical exams use preregistered
-  evaluation seed **4701** (1701/2701 were design-time evidence).
+  evaluation seed **5701** (1701/2701 and now 4701 are inspected
+  design-time evidence).
   An interesting single learner is not proof of teacher quality.
 
 ## Operator commands and next work
@@ -125,8 +125,8 @@ git switch research/h40-unified-school-cold-v1
 git pull --ff-only
 source .venv/bin/activate
 
-# Isolated from-birth 120M sanity budget:
-export EMU_SCHOOL_SEED=735
+# One new independent cold seed; preserves completed s735 directory:
+export EMU_SCHOOL_SEED=736
 export EMU_SCHOOL_STEPS=120000000
 bash scripts/check.sh --full
 bash scripts/run_h40_school_wsl.sh plan
@@ -137,22 +137,22 @@ bash scripts/run_h40_school_wsl.sh all
 ```
 
 For a **new** `180M` run, unset `EMU_SCHOOL_STEPS`; its separate
-default directory is `~/emu-data/runs/h40-school-cold-s735/`.
+default directory is `~/emu-data/runs/h40-school-cold-s<seed>/`.
 An interrupted student must resume at its original Git commit with
 the exact seed/recipe, **never** at an arbitrarily newer branch head.
 
-**Next priorities:** preserve and interpret the completed
-120M evidence as a functional pipeline test, **not** capability
-qualification. The uphill governor's 24-first-life, same-episode
-safe-transfer/survival test repeatedly retreated to 3mm while downhill
-earned 55mm. Inspect exposure, physical transfer reliability and
-post-lip/whole-life falls before modifying the **existing** teacher;
-replace a flawed decision, don't add another reward or director.
-Keep current one-branch code cleanup; then freeze one revised
-source/config for independent cold seeds and **new genuinely unseen
-evaluation seed(s)** (4701 has been inspected while diagnosing this
-student). Same-budget baseline, retained walking and robust climbing
-must all improve before promotion. Maintain hardware skepticism.
+**Next priorities:** source inspection found a testable confound:
+an UP-first 3mm Academy birth must survive 1200 frames even as its
+unrelated DOWN course frontier grew to 55mm. The current one-branch
+candidate uses the SAME seeded real first +X lip but, on UP-first
+births only, caps later DOWN height to that UP frontier. DOWN-first
+lessons retain full earned DOWN severity. No lowered graduation
+threshold, extra teacher or reward. This is a **source-grounded
+hypothesis, not a demonstrated failure cause**; run green tests,
+full CUDA school smoke, then one source-pinned cold comparison and
+fresh unseen **5701** qualification. Guard generalist walking, long
+mission completion and robust true uphill crossings; only then
+consider multiple independent cold seeds or promotion.
 
 **Research principle:** one student, one teacher for its whole life;
 one improving research branch; physical crossing **plus** survival and
