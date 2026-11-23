@@ -15,7 +15,13 @@ at each stage, with signed stairs, generalist retention and genuine
 same-trajectory 350/1200-frame stair tests. It creates durable run logs,
 source-pinned exam receipts, and a physical-evidence lesson_ledger.md.
 Interrupted study runs may be resumed with the same command; prior
-completed exams are reused, not overwritten.
+completed exams are reused, not overwritten. **If an unused study lock
+was created before a later Git fast-forward**, GO validates that no
+training, checkpoint, exam, review or event journal exists, archives the
+original registration under `retired_study_locks/`, reauthenticates the
+same exact frozen parent, and pins the current Git SHA before launching.
+A study containing any training/evidence is **never** silently retargeted
+to another source: it must resume under its original locked commit.
 
 **No manual stage approval is required in GO mode.** More than five
 percentage points of core-skill regression is flagged. A loss of

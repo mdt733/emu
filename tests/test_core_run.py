@@ -102,7 +102,7 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     # must agree on the canonical wire representation.
     import hashlib
     from scripts.stair_school_lesson_lab import (
-        _lock, _read_lock, _actor_weights_sha256, REFERENCE)
+        _lock, _read_lock, _go_lock, _actor_weights_sha256, REFERENCE)
     # The parent gate computes the SAME canonical float32 weights+bias
     # byte digest used by the frozen .emupolicy examiner.
     tiny_pi=[dict(w=np.asarray([[1.,2.]],np.float32),
@@ -134,6 +134,30 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
             130023424,140050432,160038912]
         with pytest.raises(RuntimeError,match="Choose a NEW study root"):
             _lock(study,control_parent,8200)
+        # Exactly the operator's reported failure: an UNUSED lock from
+        # a prior PR revision followed by git pull. GO may archive and
+        # re-pin that lock, but never do this after training has begun.
+        with patch("scripts.stair_school_lesson_lab._source_identity",
+                   return_value="2"*40):
+            with pytest.raises(RuntimeError,match="Source commit drift"):
+                _read_lock(study)
+            fixed=_go_lock(study,control_parent,8200)
+            assert fixed["source_commit"]=="2"*40
+            assert fixed["parent"]==identity
+            assert fixed["unused_lock_upgrade"]["prior_source_commit"]=="1"*40
+            retired=study/"retired_study_locks"/(
+                "study_lock-"+"1"*40+".json")
+            assert json.loads(retired.read_text())["source_commit"]=="1"*40
+            assert _go_lock(study,control_parent,8200)==fixed
+        (study/"runs"/"C00_control").mkdir(parents=True)
+        (study/"runs"/"C00_control"/"training_config.json").write_text(
+            '{"steps":130000000}')
+        with patch("scripts.stair_school_lesson_lab._source_identity",
+                   return_value="3"*40):
+            with pytest.raises(RuntimeError,match="never rebind a started study"):
+                _go_lock(study,control_parent,8200)
+            assert json.loads((study/"study_lock.json").read_text())[
+                "source_commit"]=="2"*40
         control_parent.write_bytes(b"synthetic mutated ancestor")
         with pytest.raises(RuntimeError,match="changed since study lock"):
             _read_lock(study)

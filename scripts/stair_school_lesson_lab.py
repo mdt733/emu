@@ -307,6 +307,106 @@ def _read_lock(root: Path) -> dict:
     return lock
 
 
+def _go_lock(root:Path,parent:Path,seed:int) -> dict:
+    """One-button registration, including recovery of an UNUSED older lock.
+
+    An earlier draft locked source before the GO runner existed. Once the
+    user fast-forwarded Git, the source changed and GO refused to start.
+    Never repair that by weakening source validation or rewriting the
+    ancestry of *any* run that has already begun.
+
+    Only a registration-only lock, with zero run/exam/review/journal data,
+    may be replaced. The original bytes are archived and SHA-verified;
+    the complete saved parent is reauthenticated. Source-pinning is then
+    strict again for every stage and every physical examination.
+    """
+    root=root.expanduser().resolve()
+    lockfile=_lock_path(root)
+    if not lockfile.is_file():
+        _lock(root,parent,seed)
+        return _read_lock(root)
+    try:
+        return _read_lock(root)
+    except RuntimeError as error:
+        if str(error)!="Source commit drift: check out exact study_lock source":
+            raise
+    # Only after the exact error above. A dirty checkout still fails here.
+    current_sha=_source_identity()
+    old=json.loads(lockfile.read_text(encoding="utf-8"))
+    old_sha=old.get("source_commit")
+    if (not isinstance(old_sha,str) or len(old_sha)!=40 or
+            old_sha==current_sha):
+        raise RuntimeError("Unrecognized older lock; refuse automatic source repair")
+    # The lock has already passed the full original preregistered recipe
+    # check in _read_lock. Verify it is genuinely unused by scanning all
+    # published study namespaces, including incomplete/failed attempts.
+    used=("runs","evidence","milestones","reviews",
+          "go_events.jsonl","lesson_ledger.md")
+    occupied=[name for name in used if (root/name).exists()]
+    allowed={"study_lock.json","go.log","go.running.lock",
+             "retired_study_locks"}
+    unexpected=[entry.name for entry in root.iterdir()
+                if entry.name not in allowed]
+    if occupied or unexpected:
+        raise RuntimeError(
+            "Existing study contains training/evidence or unrecognized files; "
+            f"never rebind a started study. Occupied={occupied}, "
+            f"unexpected={unexpected}. Check out locked source {old_sha} "
+            "or select a fresh --root.")
+    # Prevent two concurrent GO shells from simultaneously re-registering
+    # the same unused study. A process already holding this lock wins.
+    guard=root/"go.running.lock"
+    with guard.open("a+") as guard_fd:
+        try:
+            fcntl.flock(guard_fd.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError("GO already running; study lock not changed") from exc
+        # Re-evaluate within lock, and never rebind if another launch has
+        # created a journal or begun to write checkpoints.
+        if any((root/name).exists() for name in used):
+            raise RuntimeError("Study began during registration; refuse source rebind")
+        if json.loads(lockfile.read_text(encoding="utf-8"))!=old:
+            raise RuntimeError("Study lock changed during registration")
+        parent_info=_parent_identity(Path(old["parent"]["path"]))
+        if parent_info!=old["parent"]:
+            raise RuntimeError(
+                "Saved full parent identity no longer matches old study lock")
+        retired=root/"retired_study_locks"
+        retired.mkdir(exist_ok=True)
+        archive=retired/f"study_lock-{old_sha}.json"
+        original=lockfile.read_bytes()
+        if archive.exists():
+            if archive.read_bytes()!=original:
+                raise RuntimeError("Archived original lock does not match; abort")
+        else:
+            with archive.open("xb") as fd:
+                fd.write(original)
+                fd.flush()
+                os.fsync(fd.fileno())
+        new={**old,
+             "source_commit":current_sha,
+             "unused_lock_upgrade":dict(
+                 prior_source_commit=old_sha,
+                 prior_lock_sha256=hashlib.sha256(original).hexdigest(),
+                 reason="pre-training source fast-forward; no study data existed")}
+        staged=root/".study_lock.json.next"
+        if staged.exists():
+            staged.unlink()  # only an unpublished registration tempfile
+        try:
+            with staged.open("x",encoding="utf-8") as fd:
+                json.dump(new,fd,indent=2,sort_keys=True)
+                fd.write("\n")
+                fd.flush()
+                os.fsync(fd.fileno())
+            os.replace(staged,lockfile)
+        finally:
+            staged.unlink(missing_ok=True)
+        print("GO: archived unused lock pinned to "+old_sha[:12]+
+              "; registered current source "+current_sha[:12]+
+              " without changing the original parent.",flush=True)
+    return _read_lock(root)
+
+
 def _stage_extension_allowed(root: Path, arm: str, to_steps: int) -> bool:
     """Reject stage skips and incomplete intermediate milestones.
 
@@ -962,11 +1062,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     if args.action == "go":
         root=args.root.expanduser().resolve()
-        if not _lock_path(root).is_file():
-            print("One-button GO: authenticating existing 120M parent and "
-                  "creating immutable study lock",flush=True)
-            _lock(root,args.parent,args.seed)
-        lock=_read_lock(root)
+        lock=_go_lock(root,args.parent,args.seed)
         if args.detach and not args.worker:
             logfile=root/"go.log"
             argv_worker=[sys.executable,"-u",str(Path(__file__).resolve()),
