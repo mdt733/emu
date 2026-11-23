@@ -172,6 +172,26 @@ def role_envelope(xp, focus, specialist, athletic, slope_deg, step_up_m,
     down=xp.where(step_on,xp.maximum(0.,step_down_m)*step_factor,0.)
     return slope,up,down
 
+def school_first_lip_course_limits(xp, seeds, birth_tile_x, academy, up, down):
+    """Keep an uphill-first lesson honest through its full physical life.
+
+    A first +X UP transfer is graduated only if the SAME birth survives
+    1200 frames. Later independent DOWN steps must not be vastly harder
+    than that lesson (e.g. 55mm DOWN after a 3mm UP first step), or the
+    uphill governor grades downhill proficiency instead. DOWN-first
+    Academy births retain their entire earned DOWN frontier; ordinary
+    births and the frozen exam topology remain unchanged.
+
+    Use precisely make_profiles' seeded sign draw for the next +X seam.
+    No secondary teacher, RNG draw, reward, checkpoint state or actor
+    input is introduced.
+    """
+    next_seam=xp.asarray(birth_tile_x,dtype=xp.int32)+1
+    first_up=(hash_float(xp,next_seam,0,seeds,101)<.5)
+    down=xp.where(academy & first_up,xp.minimum(down,up),down)
+    return up,down
+
+
 def make_profiles(xp,seeds,up,down):
     """Exact per-world directional step limits on mostly independent strips.
 
