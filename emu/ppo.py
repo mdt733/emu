@@ -1021,7 +1021,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
     def evaluate_matrix(params, curriculum_params, obs_mean, obs_std,
                         world_commands, target_mask, eval_key, horizon,
-                        program_codes=None):
+                        program_codes=None, snapshot_frame=None):
         """Read-only heterogeneous 2048-world physical capability screen.
 
         One shared REAL eight-prism MJX batch / frozen actor. Each world
@@ -1030,9 +1030,18 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         scalars; no [time,world,contacts] arrays leave the GPU. First-life
         measurement excludes automatic-reset contamination. The physical
         stair verifier never reads Academy reward, crossing or success flags.
+
+        Optional snapshot_frame captures early first-life gates from the
+        VERY SAME JAX rollout as the full horizon, avoiding unjustified
+        equality assumptions between separately compiled physics programs.
+        It affects frozen diagnostics only, never actor, PPO or curriculum.
         """
         from .terrain_carpet_mjx import (
             TILE_M, TILE_COUNT, TILE_SIZE_Z_M, supported_tile_foot_pairs)
+        if snapshot_frame is not None and (
+                type(snapshot_frame) is not int or
+                not 0 < snapshot_frame < horizon):
+            raise ValueError("Snapshot must be a frame strictly inside horizon")
         commands=jnp.asarray(world_commands,dtype=jnp.float32)
         if commands.shape!=(env.num_envs,3):
             raise ValueError("matrix commands require [worlds,3]")
@@ -1265,7 +1274,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     quiet_streak,quiet_max,transition_a,transition_b,
                     transition_c)
 
-        finished=jax.lax.fori_loop(0,horizon,frame_step,(
+        beginning=(
             es0,jnp.ones((n,),dtype=jnp.bool_),
             jnp.full((n,),-1,jnp.int32),false,zeros_feet,false_feet,
             zero_i,false,zero,zero_i,zero,zero,zero,zero,zero,zero,
@@ -1274,7 +1283,18 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             zero_i,zero_i,false,false,
             zero,zero,zero,jnp.ones((n,),jnp.float32),
             zero,zero,zero,zero,zero,zero_i,zero_i,
-            zero,zero,zero))
+            zero,zero,zero)
+        snapshot=None
+        if snapshot_frame is not None:
+            # One physical trajectory, two observation windows. The first
+            # segment's exact live/foot/contact state feeds the second one.
+            # No extra reset, no replay and no second compiled horizon.
+            snapshot=jax.lax.fori_loop(
+                0,snapshot_frame,frame_step,beginning)
+            finished=jax.lax.fori_loop(
+                snapshot_frame,horizon,frame_step,snapshot)
+        else:
+            finished=jax.lax.fori_loop(0,horizon,frame_step,beginning)
         (_,live,fall,lead,streak,seen,arrival,complete,progress,
          frames,speed_err,yaw_err,support,gravity,lateral,still,
          traverse_streak,traversed,goal_line,goal_line_both,
@@ -1287,7 +1307,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
          quiet_streak,quiet_max,transition_a,transition_b,
          transition_c)=finished
         denom=jnp.maximum(frames,1).astype(jnp.float32)
-        return dict(
+        result=dict(
             actual_lip_m=measured_lip,actual_grade_deg=measured_grade,
             fall_frame=fall,first_life_frames=frames,
             survived=live,lead_foot_top=lead,
@@ -1328,8 +1348,19 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             transition_stop_speed_mps=transition_b/max(b_end-a_end,1),
             transition_final_vx_mps=transition_c/max(horizon-b_end,1),
         )
+        if snapshot is not None:
+            # Exact carry positions from frame_step. These event facts
+            # remain monotonic by construction WITHIN the same first life.
+            result.update(
+                snapshot_lead_foot_top=snapshot[3],
+                snapshot_both_feet_top_five=jnp.all(snapshot[5],axis=1),
+                snapshot_traversed_5frame=snapshot[17],
+                snapshot_survived=snapshot[1])
+        return result
 
-    evaluate_matrix=jax.jit(evaluate_matrix,static_argnums=(7,))
+    evaluate_matrix=jax.jit(
+        evaluate_matrix,static_argnums=(7,),
+        static_argnames=("snapshot_frame",))
 
     # Trace length, heading gain and sensor-delay queue have fixed JAX
     # specializations. Bias/noise are dynamic data and cannot stale-cache.

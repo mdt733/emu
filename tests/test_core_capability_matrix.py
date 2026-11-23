@@ -349,7 +349,20 @@ class MatrixExamTests(unittest.TestCase):
                        [.25,0.,0.]],dtype=jnp.float32),
             jnp.asarray([False,True,True,True]),
             jax.random.PRNGKey(1701),3,
-            jnp.array([0,1,0,1],dtype=jnp.int32))
+            jnp.array([0,1,0,1],dtype=jnp.int32),
+            snapshot_frame=2)
+        # Snapshot is captured from the SAME three-frame physics rollout.
+        # It may not contain an event missing from the full observation;
+        # a world alive after frame 3 must have been alive after frame 2.
+        for name in ("lead_foot_top","both_feet_top_five",
+                     "traversed_5frame","survived"):
+            early=np.asarray(jax.device_get(out["snapshot_"+name]))
+            late=np.asarray(jax.device_get(out[name]))
+            self.assertEqual(early.shape,(4,))
+            if name=="survived":
+                self.assertFalse(np.any(late & ~early))
+            else:
+                self.assertFalse(np.any(early & ~late))
         actual=np.asarray(jax.device_get(out["actual_lip_m"]))
         np.testing.assert_allclose(
             actual,[0.,.0025,.02,-.05],atol=.0005)
