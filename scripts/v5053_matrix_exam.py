@@ -625,7 +625,7 @@ def run_school_diagnostic_suite(*,policy:Path,output:Path,
     if (actor.get("source",{}).get("git_commit")!=SCHOOL_DIAGNOSTIC_SOURCE or
             actor.get("source",{}).get("seed")!=736 or
             actor.get("source",{}).get("step")!=120061952 or
-            actor.get("robot_model_sha256")!=SCHOOL_DIAGNOSTIC_MODEL):
+            actor.get("source",{}).get("robot_model_sha256")!=SCHOOL_DIAGNOSTIC_MODEL):
         raise ValueError("Refuse anything except frozen 120M seed-736 KS150 actor")
     output.mkdir(parents=True)
     env=os.environ.copy()
