@@ -237,12 +237,56 @@ def save_csv(path:Path,rows:list[dict]):
         writer.writerows(rows)
 
 
+def _verified_lesson_lab_actor(lock_path:Path, arm:str,
+                               source:dict, *, exam_seed:int|None=None) -> dict:
+    """Only a completed, source-pinned study arm/stage can enter this exam."""
+    lock_path=Path(lock_path).expanduser().resolve()
+    lock=json.loads(lock_path.read_text(encoding="utf-8"))
+    if (lock.get("schema")!="emu_stair_teaching_lesson_lab_v1" or
+            lock.get("id")!="ks150-stair-teaching-lessons-v1" or
+            not isinstance(lock.get("source_commit"),str) or
+            len(lock["source_commit"])!=40 or
+            not isinstance(lock.get("branch_seed"),int) or
+            lock.get("envs")!=2048 or
+            lock.get("model_profile")!="h40-spring-only" or
+            arm not in lock.get("arms",{})):
+        raise ValueError("Invalid source-pinned stair lesson lab lock/arm")
+    if (exam_seed is not None and
+            exam_seed not in lock.get("evaluation",{}).get("discovery_seeds",[])):
+        raise ValueError("Use only the locked discovery exam seeds")
+    run_dir=lock_path.parent/"runs"/arm
+    cfg=json.loads((run_dir/"training_config.json").read_text(encoding="utf-8"))
+    stages=lock.get("milestone_targets")
+    boundaries=lock.get("milestone_ppo_boundaries")
+    if (stages!=[130000000,140000000,160000000] or
+            boundaries!=[130023424,140050432,160038912] or
+            cfg.get("steps") not in stages):
+        raise ValueError("Unregistered or incomplete lab milestone")
+    step=boundaries[stages.index(cfg["steps"])]
+    if (source.get("git_commit")!=lock["source_commit"] or
+            source.get("seed")!=lock["branch_seed"] or
+            source.get("step")!=step or
+            source.get("run_name")!=arm or
+            source.get("checkpoint")!="final.pkl" or
+            source.get("robot_model_sha256")!=SCHOOL_DIAGNOSTIC_MODEL):
+        raise ValueError("Wrong lab actor source, seed, stage, arm or robot")
+    if (cfg.get("seed")!=lock["branch_seed"] or cfg.get("envs")!=2048 or
+            cfg.get("physical_profile")!="h40-spring-only" or
+            cfg.get("stair_survival_curriculum") is not True):
+        raise ValueError("Lab configuration disagrees with locked cohort")
+    return dict(
+        id=lock["id"],arm=arm,source_commit=lock["source_commit"],
+        branch_seed=lock["branch_seed"],step=step,
+        lock_sha256=hashlib.sha256(lock_path.read_bytes()).hexdigest())
+
+
 def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
                worlds:int=2048,horizon:int=350,seed:int=1701,
                levels:int=20,trials_per_level:int|None=None,
                device:str="cuda",school_diagnostic:bool=False,
                stair_vx_mps:float|None=None,
-               snapshot_frame:int|None=None):
+               snapshot_frame:int|None=None,
+               lab_study_lock:Path|None=None,lab_arm:str|None=None):
     from emu.contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN
     from emu.policy_export import load_exported_actor_for_exam
     from emu.ppo import make_trainer,configure_jax,require_backend
@@ -261,6 +305,10 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     if snapshot_frame is not None and (
             not school_diagnostic or snapshot_frame!=350 or horizon!=1200):
         raise ValueError("Paired horizon snapshot requires 1200-frame school diagnostic")
+    if (lab_study_lock is None)!=(lab_arm is None):
+        raise ValueError("Lab diagnostic requires both --lab-study-lock and --lab-arm")
+    if lab_study_lock is not None and (not school_diagnostic or snapshot_frame!=350):
+        raise ValueError("Lesson lab requires the same-trajectory snapshot exam")
 
     if mode=="flat":
         levels=1
@@ -276,7 +324,11 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise FileExistsError("Output directory must be new or empty")
     params,norm,actor=load_exported_actor_for_exam(policy)
-    if school_diagnostic and (
+    lab_identity=None
+    if lab_study_lock is not None:
+        lab_identity=_verified_lesson_lab_actor(
+            lab_study_lock,lab_arm,actor["source"],exam_seed=seed)
+    elif school_diagnostic and (
             actor["source"].get("git_commit")!=SCHOOL_DIAGNOSTIC_SOURCE or
             actor["source"].get("seed")!=736 or
             actor["source"].get("step")!=120061952 or
@@ -396,6 +448,8 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
             manifest.update(
                 same_rollout_snapshot_frame=snapshot_frame,
                 same_rollout_snapshot_gates=list(SCHOOL_DIAGNOSTIC_GATES))
+        if lab_identity is not None:
+            manifest["lesson_lab"]=lab_identity
     (output/"matrix_summary.json").write_text(
         json.dumps(dict(manifest=manifest,curves=curves),indent=2)+"\n")
     stair_rows=[x for x in curves if x["kind"] in ("step_up","step_down","flat_control")]
@@ -545,7 +599,7 @@ def compare_school_diagnostic_cases(cases:dict) -> dict:
           "actor_training_source","exam_source_sha256","seed","worlds",
           "levels","trials_per_level","mode","device","collision",
           "first_life_only","zero_optimizer_updates",
-          "episode_limit_frames","assigned_worlds")
+          "episode_limit_frames","assigned_worlds","lesson_lab")
     by_case={}
     for label,vx,horizon in SCHOOL_DIAGNOSTIC_CASES:
         summary,rows=cases[label]
@@ -555,9 +609,21 @@ def compare_school_diagnostic_cases(cases:dict) -> dict:
                 m.get("diagnostic_vx_mps")!=vx or m.get("horizon")!=horizon or
                 m.get("episode_limit_frames")!=SCHOOL_DIAGNOSTIC_EPISODE_LIMIT):
             raise ValueError(f"{label}: invalid school diagnostic case")
-        if (m.get("actor_training_source",{}).get("git_commit")!=
-                SCHOOL_DIAGNOSTIC_SOURCE or
-                m.get("robot_model_sha256")!=SCHOOL_DIAGNOSTIC_MODEL):
+        lab=m.get("lesson_lab")
+        if lab:
+            source=m.get("actor_training_source",{})
+            if (not isinstance(lab,dict) or
+                    source.get("git_commit")!=lab.get("source_commit") or
+                    source.get("run_name")!=lab.get("arm") or
+                    source.get("seed")!=lab.get("branch_seed") or
+                    source.get("step")!=lab.get("step") or
+                    lab.get("id")!="ks150-stair-teaching-lessons-v1" or
+                    not isinstance(lab.get("lock_sha256"),str) or
+                    len(lab["lock_sha256"])!=64):
+                raise ValueError(f"{label}: wrong research-lab actor provenance")
+        elif m.get("actor_training_source",{}).get("git_commit")!=SCHOOL_DIAGNOSTIC_SOURCE:
+            raise ValueError(f"{label}: wrong frozen KS150 source/model")
+        if m.get("robot_model_sha256")!=SCHOOL_DIAGNOSTIC_MODEL:
             raise ValueError(f"{label}: wrong frozen KS150 source/model")
         if any(m.get(k)!=reference.get(k) for k in same):
             raise ValueError(f"{label}: unpaired source/actor/fixture")
@@ -649,7 +715,9 @@ def run_school_diagnostic_suite(*,policy:Path,output:Path,
                                 worlds:int=256,seed:int=5701,
                                 levels:int=20,trials_per_level:int=10,
                                 device:str="cuda",
-                                same_trajectory_snapshots:bool=False) -> dict:
+                                same_trajectory_snapshots:bool=False,
+                                lab_study_lock:Path|None=None,
+                                lab_arm:str|None=None) -> dict:
     """Launch two snapshot or four legacy GPU cases, no PPO and no overwrite."""
     policy,output=policy.expanduser().resolve(),output.expanduser().resolve()
     if (not policy.is_file() or policy.suffix!=".emupolicy" or
@@ -660,10 +728,16 @@ def run_school_diagnostic_suite(*,policy:Path,output:Path,
             not levels*trials_per_level<=worlds<=1024 or seed<0):
         raise ValueError("Diagnostic needs 20 stair heights, <=1024 worlds")
     actor=json.loads(policy.read_text(encoding="utf-8"))
-    if (actor.get("source",{}).get("git_commit")!=SCHOOL_DIAGNOSTIC_SOURCE or
-            actor.get("source",{}).get("seed")!=736 or
-            actor.get("source",{}).get("step")!=120061952 or
-            actor.get("source",{}).get("robot_model_sha256")!=SCHOOL_DIAGNOSTIC_MODEL):
+    if (lab_study_lock is None)!=(lab_arm is None) or (
+            lab_study_lock is not None and not same_trajectory_snapshots):
+        raise ValueError("Lab actors require both lock and arm with paired snapshots")
+    if lab_study_lock is not None:
+        _verified_lesson_lab_actor(
+            lab_study_lock,lab_arm,actor.get("source",{}),exam_seed=seed)
+    elif (actor.get("source",{}).get("git_commit")!=SCHOOL_DIAGNOSTIC_SOURCE or
+          actor.get("source",{}).get("seed")!=736 or
+          actor.get("source",{}).get("step")!=120061952 or
+          actor.get("source",{}).get("robot_model_sha256")!=SCHOOL_DIAGNOSTIC_MODEL):
         raise ValueError("Refuse anything except frozen 120M seed-736 KS150 actor")
     output.mkdir(parents=True)
     env=os.environ.copy()
@@ -683,6 +757,9 @@ def run_school_diagnostic_suite(*,policy:Path,output:Path,
              "--seed",str(seed),"--device",device]
         if same_trajectory_snapshots:
             cmd.extend(("--snapshot-frame","350"))
+        if lab_study_lock is not None:
+            cmd.extend(("--lab-study-lock",str(Path(lab_study_lock).resolve()),
+                        "--lab-arm",lab_arm))
         print(f"Frozen school first-lip diagnostic: {label}",flush=True)
         subprocess.run(cmd,env=env,check=True)
     return summarize_existing_school_diagnostic(output)
@@ -972,6 +1049,10 @@ def main(argv=None):
                    help=argparse.SUPPRESS)
     p.add_argument("--snapshot-frame",type=int,default=None,
                    help=argparse.SUPPRESS)
+    p.add_argument("--lab-study-lock",type=Path,default=None,
+                   help="source-lock a KS150 first-lip exam to a stair-lab study")
+    p.add_argument("--lab-arm",type=str,default=None,
+                   help="named, source-pinned stair-lab research arm")
     p.add_argument("--output",type=Path,required=True)
     p.add_argument("--mode",choices=("balanced","stairs","stairs_up","stairs_down","flat"),default="balanced")
     p.add_argument("--worlds",type=int,default=None)
@@ -993,10 +1074,12 @@ def main(argv=None):
             levels=a.levels,trials_per_level=(
                 10 if a.trials_per_level is None else a.trials_per_level),
             seed=a.seed,device=a.device,
-            same_trajectory_snapshots=True)
+            same_trajectory_snapshots=True,
+            lab_study_lock=a.lab_study_lock,lab_arm=a.lab_arm)
     if a.school_diagnostic_summarize:
         if (a.policy is not None or a.school_diagnostic_suite or
                 a.school_diagnostic_snapshot_suite or
+                a.lab_study_lock is not None or a.lab_arm is not None or
                 a.school_diagnostic_case or a.snapshot_frame is not None or
                 a.stair_vx_mps is not None or
                 a.compare_stairs is not None or a.compare_flat is not None):
@@ -1006,6 +1089,7 @@ def main(argv=None):
     if a.school_diagnostic_suite:
         if (a.policy is None or a.compare_stairs is not None or
                 a.compare_flat is not None or a.school_diagnostic_case or
+                a.lab_study_lock is not None or a.lab_arm is not None or
                 a.school_diagnostic_snapshot_suite or
                 a.snapshot_frame is not None or a.stair_vx_mps is not None):
             p.error("School diagnostic requires one frozen policy and a new output directory")
@@ -1016,7 +1100,9 @@ def main(argv=None):
                 10 if a.trials_per_level is None else a.trials_per_level),
             seed=a.seed,device=a.device)
     if a.compare_stairs is not None or a.compare_flat is not None:
-        if a.compare_stairs is None or a.compare_flat is None or a.policy is not None:
+        if (a.compare_stairs is None or a.compare_flat is None or
+                a.lab_study_lock is not None or a.lab_arm is not None or
+                a.policy is not None):
             p.error("provide both --compare-stairs and --compare-flat, without --policy")
         pairs,curves=write_paired_comparison(
             a.compare_stairs,a.compare_flat,a.output)

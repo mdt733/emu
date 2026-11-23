@@ -16,7 +16,7 @@ from scripts.v5053_matrix_exam import (
     compare_school_diagnostic_cases,SCHOOL_DIAGNOSTIC_CASES,
     SCHOOL_DIAGNOSTIC_MODEL,SCHOOL_DIAGNOSTIC_SOURCE,
     SCHOOL_DIAGNOSTIC_EPISODE_LIMIT,SCHOOL_DIAGNOSTIC_GATES,
-    summarize_existing_school_diagnostic)
+    summarize_existing_school_diagnostic,_verified_lesson_lab_actor)
 from emu.physical_capability_exam import (
     Scenario, score_first_life, summarize, save_evidence,
     capture_representative_traces)
@@ -173,6 +173,45 @@ class MatrixExamTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError,"Unrecognised physical"):
             compare_paired_exams(up,[dict(sr[0],traversed_5frame="maybe"),*sr[1:]],flat,fr)
 
+        # A forked student is NOT the original source-locked seed-736 actor.
+        # Bind the exported source to an exact stage, named arm, discovery
+        # seed and the locked source; reject fabricated/wrong provenance.
+        with tempfile.TemporaryDirectory() as folder:
+            root=Path(folder)
+            arm="H06_more_bilateral_credit"
+            stage=root/"runs"/arm
+            stage.mkdir(parents=True)
+            (stage/"training_config.json").write_text(json.dumps(
+                dict(steps=130000000,seed=8200,envs=2048,
+                     physical_profile="h40-spring-only",
+                     stair_survival_curriculum=True)))
+            lock=root/"study_lock.json"
+            manifest=dict(
+                schema="emu_stair_teaching_lesson_lab_v1",
+                id="ks150-stair-teaching-lessons-v1",
+                source_commit="a"*40,branch_seed=8200,
+                envs=2048,model_profile="h40-spring-only",
+                arms={arm:{}},
+                milestone_targets=[130000000,140000000,160000000],
+                milestone_ppo_boundaries=[130023424,140050432,160038912],
+                evaluation=dict(discovery_seeds=[6901,6902],
+                                sealed_final_seed=7901))
+            lock.write_text(json.dumps(manifest))
+            actor=dict(git_commit="a"*40,seed=8200,step=130023424,
+                       run_name=arm,checkpoint="final.pkl",
+                       robot_model_sha256=SCHOOL_DIAGNOSTIC_MODEL)
+            verified=_verified_lesson_lab_actor(
+                lock,arm,actor,exam_seed=6901)
+            self.assertEqual(verified["step"],130023424)
+            self.assertEqual(verified["arm"],arm)
+            with self.assertRaisesRegex(ValueError,"discovery exam seeds"):
+                _verified_lesson_lab_actor(lock,arm,actor,exam_seed=7901)
+            with self.assertRaisesRegex(ValueError,"Wrong lab actor"):
+                _verified_lesson_lab_actor(
+                    lock,arm,{**actor,"seed":736},exam_seed=6901)
+            with self.assertRaisesRegex(ValueError,"Wrong lab actor"):
+                _verified_lesson_lab_actor(
+                    lock,arm,{**actor,"step":140050432},exam_seed=6901)
         # Pure read-only 2x2 pairing contract, folded into an existing test.
         cases={}
         for label,vx,horizon in SCHOOL_DIAGNOSTIC_CASES:

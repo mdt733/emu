@@ -110,3 +110,40 @@ python scripts/stair_school_lesson_lab.py run --arm C00_control \
 The helper pins the **new source Git SHA** at lock time. The study lock is JSON-round-trip tested against the real CLI's full control recipe, with checkpoint SHA mismatch rejection before any training. Any later code/docs commit changes that SHA and will deliberately prevent training until the exact frozen experiment source is checked out again. A completed training run cannot be resumed from an evolving PR head. For another independent parent seed, a new preregistered study/version is required.
 
 **Budget:** 13 × 39,976,960 = **519,700,480 additional training environment steps**, plus independent physical exams and two compulsory intermediate human reviews per arm. Training source remains frozen across stage extensions. Actual baseline 120M telemetry recorded ~3,530 seconds of steady PPO-update time; a 40M continuation on comparable hardware is roughly one third of that *before* compilation/exams, so the full thirteen-arm design is material but not inherently absurd. If 130M stage evidence is uninterpretable, pause and diagnose rather than automatically spending 519.7M. Budget the full study explicitly; if early stopping is permitted, preregister **identical safety-based stopping rules** before looking at outcomes. Never stop or extend just the exciting arms based on a mid-run leaderboard.
+
+
+### Audit correction: source-locked exams for every child
+
+The original four-condition 120M diagnostic was deliberately locked to
+seed 736 at source `4048e845`; it **cannot** evaluate a new fork. The
+lesson laboratory therefore authorizes the same 350-inside-1200 MJX
+snapshot method **only** when supplied a study lock, named arm, frozen
+export from that arm's validated *final* checkpoint and a completed
+130M/140M/160M stage. The examiner checks Git source, 2048-env seed,
+arm/run name, KS150 model, exact PPO boundary, original 360-input
+contract and exam seed. The previous parent-only diagnostic remains
+locked to seed 736. No arbitrary actor is accepted by the new route.
+
+After completing an arm's 130M stage, export its frozen checkpoint
+(example: C00; use a *new* evidence output folder):
+
+```bash
+python -m emu.cli export-policy \
+  ~/emu-data/studies/ks150-stair-teaching-lessons-v1/runs/C00_control/checkpoints/final.pkl \
+  ~/emu-data/studies/ks150-stair-teaching-lessons-v1/runs/C00_control/actor-130m.emupolicy
+EMU_PHYSICAL_PROFILE=h40-spring-only python scripts/v5053_matrix_exam.py \
+  --school-diagnostic-snapshot-suite \
+  --lab-study-lock ~/emu-data/studies/ks150-stair-teaching-lessons-v1/study_lock.json \
+  --lab-arm C00_control \
+  --policy ~/emu-data/studies/ks150-stair-teaching-lessons-v1/runs/C00_control/actor-130m.emupolicy \
+  --output ~/emu-data/studies/ks150-stair-teaching-lessons-v1/evidence/C00_control/130m-s6901 \
+  --seed 6901 --device cuda
+```
+
+Repeat with **6902** for the second preregistered discovery cohort,
+and with each treatment at the *same stage*. The untouched seed 7901
+remains sealed for integrated-school proof, not exploratory branch
+scoring. Full signed uphill/downhill 350-frame matrix exams and ordinary
+command/slope/recovery retention exams are also required before
+`--reviewed` stage approval; the speed/horizon study alone is not a
+complete generalist-retention assessment.
