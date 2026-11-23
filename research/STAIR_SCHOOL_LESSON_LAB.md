@@ -176,3 +176,63 @@ Repeat with seed 6902 and each treatment. These are **physical
 experiments**, not the ordinary GitHub regression checks; their results
 must be inspected before stage advancement. The pulse is a short
 screen, not proof of 60-second station keeping or sustained recovery.
+
+
+## Prelaunch audit and go/no-go (reviewed before any GPU branch)
+
+**Verdict: GO for a staged mechanism screen; NO-GO for automatically spending
+all 519.7M steps or claiming a new champion.** The first exercise is
+C00 control, then H06 bilateral credit, H01 direct commands, H03 velocity
+relief ablation and H07 follow-through ablation at the **130M review stop**.
+This order targets the observed small-step two-foot-transfer problem without
+privileging an interesting-looking branch with extra training time. The other
+arms retain their preregistered control-relative questions and the same stage
+boundaries. Do not discard their negative results or improvise new thresholds.
+
+| Audit item | Outcome and limitation |
+| --- | --- |
+| Source and shared parent | The recorded seed-736 120M configuration matches all control teaching choices. Real local `final.pkl` bytes, exact PPO rewind state and SHA remain to be checked by `lock` and source-approved `--check-resume-only`; the evidence ZIP is **not** the checkpoint. |
+| Launcher operability | Corrected a JSON-array-vs-Python-tuple lock comparison that previously made `plan`/`run` unusable. CI now includes a lock → read-back → checksum-mutation rejection test, plus thirteen real CLI recipe parses. |
+| Stage integrity | All arms stop at the same 130M/140M/160M PPO boundaries. No stage skips or silent extension. A subsequent stage requires a validated prior `final.pkl` and explicit `--reviewed` acknowledgement; this acknowledgement is **manual**, not an automated physical-result certificate. |
+| Frozen stair measurement | The original parent-only snapshot examiner rejected new fork actors. The lesson-lab path now requires the study lock, exact arm/seed/physical model/source/stage, and only exam seeds 6901/6902. The old seed-736 examiner stays restricted. |
+| Generalist retention | Short command/slope/transition/recovery pulse and full signed stair matrix must be run on the same exported actor at the same stage. Training reward or own Academy frontier cannot certify retention; the pulse is not long-endurance proof. |
+| Attribution | One changed config field does not always mean one changed physical mechanism: H01 affects STEP **and SLOPE**, Academy dose rebalances other births, and H11 changes exposure and course-survival criteria. Report actual births, attempts, survival and physical outcomes rather than attributing all changes to a single intuitive explanation. |
+| Replication | Same-parent matched training seed is a **local intervention screen** (one learner lineage). Paired eval worlds reduce measurement noise but do **not** estimate variability across learning seeds. Replicate informative mechanisms on another parent and then in fresh zero-start schools. |
+
+**Why these arms are worth a bounded attempt:** the current school already
+obtains an upper foothold on many small lips, yet its independent first-life
+transfer, controlled continuation and full-course survival are weak. H01/H03,
+H06/H07, H04/H11 and H08/H09/H10 probe different plausible failures:
+command economics, credit assignment, encounter timing, dose and retention.
+Ablations can disprove an existing incentive as usefully as additions can
+improve it. H05 first-foothold credit is **lower priority**: easy-height
+footholds may already be saturated while the 32 mm acquisition cliff lies
+beyond the tiny current Academy uphill frontier. No apparent H05 benefit at
++32 mm can be inferred without actual high-step physical exposure. H12 is
+**high risk** because a global gate change can sacrifice ordinary gait; stop
+for retention review before extending it.
+
+**What we will not claim:** this is *late-school remediation* of a KS150
+student that already spent 120M steps in a stair curriculum, not a pristine
+120M generalist-only foundation. It cannot isolate what should have happened
+at 20M/60M/80M birth, guarantee twelve positive findings, or establish
+superiority over original-H40 `main`. We are buying explanatory clues to
+the next teacher, not twelve independent discoveries by fiat.
+
+**Stop/continue review at each common stage:** verify the saved checkpoint
+and output metadata; inspect per-height uphill/downhill first-foot → two-foot
+→ traversal and 350/1200 first-life survival; inspect actual Academy dose
+and near-frontier births; compare independent core command, balance, slope
+and resilience outcomes with the *same-age control*. Treat a missing or
+underexposed physical event as **inconclusive**, not a zero-performance
+proof. The nominal 5-percentage-point retention-loss caution triggers
+manual investigation, not automatic significance or rejection. A training
+collapse, corrupted rewind, missing source identity, or large core regression
+is a reason to stop that arm before any `--reviewed` continuation.
+
+**Evidence not yet performed:** an actual WSL `lock` against the complete
+120M final checkpoint, an operator-side 2048-world PPO continuation, and
+full frozen 6901/6902 physical exams of a newly exported branch actor.
+GitHub's Python/Node regression suite tests APIs and guards but cannot
+substitute for these GPU and science acceptance steps. No branch training
+is authorized merely because the draft research PR exists.
