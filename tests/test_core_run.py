@@ -235,7 +235,11 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
         exams.append((arm,steps,seed))
         return {"actor_sha256":"test-only-actor"}
     def harmless_review(_lock,root,arm,steps):
-        return {"hard_stops":[],"warnings":[],"advancement":"continue"}
+        report={"hard_stops":[],"warnings":[],"advancement":"continue"}
+        review_dir=root/"reviews"/arm
+        review_dir.mkdir(parents=True,exist_ok=True)
+        (review_dir/f"{steps//1_000_000}m.json").write_text(lab_json.dumps(report))
+        return report
     with patch.dict("scripts.stair_school_lesson_lab.ARMS",
                     sample_arms,clear=True), patch(
             "scripts.stair_school_lesson_lab.subprocess.run",
@@ -265,8 +269,12 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     exams.clear()
     def safety_review(_lock,root,arm,steps):
         serious=(arm=="H06_more_bilateral_credit" and steps==STAGES[0])
-        return {"hard_stops":[{"specialty":"control"}] if serious else [],
+        report={"hard_stops":[{"specialty":"control"}] if serious else [],
                 "warnings":[],"advancement":"stop_this_arm" if serious else "continue"}
+        review_dir=root/"reviews"/arm
+        review_dir.mkdir(parents=True,exist_ok=True)
+        (review_dir/f"{steps//1_000_000}m.json").write_text(lab_json.dumps(report))
+        return report
     with patch.dict("scripts.stair_school_lesson_lab.ARMS",
                     sample_arms,clear=True), patch(
             "scripts.stair_school_lesson_lab.subprocess.run",
