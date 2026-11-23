@@ -43,6 +43,7 @@ from .terrain_carpet_mjx import (
     midpoint_anchor as carpet_midpoint_anchor,
     PROFILE_HALF as CARPET_PROFILE_HALF,
     role_envelope as carpet_role_envelope, make_profiles as carpet_make_profiles,
+    school_first_lip_course_limits as carpet_school_course_limits,
     exact_exam_lip_profiles as carpet_exam_lip_profiles,
     generate_window as carpet_generate_window, sample_surface as carpet_sample_surface,
     ray_surface as carpet_ray_surface, VISIT_HISTORY as CARPET_VISIT_HISTORY,
@@ -2806,6 +2807,14 @@ class EmuMJXEnv(TaskSampler):
             jnp,focus_id,specialist_active,task[:,T.athletic_rehearsal],
             params[P.slope_max_deg],up,down,academy,
             params[P.slope_exposure],params[P.terrain_exposure],seeds)
+        if self.stair_survival_curriculum:
+            # Keep a 24s first-UP lesson within the demonstrated UP
+            # physical band; independently earned tall DOWN belongs
+            # to DOWN-first births, not this uphill graduation verdict.
+            up,down=carpet_school_course_limits(
+                jnp,seeds,
+                jnp.floor(data.qpos[:,0]/CARPET_TILE_M).astype(jnp.int32),
+                academy,up,down)
         xprof,yprof=carpet_make_profiles(jnp,seeds,up,down)
         if self.exam_fixture_steps is not None:
             # No sampled ±X sign, jitter or extra lip. Exact 1m seam,
