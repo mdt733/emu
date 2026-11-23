@@ -74,7 +74,6 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
 
     # Final and intermediate training reports must describe the identical
     # resolved next-birth allocation; this helper never changes the teacher.
-    from types import SimpleNamespace
     from emu.training import _annotate_teaching_report
     from emu.capability_focus import FOCUS_NAMES, teaching_profile
     expected_params = {
