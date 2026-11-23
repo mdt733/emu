@@ -141,8 +141,14 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     # The lesson laboratory's 13 arms must all parse through the REAL
     # training CLI. Every experimental arm changes exactly ONE config
     # field from the same control, without running PPO or opening a GPU.
-    from scripts.stair_school_lesson_lab import ARMS as LAB_ARMS, _recipe
+    from scripts.stair_school_lesson_lab import (
+        ARMS as LAB_ARMS, _recipe, _launch_env)
+    from emu.training import unified_launch_mode
     assert len(LAB_ARMS)==13
+    launch_env=_launch_env()
+    assert launch_env["EMU_UNIFIED_CONTINUOUS"]=="cold-growth-approved"
+    assert launch_env["EMU_PHYSICAL_PROFILE"]=="h40-spring-only"
+    assert "EMU_UNIFIED_ACCEPTANCE" not in launch_env
     saved=[]
     def record_lab(ns):
         saved.append(one_run_config(ns))
@@ -153,6 +159,18 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     with patch("emu.run.train_one",side_effect=record_lab):
         for arm in LAB_ARMS:
             assert emu_cli_main(prefix+_recipe(arm))==0
+    # Run EXACT real full-GPU launch gating (without compiling/running JAX).
+    # check-resume-only intentionally does not enter this trainer gate.
+    with patch.dict("os.environ",launch_env,clear=True):
+        assert unified_launch_mode(saved[0])=="continuous"
+        assert unified_launch_mode(replace(
+            saved[0],resume=dummy_lock["parent"]["path"]))=="continuous"
+        assert unified_launch_mode(replace(
+            saved[0],resume="auto"))=="continuous"
+    with patch.dict("os.environ",{"EMU_PHYSICAL_PROFILE":"h40-spring-only"},
+                    clear=True):
+        with pytest.raises(RuntimeError,match="PRE-LAUNCH"):
+            unified_launch_mode(saved[0])
     reference=asdict(saved[0])
     for arm,config in zip(LAB_ARMS,saved):
         changed=[name for name,value in asdict(config).items()

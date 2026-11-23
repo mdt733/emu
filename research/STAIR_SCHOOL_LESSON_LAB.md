@@ -100,6 +100,12 @@ python scripts/stair_school_lesson_lab.py lock \
 # See the exact pinned commands before any fork (read-only)
 python scripts/stair_school_lesson_lab.py plan
 
+# Validate the actual parent PPO/teacher/normalizer checkpoint and exact
+# source without running the CUDA learner or creating any training outputs:
+python scripts/stair_school_lesson_lab.py preflight --arm C00_control
+
+# The first fork ALSO needs the continuous-CUDA trainer gate; the study
+# launcher sets that internally, no shell environment export necessary.
 # Later, on explicit approval, run ONE CONTROL to the FIRST review stop.
 # The same command may resume only that child's checkpoint if interrupted.
 python scripts/stair_school_lesson_lab.py run --arm C00_control --to-steps 130000000
@@ -239,3 +245,18 @@ full frozen 6901/6902 physical exams of a newly exported branch actor.
 GitHub's Python/Node regression suite tests APIs and guards but cannot
 substitute for these GPU and science acceptance steps. No branch training
 is authorized merely because the draft research PR exists.
+
+
+### Launcher launch-mode audit: corrected before first GPU fork
+
+Originally the launcher set `EMU_UNIFIED_CONTINUOUS=cold-growth-approved`
+only when extending an existing child. The cross-source *first fork* could
+pass `--check-resume-only` but then fail at the true `unified_launch_mode`
+gate, which the resume check intentionally does not call. The launcher
+now sets the explicit continuous-CUDA marker for ALL first, interrupted
+and extending forks, never the bounded lifecycle-test marker. The core
+tests execute the real Python mode gate against each relevant resume form,
+and verify it refuses to launch when the marker is missing. `preflight`
+runs the existing complete-checkpoint validator without initiating PPO.
+CI and `preflight` are prerequisites; only an actual operator-side GPU
+continuation can certify that a scientific child writes valid milestones.

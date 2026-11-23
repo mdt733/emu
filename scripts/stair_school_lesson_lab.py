@@ -8,8 +8,9 @@ Each treatment changes ONE existing, documented TrainingConfig knob.
 Subcommands:
   list : inspect the control and 12 experimental lessons (no files touched)
   lock : pre-register source/parent/checkpoint SHA, seed and run recipes (no GPU)
-  plan : preview a selected absolute step boundary (no GPU)
-  run  : launch ONE arm only to its NEXT allowed boundary; no auto-extension
+  plan      : preview a selected absolute step boundary (no GPU)
+  preflight : authenticate complete checkpoint and source (no GPU/PPO)
+  run       : preflight then train ONE arm to a registered boundary
 
 Separate evals/lesson synthesis happen outside this training launcher, never
 inside the teacher or PPO loop. No automatic champion promotion.
@@ -347,9 +348,26 @@ def _command(lock: dict, root: Path, arm: str, to_steps: int) -> list[str]:
             "--device", "cuda", *_recipe(arm), *resume]
 
 
+def _launch_env() -> dict[str, str]:
+    """Use the trainer's explicit full-CUDA authorization for EVERY stage.
+
+    A first cross-source continuation requires the same 'continuous'
+    launch gate as a later same-source extension. A previous launcher set
+    this only on extensions: check-resume-only passed, real train failed.
+    """
+    env = os.environ.copy()
+    env.pop("EMU_UNIFIED_ACCEPTANCE", None)
+    env.update(
+        EMU_UNIFIED_CONTINUOUS="cold-growth-approved",
+        EMU_PHYSICAL_PROFILE=PROFILE,
+        XLA_PYTHON_CLIENT_PREALLOCATE="false",
+        PYTHONPATH=str(REPO))
+    return env
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("list", "lock", "plan", "run"))
+    parser.add_argument("action", choices=("list", "lock", "plan", "preflight", "run"))
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--parent", type=Path, default=DEFAULT_PARENT)
     parser.add_argument("--seed", type=int, default=8200)
@@ -371,30 +389,27 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     lock = _read_lock(args.root)
     arms = (args.arm,) if args.arm else tuple(ARMS)
-    if args.action == "run" and args.arm is None:
-        parser.error("A training launch must select exactly one --arm")
+    if args.action in ("preflight", "run") and args.arm is None:
+        parser.error("Select exactly one --arm for a checkpoint preflight or launch")
     root = args.root.expanduser().resolve()
     for arm in arms:
         cmd = _command(lock, root, arm, args.to_steps)
         print(arm, ":", shlex.join(cmd), flush=True)
-        if args.action == "run":
+        if args.action in ("preflight", "run"):
             extending = _stage_extension_allowed(root, arm, args.to_steps)
             if extending and not args.reviewed:
                 parser.error("Advance requires --reviewed after independent "
                              "stair and general-skill retention exams")
-            env = os.environ.copy()
-            env.pop("EMU_UNIFIED_CONTINUOUS", None)
-            env.update(EMU_PHYSICAL_PROFILE=PROFILE,
-                       XLA_PYTHON_CLIENT_PREALLOCATE="false",
-                       PYTHONPATH=str(REPO))
-            if extending:
-                # The existing source-controlled finished-run extension gate
-                # requires this deliberate marker; ordinary resume does not.
-                env["EMU_UNIFIED_CONTINUOUS"] = "cold-growth-approved"
-            # First validate full checkpoint/source/physical contract without
-            # creating a new training run or performing a PPO update.
+            env = _launch_env()
+            # The existing source/parent/optimizer/normalizer/teacher validator
+            # is run before we enter the CUDA learner. No folder or PPO update
+            # is created by this check, including during stage extension.
             subprocess.run([*cmd, "--check-resume-only"],
                            cwd=REPO, env=env, check=True)
+            print(f"LAB CHECKPOINT PREFLIGHT PASS: {arm} -> {args.to_steps:,}",
+                  flush=True)
+            if args.action == "preflight":
+                continue
             subprocess.run(cmd, cwd=REPO, env=env, check=True)
             print(f"STOP: {arm} reached requested stage {args.to_steps:,}; "
                   "retain frozen physical and core-skill evidence before advancing.",
