@@ -551,8 +551,18 @@ def _physical_evidence(lock:dict,root:Path,arm:str,steps:int,seed:int,
     output.mkdir(parents=True,exist_ok=True)
     actor_path=output/"actor.emupolicy"
     if not actor_path.exists():
+        # The existing export helper writes JSON directly; a power loss
+        # midway could leave a truncated .emupolicy. Export to a temporary
+        # name, authenticate the complete actor, then publish atomically.
+        partial=actor_path.with_name(actor_path.name+".partial")
+        if partial.exists():
+            partial.unlink()  # never a published/frozen exam artifact
         print(f"Frozen export: {arm} {steps:,} seed={seed}",flush=True)
-        subprocess.run(commands[0],cwd=REPO,env=env,check=True)
+        export_cmd=list(commands[0])
+        export_cmd[-1]=str(partial)
+        subprocess.run(export_cmd,cwd=REPO,env=env,check=True)
+        _assert_actor(lock,root,arm,steps,partial,seed)
+        os.replace(partial,actor_path)
     actor=_assert_actor(lock,root,arm,steps,actor_path,seed)
     chosen={}
     for kind,cmd in zip(
