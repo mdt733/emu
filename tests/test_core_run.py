@@ -766,7 +766,8 @@ def test_current_360_checkpoint_roundtrip_rejects_sensor_drift(tmp_path):
     from emu.contracts import TERRAIN_OBS_DIM
     from emu.training_config import TrainingConfig
     from emu.checkpoint_io import (
-        save_checkpoint, load_checkpoint, TERRAIN_CHECKPOINT_SCHEMA)
+        save_checkpoint, load_checkpoint, payload_train_state_is_finite,
+        TERRAIN_CHECKPOINT_SCHEMA)
     from emu.ppo import expected_param_shapes
 
     cfg=TrainingConfig(observation_schema=OBS_SCHEMA_TERRAIN,
@@ -802,4 +803,25 @@ def test_current_360_checkpoint_roundtrip_rejects_sensor_drift(tmp_path):
     with pytest.raises(ValueError):
         load_checkpoint(file,expected_observation_schema=OBS_SCHEMA_TERRAIN,
                         expected_sensor_contract=corrupted)
+
+    # The same policy/optimizer finite check must protect BOTH the saved
+    # bytes and the full validated rewind. A failed save is not allowed
+    # to replace an existing good, fully source-pinned checkpoint.
+    good_bytes=file.read_bytes()
+    assert payload_train_state_is_finite(restored)
+    from copy import deepcopy
+    bad_params=deepcopy(params)
+    bad_params['pi'][0]['w'][0,0]=np.nan
+    poisoned=_SavedLearner(bad_params,state.opt_state)
+    assert not payload_train_state_is_finite({
+        'state': {'params': bad_params, 'opt_state': state.opt_state}})
+    aborted=save_checkpoint(
+        file,poisoned,meta,norm,
+        curriculum_state={'params':{}},health_state={},field_state={},
+        require_finite_state=True)
+    assert aborted['saved']==0.0 and aborted['bytes']==0.0
+    assert file.read_bytes()==good_bytes
+    assert load_checkpoint(
+        file,expected_observation_schema=OBS_SCHEMA_TERRAIN,
+        expected_sensor_contract=contract)['meta']['step']==256
 

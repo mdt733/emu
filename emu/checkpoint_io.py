@@ -4,16 +4,33 @@ A checkpoint is a temporal rewind point, not a loose bag of compatible fields.
 It owns exactly the policy/optimizer state, observation normalizer, curriculum,
 training-health state, capability field, and provenance required to continue the
 same training process.
+
+Read this cohesive module in six stages:
+  1. Source identity and immutable schema/shape/finite-state checks.
+  2. Atomic checkpoint save/load and complete rewind validation.
+  3. Rotating snapshot retention and valid same-run resume discovery.
+  4. Exact PPO-update boundaries, completed-run and fork handoffs.
+  5. All-coordinate learner/teacher recovery after a collapse.
+  6. Authenticated child-process launch and logged diagnostics.
+
+The full checkpoint is distinct from an inference-only .emupolicy export.
+Do not copy a parent recovery snapshot across a changed source/teacher
+recipe, or rewrite the trained checkpoint schema during housekeeping.
 """
 from __future__ import annotations
 
 import hashlib
 import os
 import pickle
+import shutil
+import subprocess
+import sys
 import tempfile
 import time
+import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -120,15 +137,13 @@ def save_checkpoint(path: Path, state: Any, meta: dict[str, Any], obs_norm: dict
     host_norm = jax.device_get(obs_norm)
     t1 = time.perf_counter()
 
-    if require_finite_state:
-        try:
-            finite = all(bool(np.all(np.isfinite(np.asarray(leaf))))
-                         for leaf in jax.tree_util.tree_leaves((host_params, host_opt_state)))
-        except Exception:
-            finite = False
-        if not finite:
-            return {'device_get_s': t1 - t0, 'pickle_write_s': 0.0, 'total_s': t1 - t0,
-                    'bytes': 0.0, 'saved': 0.0}
+    # The same whole-PPO-tree finite check protects both persisted bytes
+    # and resume validation. It reads the already-transferred host state:
+    # no new GPU synchronization or change to save/abort ordering.
+    if require_finite_state and not payload_train_state_is_finite(
+            {'state': host_state}):
+        return {'device_get_s': t1 - t0, 'pickle_write_s': 0.0, 'total_s': t1 - t0,
+                'bytes': 0.0, 'saved': 0.0}
 
     meta.setdefault('checkpoint_schema', CHECKPOINT_SCHEMA)
     meta.setdefault('field_schema', FIELD_VERSION)
@@ -277,7 +292,7 @@ def save_rotating_snapshot(checkpoints_dir: Path, state: Any, meta: dict[str, An
             pass
     return timing
 
-# Resume discovery
+# --- Snapshot retention and same-run resume discovery ----------------------
 
 
 def resume_candidates(run_dir: Path) -> list[Path]:
@@ -314,15 +329,7 @@ def find_valid_resume(run_dir: Path, *,
     return None
 
 
-# Exact run boundaries, validated checkpoint handoffs, recovery and subprocess launch.
-import os
-import shutil
-import subprocess
-import sys
-import uuid
-from typing import Callable
-from dataclasses import dataclass
-
+# --- Update boundaries, authenticated handoffs and rollback ----------------
 from .contracts import VERSION, source_repo_root
 from .training_config import FOUNDATION_STEPS, ROLLOUT_STEPS, TrainingConfig
 
@@ -490,6 +497,7 @@ def resume_training_lineage(
     return resumed_payload, resumed_step, False
 
 
+# A collapsed learner rewinds ALL learning coordinates together.
 @dataclass(frozen=True)
 class RecoveredLearner:
     """One successful temporal rewind; no partial result escapes to training."""
@@ -627,6 +635,7 @@ def resolve_target_checkpoint(run_dir: Path, *, target_steps: int, envs: int, la
     return None, resume, expected
 
 
+# --- Git-provenance-enforced subprocess launch and logs ---------------------
 def git_provenance() -> dict[str, Any]:
     def git(*args: str) -> str:
         return subprocess.check_output(["git", *args], cwd=source_repo_root(), text=True, stderr=subprocess.DEVNULL).strip()
