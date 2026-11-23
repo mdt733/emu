@@ -10,7 +10,10 @@ from dataclasses import asdict
 import numpy as np
 
 from scripts.v5053_matrix_exam import (
-    assignments,reduce_results,wilson_95,compare_paired_exams,PAIRED_GATES)
+    assignments,reduce_results,wilson_95,compare_paired_exams,PAIRED_GATES,
+    compare_school_diagnostic_cases,SCHOOL_DIAGNOSTIC_CASES,
+    SCHOOL_DIAGNOSTIC_MODEL,SCHOOL_DIAGNOSTIC_SOURCE,
+    SCHOOL_DIAGNOSTIC_EPISODE_LIMIT)
 from emu.physical_capability_exam import (
     Scenario, score_first_life, summarize, save_evidence,
     capture_representative_traces)
@@ -31,6 +34,14 @@ class MatrixExamTests(unittest.TestCase):
                               for x in a if x.kind!="padding"}),2000)
         self.assertEqual(len({x.kind for x in a if x.kind!="padding"}),10)
         steps=[x for x in a if x.kind=="step_up"]
+        diagnostic=assignments(8,mode="stairs_up",levels=2,
+                               trials_per_level=2,diagnostic_vx_mps=.10)
+        self.assertEqual([t.vx for t in diagnostic if t.kind!="padding"],[.10]*4)
+        self.assertEqual([t.exact_step_m for t in diagnostic if t.kind!="padding"],
+                         [.04,.04,.08,.08])
+        with self.assertRaisesRegex(ValueError,"only to stairs_up"):
+            assignments(8,mode="stairs",levels=2,trials_per_level=2,
+                        diagnostic_vx_mps=.10)
         self.assertEqual(len(steps),200)
         self.assertAlmostEqual(min(x.exact_step_m for x in steps),.004)
         self.assertAlmostEqual(max(x.exact_step_m for x in steps),.08)
@@ -158,6 +169,43 @@ class MatrixExamTests(unittest.TestCase):
             compare_paired_exams(up,sr,flat,[dict(fr[0],actual_lip_m=.01),*fr[1:]])
         with self.assertRaisesRegex(ValueError,"Unrecognised physical"):
             compare_paired_exams(up,[dict(sr[0],traversed_5frame="maybe"),*sr[1:]],flat,fr)
+
+        # Pure read-only 2x2 pairing contract, folded into an existing test.
+        cases={}
+        for label,vx,horizon in SCHOOL_DIAGNOSTIC_CASES:
+            manifest=dict(
+                schema="h40_true_prism_heterogeneous_matrix_v5_signed80",
+                policy_sha256="frozen",actor_sha256="weights",
+                robot_model_sha256=SCHOOL_DIAGNOSTIC_MODEL,
+                actor_training_source={"git_commit":SCHOOL_DIAGNOSTIC_SOURCE},
+                exam_source_sha256="same-exam-source",
+                seed=5701,worlds=2,assigned_worlds=1,mode="stairs_up",
+                levels=20,trials_per_level=1,device="gpu",
+                collision="8 real prisms",first_life_only=True,
+                zero_optimizer_updates=True,diagnostic_school=True,
+                qualification_eligible=False,diagnostic_vx_mps=vx,
+                horizon=horizon,
+                episode_limit_frames=SCHOOL_DIAGNOSTIC_EPISODE_LIMIT)
+            row=dict(world=0,kind="step_up",level=8,replicate=0,
+                     vx=vx,vy=0.,yaw=0.,exact_step_m=.032,
+                     actual_lip_m=.032,exact_grade_deg=0.,
+                     initial_kick_mps=0.,lead_foot_top=True,
+                     both_feet_top_five=False,traversed_5frame=False,
+                     survived=horizon==350)
+            cases[label]=({"manifest":manifest},[row])
+        audit=compare_school_diagnostic_cases(cases)
+        self.assertEqual(audit["totals"]["worlds_per_condition"],1)
+        self.assertEqual(audit["curves"][0]["step_mm"],32.)
+        self.assertFalse(audit["qualification_eligible"])
+        failing={k:(m,[dict(v[0])]) for k,(m,v) in cases.items()}
+        failing["slow_1200"][1][0]["lead_foot_top"]=False
+        with self.assertRaisesRegex(ValueError,"longer window lost"):
+            compare_school_diagnostic_cases(failing)
+        wrong={k:(dict(m),v) for k,(m,v) in cases.items()}
+        wrong["fast_350"][0]["manifest"]=dict(
+            wrong["fast_350"][0]["manifest"],robot_model_sha256="main")
+        with self.assertRaisesRegex(ValueError,"wrong frozen KS150"):
+            compare_school_diagnostic_cases(wrong)
 
         # The new v1 first-life scoring checks share the existing physical
         # examiner contract case; no test-per-experiment growth.
