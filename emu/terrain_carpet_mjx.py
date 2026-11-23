@@ -126,8 +126,13 @@ def hash_float(xp,i,j,seed,salt):
     u=xp.asarray(i,dtype=xp.uint32)
     v=xp.asarray(j,dtype=xp.uint32)
     s=xp.asarray(seed,dtype=xp.uint32)
+    # Salt is always a static integer. Compute its uint32 wrap in Python
+    # before creating an array scalar: NumPy warns on uint32 scalar
+    # multiplication overflow, even though this hash REQUIRES wrapping.
+    # This is bit-identical to uint32(salt)*uint32(1274126177).
+    salt_term=xp.uint32((int(salt)*1274126177)&0xFFFFFFFF)
     x=(u*xp.uint32(374761393)+v*xp.uint32(668265263)
-       +s*xp.uint32(1442695041)+xp.uint32(salt)*xp.uint32(1274126177))
+       +s*xp.uint32(1442695041)+salt_term)
     x=(x^(x>>xp.uint32(13)))*xp.uint32(1274126177)
     return ((x^(x>>xp.uint32(16))).astype(xp.float32)
             /xp.float32(4294967296.))

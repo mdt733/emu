@@ -22,6 +22,17 @@ from .directional import contact_pair_mask
 from .directional import heading_rate_request
 from .contracts import CONTROL_DT, P
 
+
+def _contact_arrays(data):
+    """The padded MJX contact arrays, without deprecated Data.contact access.
+
+    Modern MJX stores its contact buffer in Data._impl; older Data objects
+    expose contact directly. This accessor is read-only and does not change
+    the collision masks, the physics or the frozen examiner's scoring.
+    """
+    return getattr(data, '_impl', data).contact
+
+
 def hip_roll_action_saturation(xp, raw_action, academy_active):
     """Read-only sampled hip-roll command saturation, Academy vs other roles.
 
@@ -742,9 +753,10 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             # A non-planar square has TWO real support normals. Select
             # the triangle under this root, never the retired 9 boxes.
             prisms=tuple(int(g) for g in env.carpet_prism_geom_ids)
+            contact=_contact_arrays(data)
             contacts=jnp.any(jnp.stack(tuple(
-                contact_pair_mask(jnp,data.contact.geom1,
-                                  data.contact.geom2,data.contact.dist,
+                contact_pair_mask(jnp,contact.geom1,
+                                  contact.geom2,contact.dist,
                                   int(g),foot_geoms)
                 for g in prisms),axis=1),axis=1)
             tile=jnp.floor(data.qpos[:,:2]/TILE_M).astype(jnp.int32)
@@ -910,12 +922,11 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 # approach direction and signed actual lip geometry.
                 solids=tuple(int(g) for g in env.carpet_prism_geom_ids)
                 foot_geoms=tuple(int(g) for g in env.ids['foot_geoms'])
+                c=_contact_arrays(es.data)
                 carpet_pairs=jnp.stack(tuple(
                     contact_pair_mask(
-                        jnp,es.data.contact.geom1,es.data.contact.geom2,
-                        es.data.contact.dist,g,foot_geoms)
+                        jnp,c.geom1,c.geom2,c.dist,g,foot_geoms)
                     for g in solids),axis=1)
-                c=es.data.contact
                 contact_vertical=[]
                 for g in solids:
                     foot_vertical=[]
@@ -1133,7 +1144,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             # post-integration state. Ignore out.state for terminal
             # worlds (it is then an already reset new robot).
             data=out.state.data
-            c=getattr(data,'_impl',data).contact
+            c=_contact_arrays(data)
             feet=data.geom_xpos[:,jnp.asarray(foot_geoms),:]
             bottom=feet[:,:,2]-foot_radii[None,:]
             top=env._carpet_real_top_height(

@@ -1,7 +1,13 @@
 """EMU single-run reports, training telemetry, and held-out evidence.
 
-Training and examiner facts are kept separate. No Python/JAX training is
-invoked when making a report; checkpoints are never packaged.
+One reporting owner, deliberately kept together in this module:
+- read-only saved-run summaries and bundles;
+- rollout metrics and capability-field evidence;
+- frozen-evaluation comparisons and posture diagnostics;
+- command-line entry points.
+
+No Python/JAX training is invoked when making a report; checkpoints
+are never packaged. A training metric is never a held-out exam result.
 """
 from __future__ import annotations
 
@@ -11,7 +17,13 @@ import json
 import math
 import zipfile
 from pathlib import Path
+from statistics import median
+from typing import Any
 
+import numpy as np
+
+
+# Saved-run reporting: read existing evidence, never execute learning.
 def _last_finite_metrics(path: Path) -> dict:
     if not path.is_file():
         return {}
@@ -116,44 +128,9 @@ def write_report(root: Path, *, bundle: bool = True) -> list[Path]:
         outputs.append(dest)
     return outputs
 
-def main(argv=None) -> int:
-    parser=argparse.ArgumentParser(description='Read-only single-run report or held-out comparison')
-    mode=parser.add_mutually_exclusive_group(required=True)
-    mode.add_argument('--root',type=Path)
-    mode.add_argument('--compare-fixed',type=Path,nargs=2,
-                      metavar=('REFERENCE_CSV','CANDIDATE_CSV'))
-    parser.add_argument('--no-bundle',action='store_true')
-    parser.add_argument('--reference-protocol')
-    parser.add_argument('--candidate-protocol')
-    parser.add_argument('--output',type=Path)
-    args=parser.parse_args(argv)
-    if args.root:
-        for path in write_report(args.root,bundle=not args.no_bundle):
-            print(path)
-        return 0
-    if not args.reference_protocol or not args.candidate_protocol:
-        parser.error('--compare-fixed requires two matching exam protocol fingerprints')
-    reference,candidate=args.compare_fixed
-    a,b=read_csv_rows(reference),read_csv_rows(candidate)
-    if not a or not b:
-        raise ValueError('no fixed-eval evidence in one or both inputs')
-    result=compare_fixed_exam_evidence(a[-1],b[-1],
-                reference_protocol=args.reference_protocol,
-                candidate_protocol=args.candidate_protocol)
-    if args.output:
-        write_json(args.output,result)
-        print(args.output)
-    else:
-        print(json.dumps(result,indent=2,sort_keys=True))
-    return 0
 
 
 # Run logging, metric tables and field evidence: same reporting owner.
-from typing import Any
-
-import numpy as np
-
-
 def ensure_run_dir(path: Path) -> None:
     (path / 'checkpoints').mkdir(parents=True, exist_ok=True)
 
@@ -1334,8 +1311,6 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
 
 
 # Optional read-only posture drift analysis from previously saved metrics.
-from statistics import median
-
 MIN_DROP_M = 0.015  # diagnostic threshold, not a proven failure boundary
 
 def _number(row: dict, key: str) -> float | None:
@@ -1405,6 +1380,40 @@ def posture_report(root: Path) -> int:
         return 1
     print('\nRead-only trend screening; lower height does not prove reward exploitation.')
     return 0
+
+# CLI dispatch belongs at the bottom, after its report implementations.
+def main(argv=None) -> int:
+    parser=argparse.ArgumentParser(description='Read-only single-run report or held-out comparison')
+    mode=parser.add_mutually_exclusive_group(required=True)
+    mode.add_argument('--root',type=Path)
+    mode.add_argument('--compare-fixed',type=Path,nargs=2,
+                      metavar=('REFERENCE_CSV','CANDIDATE_CSV'))
+    parser.add_argument('--no-bundle',action='store_true')
+    parser.add_argument('--reference-protocol')
+    parser.add_argument('--candidate-protocol')
+    parser.add_argument('--output',type=Path)
+    args=parser.parse_args(argv)
+    if args.root:
+        for path in write_report(args.root,bundle=not args.no_bundle):
+            print(path)
+        return 0
+    if not args.reference_protocol or not args.candidate_protocol:
+        parser.error('--compare-fixed requires two matching exam protocol fingerprints')
+    reference,candidate=args.compare_fixed
+    a,b=read_csv_rows(reference),read_csv_rows(candidate)
+    if not a or not b:
+        raise ValueError('no fixed-eval evidence in one or both inputs')
+    result=compare_fixed_exam_evidence(a[-1],b[-1],
+                reference_protocol=args.reference_protocol,
+                candidate_protocol=args.candidate_protocol)
+    if args.output:
+        write_json(args.output,result)
+        print(args.output)
+    else:
+        print(json.dumps(result,indent=2,sort_keys=True))
+    return 0
+
+
 
 if __name__ == '__main__':
     raise SystemExit(main())

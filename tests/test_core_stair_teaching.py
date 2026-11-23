@@ -105,6 +105,31 @@ class CoreStairPhysicsTests(unittest.TestCase):
             PROFILE_HALF)
         import jax
         import jax.numpy as jnp
+        import warnings
+
+        # The terrain hash intentionally overflows 32 bits. Ensure the
+        # overflow-warning cleanup preserves the original exact tile map
+        # for signed world coordinates and never drifts between NumPy/JAX.
+        hash_cells=np.asarray([-127,-1,0,1,127],dtype=np.int32)
+        hash_seeds=np.asarray([0,1,735,736,2**31-1],dtype=np.int32)
+        with warnings.catch_warnings():
+            warnings.simplefilter('error',RuntimeWarning)
+            observed=hash_float(np,hash_cells,0,hash_seeds,101)
+        mask=0xFFFFFFFF
+        reference=[]
+        for cell,seed in zip(hash_cells,hash_seeds):
+            x=((int(cell)&mask)*374761393
+               +(int(seed)&mask)*1442695041
+               +101*1274126177)&mask
+            x=((x^(x>>13))*1274126177)&mask
+            reference.append(np.float32(x^(x>>16))/np.float32(4294967296.))
+        np.testing.assert_array_equal(observed,np.asarray(reference))
+        np.testing.assert_array_equal(
+            np.asarray(jax.jit(lambda c,s:
+                hash_float(jnp,c,0,s,101))(
+                    jnp.asarray(hash_cells),jnp.asarray(hash_seeds))),
+            observed)
+
         seeds=np.arange(64,dtype=np.int32)
         cells=np.tile(np.asarray([0,-1,1,0],np.int32),16)
         academy=np.tile(np.asarray([True,True,False,True],bool),16)
