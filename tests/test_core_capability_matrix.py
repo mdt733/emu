@@ -199,8 +199,22 @@ class MatrixExamTests(unittest.TestCase):
         self.assertFalse(audit["qualification_eligible"])
         failing={k:(m,[dict(v[0])]) for k,(m,v) in cases.items()}
         failing["slow_1200"][1][0]["lead_foot_top"]=False
-        with self.assertRaisesRegex(ValueError,"longer window lost"):
-            compare_school_diagnostic_cases(failing)
+        flagged=compare_school_diagnostic_cases(failing)
+        self.assertEqual(flagged["horizon_prefix_disagreement_count"],1)
+        self.assertFalse(flagged["same_trajectory_prefix_verified"])
+        self.assertEqual(flagged["horizon_prefix_disagreements"][0],
+                         dict(world=0,speed="slow",gate="lead_foot_top",
+                              short_350=1,long_1200=0))
+        self.assertEqual(flagged["horizon_prefix_disagreement_counts"][
+            "slow"]["lead_foot_top"],1)
+        # A long-horizon survival pass despite a short-horizon failure
+        # likewise warns about independently compiled prefix divergence.
+        failing["slow_1200"][1][0]["lead_foot_top"]=True
+        failing["slow_350"][1][0]["survived"]=False
+        failing["slow_1200"][1][0]["survived"]=True
+        flagged=compare_school_diagnostic_cases(failing)
+        self.assertEqual(flagged["horizon_prefix_disagreement_counts"][
+            "slow"]["survived"],1)
         wrong={k:(dict(m),v) for k,(m,v) in cases.items()}
         wrong["fast_350"][0]["manifest"]=dict(
             wrong["fast_350"][0]["manifest"],robot_model_sha256="main")

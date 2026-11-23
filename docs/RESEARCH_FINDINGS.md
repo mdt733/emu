@@ -359,3 +359,28 @@ The 5701 seed has already informed the investigation, so these outcomes
 are design-time science, not pristine qualification data. A better
 speed/horizon score does not itself imply a better cold-trained policy
 or authorize replacing the original H40 champion on `main`.
+
+
+**Post-run diagnostic recovery (no GPU re-execution):** Four 200-trial
+separate-JIT physics cases completed on 23 November 2026. The original
+strict aggregator aborted at world 5 because `slow_350` reported a
+five-frame two-foot event that `slow_1200` did not. Separate horizon
+compilations share world keys and geometry, but cannot be assumed to
+produce bit-identical 350-frame trajectories. This is a **comparison
+assumption failure**, not proof of a lost physical foothold or a failed
+training run. Preserve all four original exam directories unchanged.
+
+After updating the branch, derive the four-case report from those files
+**offline**, without running MJX or checking out an earlier actor:
+
+```bash
+python scripts/v5053_matrix_exam.py --school-diagnostic-summarize \
+  --output ~/emu-data/exams/ks150-s736-speed-horizon-v1
+```
+
+The summary reports and exports each anomalous same-world prefix gate
+instead of discarding the whole dataset. **Do not attribute a duration
+effect causally** if the same-speed short and long runs have discordant
+prefixes; a future rigorous horizon study would capture the 350-frame
+snapshot within a single 1200-frame compiled trajectory. The raw results
+remain useful for descriptive speed-and-survival screening.

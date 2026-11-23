@@ -521,9 +521,12 @@ def _diagnostic_gate(value) -> int:
 def compare_school_diagnostic_cases(cases:dict) -> dict:
     """Compare four cases with identical actor, fixtures and reset keys.
 
-    First-life-ever event gates cannot disappear as the window lengthens;
-    survival cannot be regained by observing longer. This catches accidental
-    700-frame timeouts, changed fixtures and unpaired policy/robot identities.
+    The four independently JIT-compiled runs share actor, world-indexed
+    random seeds and fixtures, NOT an observed byte-identical trajectory
+    prefix. Floating-point physics can diverge between executable variants.
+    A shorter-window gate disappearing in a separately compiled long run
+    is an important discrepancy to report, not a reason to discard all
+    four expensive measurements. Actor/model/fixture mismatches still fail.
     """
     if set(cases)!={label for label,_,_ in SCHOOL_DIAGNOSTIC_CASES}:
         raise ValueError("Require exactly four school diagnostic conditions")
@@ -556,6 +559,7 @@ def compare_school_diagnostic_cases(cases:dict) -> dict:
                for r in rows):
             raise ValueError(f"{label}: wrong command/stair direction")
         by_case[label]=indexed
+    prefix_disagreements=[]
     for world in by_case["slow_350"]:
         ref=by_case["slow_350"][world]
         for label,_,_ in SCHOOL_DIAGNOSTIC_CASES:
@@ -573,9 +577,17 @@ def compare_school_diagnostic_cases(cases:dict) -> dict:
             long=by_case[f"{speed}_1200"][world]
             for gate in SCHOOL_DIAGNOSTIC_GATES[:-1]:
                 if _diagnostic_gate(short[gate]) and not _diagnostic_gate(long[gate]):
-                    raise ValueError(f"World {world}: longer window lost {gate}")
+                    prefix_disagreements.append(dict(
+                        world=world, speed=speed, gate=gate,
+                        short_350=1, long_1200=0))
+            # Within ONE identical first life, survival at 1200 implies
+            # survival at 350. The experiments are separately compiled,
+            # however, so record an apparent reversal rather than falsely
+            # diagnosing second-life contamination in either individual run.
             if _diagnostic_gate(long["survived"]) and not _diagnostic_gate(short["survived"]):
-                raise ValueError(f"World {world}: second life contaminated survival")
+                prefix_disagreements.append(dict(
+                    world=world,speed=speed,gate="survived",
+                    short_350=0,long_1200=1))
     levels=sorted({int(r["level"]) for r in by_case["slow_350"].values()})
     curves=[]
     for level in levels:
@@ -594,17 +606,31 @@ def compare_school_diagnostic_cases(cases:dict) -> dict:
         for gate in SCHOOL_DIAGNOSTIC_GATES:
             totals[f"{label}_{gate}"]=sum(
                 _diagnostic_gate(r[gate]) for r in by_case[label].values())
+    disagreement_counts={
+        speed:{
+            gate:sum(item["speed"]==speed and item["gate"]==gate
+                     for item in prefix_disagreements)
+            for gate in SCHOOL_DIAGNOSTIC_GATES
+        } for speed in ("slow","fast")
+    }
     return dict(schema="emu_school_speed_horizon_diagnostic_v1",
                 qualification_eligible=False,same_initial_worlds=True,
+                same_trajectory_prefix_verified=(not prefix_disagreements),
+                independently_compiled_executables=True,
+                horizon_prefix_disagreement_count=len(prefix_disagreements),
+                horizon_prefix_disagreements=prefix_disagreements,
+                horizon_prefix_disagreement_counts=disagreement_counts,
                 actor_sha256=reference["actor_sha256"],
                 model_sha256=reference["robot_model_sha256"],
                 source_sha=reference["actor_training_source"]["git_commit"],
                 seed=reference["seed"],
                 episode_limit_frames=SCHOOL_DIAGNOSTIC_EPISODE_LIMIT,
-                warning=("Design-time first lip only; fixed command and no "
-                         "Academy curriculum, PPO update or independent "
-                         "qualification. Same-world outcomes do not prove "
-                         "a causal change in the training school."),
+                warning=("Design-time first lip only; no Academy, PPO update "
+                         "or independent qualification. Different horizons "
+                         "were separately JIT-compiled; shared seeds do NOT "
+                         "prove identical trajectories. If horizon prefix "
+                         "disagreements are present, duration differences "
+                         "cannot be attributed to elapsed time alone."),
                 totals=totals,curves=curves)
 
 
@@ -641,6 +667,27 @@ def run_school_diagnostic_suite(*,policy:Path,output:Path,
              "--seed",str(seed),"--device",device]
         print(f"Frozen school first-lip diagnostic: {label}",flush=True)
         subprocess.run(cmd,env=env,check=True)
+    return summarize_existing_school_diagnostic(output)
+
+
+def summarize_existing_school_diagnostic(output:Path) -> dict:
+    """Aggregate completed GPU case files only: no JAX, policy or GPU run.
+
+    Retain raw per-world CSVs and all four examiner manifests unchanged.
+    Write new derived summaries only; fail rather than overwrite a prior
+    analysis. A different analysis must use a new directory or be reviewed.
+    """
+    output=Path(output).expanduser().resolve()
+    if not output.is_dir():
+        raise FileNotFoundError("School diagnostic output directory is absent")
+    products=tuple(output/name for name in (
+        "school_diagnostic.json","school_diagnostic_heights.csv",
+        "school_diagnostic_prefix_disagreements.csv","school_diagnostic.md"))
+    existing=[p for p in products if p.exists()]
+    if existing:
+        raise FileExistsError(
+            "Refusing to overwrite prior school diagnostic summary: "+
+            ", ".join(str(p) for p in existing))
     cases={}
     for label,_,_ in SCHOOL_DIAGNOSTIC_CASES:
         directory=output/label
@@ -648,33 +695,68 @@ def run_school_diagnostic_suite(*,policy:Path,output:Path,
         with (directory/"matrix_worlds.csv").open(newline="",encoding="utf-8") as fd:
             cases[label]=(summary,list(csv.DictReader(fd)))
     report=compare_school_diagnostic_cases(cases)
+    # All fail-closed identity and physical fixture checks happen before
+    # touching any combined output. Original case files are never rewritten.
     (output/"school_diagnostic.json").write_text(
-        json.dumps(report,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+        json.dumps(report,indent=2,sort_keys=True)+"\\n",encoding="utf-8")
     save_csv(output/"school_diagnostic_heights.csv",report["curves"])
+    with (output/"school_diagnostic_prefix_disagreements.csv").open(
+            "w",newline="",encoding="utf-8") as fd:
+        fields=("world","speed","gate","short_350","long_1200")
+        writer=csv.DictWriter(fd,fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(report["horizon_prefix_disagreements"])
     totals=report["totals"]
     lines=["# KS150: frozen first-lip speed x horizon diagnostic",
            "","**DESIGN-TIME ONLY — NOT RELEASE QUALIFICATION**","",
            f"Actor SHA256: {report['actor_sha256']}",
            f"Source commit: {report['source_sha']}",
            f"KS150 model SHA256: {report['model_sha256']}",
-           f"Same world resets, trial heights, seed {seed} across four cells.",
+           f"Same indexed initial-world seeds, fixtures and actor.",
+           "**Different horizon cases are independently JIT-compiled rollouts.**",
            "",
            "| Speed / frames | Trials | First top | Both feet (5f) | Traversed (5f) | First-life survived |",
-           "|---|---:|---:|---:|---:|---:|"]
+           "|---|---:|---:|---:|---:|---:"+"|"]
     for label,_,_ in SCHOOL_DIAGNOSTIC_CASES:
         lines.append(f"| {label} | {totals['worlds_per_condition']} | "
                      f"{totals[label+'_lead_foot_top']} | "
                      f"{totals[label+'_both_feet_top_five']} | "
                      f"{totals[label+'_traversed_5frame']} | "
                      f"{totals[label+'_survived']} |")
-    lines+=["","Every cell has a 1201-frame episode limit, so the 350/1200",
-            "measurement windows are not corrupted by 700-frame timeouts.",
-            "This fixed-velocity first-lip diagnostic is NOT the complete Academy.",
-            "See per-height CSV, JSON and the four unmodified per-world CSVs."]
+    counts=report["horizon_prefix_disagreement_counts"]
+    lines+=["",
+            "## Horizon-prefix disagreement audit",
+            "",
+            f"Total discordant same-world gates: {report['horizon_prefix_disagreement_count']}.",
+            "",
+            "| Speed | First-top lost | Two-foot lost | Traversal lost | Survival reversed |",
+            "|---|---:|---:|---:|---:|"]
+    for speed in ("slow","fast"):
+        c=counts[speed]
+        lines.append(f"| {speed} | {c['lead_foot_top']} | "
+                     f"{c['both_feet_top_five']} | {c['traversed_5frame']} "
+                     f"| {c['survived']} |")
+    lines+=["",
+            "This is a discrepancy in separate rollouts, NOT proof that a "
+            "previously achieved event was physically forgotten. Numerically "
+            "divergent prefixes can confound causal interpretation of horizon.",
+            "Inspect school_diagnostic_prefix_disagreements.csv before "
+            "changing the Academy; a strict same-trajectory horizon study "
+            "requires 350-frame snapshots INSIDE one 1200-frame rollout.",
+            "",
+            "Every condition uses a 1201-frame episode limit; the old "
+            "700-frame timeout cannot cause a false long-horizon failure.",
+            "This is a fixed-velocity first-lip test, NOT the complete Academy.",
+            "Per-height CSV and four original per-world CSV files are preserved."]
     (output/"school_diagnostic.md").write_text(
-        "\n".join(lines)+"\n",encoding="utf-8")
-    print(f"School diagnostic finished: {output/'school_diagnostic.md'}")
+        "\\n".join(lines)+"\\n",encoding="utf-8")
+    print(f"Offline school diagnostic summary: {output/'school_diagnostic.md'}")
+    if report["horizon_prefix_disagreement_count"]:
+        print(f"CAUTION: {report['horizon_prefix_disagreement_count']} "
+              "cross-horizon event discrepancies; see the CSV and report")
     return report
+
+
 
 
 PAIRED_GATES=("lead_foot_top","both_feet_top_five",
@@ -797,6 +879,8 @@ def main(argv=None):
     p.add_argument("--compare-flat",type=Path)
     p.add_argument("--school-diagnostic-suite",action="store_true",
                    help="four frozen KS150 first-lip speed/horizon exams, NOT qualification")
+    p.add_argument("--school-diagnostic-summarize",action="store_true",
+                   help="aggregate four existing cases on CPU without rerunning GPU physics")
     p.add_argument("--school-diagnostic-case",action="store_true",
                    help=argparse.SUPPRESS)
     p.add_argument("--stair-vx-mps",type=float,default=None,
@@ -810,6 +894,13 @@ def main(argv=None):
     p.add_argument("--trials-per-level",type=int,default=None)
     p.add_argument("--device",choices=("cpu","cuda"),default="cuda")
     a=p.parse_args(argv)
+    if a.school_diagnostic_summarize:
+        if (a.policy is not None or a.school_diagnostic_suite or
+                a.school_diagnostic_case or a.stair_vx_mps is not None or
+                a.compare_stairs is not None or a.compare_flat is not None):
+            p.error("Offline summarize requires only --output CASES_DIRECTORY")
+        summarize_existing_school_diagnostic(a.output)
+        return
     if a.school_diagnostic_suite:
         if (a.policy is None or a.compare_stairs is not None or
                 a.compare_flat is not None or a.school_diagnostic_case or
@@ -834,6 +925,7 @@ def main(argv=None):
         kw.pop("compare_stairs")
         kw.pop("compare_flat")
         kw.pop("school_diagnostic_suite")
+        kw.pop("school_diagnostic_summarize")
         kw["school_diagnostic"]=kw.pop("school_diagnostic_case")
         kw["worlds"]=2048 if kw["worlds"] is None else kw["worlds"]
         run_matrix(**kw)
