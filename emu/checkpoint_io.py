@@ -313,20 +313,37 @@ def find_resume(run_dir: Path) -> Path | None:
     return candidates[0] if candidates else None
 
 
-def find_valid_resume(run_dir: Path, *,
-                      expected_observation_schema: str = OBS_SCHEMA_TERRAIN,
-                      expected_sensor_contract: dict | None = None) -> Path | None:
-    """Best current-schema continuation checkpoint, skipping corrupt/incompatible files."""
+def _first_valid_resume(
+    run_dir: Path, *,
+    expected_observation_schema: str = OBS_SCHEMA_TERRAIN,
+    expected_sensor_contract: dict | None = None,
+) -> tuple[Path, dict[str, Any]] | None:
+    """Select one validated rewind path *and* its already-checked payload.
 
+    Preserve the existing final/latest/snapshot preference, including fallback
+    past corrupt or incompatible files. Consumers must not reopen the chosen
+    checkpoint merely to read its step: the payload has already been validated.
+    """
     for path in resume_candidates(run_dir):
         try:
-            load_checkpoint(path, validate=True,
-                            expected_observation_schema=expected_observation_schema,
-                            expected_sensor_contract=expected_sensor_contract)
-            return path
+            payload = load_checkpoint(
+                path, validate=True,
+                expected_observation_schema=expected_observation_schema,
+                expected_sensor_contract=expected_sensor_contract)
+            return path, payload
         except Exception:
             continue
     return None
+
+
+def find_valid_resume(run_dir: Path, *,
+                      expected_observation_schema: str = OBS_SCHEMA_TERRAIN,
+                      expected_sensor_contract: dict | None = None) -> Path | None:
+    """Public path-only discovery; retain the existing caller contract."""
+    selected = _first_valid_resume(
+        run_dir, expected_observation_schema=expected_observation_schema,
+        expected_sensor_contract=expected_sensor_contract)
+    return selected[0] if selected is not None else None
 
 
 # --- Update boundaries, authenticated handoffs and rollback ----------------
@@ -400,6 +417,7 @@ def resume_training_lineage(
     if not resume:
         return None, 0, False
     is_auto = resume.lower() == 'auto'
+    selected_payload = None
     if is_auto:
         # A power loss can remove or corrupt latest.pkl while an existing
         # final or rotating snapshot remains valid. Use the SAME canonical
@@ -407,13 +425,14 @@ def resume_training_lineage(
         preferred = find_resume(run_dir)
         if preferred is None:
             raise RuntimeError(f'--resume auto found no checkpoint under {run_dir / "checkpoints"}')
-        resume_path = find_valid_resume(
+        selected = _first_valid_resume(
             run_dir, expected_observation_schema=expected_observation_schema,
             expected_sensor_contract=expected_sensor_contract)
-        if resume_path is None:
+        if selected is None:
             raise RuntimeError(
                 f'--resume auto found checkpoints but no valid current-schema rewind point under '
                 f'{run_dir / "checkpoints"}')
+        resume_path, selected_payload = selected
         if resume_path != preferred:
             print(f'{LOG} --resume: preferred {preferred.name} unusable; '
                   f'falling back to validated {resume_path}', flush=True)
@@ -422,10 +441,13 @@ def resume_training_lineage(
         if not resume_path.exists():
             raise RuntimeError(f'--resume requested but checkpoint does not exist: {resume_path}')
     try:
-        resumed_payload = load_checkpoint(
-            resume_path, validate=True,
-            expected_observation_schema=expected_observation_schema,
-            expected_sensor_contract=expected_sensor_contract)
+        # Auto-discovery has already read and fully checked this payload.
+        # Explicit --resume retains its existing strict validation path.
+        resumed_payload = (selected_payload if selected_payload is not None else
+                           load_checkpoint(
+                               resume_path, validate=True,
+                               expected_observation_schema=expected_observation_schema,
+                               expected_sensor_contract=expected_sensor_contract))
         resumed_step = int(resumed_payload['meta']['step'])
         print(f'{LOG} --resume: loaded exact checkpoint {resume_path} (step={resumed_step:,})', flush=True)
         if finish_if_target_reached(run_dir, resume_path, resumed_step, target_steps, envs):
@@ -612,18 +634,19 @@ def resolve_target_checkpoint(run_dir: Path, *, target_steps: int, envs: int, la
     """
     expected = update_boundary_at_or_after(target_steps, envs)
     raw_resume = find_resume(run_dir)
-    resume = find_valid_resume(run_dir,
-        expected_observation_schema=expected_observation_schema,
+    selected = _first_valid_resume(
+        run_dir, expected_observation_schema=expected_observation_schema,
         expected_sensor_contract=expected_sensor_contract)
-    if raw_resume is not None and resume is None:
+    if raw_resume is not None and selected is None:
         raise RuntimeError(
             f"{label} has checkpoints but none are valid current-schema rewind points under {run_dir/'checkpoints'}"
         )
-    if resume is None:
+    if selected is None:
         return None, None, expected
-    step = checkpoint_step(resume,
-        expected_observation_schema=expected_observation_schema,
-        expected_sensor_contract=expected_sensor_contract)
+    resume, payload = selected
+    # This step belongs to the exact payload already validated above.
+    # Do not deserialize it a second time (or race an intervening write).
+    step = int(payload['meta']['step'])
     if step > expected:
         raise RuntimeError(
             f"{label} checkpoint is beyond the expected target boundary: step={step:,} expected={expected:,}; "

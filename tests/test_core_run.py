@@ -825,3 +825,60 @@ def test_current_360_checkpoint_roundtrip_rejects_sensor_drift(tmp_path):
         file,expected_observation_schema=OBS_SCHEMA_TERRAIN,
         expected_sensor_contract=contract)['meta']['step']==256
 
+    # A newer but corrupt latest.pkl must never eclipse a valid final.pkl.
+    # The selected validated payload is reused by the trainer and run guard,
+    # rather than unpickled a second time merely to obtain its step.
+    import os
+    from emu.checkpoint_io import (
+        find_resume, find_valid_resume, resume_training_lineage,
+        resolve_target_checkpoint)
+    ck=tmp_path/'fallback-run'/'checkpoints'
+    ck.mkdir(parents=True)
+    final=ck/'final.pkl'
+    latest=ck/'latest.pkl'
+    final.write_bytes(good_bytes)
+    latest.write_bytes(b'corrupt checkpoint')
+    stamp=final.stat().st_mtime_ns+1_000_000_000
+    os.utime(latest,ns=(stamp,stamp))
+    run_dir=ck.parent
+    assert find_resume(run_dir)==latest
+    assert find_valid_resume(
+        run_dir,expected_sensor_contract=contract)==final
+    with patch('emu.checkpoint_io.load_checkpoint',wraps=load_checkpoint) as loads:
+        payload,step,complete=resume_training_lineage(
+            run_dir,resume='auto',target_steps=512,envs=8,
+            expected_sensor_contract=contract)
+        assert loads.call_count==2  # corrupt latest, then valid final
+    assert step==256 and not complete
+    assert payload['meta']['step']==256
+    with patch('emu.checkpoint_io.load_checkpoint',wraps=load_checkpoint) as loads:
+        completed,partial,boundary=resolve_target_checkpoint(
+            run_dir,target_steps=512,envs=8,label='fallback-run',
+            expected_sensor_contract=contract)
+        assert loads.call_count==2
+    assert completed is None and partial==final and boundary==512
+
+    # A corrupt latest may also fall back to a valid rotating snapshot.
+    # At the exact PPO boundary, publish final.pkl without another update.
+    ck2=tmp_path/'snapshot-run'/'checkpoints'
+    ck2.mkdir(parents=True)
+    snapshot=ck2/'snapshot_step_000000000256.pkl'
+    snapshot.write_bytes(good_bytes)
+    (ck2/'latest.pkl').write_bytes(b'incomplete pickle')
+    with patch('emu.checkpoint_io.load_checkpoint',wraps=load_checkpoint) as loads:
+        completed,partial,boundary=resolve_target_checkpoint(
+            ck2.parent,target_steps=256,envs=8,label='snapshot-run',
+            expected_sensor_contract=contract)
+        assert loads.call_count==2  # corrupt latest, then valid snapshot
+    assert completed==ck2/'final.pkl' and partial is None and boundary==256
+    assert completed.read_bytes()==good_bytes
+
+    # Fail closed rather than treating an all-corrupt directory as cold start.
+    ck3=tmp_path/'broken-run'/'checkpoints'
+    ck3.mkdir(parents=True)
+    (ck3/'latest.pkl').write_bytes(b'broken')
+    with pytest.raises(RuntimeError,match='none are valid'):
+        resolve_target_checkpoint(
+            ck3.parent,target_steps=512,envs=8,label='broken-run',
+            expected_sensor_contract=contract)
+
