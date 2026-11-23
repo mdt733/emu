@@ -85,14 +85,24 @@ showcase/Pages barrier.
   uphill survival**. This is a reason to test the safety-aware teacher,
   **not** proof that it works cold. Exact tables and actor/physics
   fingerprints are in [research findings](docs/RESEARCH_FINDINGS.md).
-- **Current user-local sanity trial:** separate `0→120M` cold school,
-  seed735, from source commit
-  `1fa832fc7cd9241e2772b44ad434613c6080adfa`, using
-  `EMU_SCHOOL_STEPS=120000000`. Its run directory is
-  `~/emu-data/runs/h40-school-cold-120m-s735/`. The owner reported
-  it appeared healthy while running; **completion and qualification
-  results have not yet been supplied**. It is a did-we-break-training
-  check, not a teacher championship.
+- **Finished user-local 0→120M sanity trial:** seed735, source
+  `1fa832fc7cd9241e2772b44ad434613c6080adfa`, **120,061,952**
+  steps / 2,048 worlds, no external parent, no recorded resume.
+  Operator supplied `school-evidence.zip` with clean 120M run and
+  three independent read-only physical exams. Full checkpoints remain
+  outside Git at
+  `~/emu-data/runs/h40-school-cold-120m-s735/`.
+  **Pipeline succeeded; teacher still struggles uphill.** Fixed
+  350-frame core/dynamic/combined survival each 100%; 30/60s deep
+  trials survive 8/8 across scenarios, but command missions
+  (especially lateral/reverse/stop) frequently fail.
+  In the signed 4–80mm test (50 trials/height/direction, seed4701):
+  controlled traversal **UP 39/500 at 4–40mm and 0/500 at 44–80mm**;
+  **DOWN 138/500 at 4–40mm and 71/500 at 44–80mm**. Uphill
+  Academy frontier reached just 3.5mm three times then retreated to
+  **3mm**; downhill reached **55mm**. Full source/evidence audit in
+  [research findings](docs/RESEARCH_FINDINGS.md). This is **a
+  successful execution shakeout, not a proven good teacher**.
 - **Branch continues to evolve during that trial.** Current
   `research/h40-unified-school-cold-v1` head is intentionally newer
   than the running student's source. Do **not** pull the moving head
@@ -131,14 +141,18 @@ default directory is `~/emu-data/runs/h40-school-cold-s735/`.
 An interrupted student must resume at its original Git commit with
 the exact seed/recipe, **never** at an arbitrarily newer branch head.
 
-**Next priorities:** finish/inspect the 120M execution sanity run;
-validate full-episode teacher signals (a two-frame CUDA smoke cannot
-do that); remove duplicated or proven-unused scaffolding **in this
-same research branch**; test candidate teacher improvements as
-well-designed controlled ablations without changing a running
-student; then repeat complete cold training across multiple seeds
-against an equal-budget cold baseline. Maintain hardware skepticism.
-No auto-promotion.
+**Next priorities:** preserve and interpret the completed
+120M evidence as a functional pipeline test, **not** capability
+qualification. The uphill governor's 24-first-life, same-episode
+safe-transfer/survival test repeatedly retreated to 3mm while downhill
+earned 55mm. Inspect exposure, physical transfer reliability and
+post-lip/whole-life falls before modifying the **existing** teacher;
+replace a flawed decision, don't add another reward or director.
+Keep current one-branch code cleanup; then freeze one revised
+source/config for independent cold seeds and **new genuinely unseen
+evaluation seed(s)** (4701 has been inspected while diagnosing this
+student). Same-budget baseline, retained walking and robust climbing
+must all improve before promotion. Maintain hardware skepticism.
 
 **Research principle:** one student, one teacher for its whole life;
 one improving research branch; physical crossing **plus** survival and
