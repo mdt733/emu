@@ -8,8 +8,8 @@ Each treatment changes ONE existing, documented TrainingConfig knob.
 Subcommands:
   list : inspect the control and 12 experimental lessons (no files touched)
   lock : pre-register source/parent/checkpoint SHA, seed and run recipes (no GPU)
-  plan : show one or all exact commands from the immutable lock (no GPU)
-  run  : launch ONE explicitly selected arm, checking lineage first
+  plan : preview a selected absolute step boundary (no GPU)
+  run  : launch ONE arm only to its NEXT allowed boundary; no auto-extension
 
 Separate evals/lesson synthesis happen outside this training launcher, never
 inside the teacher or PPO loop. No automatic champion promotion.
@@ -29,7 +29,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 PARENT_SOURCE = "4048e8450c36882501cbb624f4ca656e11da9419"
 PARENT_STEPS = 120_061_952
-TARGET_STEPS = 160_000_000  # absolute, at next full PPO-update boundary
+TARGET_STEPS = 160_000_000  # ultimate absolute requested target
+STAGES = (130_000_000, 140_000_000, TARGET_STEPS)
+PPO_BATCH_STEPS = 2048 * 32  # 2,048 worlds x 32 rollout frames
 PROFILE = "h40-spring-only"
 EXPERIMENT_ID = "ks150-stair-teaching-lessons-v1"
 DEFAULT_PARENT = Path.home() / "emu-data/runs/h40-school-cold-120m-s736/checkpoints/final.pkl"
@@ -221,6 +223,10 @@ def _lock(root: Path, parent: Path, seed: int) -> Path:
         "parent": parent_info,
         "branch_seed": seed,
         "target_absolute_steps": TARGET_STEPS,
+        "milestone_targets": list(STAGES),
+        "milestone_ppo_boundaries": [
+            (step + PPO_BATCH_STEPS - 1)//PPO_BATCH_STEPS*PPO_BATCH_STEPS
+            for step in STAGES],
         "inherited_parent_steps": PARENT_STEPS,
         "envs": 2048,
         "model_profile": PROFILE,
@@ -230,8 +236,9 @@ def _lock(root: Path, parent: Path, seed: int) -> Path:
         "evaluation": dict(
             discovery_seeds=[6901, 6902],
             sealed_final_seed=7901,
-            measurements_at_absolute_steps=[PARENT_STEPS, 130_000_000,
-                                            140_000_000, TARGET_STEPS],
+            measurements_at_absolute_steps=[PARENT_STEPS, *STAGES],
+            all_arms_stop_for_review=True,
+            do_not_advance_on_training_reward=True,
             release_qualification=False),
         "rules": ["Control and 12 one-knob variants share complete parent state",
                   "Never rank on Academy frontier alone",
@@ -251,6 +258,10 @@ def _read_lock(root: Path) -> dict:
     if (lock.get("schema") != "emu_stair_teaching_lesson_lab_v1" or
             lock.get("id") != EXPERIMENT_ID or
             lock.get("target_absolute_steps") != TARGET_STEPS or
+            lock.get("milestone_targets") != list(STAGES) or
+            lock.get("milestone_ppo_boundaries") != [
+                (step+PPO_BATCH_STEPS-1)//PPO_BATCH_STEPS*PPO_BATCH_STEPS
+                for step in STAGES] or
             lock.get("baseline_recipe") != list(REFERENCE) or
             set(lock.get("arms", {})) != set(ARMS) or
             any(lock["arms"][k]["flag"] != v[0] or
@@ -264,7 +275,37 @@ def _read_lock(root: Path) -> dict:
     return lock
 
 
-def _command(lock: dict, root: Path, arm: str) -> list[str]:
+def _stage_extension_allowed(root: Path, arm: str, to_steps: int) -> bool:
+    """Reject stage skips and incomplete intermediate milestones.
+
+    All arms must complete, inspect and deliberately advance in the same
+    130M -> 140M -> 160M sequence; no terminal 40M gamble. The core
+    inspect_run path also validates the prior final.pkl before extending.
+    """
+    if arm not in ARMS or to_steps not in STAGES:
+        raise ValueError("Unknown arm or non-preregistered stage")
+    run_dir = root / "runs" / arm
+    cfg_path = run_dir / "training_config.json"
+    if not cfg_path.is_file():
+        if to_steps != STAGES[0]:
+            raise RuntimeError("First fork must stop at 130M for matched review")
+        return False
+    old_steps = json.loads(cfg_path.read_text(encoding="utf-8")).get("steps")
+    if old_steps not in STAGES:
+        raise RuntimeError("Existing child has an unregistered training target")
+    if to_steps == old_steps:
+        return False  # an interrupted stage resumes only itself
+    if to_steps < old_steps or to_steps != STAGES[STAGES.index(old_steps)+1]:
+        raise RuntimeError("Do not skip stages, reverse targets or exceed 160M")
+    prior_final = run_dir / "checkpoints" / "final.pkl"
+    if not prior_final.is_file():
+        raise RuntimeError("Finish the previous stage and its physical review first")
+    return True
+
+
+def _command(lock: dict, root: Path, arm: str, to_steps: int) -> list[str]:
+    if arm not in ARMS or to_steps not in STAGES:
+        raise ValueError("Unknown arm or target stage")
     run_dir = root / "runs" / arm
     # Resumed children MUST restore their own frozen config; external parent
     # proof is for the first fork only, never a mid-run source override.
@@ -277,7 +318,7 @@ def _command(lock: dict, root: Path, arm: str) -> list[str]:
                   "--research-parent-source", lock["parent"]["source_commit"],
                   "--research-parent-sha256", lock["parent"]["sha256"]]
     return [sys.executable, "-m", "emu.cli", "train",
-            "--run-dir", str(run_dir), "--steps", str(TARGET_STEPS),
+            "--run-dir", str(run_dir), "--steps", str(to_steps),
             "--envs", "2048", "--seed", str(lock["branch_seed"]),
             "--device", "cuda", *_recipe(arm), *resume]
 
@@ -289,6 +330,12 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--parent", type=Path, default=DEFAULT_PARENT)
     parser.add_argument("--seed", type=int, default=8200)
     parser.add_argument("--arm", choices=tuple(ARMS), default=None)
+    parser.add_argument("--to-steps", type=int, choices=STAGES,
+                        default=STAGES[0],
+                        help="one matched stopping boundary: 130M, 140M, 160M")
+    parser.add_argument("--reviewed", action="store_true",
+                        help="acknowledge matched physical/retention review "
+                             "before advancing beyond the first stage")
     args = parser.parse_args(argv)
     if args.action == "list":
         for name,(flag,value,question,prediction) in ARMS.items():
@@ -304,18 +351,30 @@ def main(argv: list[str] | None = None) -> int:
         parser.error("A training launch must select exactly one --arm")
     root = args.root.expanduser().resolve()
     for arm in arms:
-        cmd = _command(lock, root, arm)
+        cmd = _command(lock, root, arm, args.to_steps)
         print(arm, ":", shlex.join(cmd), flush=True)
         if args.action == "run":
+            extending = _stage_extension_allowed(root, arm, args.to_steps)
+            if extending and not args.reviewed:
+                parser.error("Advance requires --reviewed after independent "
+                             "stair and general-skill retention exams")
             env = os.environ.copy()
+            env.pop("EMU_UNIFIED_CONTINUOUS", None)
             env.update(EMU_PHYSICAL_PROFILE=PROFILE,
                        XLA_PYTHON_CLIENT_PREALLOCATE="false",
                        PYTHONPATH=str(REPO))
+            if extending:
+                # The existing source-controlled finished-run extension gate
+                # requires this deliberate marker; ordinary resume does not.
+                env["EMU_UNIFIED_CONTINUOUS"] = "cold-growth-approved"
             # First validate full checkpoint/source/physical contract without
             # creating a new training run or performing a PPO update.
             subprocess.run([*cmd, "--check-resume-only"],
                            cwd=REPO, env=env, check=True)
             subprocess.run(cmd, cwd=REPO, env=env, check=True)
+            print(f"STOP: {arm} reached requested stage {args.to_steps:,}; "
+                  "retain frozen physical and core-skill evidence before advancing.",
+                  flush=True)
     return 0
 
 

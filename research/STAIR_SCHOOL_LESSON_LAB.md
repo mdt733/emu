@@ -14,7 +14,7 @@ We want evidence about **what to teach, how to teach it, how often to teach it, 
 
 ## Preregistered comparison
 
-All 13 arms start from **the same verified 120,061,952-step checkpoint**, run on the **same frozen tournament source**, with identical episode RNG seed, optimizer state, world count, PPO schedule and absolute training target **160,000,000 steps**. This is about **39.94M additional steps per arm** (the exact final step rounds up to a full PPO update). The control makes the *exact same* teacher decisions and reward choices as the parent continuation. Each of the 12 treatments alters **one** existing CLI training configuration field. Same-arm partial restarts use only `--resume auto` and their own checkpoint, never a second fork from the ancestor.
+All 13 arms start from **the same verified 120,061,952-step checkpoint**, run on the **same frozen tournament source**, with identical episode RNG seed, optimizer state, world count and PPO schedule. The ultimate requested target is **160,000,000 steps**, about **39.98M additional steps per arm** after full-batch rounding. **Training must stop at 130M, 140M and 160M requested steps** (real PPO boundaries **130,023,424**, **140,050,432** and **160,038,912**). An interrupted stage may auto-resume that stage; advancing to the *next* stage is a separate, explicitly reviewed same-source full-state continuation. All arms including control experience the same stage boundaries, so episode-buffer reinitialization is a common condition, not an unbalanced treatment. The control makes the *exact same* teacher decisions and reward choices as the parent continuation. Each of the 12 treatments alters **one** existing CLI training configuration field. Same-arm partial restarts use only `--resume auto` and their own checkpoint, never a second fork from the ancestor.
 
 **Why one parent first:** it is a relatively economical *mechanism screen*. It can isolate treatment differences conditional on this already-trained KS150 student. It cannot establish that a new teacher works from scratch, that the effect generalizes to other training seeds, or that the actor beats original-H40 `main`. Repeat the strongest *lessons*, not just the best policies, across multiple cold parent seeds before incorporating them into a new mainline teaching skeleton.
 
@@ -73,7 +73,7 @@ At the parent checkpoint and **+10M / +20M / +40M** branch development stages, r
 
 Each treatment closes with a **one-page causal-learning entry**: (1) the original question; (2) which signal was altered; (3) observed dose (births/events), not just intended knob; (4) measured effect versus the same-age control, including paired-world uncertainty; (5) first-foot → two-foot → traversal → course-survival funnel by height and speed; (6) what non-stair behaviour improved or degraded; (7) whether the predicted mechanism was supported, contradicted or undecidable; and (8) **proposed change to the next teacher**, including when *not* to apply it. Keep inconclusive/no-effect entries rather than forcing 12 positive conclusions.
 
-**Safety is a hard veto, not a minor score penalty:** a stair bonus that gains transfers while causing major losses in general walking, standing, resilience or long-horizon survival does not qualify for the new school. The nominal screen flags >5 percentage-point loss versus control in any core survival/command panel for mandatory review; this is a caution threshold, not statistical significance or automated deployment approval. High stair performance alone is insufficient.
+**Safety is a hard veto, not a minor score penalty:** a stair bonus that gains transfers while causing major losses in general walking, standing, resilience or long-horizon survival does not qualify for the new school. The nominal screen flags >5 percentage-point loss versus control in any core survival/command panel for mandatory review; this is a caution threshold, not statistical significance or automated deployment approval. **No arm automatically advances beyond the 130M or 140M stage**: an explicit `--reviewed` acknowledgement is required, after checking frozen command/slope/recovery panels and stair funnel evidence against the same-stage control. A safety failure should pause that arm for investigation, even if its stair metric rises. High stair performance alone is insufficient.
 
 ### After the 13 forks: interactions and cold-start proof
 
@@ -97,11 +97,16 @@ python scripts/stair_school_lesson_lab.py lock \
 # See the exact pinned commands before any fork (read-only)
 python scripts/stair_school_lesson_lab.py plan
 
-# Later, on explicit approval, run ONE control continuation. The same
-# command can resume only that child's saved checkpoint if interrupted.
-python scripts/stair_school_lesson_lab.py run --arm C00_control
+# Later, on explicit approval, run ONE CONTROL to the FIRST review stop.
+# The same command may resume only that child's checkpoint if interrupted.
+python scripts/stair_school_lesson_lab.py run --arm C00_control --to-steps 130000000
+
+# Only AFTER reviewing matched frozen stair/general-skill exams at 130M,
+# explicitly advance this arm to the NEXT stage; never skip 140M.
+python scripts/stair_school_lesson_lab.py run --arm C00_control \
+  --to-steps 140000000 --reviewed
 ```
 
 The helper pins the **new source Git SHA** at lock time. Any later code/docs commit changes that SHA and will deliberately prevent training until the exact frozen experiment source is checked out again. A completed training run cannot be resumed from an evolving PR head. For another independent parent seed, a new preregistered study/version is required.
 
-**Budget:** 13 × ~39.94M = ~519.2M additional training environment steps, plus independent physical exams. Budget the full study explicitly; if early stopping is permitted, preregister **identical safety-based stopping rules** before looking at outcomes. Never stop or extend just the exciting arms based on a mid-run leaderboard.
+**Budget:** 13 × 39,976,960 = **519,700,480 additional training environment steps**, plus independent physical exams and two compulsory intermediate human reviews per arm. Training source remains frozen across stage extensions. Actual baseline 120M telemetry recorded ~3,530 seconds of steady PPO-update time; a 40M continuation on comparable hardware is roughly one third of that *before* compilation/exams, so the full thirteen-arm design is material but not inherently absurd. If 130M stage evidence is uninterpretable, pause and diagnose rather than automatically spending 519.7M. Budget the full study explicitly; if early stopping is permitted, preregister **identical safety-based stopping rules** before looking at outcomes. Never stop or extend just the exciting arms based on a mid-run leaderboard.

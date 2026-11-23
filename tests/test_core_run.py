@@ -72,6 +72,32 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert cfg.stillness_birth_frac==0.
     assert cfg.science_step_finish_on_transfer is False
 
+    # The three stop-points share the one immutable parent and exact
+    # controls; there is no 40M launch that bypasses 10M and 20M review.
+    from scripts.stair_school_lesson_lab import (
+        _stage_extension_allowed, _command, STAGES, TARGET_STEPS)
+    assert STAGES == (130000000,140000000,TARGET_STEPS)
+    from pathlib import Path as _Path
+    dry_root=tmp_path/"lab-stage-review"
+    dummy_lock={"branch_seed":8200,
+                "parent":{"path":str(tmp_path/"parent"/"checkpoints"/"final.pkl"),
+                          "source_commit":"a"*40,"sha256":"b"*64}}
+    first=_command(dummy_lock,dry_root,"C00_control",STAGES[0])
+    assert first[first.index("--steps")+1]=="130000000"
+    assert not _stage_extension_allowed(dry_root,"C00_control",STAGES[0])
+    with pytest.raises(RuntimeError,match="First fork"):
+        _stage_extension_allowed(dry_root,"C00_control",STAGES[1])
+    stage=dry_root/"runs"/"C00_control"
+    stage.mkdir(parents=True)
+    (stage/"training_config.json").write_text('{"steps":130000000}')
+    with pytest.raises(RuntimeError,match="Finish the previous stage"):
+        _stage_extension_allowed(dry_root,"C00_control",STAGES[1])
+    ck=stage/"checkpoints"; ck.mkdir()
+    (ck/"final.pkl").write_bytes(b"unit-only: core CLI will validate bytes")
+    assert _stage_extension_allowed(dry_root,"C00_control",STAGES[1])
+    with pytest.raises(RuntimeError,match="Do not skip stages"):
+        _stage_extension_allowed(dry_root,"C00_control",STAGES[2])
+
     # The lesson laboratory's 13 arms must all parse through the REAL
     # training CLI. Every experimental arm changes exactly ONE config
     # field from the same control, without running PPO or opening a GPU.
