@@ -197,6 +197,9 @@ class MatrixExamTests(unittest.TestCase):
                 evaluation=dict(discovery_seeds=[6901,6902],
                                 sealed_final_seed=7901))
             lock.write_text(json.dumps(manifest))
+            (stage/"checkpoints").mkdir()
+            (stage/"checkpoints"/"final.pkl").write_bytes(
+                b"synthetic stage final; no physics")
             actor=dict(git_commit="a"*40,seed=8200,step=130023424,
                        run_name=arm,checkpoint="final.pkl",
                        robot_model_sha256=SCHOOL_DIAGNOSTIC_MODEL)
@@ -209,9 +212,17 @@ class MatrixExamTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"Wrong lab actor"):
                 _verified_lesson_lab_actor(
                     lock,arm,{**actor,"seed":736},exam_seed=6901)
-            with self.assertRaisesRegex(ValueError,"Wrong lab actor"):
+            with self.assertRaisesRegex(ValueError,"completed milestone"):
                 _verified_lesson_lab_actor(
                     lock,arm,{**actor,"step":140050432},exam_seed=6901)
+            # A 130M frozen export is still valid for retrospective exams
+            # after a later stage has been completed under the same source.
+            (stage/"training_config.json").write_text(json.dumps(
+                dict(steps=140000000,seed=8200,envs=2048,
+                     physical_profile="h40-spring-only",
+                     stair_survival_curriculum=True)))
+            self.assertEqual(_verified_lesson_lab_actor(
+                lock,arm,actor,exam_seed=6902)["step"],130023424)
         # Pure read-only 2x2 pairing contract, folded into an existing test.
         cases={}
         for label,vx,horizon in SCHOOL_DIAGNOSTIC_CASES:

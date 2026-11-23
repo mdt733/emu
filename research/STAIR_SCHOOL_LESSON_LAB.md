@@ -128,7 +128,7 @@ After completing an arm's 130M stage, export its frozen checkpoint
 (example: C00; use a *new* evidence output folder):
 
 ```bash
-python -m emu.cli export-policy \
+EMU_PHYSICAL_PROFILE=h40-spring-only python -m emu.cli export-policy \
   ~/emu-data/studies/ks150-stair-teaching-lessons-v1/runs/C00_control/checkpoints/final.pkl \
   ~/emu-data/studies/ks150-stair-teaching-lessons-v1/runs/C00_control/actor-130m.emupolicy
 EMU_PHYSICAL_PROFILE=h40-spring-only python scripts/v5053_matrix_exam.py \
@@ -147,3 +147,32 @@ scoring. Full signed uphill/downhill 350-frame matrix exams and ordinary
 command/slope/recovery retention exams are also required before
 `--reviewed` stage approval; the speed/horizon study alone is not a
 complete generalist-retention assessment.
+
+
+For **generalist retention**, the existing frozen 46-task pulse is
+also required on the same actor and both discovery seeds; it scores
+commands, control, transitions, signed slopes, steps and resilience:
+
+```bash
+EMU_PHYSICAL_PROFILE=h40-spring-only python scripts/examine_h40_specialties.py \
+  --policy ~/emu-data/studies/ks150-stair-teaching-lessons-v1/runs/C00_control/actor-130m.emupolicy \
+  --output ~/emu-data/studies/ks150-stair-teaching-lessons-v1/evidence/C00_control/pulse-130m-s6901.zip \
+  --seed 6901 --worlds 2048 --horizon 600 --device cuda
+```
+
+To assess **both signed stair directions** at each stage, use the
+independent 350-frame matrix (up and down, 4–80 mm, 10 repeats per
+height, 400 active worlds) with the same frozen policy and seed:
+
+```bash
+EMU_PHYSICAL_PROFILE=h40-spring-only python scripts/v5053_matrix_exam.py \
+  --policy ~/emu-data/studies/ks150-stair-teaching-lessons-v1/runs/C00_control/actor-130m.emupolicy \
+  --output ~/emu-data/studies/ks150-stair-teaching-lessons-v1/evidence/C00_control/signed-130m-s6901 \
+  --mode stairs --worlds 512 --levels 20 --trials-per-level 10 \
+  --horizon 350 --seed 6901 --device cuda
+```
+
+Repeat with seed 6902 and each treatment. These are **physical
+experiments**, not the ordinary GitHub regression checks; their results
+must be inspected before stage advancement. The pulse is a short
+screen, not proof of 60-second station keeping or sustained recovery.

@@ -262,7 +262,14 @@ def _verified_lesson_lab_actor(lock_path:Path, arm:str,
             boundaries!=[130023424,140050432,160038912] or
             cfg.get("steps") not in stages):
         raise ValueError("Unregistered or incomplete lab milestone")
-    step=boundaries[stages.index(cfg["steps"])]
+    current_step=boundaries[stages.index(cfg["steps"])]
+    # Historical frozen exports remain auditable after the same run has
+    # advanced to 140M/160M. But a future stage cannot be forged by
+    # changing only the export's source metadata.
+    step=source.get("step")
+    if (step not in boundaries or step>current_step or
+            not (run_dir/"checkpoints"/"final.pkl").is_file()):
+        raise ValueError("Lab actor must belong to a completed milestone")
     if (source.get("git_commit")!=lock["source_commit"] or
             source.get("seed")!=lock["branch_seed"] or
             source.get("step")!=step or
