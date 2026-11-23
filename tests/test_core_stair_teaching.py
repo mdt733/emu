@@ -1,4 +1,4 @@
-"""Core stair physics and gait-payment contracts (former v5051 investigation)."""
+"""Current physical stair-school and gait-payment contracts."""
 
 from __future__ import annotations
 import unittest
@@ -9,6 +9,7 @@ from emu.rewards import _physical_qualities
 class CoreStairPhysicsTests(unittest.TestCase):
 
     def test_four_world_actual_mjx_science_update(self):
+        self._check_first_lip_course_independence()
         # Compile the *real physics step* including new transfer event
         # memory and all reward-side research branches, not a toy reward
         # calculation. Four worlds are deliberately CPU-bounded.
@@ -21,6 +22,7 @@ class CoreStairPhysicsTests(unittest.TestCase):
             terrain_step_max_m=.08,observation_schema=OBS_SCHEMA_TERRAIN,
             unified_capability_focus=True,terrain_carpet=True,
             terrain_carpet_prisms=True,academy_stream=True,
+            stair_survival_curriculum=True,ordinary_step_cap_m=.04,
             terrain_lesson="coherent-careful",
             solver_iterations=2,solver_ls_iterations=4,
             science_gate_mode="zero-only",
@@ -55,6 +57,13 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertEqual(out.state.academy_progress_origin_xy.shape,(4,2))
         self.assertIn("academy_followthrough_new",out.metrics)
         self.assertIn("academy_goal_complete_new",out.metrics)
+        # The optional survival-aware school consumes full-episode counters;
+        # they never become actor observations or independent rewards.
+        for band in ("near", "easy"):
+            for outcome in ("attempts", "survived", "crossed", "safe_crossed"):
+                name=f"safe_ascent_{band}_{outcome}_up"
+                self.assertIn(name,out.metrics)
+                self.assertEqual(out.metrics[name].shape,(4,))
         self.assertIn("academy_episode_first_lip_armed",out.metrics)
         self.assertIn("academy_episode_two_foot_ready",out.metrics)
         self.assertIn("hip_roll_motor_load_frac_left",out.metrics)
@@ -82,6 +91,89 @@ class CoreStairPhysicsTests(unittest.TestCase):
         self.assertEqual(out.state.academy_goal_xy.shape,(4,2))
         self.assertTrue(np.isfinite(
             np.asarray(jax.device_get(out.state.academy_goal_xy))).all())
+
+    def _check_first_lip_course_independence(self):
+        """Full-life UP evidence must not inherit unearned 55mm DOWN.
+
+        Compare exact same seeded, physical prism height profiles with
+        and without the directional coherence fix. The first lip keeps
+        the same sign/height; DOWN-first and ordinary worlds are unchanged.
+        Also check JAX and NumPy agree, including signed birth positions.
+        """
+        from emu.terrain_carpet_mjx import (
+            hash_float, make_profiles, school_first_lip_course_limits,
+            PROFILE_HALF)
+        import jax
+        import jax.numpy as jnp
+        import warnings
+
+        # The terrain hash intentionally overflows 32 bits. Ensure the
+        # overflow-warning cleanup preserves the original exact tile map
+        # for signed world coordinates and never drifts between NumPy/JAX.
+        hash_cells=np.asarray([-127,-1,0,1,127],dtype=np.int32)
+        hash_seeds=np.asarray([0,1,735,736,2**31-1],dtype=np.int32)
+        with warnings.catch_warnings():
+            warnings.simplefilter('error',RuntimeWarning)
+            observed=hash_float(np,hash_cells,0,hash_seeds,101)
+        mask=0xFFFFFFFF
+        reference=[]
+        for cell,seed in zip(hash_cells,hash_seeds):
+            x=((int(cell)&mask)*374761393
+               +(int(seed)&mask)*1442695041
+               +101*1274126177)&mask
+            x=((x^(x>>13))*1274126177)&mask
+            reference.append(np.float32(x^(x>>16))/np.float32(4294967296.))
+        np.testing.assert_array_equal(observed,np.asarray(reference))
+        np.testing.assert_array_equal(
+            np.asarray(jax.jit(lambda c,s:
+                hash_float(jnp,c,0,s,101))(
+                    jnp.asarray(hash_cells),jnp.asarray(hash_seeds))),
+            observed)
+
+        seeds=np.arange(64,dtype=np.int32)
+        cells=np.tile(np.asarray([0,-1,1,0],np.int32),16)
+        academy=np.tile(np.asarray([True,True,False,True],bool),16)
+        up=np.full(64,.003,np.float32)
+        down=np.full(64,.055,np.float32)
+        up_new,down_new=school_first_lip_course_limits(
+            np,seeds,cells,academy,up,down)
+        first_up=hash_float(np,cells+1,0,seeds,101)<.5
+        self.assertTrue(np.any(academy & first_up))
+        self.assertTrue(np.any(academy & ~first_up))
+        affected=academy & first_up
+        np.testing.assert_array_equal(up_new,up)
+        np.testing.assert_array_equal(down_new[affected],up[affected])
+        np.testing.assert_array_equal(down_new[~affected],down[~affected])
+        # Full seeded X/Y terrain generator still has physical seams.
+        old_x,old_y=make_profiles(np,seeds,up,down)
+        new_x,new_y=make_profiles(np,seeds,up_new,down_new)
+        k=cells+1+PROFILE_HALF
+        row=np.arange(len(seeds))
+        original_first=old_x[row,k]-old_x[row,k-1]
+        changed_first=new_x[row,k]-new_x[row,k-1]
+        # cumsum over 256 seeded strips adds float32 rounding below
+        # a micrometre when earlier DOWN heights are reduced.
+        np.testing.assert_allclose(
+            original_first,changed_first,rtol=0.,atol=1e-6)
+        self.assertTrue(np.all(changed_first[first_up]>0.))
+        self.assertTrue(np.all(changed_first[~first_up]<0.))
+        np.testing.assert_array_equal(new_x[~affected],old_x[~affected])
+        np.testing.assert_array_equal(new_y[~affected],old_y[~affected])
+        # Downstream downsteps in uphill-first lives are reduced; they
+        # remain genuine signed steps, not removed or scored by fiat.
+        self.assertTrue(np.any(
+            np.diff(new_x[affected],axis=1) < -.0015))
+        self.assertLess(
+            float(np.min(np.diff(new_x[affected],axis=1))),
+            -0.0015)
+        np.testing.assert_allclose(
+            np.asarray(jax.jit(lambda seed,tile,is_academy,u,d:
+                school_first_lip_course_limits(
+                    jnp,seed,tile,is_academy,u,d)[1])(
+                    jnp.asarray(seeds),jnp.asarray(cells),
+                    jnp.asarray(academy),jnp.asarray(up),
+                    jnp.asarray(down))),
+            down_new,atol=1e-8,rtol=0.)
 
     def test_sync_off_reduces_only_phase_payment(self):
         m=dict(cmd_pitch=np.ones(1)*0.,height_error=np.zeros(1),

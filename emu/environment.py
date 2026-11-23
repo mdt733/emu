@@ -10,11 +10,17 @@ physical world: reset, motor delivery, disturbances, stepping, sensor packets
 and measured events. rewards.py owns the scalar teaching payment.
 
 Read from top to bottom:
-  1. Fixed robot/contact contracts, terrain XML construction and state packets.
-  2. TaskSampler: teacher requests and command transitions (NOT actor truth).
-  3. EmuMJXEnv: the single batched reset/physics/observation implementation.
-     Within it: motor/physics -> lesson/world reset -> sensor simulation
-     -> supported terrain evidence -> reward facts and deployable observations.
+  1. Constants, frozen state/measurement packets and pure physical helpers.
+  2. TaskSampler: lesson births and command transitions (NOT actor truth).
+  3. EmuMJXEnv: ONE world constructor and public reset/step/obs facade.
+  4. Private implementation, ordered by ownership:
+       step and episode evidence -> actuator/physics integration
+       -> birth and terrain reset -> delayed sensor acquisition
+       -> supported terrain events -> reward/evaluation physical facts
+       -> deployable actor packet.
+Methods stay together so a reader can follow one real physics control frame.
+The teacher never sees future observations, and the policy never receives
+privileged exact-contact/reward fields.
 No hidden alternate physics engine and no per-experiment environment subclass.
 
 Teacher-only task fields never become privileged actor sensor channels.
@@ -43,6 +49,7 @@ from .terrain_carpet_mjx import (
     midpoint_anchor as carpet_midpoint_anchor,
     PROFILE_HALF as CARPET_PROFILE_HALF,
     role_envelope as carpet_role_envelope, make_profiles as carpet_make_profiles,
+    school_first_lip_course_limits as carpet_school_course_limits,
     exact_exam_lip_profiles as carpet_exam_lip_profiles,
     generate_window as carpet_generate_window, sample_surface as carpet_sample_surface,
     ray_surface as carpet_ray_surface, VISIT_HISTORY as CARPET_VISIT_HISTORY,
@@ -69,6 +76,18 @@ from .contracts import (
     TASK_PARAM_FIELDS, P
 )
 
+def school_step_envelope(xp, academy_mask, up_m, down_m, ordinary_cap_m):
+    """Cap ordinary signed birth lips without reducing independent Academy lessons.
+
+    Academy up/down frontiers are learned separately and may exceed the
+    cautious ordinary rehearsal height. No physical model or sensor changes.
+    """
+    if ordinary_cap_m is None:
+        return up_m, down_m
+    return (xp.where(academy_mask, up_m, xp.minimum(up_m, ordinary_cap_m)),
+            xp.where(academy_mask, down_m, xp.minimum(down_m, ordinary_cap_m)))
+
+
 # Deployable actor observation excludes training-only
 # teacher signals (regime id, exact contact/fall classifiers, phase grading and
 # step-evidence composites) from the policy input. Every remaining field has a
@@ -79,6 +98,7 @@ from .contracts import (
 # Channel order is fixed by the 360-input terrain sensor observation contract.
 # A fixed-size four-frame history models measurement and actuation latency;
 # its JIT shape cannot vary between training and the frozen examiner.
+# --- Physical constants and deployable observation bounds -------------------
 FOOT_BODIES = ['r_foot', 'l_foot']
 BAD_BODIES = ['torso', 'r_thigh', 'l_thigh', 'r_shin', 'l_shin']
 TARGET_SPAN = np.array([0.38, 0.48, 0.58, 0.38, 0.48, 0.58], dtype=np.float32)
@@ -138,6 +158,7 @@ STEADY_RESILIENCE_BORROW_FRAC = 0.15
 #     toward zero the moment a push lands.
 
 
+# --- Frozen JAX-compatible state and per-frame packets -----------------------
 class EnvState(NamedTuple):
     data: Any
     hist: Any
@@ -292,6 +313,7 @@ class StepOut(NamedTuple):
     metrics: dict[str, Any]
 
 
+# --- Shared pure physical/control measurements (NumPy or JAX) ---------------
 def horizontal_tracking_motion(xp, rotation_world, linear_world, angular_world):
     """Body-heading velocity across the contact plane, independent of torso pitch.
 
@@ -485,6 +507,7 @@ class CommandEnvelope(NamedTuple):
     yaw: Any
 
 
+# --- TaskSampler: physical requests, not privileged actor inputs -----------
 # Teacher-side commands, specialist lessons and ramp timing. This class
 # samples requests; it never overrides the policy's six motor actions.
 class TaskSampler:
@@ -955,6 +978,7 @@ class TaskSampler:
             hold_left_next=cmd_hold_left_next,
         )
 
+# --- EmuMJXEnv: one model, one vectorized control-step implementation -------
 # One production MJX environment, one six-servo robot, one vectorised JAX
 # stepping path. Keep its physical model and deployment sensor contract here.
 class EmuMJXEnv(TaskSampler):
@@ -1012,6 +1036,8 @@ class EmuMJXEnv(TaskSampler):
                  science_step_approach_m: float = 0.0,
                  science_step_finish_on_transfer: bool = False,
                  academy_stream: bool = False,
+                 stair_survival_curriculum: bool = False,
+                 ordinary_step_cap_m: float | None = None,
                  terrain_carpet: bool = False,
                  carpet_transition_cap_deg: float = 3.0,
                  terrain_carpet_prisms: bool = False,
@@ -1176,6 +1202,21 @@ class EmuMJXEnv(TaskSampler):
         self.terrain_carpet=bool(terrain_carpet)
         self.terrain_carpet_prisms=bool(terrain_carpet_prisms)
         self.academy_stream=bool(academy_stream)
+        if type(stair_survival_curriculum) is not bool:
+            raise ValueError('stair survival teacher flag must be boolean')
+        if stair_survival_curriculum and not self.academy_stream:
+            raise ValueError('stair survival teacher requires streaming Academy')
+        if stair_survival_curriculum and science_step_finish_on_transfer:
+            raise ValueError(
+                'survival school cannot certify prematurely ended lessons')
+        if ordinary_step_cap_m is not None and (
+                not math.isfinite(ordinary_step_cap_m)
+                or not 0.001 <= ordinary_step_cap_m <= 0.08):
+            raise ValueError('ordinary signed step cap must be within 1..80mm')
+        if stair_survival_curriculum and ordinary_step_cap_m is None:
+            raise ValueError('stair survival teacher requires an explicit ordinary step cap')
+        self.stair_survival_curriculum=stair_survival_curriculum
+        self.ordinary_step_cap_m=ordinary_step_cap_m
         self.academy_height_cap_m=float(academy_height_cap_m)
         if (type(academy_course_episode_frames) is not int or
             not 700<=academy_course_episode_frames<=1500):
@@ -1543,7 +1584,8 @@ class EmuMJXEnv(TaskSampler):
     def obs(self, state: EnvState):
         return state.hist.reshape((self.num_envs, self.obs_dim))
 
-    # ---------------- JAX-only implementation below ----------------
+    # --- One batched reset -> step -> truthful next-frame record -------------
+    # All below operate on JAX arrays; Python host bookkeeping lives in training.py.
 
     def _split_batch(self, keys, n: int):
         jax = self.jax
@@ -1768,7 +1810,9 @@ class EmuMJXEnv(TaskSampler):
         goal_foot_seen=state.academy_goal_foot_seen
         goal_stable_streak=state.academy_goal_stable_streak
         goal_completed=state.academy_goal_completed
-        if self.science_step_goal_weight > 0. or self.science_step_finish_on_transfer:
+        if (self.science_step_goal_weight > 0.
+                or self.science_step_finish_on_transfer
+                or self.stair_survival_curriculum):
             from .step_goal import (
                 arrival_quality, stable_arrival, short_climb_quality,
                 CLIMB_STABLE_FRAMES)
@@ -1802,7 +1846,12 @@ class EmuMJXEnv(TaskSampler):
                 goal_transfer_ready)
             strict=(strict & state.academy_active & step_focus &
                     ~terminal_fail & ~timeout)
-            strict=strict & (self.science_step_goal_weight>0.)
+            # The school trains a velocity-driven climber, NOT a robot
+            # with observable world-XY station keeping. Optional bounded
+            # progress shaping may stay on, but the strict parked-position
+            # goal payment is disabled for this teacher.
+            strict=(strict & (self.science_step_goal_weight>0.)
+                    & (not self.stair_survival_curriculum))
             goal_stable_streak,goal_new=stable_arrival(
                 jnp,strict,goal_stable_streak,goal_completed)
             goal_completed=goal_completed|goal_new
@@ -1832,7 +1881,10 @@ class EmuMJXEnv(TaskSampler):
                    8.*finish_new.astype(jnp.float32))
             reward=reward+bonus
             ep_return=ep_return+bonus
-            done=done | goal_new | finish_new
+            # The school's complete episode runs to natural timeout/fall.
+            # Other research teachers may retain an optional terminal
+            # precision-arrival reward; it never applies to this school.
+            done=done | (goal_new & (not self.stair_survival_curriculum)) | finish_new
         else:
             goal_new=jnp.zeros_like(done)
             finish_new=jnp.zeros_like(done)
@@ -2012,6 +2064,31 @@ class EmuMJXEnv(TaskSampler):
                       (academy_relative_height<=1.05))
         academy_easy=((academy_relative_height>=.36) &
                       (academy_relative_height<.68))
+        # V2 SAFE ASCENT, honest FIRST-LIFE episode evidence. Anchor the
+        # difficulty band to the PHYSICALLY MEASURED FIRST birth lip and its
+        # birth frontier. Do not classify a later approach, a newer frontier,
+        # or a single foothold as a survived stair trial. A real terminal
+        # fall is the only failure; reaching timeout upright is survival.
+        safe_ascent_first_up = (
+            done & state.academy_active &
+            (state.academy_birth_lip_m > .0015) &
+            (state.academy_birth_frontier_m >= .003) &
+            # An episode generated before a frontier expansion may finish
+            # afterward. Count only births at the CURRENT up frontier,
+            # never let easy old lessons qualify a harder new height.
+            (jnp.abs(state.academy_birth_frontier_m -
+                     params[P.academy_height_up_m]) <= .00020))
+        safe_ascent_birth_ratio = (
+            state.academy_birth_lip_m /
+            jnp.maximum(state.academy_birth_frontier_m, .001))
+        safe_ascent_bands = (
+            ('near', safe_ascent_first_up &
+             (safe_ascent_birth_ratio >= .78) &
+             (safe_ascent_birth_ratio <= 1.05)),
+            ('easy', safe_ascent_first_up &
+             (safe_ascent_birth_ratio >= .36) &
+             (safe_ascent_birth_ratio < .68)),
+        )
         terrain_up=terrain_active & (ordinary_lip>0.)
         terrain_down=terrain_active & (ordinary_lip<0.)
         # Step severity is measured from physical shared-edge contacts,
@@ -2143,6 +2220,23 @@ class EmuMJXEnv(TaskSampler):
             'terrain_episode_attempt': (done & terrain_active).astype(jnp.float32),
             'terrain_episode_success': (timeout & ~terminal_fail & terrain_active & terrain_crossed).astype(jnp.float32),
             'terrain_cross_new':terrain_cross_new.astype(jnp.float32),
+            # First-lip outcome at episode closure; source-pinned V2 tutor
+            # consumes only if enabled. No reward, 360-obs or reset changes.
+            **{f'safe_ascent_{band}_{outcome}_up':(
+                cohort & condition).astype(jnp.float32)
+                for band,cohort in safe_ascent_bands
+                for outcome,condition in (
+                    ('attempts',jnp.ones_like(done,dtype=jnp.bool_)),
+                    ('survived',~terminal_fail),
+                    # FIRST-LIP arming alone proves only ONE upper foot.
+                    # Each foot must independently earn five real upper-tile
+                    # support frames before the birth has a full transfer.
+                    # No precise 60cm parked position or later lip credit.
+                    ('crossed',stepped.academy_goal_transfer_ready),
+                    # Graduation additionally requires the same episode
+                    # to survive until its natural timeout.
+                    ('safe_crossed',stepped.academy_goal_transfer_ready &
+                                    ~terminal_fail))},
             'academy_active':state.academy_active.astype(jnp.float32),
             'academy_lip_index':academy['lip_index'].astype(jnp.float32),
             'academy_lip_height_m':academy['height_m'],
@@ -2668,7 +2762,7 @@ class EmuMJXEnv(TaskSampler):
         task=task.at[:,T.birth_resilience_d].set(birth)
         return task,active
 
-    # ---- Teacher-only physical terrain placement at episode birth ----
+    # --- New lesson births and physical rolling-tile reset ------------------
     def _academy_birth(self, keys, params, focus_id,
                        specialist_active, athletic_rehearsal):
         """Assign a real prism STEP cohort; old three-slab bodies are gone.
@@ -2716,10 +2810,23 @@ class EmuMJXEnv(TaskSampler):
         down=jnp.where(academy,params[P.academy_height_down_m],
                            jnp.maximum(params[P.terrain_height_m],
                                        params[P.academy_height_down_m]))
+        # The ordinary envelope previously inherited max(terrain,Academy)
+        # and therefore bypassed the claimed 40mm school safety ceiling
+        # whenever Academy had earned 55mm. Enforce it in actual births.
+        up,down=school_step_envelope(
+            jnp,academy,up,down,self.ordinary_step_cap_m)
         slope,up,down=carpet_role_envelope(
             jnp,focus_id,specialist_active,task[:,T.athletic_rehearsal],
             params[P.slope_max_deg],up,down,academy,
             params[P.slope_exposure],params[P.terrain_exposure],seeds)
+        if self.stair_survival_curriculum:
+            # Keep a 24s first-UP lesson within the demonstrated UP
+            # physical band; independently earned tall DOWN belongs
+            # to DOWN-first births, not this uphill graduation verdict.
+            up,down=carpet_school_course_limits(
+                jnp,seeds,
+                jnp.floor(data.qpos[:,0]/CARPET_TILE_M).astype(jnp.int32),
+                academy,up,down)
         xprof,yprof=carpet_make_profiles(jnp,seeds,up,down)
         if self.exam_fixture_steps is not None:
             # No sampled ±X sign, jitter or extra lip. Exact 1m seam,
@@ -2861,6 +2968,12 @@ class EmuMJXEnv(TaskSampler):
 
     def _reset_with_keys(self, keys, params, carryover_qvel=None,
                          reset_mask=None):
+        """Reset only selected worlds with independent keys and saved teacher packets.
+
+        Shares the same physical birth process as _reset_impl; a terminating
+        world can enter its next episode without resetting its neighbours.
+        Do not change split-key order: it is part of exact seeded lessons.
+        """
         # Same as reset_impl but accepts a key per env so done envs can be reset inside jit.
         # carryover_qvel, when given, is the just-ended episode's actual
         # final qvel (already rolled back to finite by _step_impl's
@@ -3051,7 +3164,7 @@ class EmuMJXEnv(TaskSampler):
     def _rotation_body_to_world(self, data):
         return data.xmat[:, self.torso_id, :].reshape((self.num_envs, 3, 3))
 
-    # ---- Sensor simulation and delayed deployable observations ----
+    # --- Real sensor timing, sample delay and deployable input packets ------
     def _body_packets(self, data):
         jnp = self.jnp
         R = self._rotation_body_to_world(data)
@@ -3469,8 +3582,7 @@ class EmuMJXEnv(TaskSampler):
                 moved&fresh&shared_lip,rise,zero),
             completed=false)
 
-    # ---- Teacher/evaluator-only supported crossing evidence ----
-    # ---- Physical facts for reward and report, not hidden actor inputs ----
+    # --- Truthful reward and evaluation facts (never extra actor inputs) ----
     def _metrics(self, data, task, action, prev_action, phase, prev_foot_pos,
                  carpet_heights=None):
         """Measure physical facts (not a score or the deployable actor packet).

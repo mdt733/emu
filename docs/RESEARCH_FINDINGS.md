@@ -2,6 +2,98 @@
 
 **Current source:** [H40 handover](../handover.md). This is a concise **evidence ledger**, not a second set of runbooks. The full 2026 experiments, source, commands, reports and discarded proposals remain in [the pre-cleanup Git snapshot](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs) and their original PRs. Each result below identifies **its own** physics, source, seeds and exam fixtures. Historical v50xx results must **not** be treated as H40's measured capability; the matched frozen-H40 CUDA study below is the current measured stair baseline.
 
+## Cold school 120M sanity run — 23 November 2026 (uploaded evidence)
+
+**Status: complete from-birth execution/physical evaluation, NOT teacher qualification.**
+User-supplied `school-evidence.zip` (~5.8 MB, verified archive including embedded
+pulse/deep ZIPs), project run `h40-school-cold-120m-s735`, **120,061,952 steps**,
+training seed **735**, **2048 MJX worlds**, zero external ancestor and
+no recorded resume; frozen training source
+`1fa832fc7cd9241e2772b44ad434613c6080adfa` (clean branch),
+`h40-spring-only` exact generated robot SHA
+`21b5856b7a248e5d5b988e2735255d57ec79bae1a7cab0bcb72f481bfc36f470`,
+frozen actor SHA `2a5f56992dc715470d9adf49ef06f7063f3df437890131353c97256994fc4336`.
+The release `main` H40 shares the nominal **400 mm morphology**
+but has **different knee-spring mechanics, generated model hash and actor**.
+The current research branch has advanced **past this training commit**; never
+attribute this learner to newer cleanup commits. Complete checkpoint bytes
+are *not* in the uploaded evidence ZIP; full restartable state stays with
+the operator.
+
+**Pipeline passed:** 1832 PPO rollouts, no recorded gradient-NaN skips
+or rollbacks. Independent read-only examinations ran on **evaluation seed
+4701** with zero optimiser updates; actor/robot/source identities agree
+across the signed-prism matrix, six-specialty pulse and deep 30/60s exam.
+The fixed held-out retention panel improved 20M→120M from broad
+score **0.012→0.847**, reaching 100% 350-frame core, dynamic80 and
+combo70 survival and 85.9% resilience75 survival at the end.
+This is solid pipeline/gait learning, **not** proof of robust task completion.
+
+**The true first-life signed-prism exam** (`exam/stairs/matrix_curve.csv`,
+**50 trials per exact height**, 4–80mm in 4mm increments, seed4701):
+
+| First-life outcome | UP 4–40mm / 500 | UP 44–80mm / 500 | DOWN 4–40mm / 500 | DOWN 44–80mm / 500 |
+| --- | ---: | ---: | ---: | ---: |
+| Leading foot reaches actual destination top | 352 | 0 | 500 | 485 |
+| Each foot independently supported ≥5 frames | 140 | 0 | 266 | 133 |
+| Controlled 5-frame downstream/lane traversal | **39** | **0** | **138** | **71** |
+| Full-life survival to exam horizon | 495 | 262 | 499 | 404 |
+
+**Uphill first-contact cliff:** +28mm 17/50 first top contacts, +32mm
+2/50, +36mm through +80mm **0**. Zero strict parked-arrival
+completions throughout the matrix are *not* evidence of zero controlled
+walking; the training school's global-XY parking gate was intentionally
+disabled. Conversely 95–100% survival at some higher steps can mean
+**stopping before the obstacle**, not climbing.
+
+**The teacher's bottleneck:** recorded Academy uphill frontier **began
+and ended at 3mm**, with only three short promotions to 3.5mm
+(~66M/~77M/~117M) followed by safety retreats. Academy DOWN quickly
+earned its **55mm cap**. The last logged rollout's ordinary Academy
+near-up successes were **23/23**, but actual **completed-first-life**
+near-up evidence was **12 births, 8 survived, 5 bilateral transfers,
+only 4 safe bilateral transfers**. These two counters measure different
+events and must never be compared as synonymous or accumulated across
+logged rows. The uphill governor requires ≥24 completed near-height
+births, ≥55% safe bilateral crossings in the same life and ≥90%
+full-life survival to expand; ≥24 births below 85% survival trigger
+retreat. Its 1200-frame nursery may penalize falling *later* even after
+a first-lip success. Could be insufficient curriculum signal,
+genuinely unsafe skill or both; **do not lower safety gates just to
+make the frontier number grow**. The original study never deliberately
+taught 8cm Academy ascent.
+
+**Other physical capabilities:** 12s/2048-world pulse:
+command **357/384** passed, transition **254/256**,
+control **237/256**, slope **222/384**, resilience **179/256**,
+step **140/512** (these are separate specialist gates, not the signed
+matrix traversal criterion). Longer 8-world deep exam had **8/8
+30s/60s survival in every scenario**; yet **zero/8 bounded 60s
+station-keeping**, forward 0.25m/s mission **1/8**, reverse
+0.20m/s **0/8**, left/right 0.15m/s **0/8**, turn-left
+**7/8**, turn-right **1/8**, combined **6/8**, and
+forward-stop-reverse **0/8**. Staying upright is not adequate evidence
+of obeying heading/route/stop commands; eight worlds give wide
+uncertainty. The capability-field ledger stayed `shadow` with
+zero teaching influence.
+
+**Interpretation / next test:** The 120M experiment **did not break**
+GPU PPO, replayable source identity or independent examination. It
+**did not produce reliable uphill stairs**; course survival and general
+locomotion are the strengths, uphill acquisition/controllable
+continuation the deficits. Review why the same 3mm uphill cohort
+oscillates between expansion and fall-driven retreat, then improve
+the **existing** physical teaching/credit decision in place—no extra
+teacher, branches or stacked rewards. For a causal teacher comparison
+freeze one revised recipe and train multiple **fresh cold seeds** at
+equal budgets against a frozen baseline. Because seed4701 results have
+now been inspected to guide improvements, reserve **new previously
+unseen physical examination seeds** for evaluating the revised teacher;
+4701 remains valid as this candidate's preregistered test, not a
+permanently pristine future holdout. No automatic promotion.
+
+---
+
 ## H40 2,000 same-world frozen-actor signed stair vs flat — 11 November 2026
 
 **Read-only measured CUDA evidence; no PPO updates.** Frozen H40 120,061,952-step actor (training source `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`, export SHA256 `178c201af661d3172d701a7d1d8a7711f9b2106e1f7058bc4902aa9c64a37c7a`, weights SHA256 `d4e35f814baef5e46afa6e96e942c86ab100ef25a4ae1913c76bbdb22615e673`, robot XML SHA256 `b513bb3326a73d9ca661f761f1352b22c36d0f1b6d51be72c2eca15d8712ef5b`). Exact physical 1 m signed-lip prism seams and zero-lip control, 2048 MJX GPU worlds, **2000 same-world indexed pairs**, 20 height levels each direction from ±2.5 to ±50mm, **50 repeated trials per sign/level**, seed 1701, 350 physical frames. [Paired comparison PR #69](https://github.com/mdt733/emu/pull/69) rejects mismatched actor, model, commands, seed, batch, horizon and examiner-source fingerprint. Full user-supplied aggregate `matrix_compare.json`, `matrix_paired_curves.csv` and analysis are retained in [master issue #62](https://github.com/mdt733/emu/issues/62); `matrix_pairs.csv` was not attached in this chat so only supplied aggregate pair counts have been independently rechecked.
@@ -47,3 +139,283 @@ The owner reports pleasing viewer walking and slopes approaching 15°; these are
 - All 18 retired pages are recoverable from the [source-pinned old docs tree](https://github.com/mdt733/emu/tree/ded2a111c9ab50c304e1b1a70736a84b32449887/docs). GPU data and the original run bundles are not embedded in this repository.
 
 **Rule for future studies:** one concise measured result in this ledger, plus a source-pinned commit/run and the relevant externally retained evidence. Remove one-off run instructions and inactive branches when a study ends. Git is the archive, not the working tree.
+
+## KS150 spring-only stair-school evidence — 22–23 November 2026
+
+**Research evidence, not the approved browser champion and not hardware
+validation.** In two independent *evaluation* seeds (1701 and 2701), we
+compared the same KS150 spring-only physical robot (`h40-spring-only`,
+model SHA256 `21b5856b7a248e5d5b988e2735255d57ec79bae1a7cab0bcb72f481bfc36f470`)
+using its independently trained 120M source and then its V1 150M/160M
+warm continuations. The physical test was the v5 exact signed 4–80mm,
+50 trials/height/direction, 350-frame first-life prism matrix; short
+six-specialty and eight-world 60s/30s deep exams also matched. [V1 frozen
+evidence/qualification](https://github.com/mdt733/emu/pull/101) and
+[V2 seed-2701 replication](https://github.com/mdt733/emu/pull/102)
+preserve complete source and examiner fingerprints.
+
+| Seed2701, physical trials | KS150 120M | KS150 150M | KS150 160M |
+|---|---:|---:|---:|
+| Uphill 4–40mm: controlled traversals /500 | 120 | **236** | 151 |
+| Uphill 4–40mm: full first-life survival /500 | 485 | **488** | 471 |
+| Uphill 44–56mm: traversals /200 | 0 | 19 | 21 |
+| Uphill 44–56mm: first-life survival /200 | **196** | 104 | 91 |
+| Downhill 44–80mm: full first-life survival /500 | 131 | **377** | 359 |
+
+Seed1701 showed the same **directional trade-off**: 150M uphill
+4–40mm crossings 245/500 versus 120M 111/500, with survival 490/500
+for both. At 44–56mm uphill, 150M survived only 107/200 versus the
+120M 196/200; 160M was worse (89/200). Good stair *traversal* must be
+distinguished from upright survival after the attempt and from strict
+world-XY precision parking. H40 has velocity feedback, not global-XY
+station-keeping feedback; the 60s zero-command test had 8/8 dynamic
+balance for all and unwanted mean horizontal speeds around 3–4cm/s.
+
+**Teacher-design lessons:** Keep the one learned 360-input actuator policy
+and the measured Spring-only tendon physics. A cold foundation, gradual
+Academy births, authentic supported two-foot transfers and continued
+flat/command/slope/recovery rehearsal improve trainability; but an
+uphill teacher which advances solely on transfers can buy more crossings
+at the price of dangerously many falls. Uphill promotion therefore needs
+**completed first-life survival and supported crossing from the SAME
+physical height cohort**, with evidence windows saved in checkpoints.
+Downhill advancement is independent. The **nominal ordinary-world**
+signed frontier is capped at 40mm; the procedural generator deliberately
+offers some later lip challenges above the nominal height. Academy up
+and down frontiers are independently allowed to earn a nominal 55mm.
+The teacher uses measured physical **first-birth** height and does not
+mix a cohort from an older frontier with a newly graduated height.
+
+The actor has no global-XY position feedback: neither precision parking
+nor static world-coordinate station keeping is a graduation condition.
+The teacher may retain bounded forward-progress shaping, but **strict
+world-XY parked-arrival reward is disabled in the school**. Its actual
+graduation evidence is full first-life survival with **both feet
+independently supported on the first assigned destination tile**, not
+a single upper foothold or merely crossing a world coordinate.
+
+**The current hypothesis is ONE consolidated cold study**, not a
+150M/170M hand-selected student's continuation. The general training
+tool still supports explicitly authenticated research warm starts,
+including frozen source-pinned milestone checkpoints; this study
+simply selects step zero to measure teaching from birth.
+See the single active
+`scripts/run_h40_school_wsl.sh` runner on the cold-school research branch:
+0→180M PPO steps on exactly one source/config, no external warm parent
+and no teacher change at 20M intervals; then repeat whole cold runs with
+other training seeds using that SAME source and budget. Age-dependent
+lesson scheduling inside the saved governor is automatic and allowed.
+One initial seed-735 cold study and one revised seed-736 cold study
+have now completed, **on different source revisions**, and were evaluated
+with different independent exam seeds. This is evidence of real cold
+execution and promising small-step transfer, **not** a matched-seed
+causal test or a multi-seed qualification. Compare completed cold-seed
+cohorts, including failures and the worst learner, against equal-budget
+baseline-teacher cold runs before claiming the education method is
+superior. No automatic champion promotion.
+
+## Revised cold-school qualification — seed 736, 23 November 2026
+
+The operator-supplied `school-evidence(1).zip` verifies a single cold
+0→120M student, source commit `4048e8450c36882501cbb624f4ca656e11da9419`,
+training seed **736**, **120,061,952** environment steps, 2,048 MJX
+worlds, no warm-start ancestor. Profile `h40-spring-only` uses the
+original 400 mm H40 morphology and six-motor/360-input interface with
+KS150 knee support; its generated XML SHA256 is
+`21b5856b7a248e5d5b988e2735255d57ec79bae1a7cab0bcb72f481bfc36f470`.
+Held-out first-life real-prism stair exam **5701** used 50 trials per
+4 mm level and direction, 350 control frames and 2,000 assigned worlds.
+
+| Signed real-prism traversal | Initial cold seed 735 (exam 4701) | Revised cold seed 736 (exam 5701) |
+| --- | ---: | ---: |
+| Uphill +4–40 mm, five-frame traversal | 39/500 | **64/500** |
+| Uphill +44–80 mm, five-frame traversal | 0/500 | **0/500** |
+| Downhill −4–40 mm, five-frame traversal | 138/500 | **132/500** |
+| Downhill −44–80 mm, five-frame traversal | 71/500 | **84/500** |
+
+The revised uphill Academy frontier finished at **3.5 mm** and
+downhill at **55 mm**. The recorded `academy_short_climb_successes`
+counter was always zero **by configuration**:
+`science_step_finish_on_transfer=false` explicitly disables that
+short-completion event in the survival school. Zero here is **not**
+evidence that no partial climbs happened. Short command pulses passed **360/384**,
+recovery pulses **218/256**; 30–60s deep survival was **72/72**
+across nine 8-world scenarios, but 60s stationary position control
+was **0/8**, and several long command missions were **0/8** despite
+survival. The apparent small-step gain is not evidence of solved tall
+uphill climbing. Student source revisions, training seeds, and exam
+seeds differ, so this is **descriptive**, not a controlled proof of
+teacher improvement. The released `main` actor uses different knee
+physics and has not been ranked against this student on an identical
+authenticated mission protocol.
+
+Preserve the complete `final.pkl` and exported `.emupolicy` separately:
+the submitted evidence ZIP contains provenance/results/exams but not
+the bytes needed for exact checkpoint replay. This candidate is not
+approved to replace the immutable `main` actor or its public release.
+
+
+### Seed-736 first-lip funnel autopsy — source and evidence, not a new policy
+
+Post-hoc breakdown of the *same* independently frozen seed-5701 exam,
+350 frames at a fixed +0.25 m/s command:
+
+| Positive real lip | Leading top support | Both feet supported for five frames | Controlled five-frame traversal |
+| --- | ---: | ---: | ---: |
+| +4 to +28 mm (350 worlds) | **350** | **184** | **64** |
+| +32 to +80 mm (650 worlds) | **1** | **1** | **0** |
+
+On small steps, *first* foothold acquisition is not the observed
+bottleneck; bilateral transfer and controlled continuation are. On tall
+steps, a distinct first-foot acquisition cliff starts near +32 mm.
+The 350-frame exam is **not** a full Academy lesson: it has a different
+command and duration from the training cohort.
+
+To separate raw lip-count events from the governor's actual safe-ascent
+evidence, the **184 periodically saved metrics rows** contain these
+*sampled-rollout* event counts (not full 120M totals or a single closed
+24-birth governor window):
+
+| Evidence source / gate | Observed sampled count |
+| --- | ---: |
+| Raw near-height uphill lip encounters / successes | **1,356 / 1,294** |
+| First-life near-height uphill births | **254** |
+| Those births that survived the complete course | **187 / 254** |
+| Those births with verified assigned two-foot transfer | **107 / 254** |
+| Those births with both transfer and full-life survival | **106 / 254** |
+
+The last distinction matters: 106 of the 107 observed transferred births
+survived. In this limited log sample, **failure to reach two-foot transfer**
+and falls **before** transfer appear more important than late post-transfer
+falls. The governor rightly does not treat 1,294 raw per-lip crossings as
+1,294 independent safe completed lessons. Its promotion requires at least
+24 same-frontier births, >=55% *same-life safe* transfers and >=90%
+survival; <85% near-frontier survival can cause retreat. These sampled
+logs are not a substitute for its actual checkpointed decision windows.
+
+**Specific untested hypothesis:** the nursery teaches around **0.10
+m/s** requested forward command for **1,200 frames**; the independent
+stair exam uses **0.25 m/s** for **350 frames**. Faster approach or a
+shorter exposure may improve observed crossing without teaching durable
+course survival. Compare the same frozen seed-736 actor with the same
+KS150 model, assigned first-lip geometry, matched seeds and both
+command/horizon variants as a **diagnostic**. Report first-top,
+bilateral contact, full-life falls and controlled continuation
+separately. This is not a qualifying holdout once the design is chosen
+from seed-5701 evidence. Do not weaken the governor or stack a new
+reward before that experiment.
+
+Reproduce the static logged-rollout-versus-exam funnel without loading
+checkpoints or doing PPO:
+`python -m emu.results --school-audit ~/emu-data/runs/h40-school-cold-120m-s736`
+or pass the saved `school-evidence.zip`. The report labels its sparse
+rollout counts explicitly; it is descriptive and cannot rank policies.
+
+
+### Frozen seed-736 uphill speed × horizon diagnostic (read-only)
+
+A single frozen KS150 student can succeed at the first lip in a 350-frame,
+0.25 m/s exam and still struggle with the school's 1,200-frame life at
+roughly 0.10 m/s. These are **different examination conditions**, not
+proof of defective teaching. Do not infer causality from the previously
+inspected 5701 results.
+
+The existing physical signed-prism examiner now supports one source-locked
+**design-time** comparison: 0.10 and 0.25 m/s, each evaluated for 350 and
+1,200 control frames. All four conditions share the exact **120M seed-736
+export**, generated KS150 robot, identical 1 m first-lip physical fixtures,
+per-world reset keys, and a common **1,201-frame episode timeout**. The old
+700-frame timeout must not masquerade as a 24-second survival failure.
+Separate subprocesses isolate GPU memory; there are no PPO updates, no
+checkpoint writes and no actor promotion.
+
+Run the physical diagnostic **once** on the WSL GPU, with the complete
+seed-736 exported actor already present:
+
+```bash
+cd ~/emu
+python scripts/v5053_matrix_exam.py \
+  --school-diagnostic-suite \
+  --policy ~/emu-data/runs/h40-school-cold-120m-s736/final.emupolicy \
+  --output ~/emu-data/exams/ks150-s736-speed-horizon-v1 \
+  --seed 5701 --device cuda
+```
+
+The runner deliberately selects the KS150 physical profile inside each
+isolated process. Output must be a **new** directory; failed/partial
+physical measurements are left intact for inspection, never overwritten.
+The default comparison uses 256 MJX worlds, of which 200 are assigned to
+uphill +4–80 mm (10 repeats at each exact 4 mm level). It writes a compact
+`school_diagnostic.md`, a JSON provenance/summary, per-height CSV, and the
+original four per-world CSVs. Every condition separately reports first
+upper-foot contact, sustained five-frame contact of each foot, controlled
+crossing and first-life survival. The comparison refuses inconsistent
+actor/robot/exam identities, unpaired world assignments, or a longer
+observation period that implausibly erases an already observed gate.
+
+**Limitations:** This is the *fixed-command first-lip examiner*, not the
+nursery's complete mixture of tasks or age-dependent Academy governor.
+The 5701 seed has already informed the investigation, so these outcomes
+are design-time science, not pristine qualification data. A better
+speed/horizon score does not itself imply a better cold-trained policy
+or authorize replacing the original H40 champion on `main`.
+
+
+**Post-run diagnostic recovery (no GPU re-execution):** Four 200-trial
+separate-JIT physics cases completed on 23 November 2026. The original
+strict aggregator aborted at world 5 because `slow_350` reported a
+five-frame two-foot event that `slow_1200` did not. Separate horizon
+compilations share world keys and geometry, but cannot be assumed to
+produce bit-identical 350-frame trajectories. This is a **comparison
+assumption failure**, not proof of a lost physical foothold or a failed
+training run. Preserve all four original exam directories unchanged.
+
+After updating the branch, derive the four-case report from those files
+**offline**, without running MJX or checking out an earlier actor:
+
+```bash
+python scripts/v5053_matrix_exam.py --school-diagnostic-summarize \
+  --output ~/emu-data/exams/ks150-s736-speed-horizon-v1
+```
+
+The summary reports and exports each anomalous same-world prefix gate
+instead of discarding the whole dataset. **Do not attribute a duration
+effect causally** if the same-speed short and long runs have discordant
+prefixes; a future rigorous horizon study would capture the 350-frame
+snapshot within a single 1200-frame compiled trajectory. The raw results
+remain useful for descriptive speed-and-survival screening.
+
+
+### Same-trajectory 350/1200-frame follow-up (two GPU cases)
+
+The original four separately JIT-compiled speed × horizon cases have 23
+discordant prefix gates. They remain valuable descriptive evidence, but
+**horizon causality cannot be inferred** from that separately compiled
+comparison. The read-only examiner now captures its 350-frame event gates
+**inside** a 1200-frame MJX rollout, before continuing the same JAX carry.
+One long rollout each at 0.10 and 0.25 m/s therefore supplies both
+observation windows with **no separate short-run compilation**, no actor
+update, and no new training.
+
+On the local CUDA machine (use a NEW output directory, leaving the first
+four-condition experiment untouched):
+
+```bash
+cd ~/emu
+python scripts/v5053_matrix_exam.py \
+  --school-diagnostic-snapshot-suite \
+  --policy ~/emu-data/runs/h40-school-cold-120m-s736/final.emupolicy \
+  --output ~/emu-data/exams/ks150-s736-speed-horizon-same-trajectory-v2 \
+  --seed 5701 --device cuda
+```
+
+Two independent 1200-frame GPU cases write per-world fields
+`snapshot_lead_foot_top`, `snapshot_both_feet_top_five`,
+`snapshot_traversed_5frame`, and `snapshot_survived` from the actual
+350-frame state. The combined report is prepared only after source,
+model, per-world geometry, actor identity and event monotonicity checks.
+If the two GPU cases finish but aggregation fails, the existing
+`--school-diagnostic-summarize --output <same-dir>` path can recover
+the report without physics re-execution. All original seed-5701 evidence
+is **inspected design-time evidence**, not an independent validation seed;
+this diagnostic cannot directly rank the Spring-only student against main.

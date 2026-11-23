@@ -22,6 +22,17 @@ from .directional import contact_pair_mask
 from .directional import heading_rate_request
 from .contracts import CONTROL_DT, P
 
+
+def _contact_arrays(data):
+    """The padded MJX contact arrays, without deprecated Data.contact access.
+
+    Modern MJX stores its contact buffer in Data._impl; older Data objects
+    expose contact directly. This accessor is read-only and does not change
+    the collision masks, the physics or the frozen examiner's scoring.
+    """
+    return getattr(data, '_impl', data).contact
+
+
 def hip_roll_action_saturation(xp, raw_action, academy_active):
     """Read-only sampled hip-roll command saturation, Academy vs other roles.
 
@@ -742,9 +753,10 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             # A non-planar square has TWO real support normals. Select
             # the triangle under this root, never the retired 9 boxes.
             prisms=tuple(int(g) for g in env.carpet_prism_geom_ids)
+            contact=_contact_arrays(data)
             contacts=jnp.any(jnp.stack(tuple(
-                contact_pair_mask(jnp,data.contact.geom1,
-                                  data.contact.geom2,data.contact.dist,
+                contact_pair_mask(jnp,contact.geom1,
+                                  contact.geom2,contact.dist,
                                   int(g),foot_geoms)
                 for g in prisms),axis=1),axis=1)
             tile=jnp.floor(data.qpos[:,:2]/TILE_M).astype(jnp.int32)
@@ -910,12 +922,11 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                 # approach direction and signed actual lip geometry.
                 solids=tuple(int(g) for g in env.carpet_prism_geom_ids)
                 foot_geoms=tuple(int(g) for g in env.ids['foot_geoms'])
+                c=_contact_arrays(es.data)
                 carpet_pairs=jnp.stack(tuple(
                     contact_pair_mask(
-                        jnp,es.data.contact.geom1,es.data.contact.geom2,
-                        es.data.contact.dist,g,foot_geoms)
+                        jnp,c.geom1,c.geom2,c.dist,g,foot_geoms)
                     for g in solids),axis=1)
-                c=es.data.contact
                 contact_vertical=[]
                 for g in solids:
                     foot_vertical=[]
@@ -1009,7 +1020,8 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
 
 
     def evaluate_matrix(params, curriculum_params, obs_mean, obs_std,
-                        world_commands, target_mask, eval_key, horizon):
+                        world_commands, target_mask, eval_key, horizon,
+                        program_codes=None, snapshot_frame=None):
         """Read-only heterogeneous 2048-world physical capability screen.
 
         One shared REAL eight-prism MJX batch / frozen actor. Each world
@@ -1018,9 +1030,18 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
         scalars; no [time,world,contacts] arrays leave the GPU. First-life
         measurement excludes automatic-reset contamination. The physical
         stair verifier never reads Academy reward, crossing or success flags.
+
+        Optional snapshot_frame captures early first-life gates from the
+        VERY SAME JAX rollout as the full horizon, avoiding unjustified
+        equality assumptions between separately compiled physics programs.
+        It affects frozen diagnostics only, never actor, PPO or curriculum.
         """
         from .terrain_carpet_mjx import (
             TILE_M, TILE_COUNT, TILE_SIZE_Z_M, supported_tile_foot_pairs)
+        if snapshot_frame is not None and (
+                type(snapshot_frame) is not int or
+                not 0 < snapshot_frame < horizon):
+            raise ValueError("Snapshot must be a frame strictly inside horizon")
         commands=jnp.asarray(world_commands,dtype=jnp.float32)
         if commands.shape!=(env.num_envs,3):
             raise ValueError("matrix commands require [worlds,3]")
@@ -1029,10 +1050,19 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             raise ValueError("matrix target mask requires [worlds]")
         if env.exam_fixture_steps is None:
             raise ValueError("matrix evaluator requires an exact physical fixture")
-
+        programs=(jnp.zeros((env.num_envs,),dtype=jnp.int32)
+                  if program_codes is None else
+                  jnp.asarray(program_codes,dtype=jnp.int32))
+        if programs.shape!=(env.num_envs,):
+            raise ValueError("exam programs require [worlds]")
+        a_end=horizon//3
+        b_end=(2*horizon)//3
+        tail_start=max(0,horizon-100)  # Last 2s, only on-device sums
+        recovery_gravity_limit=jnp.cos(jnp.deg2rad(20.))
         keys=jax.random.split(eval_key,env.num_envs)
         es0=env._reset_with_keys(keys,curriculum_params)
         initial_xy=es0.data.qpos[:,:2]
+        measured_birth_vx=es0.data.qvel[:,0]
         # Independently check the actual eight-mesh topology's two tile
         # *source* surfaces AT the exact shared boundary before evaluation.
         hv=es0.carpet_hfields.reshape((env.num_envs,TILE_COUNT,4))
@@ -1065,29 +1095,48 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
              goal_line,goal_line_both,goal_window_both,
              goal_window_heading,goal_window_safe,goal_window_all,
              x_window_any,x_window_both,first_both_frame,first_both_x,
-             open_streak,lane_streak,open_cross,lane_cross)=carry
+             open_streak,lane_streak,open_cross,lane_cross,
+             motion_sum,abs_yaw_sum,bad_sum,min_gravity,
+             slip_sum,energy_sum,tail_motion,tail_yaw,tail_frames,
+             quiet_streak,quiet_max,transition_a,transition_b,
+             transition_c)=carry
+            # Each world can run its own signed forward / stop / reverse
+            # command without a separate GPU compile or long trace.
+            cmd_now=jnp.where(
+                (programs==1)[:,None],
+                jnp.stack((
+                    jnp.where(i<a_end,commands[:,0],
+                              jnp.where(i<b_end,0.,-.8*commands[:,0])),
+                    jnp.zeros((n,)),jnp.zeros((n,))),axis=1),
+                commands)
             # Maintain *different* operator instructions in the same
             # JAX program; bypass random command resampling without
             # changing the actual deployable observation format.
             # Preserve the source actor's optional velocity-I control:
             # operator commands stay fixed, while the actor sees the
             # effective I-corrected demand from the previous MJX step.
-            xy_policy=(es.task[:,[T.vx,T.vy]]
-                       if env.velocity_i_multiplier>1. else commands[:,:2])
+            if env.velocity_i_multiplier>1.:
+                change=jnp.any(jnp.abs(
+                    es.raw_velocity_command-cmd_now[:,:2])>.005,axis=1)
+                xy_policy=jnp.where(
+                    change[:,None],cmd_now[:,:2],
+                    es.task[:,[T.vx,T.vy]])
+            else:
+                xy_policy=cmd_now[:,:2]
             task=(es.task.at[:,T.vx].set(xy_policy[:,0])
                          .at[:,T.vy].set(xy_policy[:,1])
-                         .at[:,T.yaw].set(commands[:,2]))
+                         .at[:,T.yaw].set(cmd_now[:,2]))
             hist=(es.hist.at[:,-1,cmd_idx[0]].set(xy_policy[:,0])
                          .at[:,-1,cmd_idx[1]].set(xy_policy[:,1])
-                         .at[:,-1,cmd_idx[2]].set(commands[:,2]))
+                         .at[:,-1,cmd_idx[2]].set(cmd_now[:,2]))
             current=es._replace(
                 task=task,hist=hist,
-                cmd_target=es.cmd_target.at[:,:3].set(commands),
-                cmd_ramp_from=es.cmd_ramp_from.at[:,:3].set(commands),
+                cmd_target=es.cmd_target.at[:,:3].set(cmd_now),
+                cmd_ramp_from=es.cmd_ramp_from.at[:,:3].set(cmd_now),
                 cmd_ramp_frac=jnp.ones_like(es.cmd_ramp_frac),
                 cmd_ramp_speed=jnp.zeros_like(es.cmd_ramp_speed),
                 cmd_hold_left=jnp.full_like(es.cmd_hold_left,1000000000),
-                raw_velocity_command=commands[:,:2])
+                raw_velocity_command=cmd_now[:,:2])
             ob=hist.reshape((n,obs_dim))
             action=jnp.clip(mlp(params['pi'],
                 normalize_obs(ob,obs_mean,obs_std,obs_norm_mask)),-1.,1.)
@@ -1104,7 +1153,7 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             # post-integration state. Ignore out.state for terminal
             # worlds (it is then an already reset new robot).
             data=out.state.data
-            c=getattr(data,'_impl',data).contact
+            c=_contact_arrays(data)
             feet=data.geom_xpos[:,jnp.asarray(foot_geoms),:]
             bottom=feet[:,:,2]-foot_radii[None,:]
             top=env._carpet_real_top_height(
@@ -1177,13 +1226,40 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             live_next=live & ~(out.done>.5)
             valid_frames=valid_frames+live.astype(jnp.int32)
             w=live.astype(jnp.float32)
-            speed_error=speed_error+w*jnp.abs(m['vx']-commands[:,0])
-            yaw_error=yaw_error+w*jnp.abs(m['yaw_rate']-commands[:,2])
+            speed_error=speed_error+w*jnp.abs(m['vx']-cmd_now[:,0])
+            yaw_error=yaw_error+w*jnp.abs(m['yaw_rate']-cmd_now[:,2])
             support_sum=support_sum+w*m['support']
             gravity_sum=gravity_sum+w*m['gravity_z']
             lateral_sum=lateral_sum+w*jnp.abs(
-                m['vy']-commands[:,1])
+                m['vy']-cmd_now[:,1])
             still_motion=still_motion+w*jnp.abs(m['vx'])
+            # Compact first-life resilience, grace and energy evidence.
+            # Never accumulate the internally auto-reset second life.
+            body_speed=jnp.hypot(m['vx'],m['vy'])
+            abs_yaw=jnp.abs(m['yaw_rate'])
+            motion_sum=motion_sum+w*body_speed
+            abs_yaw_sum=abs_yaw_sum+w*abs_yaw
+            bad_sum=bad_sum+w*(m['bad_contact']>.5).astype(jnp.float32)
+            min_gravity=jnp.minimum(
+                min_gravity,jnp.where(live,m['gravity_z'],1.))
+            slip_sum=slip_sum+w*m['exam_stance_slip_proxy']
+            energy_sum=energy_sum+w*jnp.maximum(
+                m['servo_shaft_drive_power_w'],0.)*CONTROL_DT
+            last_w=w*(i>=tail_start)
+            tail_motion=tail_motion+last_w*body_speed
+            tail_yaw=tail_yaw+last_w*abs_yaw
+            tail_frames=tail_frames+last_w
+            settled=(healthy&(body_speed<=.10)&(abs_yaw<=.15)&
+                     (m['gravity_z']>=recovery_gravity_limit)&
+                     (m['support']>=.5)&(m['bad_contact']<.5))
+            quiet_streak=jnp.where(settled,quiet_streak+1,0)
+            quiet_max=jnp.maximum(quiet_max,quiet_streak)
+            transition_a=transition_a+w*jnp.where(
+                i<a_end,m['vx'],0.)
+            transition_b=transition_b+w*jnp.where(
+                (i>=a_end)&(i<b_end),body_speed,0.)
+            transition_c=transition_c+w*jnp.where(
+                i>=b_end,m['vx'],0.)
             return (out.state,live_next,fall_frame,lead_seen,
                     foot_streak,feet_seen,stable_streak,complete,
                     best_progress,valid_frames,speed_error,yaw_error,
@@ -1192,24 +1268,46 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
                     goal_window_both,goal_window_heading,
                     goal_window_safe,goal_window_all,
                     x_window_any,x_window_both,first_both_frame,first_both_x,
-                    open_streak,lane_streak,open_cross,lane_cross)
+                    open_streak,lane_streak,open_cross,lane_cross,
+                    motion_sum,abs_yaw_sum,bad_sum,min_gravity,
+                    slip_sum,energy_sum,tail_motion,tail_yaw,tail_frames,
+                    quiet_streak,quiet_max,transition_a,transition_b,
+                    transition_c)
 
-        finished=jax.lax.fori_loop(0,horizon,frame_step,(
+        beginning=(
             es0,jnp.ones((n,),dtype=jnp.bool_),
             jnp.full((n,),-1,jnp.int32),false,zeros_feet,false_feet,
             zero_i,false,zero,zero_i,zero,zero,zero,zero,zero,zero,
             zero_i,false,false,false,false,false,false,false,
             false,false,jnp.full((n,),-1,jnp.int32),zero,
-            zero_i,zero_i,false,false))
+            zero_i,zero_i,false,false,
+            zero,zero,zero,jnp.ones((n,),jnp.float32),
+            zero,zero,zero,zero,zero,zero_i,zero_i,
+            zero,zero,zero)
+        snapshot=None
+        if snapshot_frame is not None:
+            # One physical trajectory, two observation windows. The first
+            # segment's exact live/foot/contact state feeds the second one.
+            # No extra reset, no replay and no second compiled horizon.
+            snapshot=jax.lax.fori_loop(
+                0,snapshot_frame,frame_step,beginning)
+            finished=jax.lax.fori_loop(
+                snapshot_frame,horizon,frame_step,snapshot)
+        else:
+            finished=jax.lax.fori_loop(0,horizon,frame_step,beginning)
         (_,live,fall,lead,streak,seen,arrival,complete,progress,
          frames,speed_err,yaw_err,support,gravity,lateral,still,
          traverse_streak,traversed,goal_line,goal_line_both,
          goal_window_both,goal_window_heading,
          goal_window_safe,goal_window_all,x_window_any,x_window_both,
          first_both_frame,first_both_x,open_streak,lane_streak,
-         open_cross,lane_cross)=finished
+         open_cross,lane_cross,
+         motion_sum,abs_yaw_sum,bad_sum,min_gravity,
+         slip_sum,energy_sum,tail_motion,tail_yaw,tail_frames,
+         quiet_streak,quiet_max,transition_a,transition_b,
+         transition_c)=finished
         denom=jnp.maximum(frames,1).astype(jnp.float32)
-        return dict(
+        result=dict(
             actual_lip_m=measured_lip,actual_grade_deg=measured_grade,
             fall_frame=fall,first_life_frames=frames,
             survived=live,lead_foot_top=lead,
@@ -1236,9 +1334,33 @@ def make_trainer(env, *, seed: int, lr: float, rollout: int, epochs: int, miniba
             mean_support=support/denom,
             mean_gravity_z=gravity/denom,
             still_motion_mps=still/denom,
+            mean_horizontal_speed_mps=motion_sum/denom,
+            mean_abs_yaw_rate_rad_s=abs_yaw_sum/denom,
+            bad_contact_fraction=bad_sum/denom,
+            minimum_gravity_z=min_gravity,
+            mean_stance_slip_proxy=slip_sum/denom,
+            positive_servo_shaft_work_j=energy_sum,
+            final2s_horizontal_speed_mps=tail_motion/jnp.maximum(tail_frames,1.),
+            final2s_abs_yaw_rate_rad_s=tail_yaw/jnp.maximum(tail_frames,1.),
+            longest_stable_streak_frames=quiet_max,
+            initial_world_x_velocity_mps=measured_birth_vx,
+            transition_initial_vx_mps=transition_a/max(a_end,1),
+            transition_stop_speed_mps=transition_b/max(b_end-a_end,1),
+            transition_final_vx_mps=transition_c/max(horizon-b_end,1),
         )
+        if snapshot is not None:
+            # Exact carry positions from frame_step. These event facts
+            # remain monotonic by construction WITHIN the same first life.
+            result.update(
+                snapshot_lead_foot_top=snapshot[3],
+                snapshot_both_feet_top_five=jnp.all(snapshot[5],axis=1),
+                snapshot_traversed_5frame=snapshot[17],
+                snapshot_survived=snapshot[1])
+        return result
 
-    evaluate_matrix=jax.jit(evaluate_matrix,static_argnums=(7,))
+    evaluate_matrix=jax.jit(
+        evaluate_matrix,static_argnums=(7,),
+        static_argnames=("snapshot_frame",))
 
     # Trace length, heading gain and sensor-delay queue have fixed JAX
     # specializations. Bias/noise are dynamic data and cannot stale-cache.

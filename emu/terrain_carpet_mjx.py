@@ -126,8 +126,13 @@ def hash_float(xp,i,j,seed,salt):
     u=xp.asarray(i,dtype=xp.uint32)
     v=xp.asarray(j,dtype=xp.uint32)
     s=xp.asarray(seed,dtype=xp.uint32)
+    # Salt is always a static integer. Compute its uint32 wrap in Python
+    # before creating an array scalar: NumPy warns on uint32 scalar
+    # multiplication overflow, even though this hash REQUIRES wrapping.
+    # This is bit-identical to uint32(salt)*uint32(1274126177).
+    salt_term=xp.uint32((int(salt)*1274126177)&0xFFFFFFFF)
     x=(u*xp.uint32(374761393)+v*xp.uint32(668265263)
-       +s*xp.uint32(1442695041)+xp.uint32(salt)*xp.uint32(1274126177))
+       +s*xp.uint32(1442695041)+salt_term)
     x=(x^(x>>xp.uint32(13)))*xp.uint32(1274126177)
     return ((x^(x>>xp.uint32(16))).astype(xp.float32)
             /xp.float32(4294967296.))
@@ -171,6 +176,26 @@ def role_envelope(xp, focus, specialist, athletic, slope_deg, step_up_m,
     up=xp.where(step_on,xp.maximum(0.,step_up_m)*step_factor,0.)
     down=xp.where(step_on,xp.maximum(0.,step_down_m)*step_factor,0.)
     return slope,up,down
+
+def school_first_lip_course_limits(xp, seeds, birth_tile_x, academy, up, down):
+    """Keep an uphill-first lesson honest through its full physical life.
+
+    A first +X UP transfer is graduated only if the SAME birth survives
+    1200 frames. Later independent DOWN steps must not be vastly harder
+    than that lesson (e.g. 55mm DOWN after a 3mm UP first step), or the
+    uphill governor grades downhill proficiency instead. DOWN-first
+    Academy births retain their entire earned DOWN frontier; ordinary
+    births and the frozen exam topology remain unchanged.
+
+    Use precisely make_profiles' seeded sign draw for the next +X seam.
+    No secondary teacher, RNG draw, reward, checkpoint state or actor
+    input is introduced.
+    """
+    next_seam=xp.asarray(birth_tile_x,dtype=xp.int32)+1
+    first_up=(hash_float(xp,next_seam,0,seeds,101)<.5)
+    down=xp.where(academy & first_up,xp.minimum(down,up),down)
+    return up,down
+
 
 def make_profiles(xp,seeds,up,down):
     """Exact per-world directional step limits on mostly independent strips.

@@ -634,11 +634,19 @@ class CapabilityField:
             nf=0.0
         if not teach_edges:
             ef=0.0
+        # In off/shadow mode the field is a MEASUREMENT, not a second
+        # teacher. Don't score and sort ~26x command edges just to send
+        # proposals with zero probability into the policy sampler.
+        # Preserve fixed JAX packet shapes for old checkpoints/contracts.
+        nodes=(self.node_anchor_packet(node_count) if nf>0.
+               else np.zeros((node_count,5),np.float32))
+        edges=(self.edge_anchor_packet(edge_count) if ef>0.
+               else np.zeros((edge_count,7),np.float32))
         return {
             'field_node_frac':nf,
             'field_edge_frac':ef,
-            'field_node_anchors':self.node_anchor_packet(node_count),
-            'field_edge_anchors':self.edge_anchor_packet(edge_count),
+            'field_node_anchors':nodes,
+            'field_edge_anchors':edges,
         }
 
     # ------------------------------------------------------------------

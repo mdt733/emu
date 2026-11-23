@@ -9,7 +9,6 @@ from pathlib import Path
 # Browser-native actor export; never writes trainer state or PPO checkpoints.
 import argparse
 import base64
-import csv
 import hashlib
 from typing import Any
 
@@ -35,14 +34,6 @@ from .contracts import ROBOT_XML, VERSION
 from .ppo import PPO_HIDDEN_SIZES, PPO_STD_MAX, PPO_STD_MIN, build_obs_norm_mask
 
 FORMAT = "emu-policy"
-EVAL_KEYS = (
-    "final_step", "broad", "screen_hard_recovery", "screen_growth_headroom",
-    "recovery", "worst_direction", "calibration_mae", "competent_nodes",
-    "known_nodes", "competent_edges", "known_edges", "frontier_vx_hi",
-    "frontier_vx_lo",
-)
-
-
 def _f32_blob(a) -> dict:
     arr = np.asarray(a, dtype='<f4', order='C')
     return {
@@ -175,16 +166,6 @@ def _json(path: Path, default: Any = None) -> Any:
         return default
 
 
-def _find_tournament_root(checkpoint: Path, explicit: Path | None = None) -> Path | None:
-    if explicit is not None:
-        root = explicit.expanduser().resolve()
-        return root if (root / 'tournament_summary.csv').exists() else None
-    for parent in checkpoint.resolve().parents:
-        if (parent / 'tournament_summary.csv').exists() and (parent / 'tournament_decisions.json').exists():
-            return parent
-    return None
-
-
 def _number(text: Any) -> float | int | None:
     if text is None or text == '':
         return None
@@ -197,75 +178,6 @@ def _number(text: Any) -> float | int | None:
         return x
     except Exception:
         return None
-
-
-def _tournament_metadata(checkpoint: Path, run_name: str, run_cfg: dict,
-                         explicit_root: Path | None = None) -> tuple[dict | None, dict | None]:
-    root = _find_tournament_root(checkpoint, explicit_root)
-    if root is None:
-        return None, None
-
-    decisions = _json(root / 'tournament_decisions.json', {}) or {}
-    rows: dict[str, dict] = {}
-    try:
-        with (root / 'tournament_summary.csv').open(newline='', encoding='utf-8') as f:
-            for row in csv.DictReader(f):
-                if row.get('name'):
-                    rows[row['name']] = row
-    except Exception:
-        rows = {}
-
-    seed = int(run_cfg.get('seed', 0) or 0)
-    candidates = [run_name]
-    if seed:
-        candidates.insert(0, f'seed{seed}:{run_name}')
-    # The tournament summary prefixes confirmation arms but not the main seed.
-    match_name = next((name for name in candidates if name in rows), None)
-    if match_name is None:
-        match_name = next((name for name in rows if name.endswith(':' + run_name)), None)
-    row = rows.get(match_name) if match_name else None
-
-    main_seed = int(decisions.get('seed', 0) or 0)
-    confirm_seed = int(decisions.get('confirm_seed', 0) or 0)
-    stages = decisions.get('stages') or {}
-    selected_dose = ((stages.get('A_dose') or {}).get('selected'))
-    challenger = ((stages.get('final120') or {}).get('challenger'))
-    confirmation = stages.get('confirmation') or {}
-
-    if seed == confirm_seed and run_name.startswith('Z0_confirm_'):
-        role = 'confirmation control'
-    elif seed == confirm_seed and run_name.startswith('Z1_confirm_'):
-        role = 'confirmation challenger'
-    elif run_name == 'A0_shadow':
-        role = 'seed control'
-    elif run_name == challenger:
-        role = 'final challenger'
-    elif run_name == selected_dose:
-        role = 'selected dose'
-    else:
-        role = 'tournament arm'
-
-    evaluation = None
-    if row is not None:
-        evaluation = {
-            'summary_name': match_name,
-            'seed': seed or None,
-            'role': role,
-        }
-        for key in EVAL_KEYS:
-            evaluation[key] = _number(row.get(key))
-
-    tournament = {
-        'root_name': root.name,
-        'main_seed': main_seed or None,
-        'confirm_seed': confirm_seed or None,
-        'selected_dose': selected_dose,
-        'challenger': challenger,
-        'confirmation_status': confirmation.get('status'),
-        'seed733_utility_delta': _number(confirmation.get('seed733_utility_delta')),
-        'confirm_utility_delta': _number(confirmation.get('confirm_utility_delta')),
-    }
-    return evaluation, tournament
 
 
 def _training_demo_nodes(field_state: dict, limits: dict, *, count: int = 96) -> list[dict]:
@@ -294,8 +206,7 @@ def _training_demo_nodes(field_state: dict, limits: dict, *, count: int = 96) ->
     return [row for _,row in ranked[:count]]
 
 
-def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
-                 label: str | None = None) -> dict:
+def build_bundle(checkpoint: Path, *, label: str | None = None) -> dict:
     checkpoint = checkpoint.expanduser().resolve()
     # A new champion is precisely one 360-input, source-pinned actor.
     # Historical schemas and warm-start conversion remain in Git only.
@@ -351,7 +262,6 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
     posture_d = np.clip(_scalar(cp, 'posture_difficulty', 1.0), 0.0, 1.0)
 
     run_name = str(meta.get('run_name') or checkpoint.parent.parent.name)
-    evaluation, tournament = _tournament_metadata(checkpoint, run_name, run_cfg, tournament_root)
     source_prov = meta.get('source_provenance') or {}
 
     profile = str(run_cfg.get('attitude_profile') or 'v5014')
@@ -502,10 +412,6 @@ def build_bundle(checkpoint: Path, *, tournament_root: Path | None = None,
         'not_held_out': True,
         'node_candidates': _training_demo_nodes(payload['field_state'], command_limits),
     }
-    if evaluation is not None:
-        bundle['evaluation'] = evaluation
-    if tournament is not None:
-        bundle['tournament'] = tournament
     return bundle
 
 
@@ -522,14 +428,11 @@ def export_main(argv=None) -> int:
     ap.add_argument('checkpoint', type=Path)
     ap.add_argument('output', type=Path, nargs='?')
     ap.add_argument('--pretty', action='store_true', help='indent JSON (larger file, easier to inspect)')
-    ap.add_argument('--tournament-root', type=Path, help='optional tournament root containing summary/decisions')
     ap.add_argument('--label', help='human-friendly viewer label')
     ns = ap.parse_args(argv)
     out = ns.output or ns.checkpoint.with_suffix('.emupolicy')
-    bundle = build_bundle(ns.checkpoint, tournament_root=ns.tournament_root, label=ns.label)
+    bundle = build_bundle(ns.checkpoint, label=ns.label)
     write_bundle(bundle, out, pretty=ns.pretty)
     size = out.stat().st_size
-    ev = bundle.get('evaluation') or {}
-    suffix = f" broad={ev.get('broad'):.3f}" if isinstance(ev.get('broad'), (int, float)) else ''
-    print(f"Wrote {out} ({size/1024:.1f} KiB) step={bundle['source']['step']:,} actor={bundle['source']['actor_sha256'][:12]}{suffix}")
+    print(f"Wrote {out} ({size/1024:.1f} KiB) step={bundle['source']['step']:,} actor={bundle['source']['actor_sha256'][:12]}")
     return 0

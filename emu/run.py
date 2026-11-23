@@ -172,7 +172,23 @@ def one_run_config(args) -> TrainingConfig:
         if not math.isfinite(value) or not lo<=value<=hi:
             raise ValueError(f'{key} must be finite and in [{lo},{hi}]')
         science_args[key]=value
+    survival_school=bool(getattr(args, 'stair_survival_curriculum', False))
+    if survival_school:
+        # This feature selects a teaching method, NOT the student's birth
+        # checkpoint. The cold-school runner chooses zero-step initiation,
+        # while the generic CLI retains fully authenticated research forks.
+        if not academy_stream:
+            raise ValueError(
+                '--stair-survival-curriculum requires an active Academy')
+        # First-tile physical proof is now observed regardless of whether
+        # this research arm enables optional goal-progress reward shaping.
     finish_on_transfer=bool(getattr(args,'science_step_finish_on_transfer',False))
+    if survival_school and finish_on_transfer:
+        # Early success reset would falsely score an untested post-transfer
+        # interval as survival; use complete first-life lessons instead.
+        raise ValueError(
+            'survival school requires full first-life Academy episodes; '
+            'disable --science-step-finish-on-transfer')
     if finish_on_transfer and not academy_stream:
         raise ValueError('--science-step-finish-on-transfer requires Academy stream')
     approach=science_args['science_step_approach_m']
@@ -207,6 +223,7 @@ def one_run_config(args) -> TrainingConfig:
                    science_step_promotion_mm=science_promotion,
                    science_step_retreat_mm=science_retreat,
                    science_step_min_attempts=science_attempts,
+                   stair_survival_curriculum=survival_school,
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
@@ -299,7 +316,10 @@ def _validate_cross_source_research_parent(
     """Explicitly approve ONE immutable external research ancestor.
 
     Shape, normalizer, optimizer and sensor identity are already checked by
-    load_checkpoint. This additionally binds the *entire checkpoint bytes*
+    load_checkpoint. final.pkl, named milestones and explicit snapshots
+    are equally usable when their full source and exact checkpoint SHA256
+    are authenticated; a filename is NOT evidence of valid training.
+    This additionally binds the *entire checkpoint bytes*
     and its recorded source to the operator's exact declaration. Never use
     for automatic resume; checkpoints in an interrupted study must retain
     their new source SHA and resume via --resume auto.
@@ -310,8 +330,11 @@ def _validate_cross_source_research_parent(
             or any(c not in '0123456789abcdef' for c in expected_sha256)):
         raise RuntimeError('Research ancestor requires full lower-case source SHA and SHA256')
     if (source != expected_source or source == provenance['commit']
-            or parent.name != 'final.pkl' or parent.parent.name != 'checkpoints'):
-        raise RuntimeError('Research parent must be completed final.pkl from exact declared earlier source')
+            or parent.suffix != '.pkl' or parent.parent.name != 'checkpoints'):
+        raise RuntimeError(
+            'Research parent must be a complete checkpoint/*.pkl with '
+            'the exact declared earlier source, full SHA256 and saved '
+            'actor/sensor/optimizer state')
     digest = hashlib.sha256()
     with parent.open('rb') as stream:
         for block in iter(lambda: stream.read(1024 * 1024), b''):
@@ -431,7 +454,8 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str,
             parent_cfg=parent.parent.parent/'training_config.json'
             if not parent_cfg.is_file():
                 raise RuntimeError('research parent has no training_config.json')
-            verify_experiment_fork(TrainingConfig.load(parent_cfg), config)
+            verify_experiment_fork(
+                TrainingConfig.load_research_ancestor(parent_cfg), config)
         parent_step = int(payload['meta']['step'])
         if parent_step >= expected:
             raise RuntimeError(f'Parent step {parent_step:,} is at/beyond target {expected:,}')
@@ -479,7 +503,11 @@ def train_one(args) -> int:
     # changing the validated checkpoint. Independent physical exams remain separate.
     try:
         from .results import write_report
-        for report_path in write_report(Path(config.run_dir)):
+        # School produces ONE final independent evidence ZIP after its
+        # physical exams; don't also emit a duplicate training-only ZIP.
+        for report_path in write_report(
+                Path(config.run_dir),
+                bundle=not config.stair_survival_curriculum):
             print(f'Run report: {report_path}')
     except (OSError, ValueError, RuntimeError, KeyError) as exc:
         print(f'WARNING: checkpoint is validated but offline report failed: {exc}; '

@@ -4,7 +4,7 @@ The [core skeleton](CORE_SKELETON.md) owns architecture; the [H40 handover](../h
 
 ## One authority per concept
 
-- **Hardware:** `robot.xml` defines six powered joints, two passive shins, springs and motor limits; `physical_variants.py` deterministically generates only the default H40. The retired height/spring profile sweep lives in Git history.
+- **Hardware:** `robot.xml` defines six powered joints, passive shins, springs and motor limits; `physical_variants.py` generates the default/mainline H40 and the explicitly opted-in `h40-spring-only` research model. Retired morphology sweeps live in Git history; neither model has a validated real-hardware BOM.
 - **Physics:** `environment.py` steps one true-prism MJX world; `terrain_carpet_mjx.py` and `carpet_prism_mjx.py` own terrain; `domain_randomization.py` owns manufacturing spread.
 - **Actor:** `contracts.py` fixes the 360-field observation and six actions; `ppo.py` owns the single actor/critic and optimiser.
 - **Teacher:** `rewards.py` pays, `curriculum.py` selects challenge, `capability_focus.py` allocates six cohorts, `capability_field.py` aggregates evidence. There are not six independent networks.
@@ -20,11 +20,11 @@ The [core skeleton](CORE_SKELETON.md) owns architecture; the [H40 handover](../h
 5. **Evidence before capability claims.** Owner approval made H40 the software mainline despite unresolved steps. Training reward, curriculum frontiers and viewer animation are not held-out capability. For future improvements, measure physically supported motion, command tracking, torque saturation, solver parity, falls and recovery.
 6. **No stale roadmap or documentation sprawl.** The eight canonical pages in `docs/` are maintained by `scripts/audit_core_dependencies.py`. `README.md` and `handover.md` sit at the root. New experiments add concise measured findings to `docs/RESEARCH_FINDINGS.md` and preserve full original reports at source-pinned Git commits, **not** as permanent versioned runbooks. Expanding the eight-page allowlist requires an explicit reviewed ownership decision.
 
-Quick validation: `bash scripts/check.sh --quick`; full Python/browser checks: `bash scripts/check.sh --full`. Both always validate the checked-in H40 actor. The separate GitHub Pages approval is verified only when `showcase/release_approval.json` exists, and Pages itself **always** requires it. Real CPU/MJX contact CI and operator-side GPU acceptance are separate; a passing unit test is not proof of CUDA or real hardware.
+Quick validation: `bash scripts/check.sh --quick`; full Python/browser checks: `bash scripts/check.sh --full`. The check script selects **original `h40` only in its own process**, regardless of an ambient `EMU_PHYSICAL_PROFILE=h40-spring-only`, so the frozen champion and original-H40 tests are always validated against their intended robot. The Spring-only launcher independently selects and verifies its separate KS150 model. Both checks always validate the checked-in H40 actor. The separate GitHub Pages approval is verified only when `showcase/release_approval.json` exists, and Pages itself **always** requires it. Real CPU/MJX contact CI and operator-side GPU acceptance are separate; a passing unit test is not proof of CUDA or real hardware.
 
 ### Current hardware placement contract
 
-**All six servo motors are mounted in the chassis.** The two knee drives
+**All six servo motors are mounted in the chassis.** The Spring-only research strut differs from the original and remains mechanically provisional. The two knee drives
 act through an unmodelled transmission. No explicit knee-mounted motors,
 motor masses, fake viewer braces or height-dependent chassis translations.
 A source change to `robot.xml` changes the generated H40 physical model

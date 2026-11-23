@@ -60,7 +60,58 @@ physical robot + 4×4 ToF + four-tile MJX world
          export-policy → browser viewer
 ```
 
-Training starts from scratch; historical models and incompatible sensor contracts are not silently migrated. Use `emu train --help`, `emu prism-exam --help`, and [the core skeleton](docs/CORE_SKELETON.md) for the supported interfaces. Keep training and policy evaluation pinned to the exact source SHA, generated robot XML and observation contract.
+Training defaults to a fresh learner. Explicit research warm starts are supported for compatible actor/robot/sensor contracts, with the source commit and complete ancestor checkpoint hash authenticated when changing source. No incompatible sensor/model migration is implicit. Use `emu train --help`, `emu prism-exam --help`, and [the core skeleton](docs/CORE_SKELETON.md) for supported interfaces. Keep training and policy evaluation pinned to the exact source SHA, generated robot XML and observation contract.
+
+### Current research school: teach from birth, not checkpoint by checkpoint
+
+The research-only cold-school branch integrates our repeated KS150
+stair evidence into **one teacher**. In this particular research study,
+a single shared 360-input policy starts from random initial weights;
+the same saved Academy/retention/survival-aware curriculum autonomously
+adjusts lessons throughout 180 million environment steps.
+
+**Warm starts remain supported by the general `emu train` tool.**
+Researchers can choose a compatible checkpoint from another run and
+authorise cross-source forks with its full source Git SHA and checkpoint
+SHA256. The school feature is a teaching method, not a ban on the
+origin of a student's weights. This study deliberately omits a parent
+checkpoint so its outcome measures teaching from birth, not a
+hand-selected rescue.
+
+```bash
+bash scripts/run_h40_school_wsl.sh plan
+bash scripts/run_h40_school_wsl.sh preflight
+bash scripts/run_h40_school_wsl.sh gpu-smoke
+bash scripts/run_h40_school_wsl.sh all  # ONLY after local gates pass
+```
+
+For a **separate 0→120M from-scratch sanity run**, set
+`export EMU_SCHOOL_STEPS=120000000` before running the same commands.
+The school recipe is unchanged; only the requested final budget differs.
+That run is isolated at
+`~/emu-data/runs/h40-school-cold-120m-s735/` (for default seed 735),
+whereas the 180M study retains its original root
+`~/emu-data/runs/h40-school-cold-s735/`. Each has its own source-pinned
+full-state checkpoints, final examiner and single evidence ZIP; no
+automatic checkpoint continuation or teacher switch between them.
+The 120M run is an **execution/reproducibility shakeout**; don't treat
+a successful first run as proof of the best possible teaching method.
+
+**Completed revised 120M shakeout:** seed **736**, source
+[`4048e845`](https://github.com/mdt733/emu/commit/4048e8450c36882501cbb624f4ca656e11da9419),
+reached **120,061,952** steps on `h40-spring-only`. Held-out seed
+**5701** measured **64/500** supported uphill traversals at 4–40 mm,
+but **0/500** at 44–80 mm; long-duration command missions remain weak.
+Its final uphill Academy frontier was **3.5 mm**. This is one successful
+cold execution, **not** proof of a superior teacher or a new mainline
+champion. Full examination and provenance: [research findings](docs/RESEARCH_FINDINGS.md).
+
+For future independent cold runs, choose an **unused training seed**
+and one frozen source/config/budget. Keep the finished seed-736
+checkpoints and evidence at `~/emu-data/runs/h40-school-cold-120m-s736/`
+outside Git; do not resume those checkpoints from newer cleanup
+commits. No auto-promotion or public showcase change.
+
 
 **Release is separate from source promotion.** GitHub Pages deployment is manual and requires `showcase/release_approval.json` matching the exact actor and the original checkpoint SHA-256; `python scripts/verify_showcase_release.py` must pass before the public build can deploy. A merge alone does not update GitHub Pages.
 

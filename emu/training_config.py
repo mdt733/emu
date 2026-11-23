@@ -34,6 +34,9 @@ LOG_EVERY_UPDATES = 10
 CHECKPOINT_EVERY_UPDATES = 20
 SNAPSHOT_EVERY_STEPS = 2_000_000
 SNAPSHOT_KEEP = 10
+# Shared signed ordinary terrain remains <=4cm during school, while
+# independent uphill/downhill Academy can earn the aspirational 5.5cm.
+SCHOOL_ORDINARY_STEP_CAP_M = 0.040
 PROFILE_PERFORMANCE = True
 MAX_EPISODE_STEPS = 700
 FRONTIER_GROWTH_FRAC = 0.0015
@@ -75,6 +78,7 @@ DOCTRINE = {
     "CHECKPOINT_EVERY_UPDATES": CHECKPOINT_EVERY_UPDATES,
     "SNAPSHOT_EVERY_STEPS": SNAPSHOT_EVERY_STEPS,
     "SNAPSHOT_KEEP": SNAPSHOT_KEEP,
+    "SCHOOL_ORDINARY_STEP_CAP_M": SCHOOL_ORDINARY_STEP_CAP_M,
     "PROFILE_PERFORMANCE": PROFILE_PERFORMANCE,
     "MAX_EPISODE_STEPS": MAX_EPISODE_STEPS,
     "EVAL_EVERY_STEPS": EVAL_EVERY_STEPS,
@@ -200,6 +204,10 @@ class TrainingConfig:
     science_step_promotion_mm: float = 0.0  # zero = max(1mm, 18%) rule
     science_step_retreat_mm: float = 0.0    # zero = 0.82 multiplier
     science_step_min_attempts: int = 4     # per direction / near or easy
+    # Single from-birth teacher: finished first-life uphill survival AND
+    # physically supported crossing must both authorise Academy expansion.
+    # Persisted as run identity; never inferred from experiment folder name.
+    stair_survival_curriculum: bool = False
     # Streaming three-platform teaching from scratch; share ramps through births.
     terrain_carpet: bool = False  # H40 requires true 2x2 one-metre tile terrain
     terrain_carpet_prisms: bool = False  # H40 requires eight physical convex prisms
@@ -263,6 +271,26 @@ class TrainingConfig:
             raise ValueError(
                 f"training config keys mismatch: missing={sorted(missing)} "
                 f"extra={sorted(extra)}")
+        return cls(**data)
+
+    @classmethod
+    def load_research_ancestor(cls, path: Path) -> "TrainingConfig":
+        """Read an older, separately authenticated parent's complete recipe.
+
+        The new survival-school flag did not exist in v1/V2/main research
+        checkpoints. Its precise historical value was OFF; accept only
+        this one known field omission for explicit external research forks.
+        Same-run recovery still uses strict load() with no missing keys.
+        """
+        data=json.loads(path.read_text(encoding="utf-8"))
+        expected={f.name for f in dataclass_fields(cls)}
+        keys=set(data)
+        if keys == expected-{'stair_survival_curriculum'}:
+            data={**data,'stair_survival_curriculum':False}
+        elif keys != expected:
+            raise ValueError(
+                f"research ancestor config keys mismatch: "
+                f"missing={sorted(expected-keys)} extra={sorted(keys-expected)}")
         return cls(**data)
 
 

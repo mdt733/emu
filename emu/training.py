@@ -10,11 +10,17 @@ Read this file in order:
 5. Durable logs and checkpoints preserve the policy and its learning state.
 6. The final checkpoint and report are published only after validation.
 
-Training DOES NOT define the reward mathematics (see rewards.py) or choose the
-stable cold-start training followed by evidence-driven capability growth.
+Training DOES NOT define reward mathematics (see rewards.py), choose a
+showcase champion, or publish the actor. The run is source-pinned.
 
-KNOWN DEBT: most of these stages still inhabit a long `train` body.
-Keep extraction local to existing modules; avoid new wrapper mazes.
+This deliberately remains one cohesive orchestration file. Within train():
+  - open an authenticated run and construct the physical MJX/PPO world;
+  - restore complete teacher, network, normalizer and health state;
+  - collect PPO rollouts, record their source-consistent evidence;
+  - update next-birth teaching, checkpoint and periodically examine;
+  - finish the last rollout, write a validated full checkpoint and report.
+The periodic and terminal next-birth reports share one in-file helper.
+Avoid splitting stateful training into tiny wrapper modules.
 """
 from __future__ import annotations
 
@@ -41,7 +47,7 @@ from .training_config import (
     ROLLOUT_STEPS, PPO_EPOCHS, PPO_MINIBATCHES, PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST,
     LOG_EVERY_UPDATES, CHECKPOINT_EVERY_UPDATES, SNAPSHOT_EVERY_STEPS, SNAPSHOT_KEEP,
     PROFILE_PERFORMANCE, MAX_EPISODE_STEPS,
-    OBS_NORM_MODE, PPO_TARGET_KL, PPO_LR_SCALE_MIN, PPO_LR_SCALE_INIT, PPO_LR_SCALE_MAX, PPO_LR_ADJUST, FOUNDATION_STEPS,
+    OBS_NORM_MODE, PPO_TARGET_KL, PPO_LR_SCALE_MIN, PPO_LR_SCALE_INIT, PPO_LR_SCALE_MAX, PPO_LR_ADJUST, FOUNDATION_STEPS, SCHOOL_ORDINARY_STEP_CAP_M,
     EVAL_EVERY_STEPS, EVAL_SEED, EVAL_COHORTS, FINAL_EVAL_COHORTS,
     FIELD_HALF_LIFE_STEPS, SENSOR_NOISE_SCALE,
     RECOVERY_TILT_MAX_DEG, RECOVERY_POSITION_MAX_M, RECOVERY_LINVEL_MAX_MPS,
@@ -49,9 +55,8 @@ from .training_config import (
 )
 from .curriculum import RegimeGovernor
 from .training_health import TrainingHealth
-from .capability_focus import (teaching_profile, attention_weights, FOCUS_NAMES,
-                               academy_birth_allocation, academy_focus_mix,
-                               academy_conditional_birth_share)
+from .capability_focus import (teaching_profile, birth_lesson_weights,
+                               FOCUS_NAMES)
 from .ppo import (make_trainer, update_running_stats, build_obs_norm_mask,
                   PerfBook, configure_jax, require_backend)
 from .results import (
@@ -84,26 +89,51 @@ TRAIN_PERF_TIMER_NAMES = (
 # Utilities / artifacts.
 # ---------------------------------------------------------------------------
 
-def compatible_academy_evidence_recipe(parent: TrainingConfig,
-                                       current: TrainingConfig) -> bool:
-    """Same measured stair-success semantics and physical lesson distribution.
+def is_external_research_checkpoint(resume: str, run_dir: Path) -> bool:
+    """Classify a RESOLVED checkpoint by ancestry, not CLI word spelling.
 
-    A new *source SHA alone* is not evidence of a changed episode objective:
-    a logging-only fork must preserve its completed near/easy evidence.
-    This check is necessary but cannot prove code equivalence; a deliberate
-    new success-definition implementation must explicitly reset evidence.
+    The public CLI resolves '--resume auto' into checkpoints/latest.pkl
+    BEFORE calling this trainer. A path in the SAME run is recovery,
+    whereas a full, authenticated checkpoint in another run is a research
+    fork. The latter may migrate optional *teacher evidence only*.
     """
-    if not parent.science_step_finish_on_transfer:
+    if not resume or resume == 'auto':
         return False
-    return all(getattr(parent, name) == getattr(current, name)
-               for name in (
-                   'science_step_finish_on_transfer',
-                   'science_step_goal_weight', 'science_step_approach_m',
-                   'academy_stream', 'academy_height_cap_m',
-                   'academy_course_episode_frames',
-                   'terrain_carpet', 'terrain_carpet_prisms',
-                   'terrain_step_max_m', 'terrain_lesson',
-                   'solver_iterations', 'solver_ls_iterations'))
+    parent=Path(resume).expanduser().resolve()
+    return parent.parent != (Path(run_dir).expanduser().resolve() /
+                             'checkpoints')
+
+
+def clamp_external_research_frontiers(
+        governor, *, terrain_cap_m: float, academy_cap_m: float,
+        ordinary_school_cap_m: float | None = None) -> dict:
+    """Respect the NEW fork's actual limits, not old checkpoint claims.
+
+    Only call on a distinct new run. Same-run recovery must restore the
+    exact governor and its partially observed school windows. On a fork,
+    an older learned stair frontier may be higher than the newly selected
+    lesson cap; cap its state and invalidate stale physical evidence.
+    """
+    terrain_cap=(min(terrain_cap_m,ordinary_school_cap_m)
+                 if ordinary_school_cap_m is not None else terrain_cap_m)
+    caps=(
+        ('terrain_height_m',terrain_cap),
+        ('academy_height_up_m',academy_cap_m),
+        ('academy_height_down_m',academy_cap_m),
+    )
+    changes={}
+    for name,cap in caps:
+        previous=float(getattr(governor.params,name))
+        if previous>cap:
+            setattr(governor.params,name,float(cap))
+            changes[name]=(previous,float(cap))
+    if changes:
+        governor.terrain_evidence=governor._empty_terrain_evidence()
+        governor.academy_evidence=governor._empty_academy_evidence()
+        if governor.safe_ascent_enabled:
+            governor.safe_ascent_evidence=(
+                governor._empty_safe_ascent_evidence())
+    return changes
 
 
 def env_kwargs_from_args(args) -> dict:
@@ -137,6 +167,9 @@ def env_kwargs_from_args(args) -> dict:
         science_step_approach_m=args.science_step_approach_m,
         science_step_finish_on_transfer=args.science_step_finish_on_transfer,
         academy_stream=args.academy_stream,
+        stair_survival_curriculum=args.stair_survival_curriculum,
+        ordinary_step_cap_m=(SCHOOL_ORDINARY_STEP_CAP_M
+                             if args.stair_survival_curriculum else None),
         terrain_carpet=args.terrain_carpet,
         terrain_carpet_prisms=args.terrain_carpet_prisms,
         solver_iterations=args.solver_iterations,
@@ -164,8 +197,37 @@ def env_kwargs_from_args(args) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Run modes.
+# Run modes and one next-birth reporting path.
 # ---------------------------------------------------------------------------
+
+def _annotate_teaching_report(
+    report: dict[str, Any], params: dict[str, Any], *,
+    step: int, args: TrainingConfig, steady_difficulty: float,
+) -> None:
+    """Record the *actual next-birth* allocation in both periodic and final reports.
+
+    The host birth planner can override the governor's default regime mix.
+    Use the same resolved packet for periodic and terminal evidence instead
+    of maintaining two nearly identical report formulas. This is reporting
+    only: no task sampling, learning, reward or governor state is modified.
+    """
+    if not args.unified_capability_focus:
+        return
+    for name in ('steady', 'transition', 'resilience'):
+        key = 'regime_frac_' + name
+        report[key] = float(params[key])
+    report['foundation_control_mix'] = float(params['foundation_control_mix'])
+    report['academy_expected_birth_fraction'] = float(
+        (1. - params['athletic_rehearsal_frac']) *
+        params['specialist_mix'] * params['focus_weight_step'] *
+        params['academy_episode_probability'])
+    for name in FOCUS_NAMES:
+        report['focus_alloc_' + name] = float(params['focus_weight_' + name])
+    report['teaching_profile'] = teaching_profile(
+        step=step, foundation_steps=args.foundation_steps,
+        foundation_mix=args.foundation_mix,
+        steady_difficulty=steady_difficulty).name
+
 
 def unified_launch_mode(args: TrainingConfig) -> str:
     """Explicit authorisation boundary; deliberately independent of JAX/GPU.
@@ -311,7 +373,17 @@ def train(args: TrainingConfig) -> int:
               'walking exams disabled; use independent frozen policy exam '
               'after checkpoint/resume/export verification', flush=True)
 
+    # --- Saved teacher and all-state resume --------------------------------
     # No track-level flags to validate here -- a regime's difficulty is judged directly by RegimeGovernor, with no scheduling layer in between.
+    # The teacher is a SAVED recipe, active from step zero. It is not
+    # inferred from a run name, checkpoint age or a human intervention.
+    school = bool(args.stair_survival_curriculum)
+    # inspect_run has already authorised any explicit parent. At this
+    # point '--resume auto' has been resolved to an actual file path, so
+    # treating a path as a forbidden warm start would BREAK crash recovery.
+    parent_is_external = (
+        resumed_payload is not None and
+        is_external_research_checkpoint(args.resume, run_dir))
     governor = RegimeGovernor(fall_target=args.fall_target,
                               difficulty_base_step=args.difficulty_base_step,
                               regime_command_frac=args.regime_command_frac,
@@ -324,7 +396,8 @@ def train(args: TrainingConfig) -> int:
                               unified_capability_focus=args.unified_capability_focus,
                               science_step_promotion_mm=args.science_step_promotion_mm,
                               science_step_retreat_mm=args.science_step_retreat_mm,
-                              science_step_min_attempts=args.science_step_min_attempts)
+                              science_step_min_attempts=args.science_step_min_attempts,
+                              safe_ascent_enabled=school)
     # When adaptive physical frontiers are disabled, report the actual fixed
     # command envelope rather than dormant RegimeParams defaults.
     if not args.open_frontier and resumed_payload is None:
@@ -335,46 +408,22 @@ def train(args: TrainingConfig) -> int:
     health = TrainingHealth()
     if resumed_payload is not None:
         try:
-            governor.load_state_dict(resumed_payload['curriculum_state'])
-            # A fork must not spend 260M's partially collected old-threshold
-            # evidence. Preserve heights and all learned weights. Do NOT
-            # erase evidence on later same-source crash recovery.
-            ancestor_sha = ((resumed_payload.get('meta', {}).get('source_provenance') or {})
-                            .get('git_commit'))
-            # Evidence is keyed to the physical lesson's success definition,
-            # NOT merely the Python source SHA. v5054 changed that definition,
-            # so a legacy source fork must discard incomparable evidence.
-            # Conversely a logging-only v5055 research fork from an already
-            # v5054-trained actor must NOT silently empty its curriculum.
-            # Cross-source preservation requires the parent's saved training
-            # recipe to prove matching active step-lesson semantics.
-            if (args.science_step_finish_on_transfer and
-                    ancestor_sha != source_provenance_from_env().get('git_commit')):
-                safe_evidence_fork = False
-                if args.resume and args.resume.lower() != 'auto':
-                    parent_cfg_path = (
-                        Path(args.resume).expanduser().resolve().parent.parent
-                        / 'training_config.json')
-                    if parent_cfg_path.is_file():
-                        try:
-                            parent_cfg = TrainingConfig.load(parent_cfg_path)
-                            safe_evidence_fork = (
-                                compatible_academy_evidence_recipe(
-                                    parent_cfg, args))
-                        except (ValueError, TypeError, OSError) as exc:
-                            print(f'{LOG_PREFIX} parent recipe not verifiable: '
-                                  f'{exc}; clearing incompatible evidence',
-                                  flush=True)
-                if safe_evidence_fork:
-                    print(f'{LOG_PREFIX} source-only diagnostic fork: '
-                          'preserved already-compatible Academy/STEP evidence',
-                          flush=True)
-                else:
-                    governor.academy_evidence = governor._empty_academy_evidence()
-                    governor.terrain_evidence = governor._empty_terrain_evidence()
-                    print(f'{LOG_PREFIX} new or unverified step-success recipe: '
-                          'reset inherited Academy/STEP evidence '
-                          '(height frontiers retained)',flush=True)
+            governor.load_state_dict(
+                resumed_payload['curriculum_state'],
+                allow_teacher_fork=parent_is_external)
+            # Only a deliberately new research run may begin or retire a
+            # survival-evidence window absent from its parent school.
+            # An interrupted SAME run must restore the exact saved window,
+            # not quietly fabricate one on --resume auto.
+            if parent_is_external:
+                limited=clamp_external_research_frontiers(
+                    governor,terrain_cap_m=args.terrain_step_max_m,
+                    academy_cap_m=args.academy_height_cap_m,
+                    ordinary_school_cap_m=(
+                        SCHOOL_ORDINARY_STEP_CAP_M if school else None))
+                print(f'{LOG_PREFIX} research fork: teacher evidence '
+                      'matched/migrated; parent weights+optimizer retained; '
+                      f'inherited frontiers adjusted={limited}', flush=True)
             health.load_state_dict(resumed_payload['health_state'])
             print(f"{LOG_PREFIX} --resume: restored curriculum + training health "
                   f"(updates={governor._updates_done_total}, core_bad_streak={governor.core_bad_streak}, "
@@ -418,36 +467,21 @@ def train(args: TrainingConfig) -> int:
             d['steering_attention']=(1.0 if (
                 args.teaching_schedule=='steering' and
                 step>args.foundation_steps) else 0.0)
-            weights=list(attention_weights(
-                schedule=args.teaching_schedule,step=step,
-                foundation_steps=args.foundation_steps))
-            # Reserve a deterministic share of all focused births for
-            # useful moving, low-disturbance retention (CONTROL role).
-            # The ordinary control role remains unchanged in baseline arms.
-            if step>args.foundation_steps and args.retention_share>0.:
-                base_control=weights[-1]
-                other_total=1.-base_control
-                target_control=max(base_control,args.retention_share)
-                weights=[w*(1.-target_control)/other_total for w in weights[:-1]]
-                weights.append(target_control)
-            # Academy is an additional episode birth role, not a separate
-            # optimizer or policy. Its share is relative to ALL worlds.
-            # Original role fractions survive inside non-Academy births.
-            academy_probability=0.0
-            if args.academy_stream and profile.adaptive_specialists:
-                academy_share=academy_birth_allocation(
-                    step=step,intro_steps=args.academy_intro_steps,
-                    start_steps=args.academy_start_steps,
-                    ramp_steps=args.academy_ramp_steps,
-                    intro_share=args.academy_intro_share,
-                    max_share=args.academy_max_share)
-                # Fast rehearsal was reserved BEFORE focus assignment.
-                # Honour 50% of ALL births rather than accidentally 50% of
-                # the remaining 75% when 25% of worlds rehearse fast gait.
-                conditional,actual_share=academy_conditional_birth_share(
-                    academy_share,float(d['athletic_rehearsal_frac']))
-                weights,academy_probability=academy_focus_mix(
-                    weights,conditional)
+            # A SINGLE host allocation applies the schedule, retained
+            # CONTROL share, fast rehearsal reservation, and Academy share.
+            # One six-focus plan; no overlapping later lesson schedulers.
+            weights, academy_probability=birth_lesson_weights(
+                schedule=args.teaching_schedule,
+                step=step, foundation_steps=args.foundation_steps,
+                retention_share=args.retention_share,
+                academy_enabled=(args.academy_stream and
+                                 profile.adaptive_specialists),
+                athletic_share=float(d['athletic_rehearsal_frac']),
+                academy_intro_steps=args.academy_intro_steps,
+                academy_start_steps=args.academy_start_steps,
+                academy_ramp_steps=args.academy_ramp_steps,
+                academy_intro_share=args.academy_intro_share,
+                academy_max_share=args.academy_max_share)
             d['academy_episode_probability']=academy_probability
             for name,weight in zip(FOCUS_NAMES,weights):
                 d['focus_weight_'+name]=weight
@@ -484,6 +518,7 @@ def train(args: TrainingConfig) -> int:
         d.update(packet)
         return d
 
+    # --- Initial policy, normalizer and first genuine PPO update ------------
     params = params_with_field(resumed_step)
     state = trainer['make_initial_state'](params)
     if resumed_payload is not None:
@@ -503,9 +538,15 @@ def train(args: TrainingConfig) -> int:
     print(f"{LOG_PREFIX} training start run={run_name} backend=mjx steps={args.steps:,} envs={args.envs} rollout={ROLLOUT_STEPS} epochs={PPO_EPOCHS} device={args.device} jax_backend={jax.default_backend()}", flush=True)
     print(f"{LOG_PREFIX} obs_dim={obs_dim} schema={args.observation_schema} action_dim={ACTION_DIM} regimes=steady/transition/resilience + posture", flush=True)
     if args.terrain_step_max_m:
-        print(f"{LOG_PREFIX} finite terrain topology allocated (ceiling={args.terrain_step_max_m:.3f}m), "
-              "but physical exposure/height remain ZERO until independently proven crossing-based "
-              "curriculum activation is implemented.", flush=True)
+        print(
+            f'{LOG_PREFIX} real signed-prism topology: '
+            f'configured height range <= {args.terrain_step_max_m:.3f}m; '
+            f'current ordinary exposure={float(params.get("terrain_exposure", 0.)):.3f}, '
+            f'earned ordinary height={float(params.get("terrain_height_m", 0.)):.3f}m; '
+            f'Academy UP/DOWN={float(params.get("academy_height_up_m", 0.)):.3f}/'
+            f'{float(params.get("academy_height_down_m", 0.)):.3f}m '
+            f'(all measured from restored/current curriculum, not claimed competence)',
+            flush=True)
     print(f"{LOG_PREFIX} compiling MJX/JAX update...", flush=True)
     import jax.numpy as jnp
     obs_mean = jnp.zeros((obs_dim,), dtype=jnp.float32)
@@ -569,6 +610,7 @@ def train(args: TrainingConfig) -> int:
     perf.add('host_metric_transfer', time.perf_counter() - metric_transfer_t0)
     print(f"{LOG_PREFIX} compile+first_update={time.time()-t0:.2f}s", flush=True)
 
+    # --- Durable run evidence, exam cadence and checkpoint bookkeeping ------
     # --steps is the absolute target step count, not "how many more steps
     # to run" -- so a resumed run's warm-up update above is counted against
     # the restored step total, and log/save cadence continues from where
@@ -688,7 +730,13 @@ def train(args: TrainingConfig) -> int:
         governor_t0 = time.perf_counter()
         health_ppo = health.observe_ppo(row)
         report = governor.advance_curriculum(
-            row, step=total_steps, max_height_m=args.terrain_step_max_m,
+            # Ordinary STEP worlds share one signed terrain ceiling, so
+            # cap that ceiling at the already-safe 40mm for V2. Only the
+            # Academy UP frontier can then graduate beyond 40mm, and it
+            # must pass the separate first-life survival gate.
+            row, step=total_steps,
+            max_height_m=(min(args.terrain_step_max_m, SCHOOL_ORDINARY_STEP_CAP_M)
+                          if school else args.terrain_step_max_m),
             foundation_steps=args.foundation_steps,
             kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']),
             academy_max_height_m=(args.academy_height_cap_m if args.academy_stream else 0.))
@@ -700,24 +748,9 @@ def train(args: TrainingConfig) -> int:
                   f"{health.KL_STRESS_CHRONIC_WINDOW} updates -- ignoring the KL-stress gate so it can't freeze "
                   "expansion indefinitely. Retreat is unaffected (driven by fall rate/competence only).", flush=True)
         params = params_with_field(total_steps)
-        if args.unified_capability_focus:
-            # The fixed experimental nursery mix may override the ordinary
-            # governor's NEXT-birth regime allocation. Report what worlds
-            # will really sample, never only the governor's unused proposal.
-            for name in ('steady','transition','resilience'):
-                key='regime_frac_'+name
-                report[key]=float(params[key])
-            report['foundation_control_mix']=float(params['foundation_control_mix'])
-            report['academy_expected_birth_fraction']=float(
-                (1.-params['athletic_rehearsal_frac'])*
-                params['specialist_mix']*params['focus_weight_step']*
-                params['academy_episode_probability'])
-            for name in FOCUS_NAMES:
-                report['focus_alloc_'+name]=float(params['focus_weight_'+name])
-            report['teaching_profile']=teaching_profile(
-                step=total_steps,foundation_steps=args.foundation_steps,
-                foundation_mix=args.foundation_mix,
-                steady_difficulty=governor.params.steady_difficulty).name
+        _annotate_teaching_report(
+            report, params, step=total_steps, args=args,
+            steady_difficulty=governor.params.steady_difficulty)
         report['rollback_count']=rollback_count
         attach_field_influence(report, params)
         p = env.params_array(params)
@@ -985,7 +1018,8 @@ def train(args: TrainingConfig) -> int:
         perf.add('obs_norm_and_sync', time.perf_counter() - norm_t0)
         total_steps = next_total_steps
 
-    # final write. The last rollout was not reduced by the while-loop; in a
+    # --- Terminal evidence and checkpoint publication -----------------------
+    # Final write. The last rollout was not reduced by the while-loop; in a
     # one-update smoke the reward history is otherwise EMPTY and prints 0.000,
     # although PPO really saw nonzero rewards. Include the last rollout once.
     recent_rewards.append(float(np.asarray(aux['rollout_reward_mean'])))
@@ -1010,28 +1044,18 @@ def train(args: TrainingConfig) -> int:
     stair_audit.observe(row, aux)
     health_ppo = health.observe_ppo(row)
     report = governor.advance_curriculum(
-        row, step=total_steps, max_height_m=args.terrain_step_max_m,
+        row, step=total_steps,
+        max_height_m=(min(args.terrain_step_max_m, SCHOOL_ORDINARY_STEP_CAP_M)
+                      if school else args.terrain_step_max_m),
         foundation_steps=args.foundation_steps,
         kl_ok_to_expand=bool(health_ppo['kl_ok_to_expand']),
         academy_max_height_m=(args.academy_height_cap_m if args.academy_stream else 0.))
     report.update({k: v for k, v in health_ppo.items() if not k.startswith('kl_') or k in ('kl_stopped_frac_seen', 'kl_stress_chronic')})
     report.update(health.observe_collapse(float(report['fall_ema_posture'])))
     params = params_with_field(total_steps)
-    if args.unified_capability_focus:
-        for name in ('steady','transition','resilience'):
-            key='regime_frac_'+name
-            report[key]=float(params[key])
-        report['foundation_control_mix']=float(params['foundation_control_mix'])
-        report['academy_expected_birth_fraction']=float(
-            (1.-params['athletic_rehearsal_frac'])*
-            params['specialist_mix']*params['focus_weight_step']*
-            params['academy_episode_probability'])
-        for name in FOCUS_NAMES:
-            report['focus_alloc_'+name]=float(params['focus_weight_'+name])
-        report['teaching_profile']=teaching_profile(
-            step=total_steps,foundation_steps=args.foundation_steps,
-            foundation_mix=args.foundation_mix,
-            steady_difficulty=governor.params.steady_difficulty).name
+    _annotate_teaching_report(
+        report, params, step=total_steps, args=args,
+        steady_difficulty=governor.params.steady_difficulty)
     report['rollback_count']=rollback_count
     attach_field_influence(report, params)
     elapsed = time.time() - start

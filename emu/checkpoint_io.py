@@ -4,16 +4,33 @@ A checkpoint is a temporal rewind point, not a loose bag of compatible fields.
 It owns exactly the policy/optimizer state, observation normalizer, curriculum,
 training-health state, capability field, and provenance required to continue the
 same training process.
+
+Read this cohesive module in six stages:
+  1. Source identity and immutable schema/shape/finite-state checks.
+  2. Atomic checkpoint save/load and complete rewind validation.
+  3. Rotating snapshot retention and valid same-run resume discovery.
+  4. Exact PPO-update boundaries, completed-run and fork handoffs.
+  5. All-coordinate learner/teacher recovery after a collapse.
+  6. Authenticated child-process launch and logged diagnostics.
+
+The full checkpoint is distinct from an inference-only .emupolicy export.
+Do not copy a parent recovery snapshot across a changed source/teacher
+recipe, or rewrite the trained checkpoint schema during housekeeping.
 """
 from __future__ import annotations
 
 import hashlib
 import os
 import pickle
+import shutil
+import subprocess
+import sys
 import tempfile
 import time
+import uuid
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -120,15 +137,13 @@ def save_checkpoint(path: Path, state: Any, meta: dict[str, Any], obs_norm: dict
     host_norm = jax.device_get(obs_norm)
     t1 = time.perf_counter()
 
-    if require_finite_state:
-        try:
-            finite = all(bool(np.all(np.isfinite(np.asarray(leaf))))
-                         for leaf in jax.tree_util.tree_leaves((host_params, host_opt_state)))
-        except Exception:
-            finite = False
-        if not finite:
-            return {'device_get_s': t1 - t0, 'pickle_write_s': 0.0, 'total_s': t1 - t0,
-                    'bytes': 0.0, 'saved': 0.0}
+    # The same whole-PPO-tree finite check protects both persisted bytes
+    # and resume validation. It reads the already-transferred host state:
+    # no new GPU synchronization or change to save/abort ordering.
+    if require_finite_state and not payload_train_state_is_finite(
+            {'state': host_state}):
+        return {'device_get_s': t1 - t0, 'pickle_write_s': 0.0, 'total_s': t1 - t0,
+                'bytes': 0.0, 'saved': 0.0}
 
     meta.setdefault('checkpoint_schema', CHECKPOINT_SCHEMA)
     meta.setdefault('field_schema', FIELD_VERSION)
@@ -277,7 +292,7 @@ def save_rotating_snapshot(checkpoints_dir: Path, state: Any, meta: dict[str, An
             pass
     return timing
 
-# Resume discovery
+# --- Snapshot retention and same-run resume discovery ----------------------
 
 
 def resume_candidates(run_dir: Path) -> list[Path]:
@@ -298,31 +313,40 @@ def find_resume(run_dir: Path) -> Path | None:
     return candidates[0] if candidates else None
 
 
-def find_valid_resume(run_dir: Path, *,
-                      expected_observation_schema: str = OBS_SCHEMA_TERRAIN,
-                      expected_sensor_contract: dict | None = None) -> Path | None:
-    """Best current-schema continuation checkpoint, skipping corrupt/incompatible files."""
+def _first_valid_resume(
+    run_dir: Path, *,
+    expected_observation_schema: str = OBS_SCHEMA_TERRAIN,
+    expected_sensor_contract: dict | None = None,
+) -> tuple[Path, dict[str, Any]] | None:
+    """Select one validated rewind path *and* its already-checked payload.
 
+    Preserve the existing final/latest/snapshot preference, including fallback
+    past corrupt or incompatible files. Consumers must not reopen the chosen
+    checkpoint merely to read its step: the payload has already been validated.
+    """
     for path in resume_candidates(run_dir):
         try:
-            load_checkpoint(path, validate=True,
-                            expected_observation_schema=expected_observation_schema,
-                            expected_sensor_contract=expected_sensor_contract)
-            return path
+            payload = load_checkpoint(
+                path, validate=True,
+                expected_observation_schema=expected_observation_schema,
+                expected_sensor_contract=expected_sensor_contract)
+            return path, payload
         except Exception:
             continue
     return None
 
 
-# Exact run boundaries, validated checkpoint handoffs, recovery and subprocess launch.
-import os
-import shutil
-import subprocess
-import sys
-import uuid
-from typing import Callable
-from dataclasses import dataclass
+def find_valid_resume(run_dir: Path, *,
+                      expected_observation_schema: str = OBS_SCHEMA_TERRAIN,
+                      expected_sensor_contract: dict | None = None) -> Path | None:
+    """Public path-only discovery; retain the existing caller contract."""
+    selected = _first_valid_resume(
+        run_dir, expected_observation_schema=expected_observation_schema,
+        expected_sensor_contract=expected_sensor_contract)
+    return selected[0] if selected is not None else None
 
+
+# --- Update boundaries, authenticated handoffs and rollback ----------------
 from .contracts import VERSION, source_repo_root
 from .training_config import FOUNDATION_STEPS, ROLLOUT_STEPS, TrainingConfig
 
@@ -393,6 +417,7 @@ def resume_training_lineage(
     if not resume:
         return None, 0, False
     is_auto = resume.lower() == 'auto'
+    selected_payload = None
     if is_auto:
         # A power loss can remove or corrupt latest.pkl while an existing
         # final or rotating snapshot remains valid. Use the SAME canonical
@@ -400,13 +425,14 @@ def resume_training_lineage(
         preferred = find_resume(run_dir)
         if preferred is None:
             raise RuntimeError(f'--resume auto found no checkpoint under {run_dir / "checkpoints"}')
-        resume_path = find_valid_resume(
+        selected = _first_valid_resume(
             run_dir, expected_observation_schema=expected_observation_schema,
             expected_sensor_contract=expected_sensor_contract)
-        if resume_path is None:
+        if selected is None:
             raise RuntimeError(
                 f'--resume auto found checkpoints but no valid current-schema rewind point under '
                 f'{run_dir / "checkpoints"}')
+        resume_path, selected_payload = selected
         if resume_path != preferred:
             print(f'{LOG} --resume: preferred {preferred.name} unusable; '
                   f'falling back to validated {resume_path}', flush=True)
@@ -415,10 +441,13 @@ def resume_training_lineage(
         if not resume_path.exists():
             raise RuntimeError(f'--resume requested but checkpoint does not exist: {resume_path}')
     try:
-        resumed_payload = load_checkpoint(
-            resume_path, validate=True,
-            expected_observation_schema=expected_observation_schema,
-            expected_sensor_contract=expected_sensor_contract)
+        # Auto-discovery has already read and fully checked this payload.
+        # Explicit --resume retains its existing strict validation path.
+        resumed_payload = (selected_payload if selected_payload is not None else
+                           load_checkpoint(
+                               resume_path, validate=True,
+                               expected_observation_schema=expected_observation_schema,
+                               expected_sensor_contract=expected_sensor_contract))
         resumed_step = int(resumed_payload['meta']['step'])
         print(f'{LOG} --resume: loaded exact checkpoint {resume_path} (step={resumed_step:,})', flush=True)
         if finish_if_target_reached(run_dir, resume_path, resumed_step, target_steps, envs):
@@ -490,6 +519,7 @@ def resume_training_lineage(
     return resumed_payload, resumed_step, False
 
 
+# A collapsed learner rewinds ALL learning coordinates together.
 @dataclass(frozen=True)
 class RecoveredLearner:
     """One successful temporal rewind; no partial result escapes to training."""
@@ -604,18 +634,19 @@ def resolve_target_checkpoint(run_dir: Path, *, target_steps: int, envs: int, la
     """
     expected = update_boundary_at_or_after(target_steps, envs)
     raw_resume = find_resume(run_dir)
-    resume = find_valid_resume(run_dir,
-        expected_observation_schema=expected_observation_schema,
+    selected = _first_valid_resume(
+        run_dir, expected_observation_schema=expected_observation_schema,
         expected_sensor_contract=expected_sensor_contract)
-    if raw_resume is not None and resume is None:
+    if raw_resume is not None and selected is None:
         raise RuntimeError(
             f"{label} has checkpoints but none are valid current-schema rewind points under {run_dir/'checkpoints'}"
         )
-    if resume is None:
+    if selected is None:
         return None, None, expected
-    step = checkpoint_step(resume,
-        expected_observation_schema=expected_observation_schema,
-        expected_sensor_contract=expected_sensor_contract)
+    resume, payload = selected
+    # This step belongs to the exact payload already validated above.
+    # Do not deserialize it a second time (or race an intervening write).
+    step = int(payload['meta']['step'])
     if step > expected:
         raise RuntimeError(
             f"{label} checkpoint is beyond the expected target boundary: step={step:,} expected={expected:,}; "
@@ -627,6 +658,7 @@ def resolve_target_checkpoint(run_dir: Path, *, target_steps: int, envs: int, la
     return None, resume, expected
 
 
+# --- Git-provenance-enforced subprocess launch and logs ---------------------
 def git_provenance() -> dict[str, Any]:
     def git(*args: str) -> str:
         return subprocess.check_output(["git", *args], cwd=source_repo_root(), text=True, stderr=subprocess.DEVNULL).strip()

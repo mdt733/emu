@@ -5,6 +5,7 @@ A 4-world MJX physical trajectory probe is run separately in CI.
 """
 from __future__ import annotations
 from types import SimpleNamespace
+import math
 
 import numpy as np
 import pytest
@@ -162,7 +163,9 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
         PROFILES, selected_profile, generate_xml, profile_numbers,
         FOOT_RADIUS_M, SERVO_RATED_CONTINUOUS_TORQUE_NM)
     base_source=(Path(__file__).resolve().parents[1]/'emu'/'robot.xml').read_text()
-    assert tuple(PROFILES) == ("h40",)
+    # The Spring-only robot is a strictly opt-in research variant.
+    # The default public model and frozen original H40 hash remain unchanged.
+    assert tuple(PROFILES) == ("h40", "h40-spring-only")
     assert selected_profile() == "h40"
     # Regression fence: this exact MJCF is what the frozen 120M actor saw.
     # Changing this hash makes a different robot, even if it looks similar.
@@ -241,8 +244,15 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
             np.testing.assert_allclose(
                 body.jnt_stiffness[flex],
                 row['shin_flex_stiffness_nm_rad'],atol=1e-5,rtol=0)
+            # Spring-only uses a genuine 35/25mm rocker pair rather
+            # than the original symmetric 30/30mm tendon sites. The
+            # unchanged physical foot, mass and motor contracts are still
+            # checked above; the tendon span is DELIBERATELY different.
+            nominal_span=(math.hypot(.035,.025)
+                          if variant=="h40-spring-only"
+                          else .060*(2**-.5))
             np.testing.assert_allclose(
-                state.ten_length[ti],.060*(2**-.5),
+                state.ten_length[ti],nominal_span,
                 atol=1e-5,rtol=0)
         np.testing.assert_allclose(
             foot_heights,[FOOT_RADIUS_M]*2,atol=2e-5,rtol=0)
@@ -250,7 +260,11 @@ def test_foot_only_contacts_preserve_mass_and_remove_torso_collision():
         np.testing.assert_allclose(knee_loads[0],knee_loads[1],
                                    atol=1e-5,rtol=0)
         k=float(row['knee_strut_k_n_m'])
-        expected=k*.060*(1.-2**-.5)*.030*(2**-.5)
+        # The measured Spring-only passive preload was explicitly
+        # calibrated to 0.520606Nm at neutral knee angle, not the
+        # original 30/30mm lever's older reference formula.
+        expected=(.520606 if variant=="h40-spring-only"
+                  else k*.060*(1.-2**-.5)*.030*(2**-.5))
         np.testing.assert_allclose(knee_loads,[expected]*2,
                                    atol=.01,rtol=.02)
         rated=SERVO_RATED_CONTINUOUS_TORQUE_NM

@@ -68,6 +68,8 @@ def main():
     p.add_argument("--ppo",action="store_true")
     p.add_argument("--prisms",action="store_true",
                    help="required compatibility flag: current EMU always uses real prisms")
+    p.add_argument("--stair-survival-curriculum",action="store_true",
+                   help="compile survival-aware full first-life Academy, its safe-cross evidence and protected ordinary births")
     p.add_argument("--full-update",action="store_true")
     p.add_argument("--benchmark-updates",type=int,default=1,
                    help="1..8 full PPO updates; report synchronized steady FPS "
@@ -155,15 +157,24 @@ def main():
         print(f"SOLVER A/B: iterations={option.get('iterations','default')} "
               f"ls_iterations={option.get('ls_iterations','default')} "
               "(benchmark only; original XML unchanged)",flush=True)
+    school_kwargs=(dict(
+        stair_survival_curriculum=True,ordinary_step_cap_m=.04,
+        science_step_goal_weight=.12,science_step_velocity_relief=.55,
+        science_step_approach_m=.22,science_bilateral_support_bonus=6.,
+        science_followthrough_bonus=7.,retention_share=.30,
+        academy_course_episode_frames=1200)
+        if a.stair_survival_curriculum else {})
     env=EmuMJXEnv(
         robot_xml_path,num_envs=a.worlds,seed=a.seed,max_episode_steps=700,
-        terrain_step_max_m=.08,observation_schema=OBS_SCHEMA_TERRAIN,
+        terrain_step_max_m=(.055 if a.stair_survival_curriculum else .08),
+        observation_schema=OBS_SCHEMA_TERRAIN,
         unified_capability_focus=True,terrain_lesson="coherent-careful",
-        academy_stream=True,academy_height_cap_m=.15,terrain_carpet=True,
-        terrain_carpet_prisms=True,
+        academy_stream=True,
+        academy_height_cap_m=(.055 if a.stair_survival_curriculum else .15),
+        terrain_carpet=True,terrain_carpet_prisms=True,
         attitude_profile='v5015',pitch_command_max_deg=8.0,
         reset_forward_capacity=a.reset_forward_capacity,
-        feet_only_contacts=not a.torso_contacts)
+        feet_only_contacts=not a.torso_contacts,**school_kwargs)
     params=dict(specialist_mix=1.,terrain_exposure=1.,slope_exposure=1.,
                 slope_max_deg=8.,terrain_height_m=.02,
                 academy_height_up_m=.02,academy_height_down_m=.03,
@@ -287,6 +298,18 @@ def main():
         if not np.isfinite(np.asarray(jax.device_get(out.obs))).all():
             raise RuntimeError("Non-finite observations after physics step")
     print(f"physics PASS: {a.frames} frames in {a.worlds} worlds",flush=True)
+    if a.stair_survival_curriculum:
+        for band in ('near','easy'):
+            for outcome in ('attempts','survived','crossed','safe_crossed'):
+                key=f'safe_ascent_{band}_{outcome}_up'
+                if key not in out.metrics:
+                    raise RuntimeError(f'Missing actual school evidence {key}')
+                measured=np.asarray(jax.device_get(out.metrics[key]))
+                if measured.shape!=(a.worlds,) or not np.isfinite(measured).all():
+                    raise RuntimeError(f'Invalid school evidence {key}')
+        if env.ordinary_step_cap_m!=.04:
+            raise RuntimeError('Survival school escaped nominal 40mm ordinary cap')
+        print("SURVIVAL SCHOOL physical metrics and nominal cap PASS",flush=True)
     if a.ppo:
         from emu.ppo import make_trainer
         trainer=make_trainer(env,seed=a.seed,lr=2e-4,

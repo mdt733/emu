@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main]
+    branches: [main, research/h40-unified-school-cold-v1]
   workflow_dispatch:
 
 permissions:
@@ -45,6 +45,11 @@ jobs:
           print('DEPENDENCY-FREE h40 LAB STARTUP: PASS')
           PY
           python -m compileall -q emu scripts tests
+          bash -n scripts/run_h40_school_wsl.sh
+          # Old short-run scripts are preserved only in Git history.
+          test ! -e scripts/run_h40_ks150_balanced_stairs_wsl.sh
+          test ! -e scripts/run_h40_safe_ascent_v2_wsl.sh
+          test ! -e scripts/score_h40_safe_ascent_v2.py
           # Main carries one real H40 inference actor. Validate its full
           # observation contract independently of manual Pages approval.
           python - <<'PY'

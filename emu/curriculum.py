@@ -141,8 +141,11 @@ class RegimeGovernor:
                  unified_capability_focus: bool = False,
                  science_step_promotion_mm: float = 0.0,
                  science_step_retreat_mm: float = 0.0,
-                 science_step_min_attempts: int = 4):
+                 science_step_min_attempts: int = 4,
+                 safe_ascent_enabled: bool = False):
         self.params = RegimeParams()
+        self.safe_ascent_enabled = bool(safe_ascent_enabled)
+        self.safe_ascent_evidence = self._empty_safe_ascent_evidence()
         self.unified_capability_focus = bool(unified_capability_focus)
         if (not math.isfinite(science_step_promotion_mm) or
                 not 0. <= science_step_promotion_mm <= 10. or
@@ -235,6 +238,17 @@ class RegimeGovernor:
             for band in ('near','easy')
             for kind in ('attempts','successes')})
 
+    @staticmethod
+    def _empty_safe_ascent_evidence() -> dict[str, float]:
+        # Entire independent first-life episodes, not near-lip footholds;
+        # state is saved/restored with the optimizer/health. Never use a
+        # window measured at an earlier, easier height after promotion.
+        return {
+            f'{band}_{outcome}': 0.0
+            for band in ('near', 'easy')
+            for outcome in ('attempts', 'survived', 'crossed', 'safe_crossed')
+        }
+
     def state_dict(self) -> dict[str, Any]:
         """Everything that can affect the governor's next decision.
         Recovery/resume is a temporal rewind only if this dynamic state is
@@ -248,6 +262,8 @@ class RegimeGovernor:
             '_updates_done_total': self._updates_done_total,
             'terrain_evidence': dict(self.terrain_evidence),
             'academy_evidence': dict(self.academy_evidence),
+            **({'safe_ascent_evidence': dict(self.safe_ascent_evidence)}
+               if self.safe_ascent_enabled else {}),
             'frontier_precision_ema': dict(self.frontier_precision_ema),
             'frontier_bad_streak': dict(self.frontier_bad_streak),
             **({'command_evidence': {k:dict(v) for k,v in
@@ -256,11 +272,36 @@ class RegimeGovernor:
                    self.slope_evidence.items()}} if self.unified_capability_focus else {}),
         }
 
-    def load_state_dict(self, d: dict[str, Any]) -> None:
-        # Source-pinned v5045 checkpoints must provide the complete current
-        # governor state. Historical layouts belong to historical commits;
-        # do not synthesize evidence after a silent schema migration.
+    def load_state_dict(self, d: dict[str, Any], *,
+                        allow_teacher_fork: bool = False) -> None:
+        # A SAME-RUN restore is exact, including every completed first-life
+        # safety window. A deliberately new research run may adopt or drop
+        # ONLY the opt-in survival window; all other governor contracts
+        # remain strict. The CLI independently authenticates the parent.
         expected = set(self.state_dict())
+        if allow_teacher_fork and isinstance(d, dict):
+            saved_keys = set(d)
+            if (self.safe_ascent_enabled and
+                    saved_keys == expected - {'safe_ascent_evidence'}):
+                d = {**d, 'safe_ascent_evidence':
+                     self._empty_safe_ascent_evidence()}
+            elif (not self.safe_ascent_enabled and
+                  saved_keys == expected | {'safe_ascent_evidence'}):
+                d = {k:v for k,v in d.items()
+                     if k != 'safe_ascent_evidence'}
+            elif (self.safe_ascent_enabled and saved_keys == expected):
+                old_school=d.get('safe_ascent_evidence')
+                legacy_keys={f'{band}_{outcome}'
+                             for band in ('near','easy')
+                             for outcome in ('attempts','survived','crossed')}
+                if isinstance(old_school,dict) and set(old_school)==legacy_keys:
+                    # Diagnostic V2 research used raw first-foot crossing
+                    # and independent survival. Current school requires
+                    # JOINT two-foot transfer + survival in the same life.
+                    # Preserve neural/optimizer/other governor state but
+                    # never reuse incomparable evidence from V2.
+                    d={**d,'safe_ascent_evidence':
+                       self._empty_safe_ascent_evidence()}
         if not isinstance(d, dict) or set(d) != expected:
             raise ValueError(
                 f"curriculum state keys mismatch: expected={sorted(expected)} "
@@ -311,6 +352,21 @@ class RegimeGovernor:
                     school[f'{direction}_{band}_attempts']):
                     raise ValueError('Academy proof exceeds physical encounter count')
         self.academy_evidence={k:float(v) for k,v in school.items()}
+        if self.safe_ascent_enabled:
+            saved = d['safe_ascent_evidence']
+            if (not isinstance(saved, dict) or
+                    set(saved) != set(self._empty_safe_ascent_evidence()) or
+                    any(not math.isfinite(float(v)) or float(v) < 0.
+                        for v in saved.values())):
+                raise ValueError('school survival window checkpoint mismatch')
+            for band in ('near', 'easy'):
+                n = float(saved[f'{band}_attempts'])
+                if (saved[f'{band}_survived'] > n or
+                        saved[f'{band}_crossed'] > n or
+                        saved[f'{band}_safe_crossed'] > saved[f'{band}_survived'] or
+                        saved[f'{band}_safe_crossed'] > saved[f'{band}_crossed']):
+                    raise ValueError('school episode outcomes exceed births')
+            self.safe_ascent_evidence = {k: float(v) for k,v in saved.items()}
         if self.unified_capability_focus:
             entries=d['command_evidence']
             if (not isinstance(entries,dict) or
@@ -604,6 +660,25 @@ class RegimeGovernor:
         if float(row.get('academy_active_fraction',0.))<=0.:
             return 'academy_await_births'
         evidence=self.academy_evidence
+        if self.safe_ascent_enabled:
+            # Fresh completed first-life births are counted ONCE at episode
+            # closure, using measured birth lip and its own birth frontier.
+            # 24 is a minimum evidence count, not a statistical guarantee.
+            for band in ('near', 'easy'):
+                for outcome in ('attempts', 'survived', 'crossed', 'safe_crossed'):
+                    key=f'safe_ascent_{band}_{outcome}_up'
+                    value=float(row.get(key,0.))
+                    if not math.isfinite(value) or value<0.:
+                        raise ValueError(f'invalid school first-life metric {key}')
+                    self.safe_ascent_evidence[f'{band}_{outcome}'] += value
+                n=self.safe_ascent_evidence[f'{band}_attempts']
+                if (self.safe_ascent_evidence[f'{band}_survived']>n+1e-6 or
+                        self.safe_ascent_evidence[f'{band}_crossed']>n+1e-6 or
+                        self.safe_ascent_evidence[f'{band}_safe_crossed']>
+                            self.safe_ascent_evidence[f'{band}_survived']+1e-6 or
+                        self.safe_ascent_evidence[f'{band}_safe_crossed']>
+                            self.safe_ascent_evidence[f'{band}_crossed']+1e-6):
+                    raise ValueError('school safety/crossing counts exceed births')
         events=[]
         for direction in ('up','down'):
             for band in ('near','easy'):
@@ -621,6 +696,85 @@ class RegimeGovernor:
             nmin=self.ACADEMY_MIN_ATTEMPTS_PER_DIRECTION
             easy_n=evidence[f'{direction}_easy_attempts']
             near_n=evidence[f'{direction}_near_attempts']
+            if self.safe_ascent_enabled and direction == 'up':
+                previous_frontier=float(getattr(self.params, frontier))
+                school=self.safe_ascent_evidence
+                safe_n=school['near_attempts']
+                easy_s=school['easy_attempts']
+                # Protect easy climbs before asking the robot to try harder.
+                # Rising crosses cannot hide episodes that terminate in falls.
+                dangerous_easy=(easy_s>=24 and
+                    school['easy_survived']/easy_s<.94)
+                dangerous_near=(safe_n>=24 and
+                    school['near_survived']/safe_n<.85)
+                if dangerous_easy or dangerous_near:
+                    previous=getattr(self.params,frontier)
+                    setattr(self.params,frontier,max(
+                        self.ACADEMY_MIN_LIP_M,
+                        previous-self.ACADEMY_HEIGHT_GROWTH_M))
+                    event=('survival_retreat_easy' if dangerous_easy
+                           else 'survival_retreat_near')
+                elif easy_n>=nmin and evidence['up_easy_successes']/easy_n<.25:
+                    previous=getattr(self.params,frontier)
+                    setattr(self.params,frontier,max(
+                        self.ACADEMY_MIN_LIP_M,
+                        previous-self.ACADEMY_HEIGHT_GROWTH_M))
+                    event='retreat_easy_crossing_failure'
+                elif near_n>=nmin or safe_n>=24:
+                    # BOTH a true supported-crossing threshold and a
+                    # completed first-life survival threshold are required.
+                    # No evidence => HOLD rather than optimistic expansion.
+                    enough_safe = safe_n >= 24
+                    # Crucially, safe crossing means BOTH events occur
+                    # in the SAME LIFE of this 24+ birth cohort. Raw per-lip events can
+                    # otherwise certify the wrong height or another lip.
+                    crossed = (enough_safe and
+                               school['near_safe_crossed']/safe_n >= .55)
+                    safe = (enough_safe and
+                            school['near_survived']/safe_n >= .90)
+                    if crossed and safe and kl_ok:
+                        previous=getattr(self.params,frontier)
+                        setattr(self.params,frontier,min(
+                            max_height_m,previous+self.ACADEMY_HEIGHT_GROWTH_M))
+                        event=('expand_survival_and_cross'
+                               if getattr(self.params,frontier)>previous
+                               else 'cap')
+                    else:
+                        event=('collect_first_life' if not enough_safe
+                               else 'hold_survival_or_cross')
+                elif evidence['up_updates']>=self.ACADEMY_MAX_WINDOW_UPDATES:
+                    event='insufficient_approaches'
+                else:
+                    events.append('up:collect')
+                    continue
+                # A terminal decision only discards the *same* severity
+                # evidence once it has enough sample size; a 12-episode
+                # crossing verdict cannot erase a 24-episode safety window.
+                for band in ('near','easy'):
+                    for kind in ('attempts','successes'):
+                        evidence[f'up_{band}_{kind}']=0.
+                evidence['up_updates']=0.
+                # Frontier change makes BOTH old-height cohorts stale,
+                # even those still awaiting 24 completed births. Otherwise
+                # a surviving 3mm cohort could promote the next 3.5mm
+                # lesson. If height is unchanged, retain the unclosed band.
+                height_changed=(
+                    abs(float(getattr(self.params,frontier)) -
+                        previous_frontier) > 1e-9)
+                if height_changed:
+                    for k in school:
+                        school[k]=0.
+                else:
+                    if safe_n>=24:
+                        for outcome in ('attempts','survived','crossed',
+                                        'safe_crossed'):
+                            school[f'near_{outcome}']=0.
+                    if easy_s>=24:
+                        for outcome in ('attempts','survived','crossed',
+                                        'safe_crossed'):
+                            school[f'easy_{outcome}']=0.
+                events.append('up:'+event)
+                continue
             if (easy_n>=nmin and evidence[f'{direction}_easy_successes']/easy_n<.25):
                 setattr(self.params,frontier,max(self.ACADEMY_MIN_LIP_M,
                     getattr(self.params,frontier)-self.ACADEMY_HEIGHT_GROWTH_M))
@@ -856,6 +1010,11 @@ class RegimeGovernor:
         report['academy_height_down_m']=self.params.academy_height_down_m
         report.update({f'academy_window_{key}':value
                        for key,value in self.academy_evidence.items()})
+        if self.safe_ascent_enabled:
+            # Explain WHY the teacher is advancing or holding uphill
+            # difficulty, not just the raw end-of-run stair count.
+            report.update({f'uphill_school_window_{key}':value
+                           for key,value in self.safe_ascent_evidence.items()})
         if self.unified_capability_focus:
             report['slope_event'] = (
                 self.advance_slope(row, kl_ok=kl_ok_to_expand)

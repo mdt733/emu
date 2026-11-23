@@ -12,13 +12,24 @@ from dataclasses import dataclass, asdict
 import csv
 import hashlib
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 import time
 
 import numpy as np
 
 # Fingerprint the actual frozen examiner implementation, not only its actor.
 # Two runs with matching policy hashes can still differ in evaluation physics.
+# Fixed scientific subject; the released original-H40 actor must be refused.
+SCHOOL_DIAGNOSTIC_SOURCE="4048e8450c36882501cbb624f4ca656e11da9419"
+SCHOOL_DIAGNOSTIC_MODEL="21b5856b7a248e5d5b988e2735255d57ec79bae1a7cab0bcb72f481bfc36f470"
+SCHOOL_DIAGNOSTIC_CASES=(("slow_350",.10,350),("slow_1200",.10,1200),
+                         ("fast_350",.25,350),("fast_1200",.25,1200))
+# Preserve the SAME >1200 first life in all four cells; no 700-frame timeout.
+SCHOOL_DIAGNOSTIC_EPISODE_LIMIT=1201
+
 EXAM_SOURCE_PATHS=(
     "scripts/v5053_matrix_exam.py","emu/environment.py","emu/ppo.py",
     "emu/terrain_carpet_mjx.py","emu/carpet_prism_mjx.py",
@@ -55,7 +66,8 @@ class Trial:
     initial_kick_mps: float
 
 
-def trial_spec(kind: str, level: int, levels: int, replicate: int, world: int) -> Trial:
+def trial_spec(kind: str, level: int, levels: int, replicate: int, world: int,
+               *, diagnostic_vx_mps: float|None=None) -> Trial:
     if kind not in (*KINDS,"flat_control") or not 1<=level<=levels:
         raise ValueError("unknown trial kind/level")
     f=level/levels
@@ -83,19 +95,26 @@ def trial_spec(kind: str, level: int, levels: int, replicate: int, world: int) -
         grade=-12.*f
     elif kind=="step_up":
         vx=.25
-        step=.05*f
+        step=.08*f
     elif kind=="flat_control":
         vx=.25
     elif kind=="step_down":
         vx=.25
-        step=-.05*f
+        step=-.08*f
+    if diagnostic_vx_mps is not None:
+        if kind!="step_up" or diagnostic_vx_mps not in (.10,.25):
+            raise ValueError("Diagnostic speed requires uphill 0.10 or 0.25 m/s")
+        vx=diagnostic_vx_mps
     return Trial(world,kind,level,replicate,vx,vy,yaw,step,grade,kick)
 
 
 def assignments(worlds: int, *, mode: str="balanced", levels: int=20,
-                trials_per_level: int|None=None) -> list[Trial]:
+                trials_per_level: int|None=None,
+                diagnostic_vx_mps: float|None=None) -> list[Trial]:
     if mode not in ("balanced","stairs","stairs_up","stairs_down","flat") or not 1<=levels<=40 or worlds<2:
         raise ValueError("invalid matrix mode/geometry")
+    if diagnostic_vx_mps is not None and mode!="stairs_up":
+        raise ValueError("Diagnostic speed applies only to stairs_up")
     if mode=="flat":
         levels=1  # A zero-height seam, exactly matched to the stair commands.
     trials=(10 if mode=="balanced" else 50 if mode=="stairs" else 100)
@@ -119,7 +138,9 @@ def assignments(worlds: int, *, mode: str="balanced", levels: int=20,
     for kind in kinds:
         for level in range(1,levels+1):
             for rep in range(trials):
-                result.append(trial_spec(kind,level,levels,rep,len(result)))
+                result.append(trial_spec(
+                    kind,level,levels,rep,len(result),
+                    diagnostic_vx_mps=diagnostic_vx_mps))
     # Unused worlds stay in batch as explicitly labelled filler; never
     # enter the registered challenge's success denominator.
     while len(result)<worlds:
@@ -219,7 +240,9 @@ def save_csv(path:Path,rows:list[dict]):
 def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
                worlds:int=2048,horizon:int=350,seed:int=1701,
                levels:int=20,trials_per_level:int|None=None,
-               device:str="cuda"):
+               device:str="cuda",school_diagnostic:bool=False,
+               stair_vx_mps:float|None=None,
+               snapshot_frame:int|None=None):
     from emu.contracts import ROBOT_XML,OBS_SCHEMA_TERRAIN
     from emu.policy_export import load_exported_actor_for_exam
     from emu.ppo import make_trainer,configure_jax,require_backend
@@ -227,12 +250,23 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
         PPO_LR,ROLLOUT_STEPS,PPO_ENTROPY_COST,PPO_VALUE_COST)
     from emu.environment import EmuMJXEnv
     from emu.contracts import sensor_observation_contract
-    if not 2<=worlds<=4096 or not 80<=horizon<=700 or seed<0:
-        raise ValueError("Invalid matrix worlds/horizon/seed")
+    if not 2<=worlds<=4096 or seed<0:
+        raise ValueError("Invalid matrix worlds/seed")
+    if school_diagnostic:
+        if (mode!="stairs_up" or horizon not in (350,1200) or
+                stair_vx_mps not in (.10,.25) or worlds>1024):
+            raise ValueError("Diagnostic requires uphill 0.10/0.25 m/s, 350/1200 frames and <=1024 worlds")
+    elif not 80<=horizon<=700 or stair_vx_mps is not None:
+        raise ValueError("Official exam requires 80..700 frames and fixed .25m/s commands")
+    if snapshot_frame is not None and (
+            not school_diagnostic or snapshot_frame!=350 or horizon!=1200):
+        raise ValueError("Paired horizon snapshot requires 1200-frame school diagnostic")
+
     if mode=="flat":
         levels=1
     trials=assignments(worlds,mode=mode,levels=levels,
-                       trials_per_level=trials_per_level)
+                       trials_per_level=trials_per_level,
+                       diagnostic_vx_mps=stair_vx_mps)
     policy=policy.expanduser().resolve()
     output=output.expanduser().resolve()
     if not policy.is_file() or policy.suffix!=".emupolicy":
@@ -242,6 +276,12 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         raise FileExistsError("Output directory must be new or empty")
     params,norm,actor=load_exported_actor_for_exam(policy)
+    if school_diagnostic and (
+            actor["source"].get("git_commit")!=SCHOOL_DIAGNOSTIC_SOURCE or
+            actor["source"].get("seed")!=736 or
+            actor["source"].get("step")!=120061952 or
+            actor["robot_model_sha256"]!=SCHOOL_DIAGNOSTIC_MODEL):
+        raise ValueError("Require exact frozen seed-736 120M KS150 export")
     if (actor["observation_schema"]!=OBS_SCHEMA_TERRAIN or
         actor["training"].get("terrain_carpet_prisms") is not True or
         not actor["array_only"]):
@@ -258,7 +298,9 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
         return np.asarray([getattr(x,name) for x in trials],dtype=np.float32)
     env=EmuMJXEnv(
         str(ROBOT_XML),num_envs=worlds,seed=seed,
-        max_episode_steps=700,push_max_force_n=.7,
+        max_episode_steps=(SCHOOL_DIAGNOSTIC_EPISODE_LIMIT
+                           if school_diagnostic else 700),
+        push_max_force_n=.7,
         observation_schema=OBS_SCHEMA_TERRAIN,
         terrain_step_max_m=.08,unified_capability_focus=True,
         terrain_carpet=True,terrain_carpet_prisms=True,
@@ -305,7 +347,8 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
         params,env.params_array(teacher),
         jnp.asarray(norm["mean"]),jnp.asarray(norm["std"]),
         jnp.asarray(cmd),jnp.asarray(score_mask),
-        jax.random.PRNGKey(seed),horizon))
+        jax.random.PRNGKey(seed),horizon,
+        snapshot_frame=snapshot_frame))
     wall=time.perf_counter()-started
     # HARD acceptance: no matrix may silently label a random ±lip as an
     # exact 2.5mm/5mm/.. step. Measure the physical mesh-backed surfaces.
@@ -322,7 +365,7 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
     save_csv(output/"matrix_worlds.csv",detail)
     save_csv(output/"matrix_curve.csv",curves)
     manifest=dict(
-        schema="h40_true_prism_heterogeneous_matrix_v4",
+        schema="h40_true_prism_heterogeneous_matrix_v5_signed80",
         exam_source_sha256=exam_source_fingerprint(),
         policy_sha256=actor['artifact_sha256'],
         actor_sha256=actor['source']['actor_sha256'],
@@ -342,6 +385,17 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
         confidence="Wilson 95% conditional on trial sampling, not independent PPO seeds",
         measured_source="actual physical hfield/prism tile surface; actor never sees privileged goal",
         worlds_csv="matrix_worlds.csv",curve_csv="matrix_curve.csv")
+    if school_diagnostic:
+        manifest.update(
+            diagnostic_school=True,qualification_eligible=False,
+            diagnostic_vx_mps=stair_vx_mps,
+            episode_limit_frames=SCHOOL_DIAGNOSTIC_EPISODE_LIMIT,
+            diagnostic_scope="one first lip and fixed speed, no Academy governor",
+            historical_heldout=False)
+        if snapshot_frame is not None:
+            manifest.update(
+                same_rollout_snapshot_frame=snapshot_frame,
+                same_rollout_snapshot_gates=list(SCHOOL_DIAGNOSTIC_GATES))
     (output/"matrix_summary.json").write_text(
         json.dumps(dict(manifest=manifest,curves=curves),indent=2)+"\n")
     stair_rows=[x for x in curves if x["kind"] in ("step_up","step_down","flat_control")]
@@ -371,7 +425,9 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
            "are three DIFFERENT physical outcomes. Original strict score is",
            "preserved; traversal does not require a stop or low stance slip.",
            "Signed step heights: positive = uphill, negative = downhill.",
-           "The flat control is a real zero-height seam at 0.25m/s.",
+           ("DESIGN-TIME KS150 DIAGNOSTIC, not release qualification."
+            if school_diagnostic else
+            "The flat control is a real zero-height seam at 0.25m/s."),
            f"This run: mode={mode}, {manifest['trials_per_level']} trials per height",
            f"and direction where applicable; {len(detail)} active worlds.",
            "For a truly paired random-reset comparison, use the same 2,048",
@@ -459,6 +515,333 @@ def run_matrix(*,policy:Path,output:Path,mode:str="balanced",
 
 
 
+
+# --- Frozen same-actor speed x duration design-time diagnostic ------------
+SCHOOL_DIAGNOSTIC_GATES=(
+    "lead_foot_top","both_feet_top_five","traversed_5frame","survived")
+
+
+def _diagnostic_gate(value) -> int:
+    token=str(value).strip().lower()
+    if token not in ("true","false","1","0","1.0","0.0"):
+        raise ValueError(f"Unrecognised physical gate {value!r}")
+    return int(token in ("true","1","1.0"))
+
+
+def compare_school_diagnostic_cases(cases:dict) -> dict:
+    """Compare four cases with identical actor, fixtures and reset keys.
+
+    The four independently JIT-compiled runs share actor, world-indexed
+    random seeds and fixtures, NOT an observed byte-identical trajectory
+    prefix. Floating-point physics can diverge between executable variants.
+    A shorter-window gate disappearing in a separately compiled long run
+    is an important discrepancy to report, not a reason to discard all
+    four expensive measurements. Actor/model/fixture mismatches still fail.
+    """
+    if set(cases)!={label for label,_,_ in SCHOOL_DIAGNOSTIC_CASES}:
+        raise ValueError("Require exactly four school diagnostic conditions")
+    reference=cases["slow_350"][0]["manifest"]
+    same=("schema","policy_sha256","actor_sha256","robot_model_sha256",
+          "actor_training_source","exam_source_sha256","seed","worlds",
+          "levels","trials_per_level","mode","device","collision",
+          "first_life_only","zero_optimizer_updates",
+          "episode_limit_frames","assigned_worlds")
+    by_case={}
+    for label,vx,horizon in SCHOOL_DIAGNOSTIC_CASES:
+        summary,rows=cases[label]
+        m=summary["manifest"]
+        if (not m.get("diagnostic_school") or
+                m.get("qualification_eligible") is not False or
+                m.get("diagnostic_vx_mps")!=vx or m.get("horizon")!=horizon or
+                m.get("episode_limit_frames")!=SCHOOL_DIAGNOSTIC_EPISODE_LIMIT):
+            raise ValueError(f"{label}: invalid school diagnostic case")
+        if (m.get("actor_training_source",{}).get("git_commit")!=
+                SCHOOL_DIAGNOSTIC_SOURCE or
+                m.get("robot_model_sha256")!=SCHOOL_DIAGNOSTIC_MODEL):
+            raise ValueError(f"{label}: wrong frozen KS150 source/model")
+        if any(m.get(k)!=reference.get(k) for k in same):
+            raise ValueError(f"{label}: unpaired source/actor/fixture")
+        indexed={int(r["world"]):r for r in rows}
+        if (len(indexed)!=len(rows) or len(rows)!=m["assigned_worlds"] or
+                set(indexed)!=set(range(len(rows)))):
+            raise ValueError(f"{label}: missing, duplicated or misindexed worlds")
+        if any(r["kind"]!="step_up" or abs(float(r["vx"])-vx)>1e-7
+               for r in rows):
+            raise ValueError(f"{label}: wrong command/stair direction")
+        by_case[label]=indexed
+    prefix_disagreements=[]
+    for world in by_case["slow_350"]:
+        ref=by_case["slow_350"][world]
+        for label,_,_ in SCHOOL_DIAGNOSTIC_CASES:
+            row=by_case[label][world]
+            for k in ("level","replicate","exact_step_m","exact_grade_deg",
+                      "initial_kick_mps","vy","yaw"):
+                if not np.isclose(float(row[k]),float(ref[k]),rtol=0.,atol=1e-7):
+                    raise ValueError(f"World {world}: unpaired {k}")
+            if (abs(float(row["actual_lip_m"])-float(row["exact_step_m"]))>.0005
+                    or abs(float(row["actual_lip_m"])-
+                           float(ref["actual_lip_m"]))>.0005):
+                raise ValueError(f"World {world}: physical lip differs")
+        for speed in ("slow","fast"):
+            short=by_case[f"{speed}_350"][world]
+            long=by_case[f"{speed}_1200"][world]
+            for gate in SCHOOL_DIAGNOSTIC_GATES[:-1]:
+                if _diagnostic_gate(short[gate]) and not _diagnostic_gate(long[gate]):
+                    prefix_disagreements.append(dict(
+                        world=world, speed=speed, gate=gate,
+                        short_350=1, long_1200=0))
+            # Within ONE identical first life, survival at 1200 implies
+            # survival at 350. The experiments are separately compiled,
+            # however, so record an apparent reversal rather than falsely
+            # diagnosing second-life contamination in either individual run.
+            if _diagnostic_gate(long["survived"]) and not _diagnostic_gate(short["survived"]):
+                prefix_disagreements.append(dict(
+                    world=world,speed=speed,gate="survived",
+                    short_350=0,long_1200=1))
+    levels=sorted({int(r["level"]) for r in by_case["slow_350"].values()})
+    curves=[]
+    for level in levels:
+        worlds=sorted(w for w,r in by_case["slow_350"].items()
+                      if int(r["level"])==level)
+        stage=dict(level=level,trials=len(worlds),
+                   step_mm=round(1000.*float(
+                       by_case["slow_350"][worlds[0]]["exact_step_m"]),4))
+        for label,_,_ in SCHOOL_DIAGNOSTIC_CASES:
+            for gate in SCHOOL_DIAGNOSTIC_GATES:
+                stage[f"{label}_{gate}"]=sum(
+                    _diagnostic_gate(by_case[label][w][gate]) for w in worlds)
+        curves.append(stage)
+    totals=dict(worlds_per_condition=len(by_case["slow_350"]))
+    for label,_,_ in SCHOOL_DIAGNOSTIC_CASES:
+        for gate in SCHOOL_DIAGNOSTIC_GATES:
+            totals[f"{label}_{gate}"]=sum(
+                _diagnostic_gate(r[gate]) for r in by_case[label].values())
+    disagreement_counts={
+        speed:{
+            gate:sum(item["speed"]==speed and item["gate"]==gate
+                     for item in prefix_disagreements)
+            for gate in SCHOOL_DIAGNOSTIC_GATES
+        } for speed in ("slow","fast")
+    }
+    return dict(schema="emu_school_speed_horizon_diagnostic_v1",
+                qualification_eligible=False,same_initial_worlds=True,
+                prefix_event_gates_consistent=(not prefix_disagreements),
+                same_trajectory_prefix_verified=False,
+                independently_compiled_executables=True,
+                horizon_prefix_disagreement_count=len(prefix_disagreements),
+                horizon_prefix_disagreements=prefix_disagreements,
+                horizon_prefix_disagreement_counts=disagreement_counts,
+                actor_sha256=reference["actor_sha256"],
+                model_sha256=reference["robot_model_sha256"],
+                source_sha=reference["actor_training_source"]["git_commit"],
+                seed=reference["seed"],
+                episode_limit_frames=SCHOOL_DIAGNOSTIC_EPISODE_LIMIT,
+                warning=("Design-time first lip only; no Academy, PPO update "
+                         "or independent qualification. Different horizons "
+                         "were separately JIT-compiled; shared seeds do NOT "
+                         "prove identical trajectories. If horizon prefix "
+                         "disagreements are present, duration differences "
+                         "cannot be attributed to elapsed time alone."),
+                totals=totals,curves=curves)
+
+
+def run_school_diagnostic_suite(*,policy:Path,output:Path,
+                                worlds:int=256,seed:int=5701,
+                                levels:int=20,trials_per_level:int=10,
+                                device:str="cuda",
+                                same_trajectory_snapshots:bool=False) -> dict:
+    """Launch two snapshot or four legacy GPU cases, no PPO and no overwrite."""
+    policy,output=policy.expanduser().resolve(),output.expanduser().resolve()
+    if (not policy.is_file() or policy.suffix!=".emupolicy" or
+            output.exists() or output==policy.parent or
+            output in policy.parents or policy in output.parents):
+        raise ValueError("Frozen policy must exist; output must be a NEW separate directory")
+    if (levels!=20 or not 1<=trials_per_level<=50 or
+            not levels*trials_per_level<=worlds<=1024 or seed<0):
+        raise ValueError("Diagnostic needs 20 stair heights, <=1024 worlds")
+    actor=json.loads(policy.read_text(encoding="utf-8"))
+    if (actor.get("source",{}).get("git_commit")!=SCHOOL_DIAGNOSTIC_SOURCE or
+            actor.get("source",{}).get("seed")!=736 or
+            actor.get("source",{}).get("step")!=120061952 or
+            actor.get("source",{}).get("robot_model_sha256")!=SCHOOL_DIAGNOSTIC_MODEL):
+        raise ValueError("Refuse anything except frozen 120M seed-736 KS150 actor")
+    output.mkdir(parents=True)
+    env=os.environ.copy()
+    env.update(EMU_PHYSICAL_PROFILE="h40-spring-only",
+               XLA_PYTHON_CLIENT_PREALLOCATE="false")
+    if same_trajectory_snapshots:
+        conditions=(("slow_1200",.10,1200),("fast_1200",.25,1200))
+    else:
+        conditions=SCHOOL_DIAGNOSTIC_CASES
+    for label,vx,horizon in conditions:
+        cmd=[sys.executable,str(Path(__file__).resolve()),
+             "--school-diagnostic-case",
+             "--policy",str(policy),"--output",str(output/label),
+             "--mode","stairs_up","--worlds",str(worlds),
+             "--levels",str(levels),"--trials-per-level",str(trials_per_level),
+             "--horizon",str(horizon),"--stair-vx-mps",str(vx),
+             "--seed",str(seed),"--device",device]
+        if same_trajectory_snapshots:
+            cmd.extend(("--snapshot-frame","350"))
+        print(f"Frozen school first-lip diagnostic: {label}",flush=True)
+        subprocess.run(cmd,env=env,check=True)
+    return summarize_existing_school_diagnostic(output)
+
+
+def _same_trajectory_school_cases(output:Path) -> dict:
+    """Construct four *logical* cases from TWO physical 1200-frame runs.
+
+    The 350-frame event fields were captured inside each 1200-frame JAX
+    carry, not replayed. The source case CSV stays immutable. Reject a
+    missing capture or an unpaired source before attempting aggregation.
+    """
+    cases={}
+    for speed,vx in (("slow",.10),("fast",.25)):
+        label=speed+"_1200"
+        directory=output/label
+        summary=json.loads((directory/"matrix_summary.json").read_text())
+        manifest=summary["manifest"]
+        if (manifest.get("same_rollout_snapshot_frame")!=350 or
+                manifest.get("same_rollout_snapshot_gates")!=list(SCHOOL_DIAGNOSTIC_GATES) or
+                manifest.get("horizon")!=1200 or
+                manifest.get("diagnostic_vx_mps")!=vx):
+            raise ValueError(f"{label}: missing authenticated same-rollout capture")
+        with (directory/"matrix_worlds.csv").open(newline="",encoding="utf-8") as fd:
+            rows=list(csv.DictReader(fd))
+        if not rows:
+            raise ValueError(f"{label}: no saved first-life worlds")
+        fields=tuple("snapshot_"+gate for gate in SCHOOL_DIAGNOSTIC_GATES)
+        if any(any(field not in row for field in fields) for row in rows):
+            raise ValueError(f"{label}: incomplete early frame snapshots")
+        # Only the four event gates are relabelled for the short window;
+        # other 1200-frame aggregations remain in their original CSV and
+        # are not presented as short-horizon measurements.
+        early=[{**row,**{gate:row["snapshot_"+gate]
+                        for gate in SCHOOL_DIAGNOSTIC_GATES}} for row in rows]
+        short_summary={"manifest":{**manifest,"horizon":350}}
+        cases[speed+"_350"]=(short_summary,early)
+        cases[label]=(summary,rows)
+    return cases
+
+
+def summarize_existing_school_diagnostic(output:Path) -> dict:
+    """Aggregate completed GPU case files only: no JAX, policy or GPU run.
+
+    Retain raw per-world CSVs and all four examiner manifests unchanged.
+    Write new derived summaries only; fail rather than overwrite a prior
+    analysis. A different analysis must use a new directory or be reviewed.
+    """
+    output=Path(output).expanduser().resolve()
+    if not output.is_dir():
+        raise FileNotFoundError("School diagnostic output directory is absent")
+    products=tuple(output/name for name in (
+        "school_diagnostic.json","school_diagnostic_heights.csv",
+        "school_diagnostic_prefix_disagreements.csv","school_diagnostic.md"))
+    existing=[p for p in products if p.exists()]
+    if existing:
+        raise FileExistsError(
+            "Refusing to overwrite prior school diagnostic summary: "+
+            ", ".join(str(p) for p in existing))
+    same_trajectory=not (output/"slow_350").exists() and not (output/"fast_350").exists()
+    if same_trajectory:
+        cases=_same_trajectory_school_cases(output)
+    else:
+        cases={}
+        for label,_,_ in SCHOOL_DIAGNOSTIC_CASES:
+            directory=output/label
+            summary=json.loads((directory/"matrix_summary.json").read_text())
+            with (directory/"matrix_worlds.csv").open(newline="",encoding="utf-8") as fd:
+                cases[label]=(summary,list(csv.DictReader(fd)))
+    report=compare_school_diagnostic_cases(cases)
+    if same_trajectory:
+        if report["horizon_prefix_disagreement_count"]:
+            raise RuntimeError("Same-trajectory 350-frame snapshot violates event monotonicity")
+        report.update(
+            same_trajectory_prefix_verified=True,
+            early_horizon_captured_from_same_rollout=True,
+            physical_gpu_runs=2,
+            warning=("Each 350-frame outcome was captured at frame 350 of "
+                     "the SAME 1200-frame first-life MJX rollout. Speed "
+                     "conditions are separate programs with matched fixtures. "
+                     "Design-time first-lip results, not curriculum or actor "
+                     "qualification."))
+    else:
+        report["early_horizon_captured_from_same_rollout"]=False
+        report["physical_gpu_runs"]=4
+    # All fail-closed identity and physical fixture checks happen before
+    # touching any combined output. Original case files are never rewritten.
+    (output/"school_diagnostic.json").write_text(
+        json.dumps(report,indent=2,sort_keys=True)+"\n",encoding="utf-8")
+    save_csv(output/"school_diagnostic_heights.csv",report["curves"])
+    with (output/"school_diagnostic_prefix_disagreements.csv").open(
+            "w",newline="",encoding="utf-8") as fd:
+        fields=("world","speed","gate","short_350","long_1200")
+        writer=csv.DictWriter(fd,fieldnames=fields)
+        writer.writeheader()
+        writer.writerows(report["horizon_prefix_disagreements"])
+    totals=report["totals"]
+    lines=["# KS150: frozen first-lip speed x horizon diagnostic",
+           "","**DESIGN-TIME ONLY — NOT RELEASE QUALIFICATION**","",
+           f"Actor SHA256: {report['actor_sha256']}",
+           f"Source commit: {report['source_sha']}",
+           f"KS150 model SHA256: {report['model_sha256']}",
+           f"Same indexed initial-world seeds, fixtures and actor.",
+           ("**350- and 1200-frame gates come from the SAME physical rollout.**"
+            if same_trajectory else
+            "**Different horizon cases are independently JIT-compiled rollouts.**"),
+           "",
+           "| Speed / frames | Trials | First top | Both feet (5f) | Traversed (5f) | First-life survived |",
+           "|---|---:|---:|---:|---:|---:"+"|"]
+    for label,_,_ in SCHOOL_DIAGNOSTIC_CASES:
+        lines.append(f"| {label} | {totals['worlds_per_condition']} | "
+                     f"{totals[label+'_lead_foot_top']} | "
+                     f"{totals[label+'_both_feet_top_five']} | "
+                     f"{totals[label+'_traversed_5frame']} | "
+                     f"{totals[label+'_survived']} |")
+    counts=report["horizon_prefix_disagreement_counts"]
+    lines+=["",
+            "## Horizon-prefix disagreement audit",
+            "",
+            f"Total discordant same-world gates: {report['horizon_prefix_disagreement_count']}.",
+            "",
+            "| Speed | First-top lost | Two-foot lost | Traversal lost | Survival reversed |",
+            "|---|---:|---:|---:|---:|"]
+    for speed in ("slow","fast"):
+        c=counts[speed]
+        lines.append(f"| {speed} | {c['lead_foot_top']} | "
+                     f"{c['both_feet_top_five']} | {c['traversed_5frame']} "
+                     f"| {c['survived']} |")
+    lines+=["",
+            "This is a discrepancy in separate rollouts, NOT proof that a "
+            "previously achieved event was physically forgotten. Numerically "
+            "divergent prefixes can confound causal interpretation of horizon.",
+            "Inspect school_diagnostic_prefix_disagreements.csv before "
+            "changing the Academy; a strict same-trajectory horizon study "
+            "requires 350-frame snapshots INSIDE one 1200-frame rollout.",
+            "",
+            "Every condition uses a 1201-frame episode limit; the old "
+            "700-frame timeout cannot cause a false long-horizon failure.",
+            "This is a fixed-velocity first-lip test, NOT the complete Academy.",
+            "Per-height CSV and four original per-world CSV files are preserved."]
+    if same_trajectory:
+        lines.extend((
+            "",
+            "For this new snapshot design, 350-frame gates were saved from",
+            "the exact JAX carry that advanced to 1200 frames. Short versus",
+            "long comparisons for each speed are therefore same-trajectory;",
+            "the original four-JIT-run comparison remains separate evidence."
+        ))
+    (output/"school_diagnostic.md").write_text(
+        "\n".join(lines)+"\n",encoding="utf-8")
+    print(f"Offline school diagnostic summary: {output/'school_diagnostic.md'}")
+    if report["horizon_prefix_disagreement_count"]:
+        print(f"CAUTION: {report['horizon_prefix_disagreement_count']} "
+              "cross-horizon event discrepancies; see the CSV and report")
+    return report
+
+
+
+
 PAIRED_GATES=("lead_foot_top","both_feet_top_five",
               "traversed_upright_5frame","traversed_in_lane_5frame",
               "traversed_5frame","completed_destination")
@@ -476,7 +859,7 @@ def compare_paired_exams(stair_summary,stair_rows,flat_summary,flat_rows):
         if a.get(key)!=b.get(key):
             raise ValueError(f"Unmatched frozen exam: {key}")
     if (not a.get("exam_source_sha256") or
-            a["schema"]!="h40_true_prism_heterogeneous_matrix_v4" or
+            a["schema"]!="h40_true_prism_heterogeneous_matrix_v5_signed80" or
             not a["first_life_only"] or not a["zero_optimizer_updates"]):
         raise ValueError("Unsupported or trainable exam")
     flat={int(r["world"]):r for r in flat_rows}
@@ -577,15 +960,61 @@ def main(argv=None):
     p.add_argument("--policy",type=Path)
     p.add_argument("--compare-stairs",type=Path)
     p.add_argument("--compare-flat",type=Path)
+    p.add_argument("--school-diagnostic-suite",action="store_true",
+                   help="legacy four separately compiled first-lip GPU exams")
+    p.add_argument("--school-diagnostic-snapshot-suite",action="store_true",
+                   help="two frozen KS150 GPU exams; capture 350 within same 1200 frames")
+    p.add_argument("--school-diagnostic-summarize",action="store_true",
+                   help="aggregate four existing cases on CPU without rerunning GPU physics")
+    p.add_argument("--school-diagnostic-case",action="store_true",
+                   help=argparse.SUPPRESS)
+    p.add_argument("--stair-vx-mps",type=float,default=None,
+                   help=argparse.SUPPRESS)
+    p.add_argument("--snapshot-frame",type=int,default=None,
+                   help=argparse.SUPPRESS)
     p.add_argument("--output",type=Path,required=True)
     p.add_argument("--mode",choices=("balanced","stairs","stairs_up","stairs_down","flat"),default="balanced")
-    p.add_argument("--worlds",type=int,default=2048)
+    p.add_argument("--worlds",type=int,default=None)
     p.add_argument("--horizon",type=int,default=350)
     p.add_argument("--seed",type=int,default=1701)
     p.add_argument("--levels",type=int,default=20)
     p.add_argument("--trials-per-level",type=int,default=None)
     p.add_argument("--device",choices=("cpu","cuda"),default="cuda")
     a=p.parse_args(argv)
+    if a.school_diagnostic_snapshot_suite:
+        if (a.policy is None or a.school_diagnostic_suite or
+                a.school_diagnostic_summarize or a.school_diagnostic_case or
+                a.snapshot_frame is not None or a.stair_vx_mps is not None or
+                a.compare_stairs is not None or a.compare_flat is not None):
+            p.error("Snapshot suite requires one frozen policy and new output only")
+        return run_school_diagnostic_suite(
+            policy=a.policy,output=a.output,
+            worlds=(256 if a.worlds is None else a.worlds),
+            levels=a.levels,trials_per_level=(
+                10 if a.trials_per_level is None else a.trials_per_level),
+            seed=a.seed,device=a.device,
+            same_trajectory_snapshots=True)
+    if a.school_diagnostic_summarize:
+        if (a.policy is not None or a.school_diagnostic_suite or
+                a.school_diagnostic_snapshot_suite or
+                a.school_diagnostic_case or a.snapshot_frame is not None or
+                a.stair_vx_mps is not None or
+                a.compare_stairs is not None or a.compare_flat is not None):
+            p.error("Offline summarize requires only --output CASES_DIRECTORY")
+        summarize_existing_school_diagnostic(a.output)
+        return
+    if a.school_diagnostic_suite:
+        if (a.policy is None or a.compare_stairs is not None or
+                a.compare_flat is not None or a.school_diagnostic_case or
+                a.school_diagnostic_snapshot_suite or
+                a.snapshot_frame is not None or a.stair_vx_mps is not None):
+            p.error("School diagnostic requires one frozen policy and a new output directory")
+        return run_school_diagnostic_suite(
+            policy=a.policy,output=a.output,
+            worlds=(256 if a.worlds is None else a.worlds),
+            levels=a.levels,trials_per_level=(
+                10 if a.trials_per_level is None else a.trials_per_level),
+            seed=a.seed,device=a.device)
     if a.compare_stairs is not None or a.compare_flat is not None:
         if a.compare_stairs is None or a.compare_flat is None or a.policy is not None:
             p.error("provide both --compare-stairs and --compare-flat, without --policy")
@@ -598,6 +1027,11 @@ def main(argv=None):
         kw=vars(a)
         kw.pop("compare_stairs")
         kw.pop("compare_flat")
+        kw.pop("school_diagnostic_suite")
+        kw.pop("school_diagnostic_snapshot_suite")
+        kw.pop("school_diagnostic_summarize")
+        kw["school_diagnostic"]=kw.pop("school_diagnostic_case")
+        kw["worlds"]=2048 if kw["worlds"] is None else kw["worlds"]
         run_matrix(**kw)
 
 
