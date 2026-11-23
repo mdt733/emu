@@ -230,7 +230,7 @@ def _lock(root: Path, parent: Path, seed: int) -> Path:
         "inherited_parent_steps": PARENT_STEPS,
         "envs": 2048,
         "model_profile": PROFILE,
-        "baseline_recipe": list(REFERENCE),
+        "baseline_recipe": [list(pair) for pair in REFERENCE],
         "arms": {key: dict(flag=v[0],value=v[1],question=v[2],
                           prediction=v[3]) for key,v in ARMS.items()},
         "evaluation": dict(
@@ -262,7 +262,7 @@ def _read_lock(root: Path) -> dict:
             lock.get("milestone_ppo_boundaries") != [
                 (step+PPO_BATCH_STEPS-1)//PPO_BATCH_STEPS*PPO_BATCH_STEPS
                 for step in STAGES] or
-            lock.get("baseline_recipe") != list(REFERENCE) or
+            lock.get("baseline_recipe") != [list(pair) for pair in REFERENCE] or
             set(lock.get("arms", {})) != set(ARMS) or
             any(lock["arms"][k]["flag"] != v[0] or
                 lock["arms"][k]["value"] != v[1] for k,v in ARMS.items())):

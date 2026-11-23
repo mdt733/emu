@@ -77,7 +77,6 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     from scripts.stair_school_lesson_lab import (
         _stage_extension_allowed, _command, STAGES, TARGET_STEPS)
     assert STAGES == (130000000,140000000,TARGET_STEPS)
-    from pathlib import Path as _Path
     dry_root=tmp_path/"lab-stage-review"
     dummy_lock={"branch_seed":8200,
                 "parent":{"path":str(tmp_path/"parent"/"checkpoints"/"final.pkl"),
@@ -97,6 +96,37 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert _stage_extension_allowed(dry_root,"C00_control",STAGES[1])
     with pytest.raises(RuntimeError,match="Do not skip stages"):
         _stage_extension_allowed(dry_root,"C00_control",STAGES[2])
+
+    # Test the ACTUAL study lock serialization/round-trip (no checkpoint
+    # GPU state required). JSON changes tuples to arrays; lock and reader
+    # must agree on the canonical wire representation.
+    import hashlib
+    from scripts.stair_school_lesson_lab import _lock, _read_lock, REFERENCE
+    control_parent=tmp_path/"verified-parent"/"checkpoints"/"final.pkl"
+    control_parent.parent.mkdir(parents=True)
+    control_parent.write_bytes(b"synthetic full ancestor; do not train")
+    fingerprint=hashlib.sha256(control_parent.read_bytes()).hexdigest()
+    identity={"path":str(control_parent),"sha256":fingerprint,
+              "source_commit":"4048e8450c36882501cbb624f4ca656e11da9419",
+              "step":120061952,"training_seed":736,
+              "physical_profile":"h40-spring-only"}
+    with patch("scripts.stair_school_lesson_lab._source_identity",
+               return_value="1"*40), patch(
+             "scripts.stair_school_lesson_lab._parent_identity",
+               return_value=identity):
+        study=tmp_path/"new-study-lock"
+        _lock(study,control_parent,8200)
+        read=_read_lock(study)
+        assert read["baseline_recipe"]==[list(pair) for pair in REFERENCE]
+        assert read["branch_seed"]==8200
+        assert read["milestone_targets"]==list(STAGES)
+        assert read["milestone_ppo_boundaries"]==[
+            130023424,140050432,160038912]
+        with pytest.raises(RuntimeError,match="Choose a NEW study root"):
+            _lock(study,control_parent,8200)
+        control_parent.write_bytes(b"synthetic mutated ancestor")
+        with pytest.raises(RuntimeError,match="changed since study lock"):
+            _read_lock(study)
 
     # The lesson laboratory's 13 arms must all parse through the REAL
     # training CLI. Every experimental arm changes exactly ONE config
