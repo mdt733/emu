@@ -310,3 +310,52 @@ checkpoints or doing PPO:
 `python -m emu.results --school-audit ~/emu-data/runs/h40-school-cold-120m-s736`
 or pass the saved `school-evidence.zip`. The report labels its sparse
 rollout counts explicitly; it is descriptive and cannot rank policies.
+
+
+### Frozen seed-736 uphill speed × horizon diagnostic (read-only)
+
+A single frozen KS150 student can succeed at the first lip in a 350-frame,
+0.25 m/s exam and still struggle with the school's 1,200-frame life at
+roughly 0.10 m/s. These are **different examination conditions**, not
+proof of defective teaching. Do not infer causality from the previously
+inspected 5701 results.
+
+The existing physical signed-prism examiner now supports one source-locked
+**design-time** comparison: 0.10 and 0.25 m/s, each evaluated for 350 and
+1,200 control frames. All four conditions share the exact **120M seed-736
+export**, generated KS150 robot, identical 1 m first-lip physical fixtures,
+per-world reset keys, and a common **1,201-frame episode timeout**. The old
+700-frame timeout must not masquerade as a 24-second survival failure.
+Separate subprocesses isolate GPU memory; there are no PPO updates, no
+checkpoint writes and no actor promotion.
+
+Run the physical diagnostic **once** on the WSL GPU, with the complete
+seed-736 exported actor already present:
+
+```bash
+cd ~/emu
+python scripts/v5053_matrix_exam.py \
+  --school-diagnostic-suite \
+  --policy ~/emu-data/runs/h40-school-cold-120m-s736/final.emupolicy \
+  --output ~/emu-data/exams/ks150-s736-speed-horizon-v1 \
+  --seed 5701 --device cuda
+```
+
+The runner deliberately selects the KS150 physical profile inside each
+isolated process. Output must be a **new** directory; failed/partial
+physical measurements are left intact for inspection, never overwritten.
+The default comparison uses 256 MJX worlds, of which 200 are assigned to
+uphill +4–80 mm (10 repeats at each exact 4 mm level). It writes a compact
+`school_diagnostic.md`, a JSON provenance/summary, per-height CSV, and the
+original four per-world CSVs. Every condition separately reports first
+upper-foot contact, sustained five-frame contact of each foot, controlled
+crossing and first-life survival. The comparison refuses inconsistent
+actor/robot/exam identities, unpaired world assignments, or a longer
+observation period that implausibly erases an already observed gate.
+
+**Limitations:** This is the *fixed-command first-lip examiner*, not the
+nursery's complete mixture of tasks or age-dependent Academy governor.
+The 5701 seed has already informed the investigation, so these outcomes
+are design-time science, not pristine qualification data. A better
+speed/horizon score does not itself imply a better cold-trained policy
+or authorize replacing the original H40 champion on `main`.
