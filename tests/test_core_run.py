@@ -197,6 +197,92 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
         expected=[] if flag is None else [flag[2:].replace("-","_")]
         assert changed==expected, (arm,changed,expected)
 
+    # Unattended GO smoke: two representative arms, ALL three stage
+    # boundaries and both exam cohorts. No GPU, PPO, policy export or
+    # physical simulator runs. Stage order and crash-resume evidence rules
+    # must remain explicit despite the one-button operator surface.
+    from scripts.stair_school_lesson_lab import (
+        _go_run, _read_stair_funnel, _review_stage,
+        GO_CORE, GO_HARD_STOP_DROP)
+    import json as lab_json
+    lab_root=tmp_path/"go-unattended"
+    lab_root.mkdir()
+    sample_arms={
+        name:LAB_ARMS[name]
+        for name in ("C00_control","H06_more_bilateral_credit")}
+    dummy_go_lock={
+        **dummy_lock,"source_commit":"1"*40,
+        "evaluation":{"discovery_seeds":[6901,6902]},
+        "milestone_targets":list(STAGES)}
+    launches=[]
+    exams=[]
+    def fake_training(cmd,**_):
+        if "--check-resume-only" in cmd:
+            return 0
+        target=int(cmd[cmd.index("--steps")+1])
+        run_dir=Path(cmd[cmd.index("--run-dir")+1])
+        (run_dir/"checkpoints").mkdir(parents=True,exist_ok=True)
+        (run_dir/"training_config.json").write_text(
+            lab_json.dumps({"steps":target}))
+        (run_dir/"checkpoints"/"final.pkl").write_bytes(
+            f"fake full state {target}".encode("ascii"))
+        launches.append((run_dir.name,target))
+        return 0
+    def fake_evidence(_lock,root,arm,steps,seed,*,env):
+        d=root/"evidence"/arm/f"{steps//1_000_000}m-s{seed}"
+        d.mkdir(parents=True,exist_ok=True)
+        (d/"exam_receipt.json").write_text("{}")
+        exams.append((arm,steps,seed))
+        return {"actor_sha256":"test-only-actor"}
+    def harmless_review(_lock,root,arm,steps):
+        return {"hard_stops":[],"warnings":[],"advancement":"continue"}
+    with patch.dict("scripts.stair_school_lesson_lab.ARMS",
+                    sample_arms,clear=True), patch(
+            "scripts.stair_school_lesson_lab.subprocess.run",
+            side_effect=fake_training), patch(
+            "scripts.stair_school_lesson_lab._physical_evidence",
+            side_effect=fake_evidence), patch(
+            "scripts.stair_school_lesson_lab._review_stage",
+            side_effect=harmless_review), patch(
+            "scripts.stair_school_lesson_lab._validate_completed_arm"), patch(
+            "scripts.stair_school_lesson_lab._write_lesson_progress"):
+        assert _go_run(lab_root,dummy_go_lock)==0
+    assert launches==[
+        (arm,stage) for arm in sample_arms for stage in STAGES]
+    assert exams==[(arm,stage,seed)
+                   for arm in sample_arms for stage in STAGES
+                   for seed in (6901,6902)]
+    assert any(lab_json.loads(line)["event"]=="study_finished"
+               for line in (lab_root/"go_events.jsonl").read_text().splitlines())
+    assert GO_CORE==("command","control","transition","slope","resilience")
+    assert GO_HARD_STOP_DROP==.15
+
+    # Automated safety stop is per-arm, not a reason to abandon all later
+    # independently forked hypotheses. No subjective --reviewed handshake.
+    stopped_root=tmp_path/"go-safety-stop"
+    stopped_root.mkdir()
+    launches.clear()
+    exams.clear()
+    def safety_review(_lock,root,arm,steps):
+        serious=(arm=="H06_more_bilateral_credit" and steps==STAGES[0])
+        return {"hard_stops":[{"specialty":"control"}] if serious else [],
+                "warnings":[],"advancement":"stop_this_arm" if serious else "continue"}
+    with patch.dict("scripts.stair_school_lesson_lab.ARMS",
+                    sample_arms,clear=True), patch(
+            "scripts.stair_school_lesson_lab.subprocess.run",
+            side_effect=fake_training), patch(
+            "scripts.stair_school_lesson_lab._physical_evidence",
+            side_effect=fake_evidence), patch(
+            "scripts.stair_school_lesson_lab._review_stage",
+            side_effect=safety_review), patch(
+            "scripts.stair_school_lesson_lab._validate_completed_arm"), patch(
+            "scripts.stair_school_lesson_lab._write_lesson_progress"):
+        assert _go_run(stopped_root,dummy_go_lock)==0
+    assert launches==[
+        ("C00_control",STAGES[0]),("C00_control",STAGES[1]),
+        ("C00_control",STAGES[2]),
+        ("H06_more_bilateral_credit",STAGES[0])]
+
     # Final and intermediate training reports must describe the identical
     # resolved next-birth allocation; this helper never changes the teacher.
     from emu.training import _annotate_teaching_report
