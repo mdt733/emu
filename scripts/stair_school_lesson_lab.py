@@ -11,6 +11,7 @@ Subcommands:
   plan      : preview a selected absolute step boundary (no GPU)
   preflight : authenticate complete checkpoint and source (no GPU/PPO)
   run       : preflight then train ONE arm to a registered boundary
+  examine   : frozen stair, signed-stair and core-retention exams for ONE arm
 
 Separate evals/lesson synthesis happen outside this training launcher, never
 inside the teacher or PPO loop. No automatic champion promotion.
@@ -348,6 +349,66 @@ def _command(lock: dict, root: Path, arm: str, to_steps: int) -> list[str]:
             "--device", "cuda", *_recipe(arm), *resume]
 
 
+def _exam_commands(lock:dict,root:Path,arm:str,to_steps:int,seed:int) -> tuple[Path,list[list[str]]]:
+    """Four immutable outputs for one completed arm, stage and discovery seed.
+
+    Exam worlds, speeds, horizon and physical geometry are the SAME for
+    control and treatments. No champion output and no PPO training.
+    """
+    if (arm not in ARMS or to_steps not in STAGES or
+            seed not in lock["evaluation"]["discovery_seeds"]):
+        raise ValueError("Exams require one registered arm, stage and discovery seed")
+    stage=f"{to_steps//1_000_000}m-s{seed}"
+    output=root/"evidence"/arm/stage
+    checkpoint=root/"runs"/arm/"checkpoints"/"final.pkl"
+    actor=output/"actor.emupolicy"
+    envpython=sys.executable
+    commands=[
+        [envpython,"-m","emu.cli","export-policy",str(checkpoint),str(actor)],
+        [envpython,str(REPO/"scripts"/"v5053_matrix_exam.py"),
+         "--policy",str(actor),"--output",str(output/"signed_stairs"),
+         "--mode","stairs","--worlds","512","--levels","20",
+         "--trials-per-level","10","--horizon","350","--seed",str(seed),
+         "--device","cuda"],
+        [envpython,str(REPO/"scripts"/"examine_h40_specialties.py"),
+         "--policy",str(actor),"--output",str(output/"generalist_pulse.zip"),
+         "--worlds","2048","--horizon","600","--seed",str(seed),
+         "--device","cuda"],
+        [envpython,str(REPO/"scripts"/"v5053_matrix_exam.py"),
+         "--school-diagnostic-snapshot-suite",
+         "--lab-study-lock",str(_lock_path(root)),
+         "--lab-arm",arm,
+         "--policy",str(actor),"--output",str(output/"stair_speed_horizon"),
+         "--seed",str(seed),"--device","cuda"],
+    ]
+    return output,commands
+
+
+def _validate_completed_arm(lock:dict,root:Path,arm:str,to_steps:int) -> None:
+    """Inspect the exact finalized all-state checkpoint, before examination."""
+    from emu.checkpoint_io import load_checkpoint
+    from emu.training_config import TrainingConfig,training_sensor_contract
+    from emu.checkpoint_io import update_boundary_at_or_after
+    run_dir=root/"runs"/arm
+    cfgpath=run_dir/"training_config.json"
+    checkpoint=run_dir/"checkpoints"/"final.pkl"
+    if not cfgpath.is_file() or not checkpoint.is_file():
+        raise RuntimeError("Finish this arm and stage before requesting physical exams")
+    cfg=TrainingConfig.load(cfgpath)
+    if (cfg.steps!=to_steps or cfg.envs!=2048 or
+            cfg.seed!=lock["branch_seed"] or cfg.physical_profile!=PROFILE):
+        raise RuntimeError("Requested arm/stage differs from its saved experiment configuration")
+    payload=load_checkpoint(
+        checkpoint,validate=True,
+        expected_observation_schema=cfg.observation_schema,
+        expected_sensor_contract=training_sensor_contract(cfg))
+    got=payload["meta"]
+    if (got.get("step")!=update_boundary_at_or_after(to_steps,2048) or
+            got.get("run_name")!=arm or
+            (got.get("source_provenance") or {}).get("git_commit")!=lock["source_commit"]):
+        raise RuntimeError("Completed checkpoint age, arm or source is not this study")
+
+
 def _launch_env() -> dict[str, str]:
     """Use the trainer's explicit full-CUDA authorization for EVERY stage.
 
@@ -367,7 +428,7 @@ def _launch_env() -> dict[str, str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("list", "lock", "plan", "preflight", "run"))
+    parser.add_argument("action", choices=("list", "lock", "plan", "preflight", "run", "examine"))
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--parent", type=Path, default=DEFAULT_PARENT)
     parser.add_argument("--seed", type=int, default=8200)
@@ -375,6 +436,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--to-steps", type=int, choices=STAGES,
                         default=STAGES[0],
                         help="one matched stopping boundary: 130M, 140M, 160M")
+    parser.add_argument("--exam-seed", type=int, choices=(6901,6902),
+                        default=6901,help="preregistered discovery exam cohort")
     parser.add_argument("--reviewed", action="store_true",
                         help="acknowledge matched physical/retention review "
                              "before advancing beyond the first stage")
@@ -389,9 +452,28 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     lock = _read_lock(args.root)
     arms = (args.arm,) if args.arm else tuple(ARMS)
-    if args.action in ("preflight", "run") and args.arm is None:
-        parser.error("Select exactly one --arm for a checkpoint preflight or launch")
+    if args.action in ("preflight", "run", "examine") and args.arm is None:
+        parser.error("Select exactly one --arm for preflight, launch or exams")
     root = args.root.expanduser().resolve()
+    if args.action == "examine":
+        if args.reviewed:
+            parser.error("--reviewed is for TRAINING stage advancement, not exams")
+        arm=args.arm
+        _validate_completed_arm(lock,root,arm,args.to_steps)
+        output,commands=_exam_commands(
+            lock,root,arm,args.to_steps,args.exam_seed)
+        if output.exists():
+            raise FileExistsError(
+                f"Evidence already exists; never overwrite a prior exam: {output}")
+        for cmd in commands:
+            print("FROZEN EXAM:",shlex.join(cmd),flush=True)
+        output.mkdir(parents=True)
+        env=_launch_env()
+        for cmd in commands:
+            subprocess.run(cmd,cwd=REPO,env=env,check=True)
+        print(f"Frozen evidence complete for {arm} stage={args.to_steps:,} "
+              f"seed={args.exam_seed} at {output}",flush=True)
+        return 0
     for arm in arms:
         cmd = _command(lock, root, arm, args.to_steps)
         print(arm, ":", shlex.join(cmd), flush=True)

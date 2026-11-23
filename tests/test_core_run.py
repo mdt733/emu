@@ -145,6 +145,24 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
         ARMS as LAB_ARMS, _recipe, _launch_env)
     from emu.training import unified_launch_mode
     assert len(LAB_ARMS)==13
+    from scripts.stair_school_lesson_lab import _exam_commands
+    for exam_seed in (6901,6902):
+        dest,commands=_exam_commands(
+            {"evaluation":{"discovery_seeds":[6901,6902]}},
+            dry_root,"C00_control",STAGES[0],exam_seed)
+        assert dest.name==f"130m-s{exam_seed}"
+        assert len(commands)==4
+        assert commands[0][3]=="export-policy"
+        assert "signed_stairs" in commands[1][commands[1].index("--output")+1]
+        assert "--mode" in commands[1] and "stairs" in commands[1]
+        assert "examine_h40_specialties.py" in commands[2][1]
+        assert "--school-diagnostic-snapshot-suite" in commands[3]
+        assert commands[3][commands[3].index("--lab-arm")+1]=="C00_control"
+        assert commands[3][commands[3].index("--seed")+1]==str(exam_seed)
+    with pytest.raises(ValueError,match="discovery seed"):
+        _exam_commands(
+            {"evaluation":{"discovery_seeds":[6901,6902]}},
+            dry_root,"C00_control",STAGES[0],7901)
     launch_env=_launch_env()
     assert launch_env["EMU_UNIFIED_CONTINUOUS"]=="cold-growth-approved"
     assert launch_env["EMU_PHYSICAL_PROFILE"]=="h40-spring-only"

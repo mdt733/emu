@@ -260,3 +260,28 @@ and verify it refuses to launch when the marker is missing. `preflight`
 runs the existing complete-checkpoint validator without initiating PPO.
 CI and `preflight` are prerequisites; only an actual operator-side GPU
 continuation can certify that a scientific child writes valid milestones.
+
+
+### One-command frozen stage examinations (after 130M / 140M / 160M)
+
+Once an arm is actually finished and its source-pinned `final.pkl` exists,
+the lab can export and examine it with **one explicit command**:
+
+```bash
+python scripts/stair_school_lesson_lab.py examine \
+  --arm C00_control --to-steps 130000000 --exam-seed 6901
+python scripts/stair_school_lesson_lab.py examine \
+  --arm C00_control --to-steps 130000000 --exam-seed 6902
+```
+
+Each invocation validates the complete final checkpoint, then exports
+an exact frozen actor and runs the source-locked signed uphill/downhill
+350-frame matrix (512 worlds), generalist 46-task frozen pulse (2048
+worlds) and same-trajectory 350/1200-frame stair diagnostic (256 worlds
+per speed). All examiner conditions and discovery seeds match control
+and treatment arms. Source, model, stage, PPO step and actor are checked;
+outputs are placed in a **new**, unique `evidence/<arm>/<stage>-s<seed>`
+folder. An existing evidence folder is never overwritten. If any GPU
+sub-exam fails, its completed outputs remain untouched for inspection.
+This is deliberately NOT a CI regression check, not a new training run,
+and not automatic clearance for the next stage.
