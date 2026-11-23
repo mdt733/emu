@@ -12,6 +12,7 @@ Subcommands:
   preflight : authenticate complete checkpoint and source (no GPU/PPO)
   run       : preflight then train ONE arm to a registered boundary
   examine   : frozen stair, signed-stair and core-retention exams for ONE arm
+  go        : ONE command, all 13 arms sequentially, staged frozen exams
 
 Separate evals/lesson synthesis happen outside this training launcher, never
 inside the teacher or PPO loop. No automatic champion promotion.
@@ -19,6 +20,7 @@ inside the teacher or PPO loop. No automatic champion promotion.
 from __future__ import annotations
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -26,6 +28,9 @@ import pickle
 import shlex
 import subprocess
 import sys
+import time
+import zipfile
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -426,9 +431,354 @@ def _launch_env() -> dict[str, str]:
     return env
 
 
+
+# --- Unattended, reproducible thirteen-arm study ---------------------------
+#
+# One GO means: 13 separate forks, each at 130M -> 140M -> 160M;
+# two locked physical exam seeds at every milestone. The only automatic
+# early stop is a prespecified large decline in real generalist capability,
+# never an Academy training reward. No fork promotes a champion.
+#
+# Crash recovery uses existing validated full checkpoints and immutable
+# signed evidence, never overwrites a completed exam or learns from a
+# different source. The JSONL journal is not itself an authority.
+GO_CORE = ("command", "control", "transition", "slope", "resilience")
+GO_CAUTION_DROP = .05    # descriptive risk warning, NOT significance
+GO_HARD_STOP_DROP = .15  # strong loss reproduced on BOTH exam seeds
+
+
+def _event(root:Path, event:str, **details) -> None:
+    item=dict(utc=datetime.now(timezone.utc).isoformat(),
+              event=event,**details)
+    with (root/"go_events.jsonl").open("a",encoding="utf-8") as fd:
+        fd.write(json.dumps(item,sort_keys=True)+"\n")
+        fd.flush()
+        os.fsync(fd.fileno())
+    print("LESSON LAB:",json.dumps(item,sort_keys=True),flush=True)
+
+
+def _assert_actor(lock:dict,root:Path,arm:str,steps:int,actor_path:Path,
+                  exam_seed:int) -> dict:
+    from scripts.v5053_matrix_exam import _verified_lesson_lab_actor
+    actor=json.loads(actor_path.read_text(encoding="utf-8"))
+    source=actor.get("source")
+    if not isinstance(source,dict):
+        raise RuntimeError(f"Invalid frozen actor: {actor_path}")
+    verified=_verified_lesson_lab_actor(
+        _lock_path(root),arm,source,exam_seed=exam_seed)
+    expected_step=lock["milestone_ppo_boundaries"][
+        lock["milestone_targets"].index(steps)]
+    if verified["step"]!=expected_step:
+        raise RuntimeError("Frozen actor is from an unexpected milestone")
+    return actor
+
+
+def _exam_valid(kind:str,path:Path,actor:dict,seed:int) -> bool:
+    """Treat an existing output as complete only after provenance checking."""
+    if kind=="signed_stairs" or kind=="stair_speed_horizon":
+        file=(path/"matrix_summary.json" if kind=="signed_stairs"
+              else path/"school_diagnostic.json")
+        if not file.is_file():
+            return False
+        meta=json.loads(file.read_text(encoding="utf-8"))
+        if kind=="signed_stairs":
+            m=meta["manifest"]
+            if (m.get("seed")!=seed or m.get("mode")!="stairs" or
+                    m.get("assigned_worlds")!=400 or m.get("horizon")!=350 or
+                    m.get("actor_sha256")!=actor["source"]["actor_sha256"] or
+                    m.get("robot_model_sha256")!=actor["robot_model_sha256"] or
+                    m.get("actor_training_source")!=actor["source"]):
+                raise RuntimeError(f"Signed-stair exam provenance mismatch: {path}")
+            return (path/"matrix_worlds.csv").is_file()
+        if (meta.get("seed")!=seed or
+                meta.get("actor_sha256")!=actor["source"]["actor_sha256"] or
+                meta.get("model_sha256")!=actor["robot_model_sha256"] or
+                not meta.get("same_trajectory_prefix_verified") or
+                not meta.get("early_horizon_captured_from_same_rollout") or
+                meta.get("horizon_prefix_disagreement_count")!=0):
+            raise RuntimeError(f"Same-trajectory exam provenance mismatch: {path}")
+        return (path/"school_diagnostic_heights.csv").is_file()
+    if kind=="generalist_pulse":
+        if not path.is_file():
+            return False
+        with zipfile.ZipFile(path) as archive:
+            m=json.loads(archive.read("manifest.json"))
+            keys=set(archive.namelist())
+        if (m.get("seed")!=seed or
+                m.get("worlds")!=2048 or m.get("horizon_frames")!=600 or
+                m.get("actor_sha256")!=actor["source"]["actor_sha256"] or
+                m.get("actor_source")!=actor["source"] or
+                m.get("robot_model_sha256")!=actor["robot_model_sha256"] or
+                not {"summary.json","pulse.csv","worlds.csv"}.issubset(keys)):
+            raise RuntimeError(f"Generalist pulse provenance mismatch: {path}")
+        return True
+    raise ValueError(f"Unknown physical exam {kind}")
+
+
+def _alternate_output(base:Path) -> Path:
+    """Never remove or overwrite raw evidence from a failed GPU attempt."""
+    if not base.exists():
+        return base
+    for i in range(1,100):
+        trial=base.with_name(base.stem+f"-retry-{i:02d}"+base.suffix)
+        if not trial.exists():
+            return trial
+    raise RuntimeError("Exceeded preserved exam retry attempts")
+
+
+def _find_completed_exam(kind:str,base:Path,actor:dict,seed:int) -> Path|None:
+    candidates=[base]
+    candidates+=sorted(base.parent.glob(
+        base.stem+"-retry-*"+base.suffix))
+    for candidate in candidates:
+        if _exam_valid(kind,candidate,actor,seed):
+            return candidate
+    return None
+
+
+def _physical_evidence(lock:dict,root:Path,arm:str,steps:int,seed:int,
+                       *,env:dict) -> dict:
+    """Finish or reuse exact exams with provenance; never repeat PPO."""
+    if seed not in lock["evaluation"]["discovery_seeds"]:
+        raise ValueError("Unregistered physical exam seed")
+    output,commands=_exam_commands(lock,root,arm,steps,seed)
+    receipt=output/"exam_receipt.json"
+    # Once later training advances, its current final.pkl is no longer
+    # the preceding-stage checkpoint. Immutable earlier receipts and actors
+    # remain the source of those earlier examination facts.
+    if not receipt.is_file():
+        _validate_completed_arm(lock,root,arm,steps)
+    output.mkdir(parents=True,exist_ok=True)
+    actor_path=output/"actor.emupolicy"
+    if not actor_path.exists():
+        print(f"Frozen export: {arm} {steps:,} seed={seed}",flush=True)
+        subprocess.run(commands[0],cwd=REPO,env=env,check=True)
+    actor=_assert_actor(lock,root,arm,steps,actor_path,seed)
+    chosen={}
+    for kind,cmd in zip(
+            ("signed_stairs","generalist_pulse","stair_speed_horizon"),
+            commands[1:]):
+        base=Path(cmd[cmd.index("--output")+1])
+        found=_find_completed_exam(kind,base,actor,seed)
+        if found is None and kind=="stair_speed_horizon" and base.is_dir():
+            # If both long GPU cases finished but host aggregation failed,
+            # recover from their immutable CSVs without another GPU run.
+            all_long=all((base/label/"matrix_summary.json").is_file()
+                         and (base/label/"matrix_worlds.csv").is_file()
+                         for label in ("slow_1200","fast_1200"))
+            if all_long and not (base/"school_diagnostic.json").exists():
+                subprocess.run(
+                    [sys.executable,str(REPO/"scripts"/"v5053_matrix_exam.py"),
+                     "--school-diagnostic-summarize","--output",str(base)],
+                    cwd=REPO,env=env,check=True)
+                found=_find_completed_exam(kind,base,actor,seed)
+        if found is None:
+            target=_alternate_output(base)
+            revised=list(cmd)
+            revised[revised.index("--output")+1]=str(target)
+            print(f"GPU exam {kind}: {arm} {steps:,}, seed {seed}",flush=True)
+            subprocess.run(revised,cwd=REPO,env=env,check=True)
+            if not _exam_valid(kind,target,actor,seed):
+                raise RuntimeError(f"GPU exam finished without valid {kind}: {target}")
+            found=target
+        chosen[kind]=str(found.relative_to(output))
+    data=dict(schema="emu_lesson_lab_exam_receipt_v1",arm=arm,
+              target_steps=steps,seed=seed,source=lock["source_commit"],
+              actor_sha256=actor["source"]["actor_sha256"],
+              actor_path="actor.emupolicy",evidence=chosen)
+    if receipt.exists():
+        prior=json.loads(receipt.read_text(encoding="utf-8"))
+        if prior!=data:
+            raise RuntimeError(f"Refusing to rewrite changed exam receipt: {receipt}")
+    else:
+        with receipt.open("x",encoding="utf-8") as fd:
+            json.dump(data,fd,indent=2,sort_keys=True)
+            fd.write("\n")
+            fd.flush();os.fsync(fd.fileno())
+    return data
+
+
+def _read_pulse(root:Path,arm:str,steps:int,seed:int) -> dict[str,dict]:
+    evidence=root/"evidence"/arm/f"{steps//1_000_000}m-s{seed}"
+    receipt=json.loads((evidence/"exam_receipt.json").read_text(encoding="utf-8"))
+    if (receipt.get("arm")!=arm or receipt.get("target_steps")!=steps or
+            receipt.get("seed")!=seed):
+        raise RuntimeError("Mismatched physical exam receipt")
+    archive=evidence/receipt["evidence"]["generalist_pulse"]
+    with zipfile.ZipFile(archive) as zip_file:
+        summary=json.loads(zip_file.read("summary.json"))
+    result={}
+    for r in summary["headlines"]:
+        result[r["specialty"]]=dict(
+            passed=int(r["passed"]),attempted=int(r["attempted"]),
+            survived=int(r["survived"]),
+            pass_fraction=float(r["pass_fraction"]),
+            survival_fraction=int(r["survived"])/int(r["attempted"]))
+    if set(result)!=set((*GO_CORE,"step")):
+        raise RuntimeError("Frozen pulse did not cover all six specialties")
+    return result
+
+
+def _review_stage(lock:dict,root:Path,arm:str,steps:int) -> dict:
+    """Objective retention comparison against SAME-AGE control, both seeds.
+
+    A >5 percentage point decline is documented; a >15-point decline in
+    the same core specialty on BOTH independently seeded exam cohorts
+    automatically stops further training of THIS arm. It does not stop
+    other independent arms. No training reward, frontier or rank is used.
+    """
+    seeds=tuple(lock["evaluation"]["discovery_seeds"])
+    samples={seed:_read_pulse(root,arm,steps,seed) for seed in seeds}
+    warnings=[]
+    severe=[]
+    contrasts={}
+    if arm!="C00_control":
+        controls={seed:_read_pulse(root,"C00_control",steps,seed)
+                  for seed in seeds}
+        for specialty in GO_CORE:
+            diffs={}
+            for gate in ("pass_fraction","survival_fraction"):
+                values=[samples[seed][specialty][gate]-
+                        controls[seed][specialty][gate] for seed in seeds]
+                diffs[gate]=[round(v,6) for v in values]
+                if min(values)<-GO_CAUTION_DROP:
+                    warnings.append(dict(specialty=specialty,gate=gate,
+                                         deltas=diffs[gate]))
+                if all(v<=-GO_HARD_STOP_DROP for v in values):
+                    severe.append(dict(specialty=specialty,gate=gate,
+                                       deltas=diffs[gate]))
+            contrasts[specialty]=diffs
+    outcome=dict(schema="emu_lesson_lab_stage_review_v1",
+                 arm=arm,target_steps=steps,seeds=list(seeds),
+                 reference="same-age C00_control",
+                 caution_threshold=GO_CAUTION_DROP,
+                 automatic_hard_stop_threshold=GO_HARD_STOP_DROP,
+                 warnings=warnings,hard_stops=severe,
+                 advancement="stop_this_arm" if severe else "continue",
+                 contrast_vs_control=contrasts)
+    location=root/"reviews"/arm
+    location.mkdir(parents=True,exist_ok=True)
+    dest=location/f"{steps//1_000_000}m.json"
+    if dest.exists():
+        if json.loads(dest.read_text(encoding="utf-8"))!=outcome:
+            raise RuntimeError(f"Stage review changed; refusing overwrite: {dest}")
+    else:
+        with dest.open("x",encoding="utf-8") as fd:
+            json.dump(outcome,fd,indent=2,sort_keys=True)
+            fd.write("\n")
+            fd.flush();os.fsync(fd.fileno())
+    return outcome
+
+
+def _write_lesson_progress(root:Path) -> None:
+    """Synthesize factual reviews; never decide which policy to publish."""
+    lines=["# Stair-school lesson ledger (automatic, provisional)",
+           "",
+           "Single-seed-parent causal screen. All effects are relative to "
+           "the same-stage, same-physical-world control.",
+           "A treatment can hurt or help; negative results are retained.",
+           "No automatic champion selection, newborn teaching change or "
+           "release claim.",
+           "",
+           "| Treatment | 130M | 140M | 160M | Noteworthy core risks |",
+           "|---|---|---|---|---|"]
+    for arm in ARMS:
+        cells=[]
+        risks=[]
+        for steps in STAGES:
+            path=root/"reviews"/arm/f"{steps//1_000_000}m.json"
+            if not path.exists():
+                cells.append("not measured")
+                continue
+            review=json.loads(path.read_text(encoding="utf-8"))
+            cells.append("STOP" if review["hard_stops"] else "measured")
+            risks.extend(f"{w['specialty']} {w['gate']} @"
+                         f" {steps//1_000_000}M"
+                         for w in review["warnings"])
+        lines.append(f"| {arm} | "+" | ".join(cells)+
+                     " | "+(", ".join(sorted(set(risks))) or "none flagged")+" |")
+    lines+=["","This is a descriptive dashboard, not twelve confirmed "
+            "developmental lessons. For every arm, examine the frozen "
+            "signed-height curves, two-foot transfer funnel, 350/1200-frame "
+            "same-trajectory snapshots, and actual teacher birth counts.",
+            "A newborn-school lesson remains a hypothesis until replicated "
+            "in fresh from-zero training. The prior 120M student was already "
+            "trained on stairs."]
+    tmp=root/"lesson_ledger.md.tmp"
+    tmp.write_text("\n".join(lines)+"\n",encoding="utf-8")
+    os.replace(tmp,root/"lesson_ledger.md")
+
+
+def _go_run(root:Path,lock:dict) -> int:
+    """Run one ordered study in this LOCAL process, guarded against duplicates."""
+    root=root.resolve()
+    with (root/"go.running.lock").open("a+") as fd:
+        try:
+            fcntl.flock(fd.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            raise RuntimeError("The study is already running; inspect go.log") from exc
+        env=_launch_env()
+        _event(root,"study_started",total_arms=len(ARMS),
+               source=lock["source_commit"],stages=list(STAGES))
+        for arm in ARMS:
+            stopped=False
+            for steps in STAGES:
+                existing_cfg=root/"runs"/arm/"training_config.json"
+                if existing_cfg.is_file():
+                    age=json.loads(existing_cfg.read_text(encoding="utf-8")).get("steps")
+                    if age not in STAGES:
+                        raise RuntimeError(f"{arm} has unknown saved target age {age}")
+                    if age>steps:
+                        # The earlier stage's immutable receipt is mandatory.
+                        for seed in lock["evaluation"]["discovery_seeds"]:
+                            archive=root/"evidence"/arm/f"{steps//1_000_000}m-s{seed}"/"exam_receipt.json"
+                            if not archive.is_file():
+                                raise RuntimeError(f"{arm} advanced before prior exams: {archive}")
+                        review=_review_stage(lock,root,arm,steps)
+                        _write_lesson_progress(root)
+                        if review["hard_stops"]:
+                            raise RuntimeError(f"{arm} advanced after a serious core regression")
+                        continue
+                prior_review=(root/"reviews"/arm/
+                              f"{STAGES[STAGES.index(steps)-1]//1_000_000}m.json"
+                              if steps!=STAGES[0] else None)
+                if prior_review is not None:
+                    if not prior_review.is_file():
+                        raise RuntimeError(f"{arm} has no preceding physical review")
+                    if json.loads(prior_review.read_text())["hard_stops"]:
+                        stopped=True
+                        break
+                _event(root,"arm_stage_start",arm=arm,requested_steps=steps)
+                cmd=_command(lock,root,arm,steps)
+                extending=_stage_extension_allowed(root,arm,steps)
+                subprocess.run([*cmd,"--check-resume-only"],cwd=REPO,env=env,check=True)
+                subprocess.run(cmd,cwd=REPO,env=env,check=True)
+                _validate_completed_arm(lock,root,arm,steps)
+                _event(root,"arm_stage_trained",arm=arm,requested_steps=steps)
+                for seed in lock["evaluation"]["discovery_seeds"]:
+                    receipt=_physical_evidence(lock,root,arm,steps,seed,env=env)
+                    _event(root,"arm_stage_examined",arm=arm,
+                           requested_steps=steps,seed=seed,
+                           actor_sha256=receipt["actor_sha256"])
+                review=_review_stage(lock,root,arm,steps)
+                _write_lesson_progress(root)
+                _event(root,"stage_reviewed",arm=arm,requested_steps=steps,
+                       result=review["advancement"],
+                       warnings=len(review["warnings"]),
+                       hard_stops=len(review["hard_stops"]))
+                if review["hard_stops"]:
+                    stopped=True
+                    break
+            _event(root,"arm_finished",arm=arm,
+                   outcome="safety_stopped" if stopped else "all_stages_complete")
+        _write_lesson_progress(root)
+        _event(root,"study_finished",arms=len(ARMS))
+        return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("list", "lock", "plan", "preflight", "run", "examine"))
+    parser.add_argument("action", choices=("list", "lock", "plan", "preflight", "run", "examine", "go"))
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--parent", type=Path, default=DEFAULT_PARENT)
     parser.add_argument("--seed", type=int, default=8200)
@@ -436,6 +786,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--to-steps", type=int, choices=STAGES,
                         default=STAGES[0],
                         help="one matched stopping boundary: 130M, 140M, 160M")
+    parser.add_argument("--detach",action="store_true",
+                        help="GO: continue sequential training in an independent "
+                             "local process; stdout/stderr in go.log")
+    parser.add_argument("--worker",action="store_true",help=argparse.SUPPRESS)
     parser.add_argument("--exam-seed", type=int, choices=(6901,6902),
                         default=6901,help="preregistered discovery exam cohort")
     parser.add_argument("--reviewed", action="store_true",
@@ -450,6 +804,33 @@ def main(argv: list[str] | None = None) -> int:
         print("Registered immutable 13-arm study:",
               _lock(args.root, args.parent, args.seed))
         return 0
+    if args.action == "go":
+        root=args.root.expanduser().resolve()
+        if not _lock_path(root).is_file():
+            print("One-button GO: authenticating existing 120M parent and "
+                  "creating immutable study lock",flush=True)
+            _lock(root,args.parent,args.seed)
+        lock=_read_lock(root)
+        if args.detach and not args.worker:
+            logfile=root/"go.log"
+            argv_worker=[sys.executable,"-u",str(Path(__file__).resolve()),
+                         "go","--root",str(root),"--worker"]
+            with logfile.open("ab",buffering=0) as stream:
+                process=subprocess.Popen(
+                    argv_worker,cwd=REPO,stdout=stream,
+                    stderr=subprocess.STDOUT,
+                    start_new_session=True,env=_launch_env())
+            print(f"GO STARTED on this computer: PID {process.pid}. "
+                  f"Follow {logfile}. Study is source/checkpoint locked.",
+                  flush=True)
+            return 0
+        if args.detach and args.worker:
+            raise ValueError("Invalid detached worker argument")
+        if args.worker and not _lock_path(root).exists():
+            raise RuntimeError("Worker cannot create an unverified study")
+        return _go_run(root,lock)
+    if args.detach or args.worker:
+        parser.error("--detach belongs only to the one-button GO action")
     lock = _read_lock(args.root)
     arms = (args.arm,) if args.arm else tuple(ARMS)
     if args.action in ("preflight", "run", "examine") and args.arm is None:
