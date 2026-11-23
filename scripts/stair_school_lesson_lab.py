@@ -20,6 +20,7 @@ import argparse
 import hashlib
 import json
 import os
+import pickle
 import shlex
 import subprocess
 import sys
@@ -159,6 +160,19 @@ def _parent_identity(path: Path) -> dict:
                  if cfg.get(key) != want}
     if differing:
         raise RuntimeError(f"Parent is not the preregistered baseline: {differing}")
+    # The parent *file*, not just its directory label, must be the precise
+    # completed 120,061,952-step study. Later, the existing train CLI will
+    # independently validate the full PPO/sensor/normalizer contract before
+    # any updates. No inference export or accidental earlier snapshot fits.
+    with parent.open("rb") as fd:
+        payload = pickle.load(fd)
+    checkpoint_meta = payload.get("meta", {}) if isinstance(payload, dict) else {}
+    if (checkpoint_meta.get("step") != PARENT_STEPS or
+            (checkpoint_meta.get("source_provenance") or {}).get("git_commit") != PARENT_SOURCE or
+            checkpoint_meta.get("robot_model_sha256") !=
+            "21b5856b7a248e5d5b988e2735255d57ec79bae1a7cab0bcb72f481bfc36f470"):
+        raise RuntimeError("Parent checkpoint bytes are not the exact finished seed-736 KS150 study")
+    del payload
     # Git-authorized checkpoint validation remains the duty of emu.cli train:
     # it checks source, full state, sensor, optimizer and signed bytes.
     return {"path": str(parent), "sha256": _sha256(parent),
