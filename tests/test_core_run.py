@@ -50,6 +50,7 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     _verify_dev_birth_ramp()
     _verify_mission_refresher()
     _verify_refresher_replay()
+    _verify_refresher_pin(tmp_path)
     _verify_dev_real_height_limits()
     _verify_dev_cli_contract(tmp_path)
     from emu.cli import main as emu_cli_main
@@ -1077,13 +1078,19 @@ def _verify_dev_cli_contract(tmp_path):
         assert cfg.cross_specialty_stairs is True
         assert cfg.cross_specialty_stairs_start_steps==90_000_000
         assert cfg.cross_specialty_stairs_ramp_steps==20_000_000
+        assert cfg.mission_refreshers is False
+        assert main(argv+["--stair-survival-curriculum",
+                          "--cross-specialty-stairs","--mission-refreshers"])==0
+        assert recorded[-1].mission_refreshers is True
+        with pytest.raises(ValueError,match="requires --cross-specialty-stairs"):
+            main(argv+["--mission-refreshers"])
         with pytest.raises(ValueError,match="stair-survival-curriculum"):
             main(argv+["--cross-specialty-stairs"])
         with pytest.raises(ValueError,match="mature foundation"):
             main(argv+["--cross-specialty-stairs",
                        "--stair-survival-curriculum",
                        "--cross-specialty-stairs-start-steps","10000000"])
-    assert len(recorded)==2
+    assert len(recorded)==3
 
 
 def _verify_mission_refresher():
@@ -1196,3 +1203,74 @@ def _verify_refresher_replay():
     assert np.array_equal(slope,[0.,3.,3.,3.,3.,3.])
     assert np.array_equal(up==0.,mask) and np.array_equal(down==0.,mask)
     assert np.array_equal(cross,~mask)
+
+
+def _verify_refresher_pin(tmp_path):
+    import hashlib
+    import json
+    from dataclasses import replace
+    from emu.developmental_school import (
+        bind_refresher_receipt, refresher_recipe_sha256)
+    from emu.training_config import TrainingConfig
+    root = tmp_path/"refresher_student"
+    ckpts = root/"checkpoints"
+    ckpts.mkdir(parents=True)
+    checkpoint = ckpts/"final.pkl"
+    checkpoint.write_bytes(b"exact frozen activation checkpoint")
+    cfg = TrainingConfig(run_dir=str(root),mission_refreshers=True,seed=736)
+    config_sha = refresher_recipe_sha256(cfg)
+    assert config_sha == refresher_recipe_sha256(replace(
+        cfg,steps=110_000_000,resume=str(checkpoint),device="cuda"))
+    assert config_sha != refresher_recipe_sha256(replace(cfg,seed=737))
+    identity = dict(run_name=root.name,training_seed=736,
+        source_commit="a"*40,training_config_sha256=config_sha,
+        activation_checkpoint_sha256=hashlib.sha256(
+            checkpoint.read_bytes()).hexdigest())
+    base = (.2,.2,.2,.2,.1,.1)
+    ordinary = dict(zip(FOCUS_NAMES,base))
+    clean = dict.fromkeys(FOCUS_NAMES,0.)
+    start = 100_007_936
+    end = 110_000_000
+    receipt = dict(schema="emu_mission_refresher_schedule_v1",**identity,
+        start_step=start,until_step=end,base_weights=base,
+        academy_probability=.6,applied=False,advisory=dict(
+            schema="emu_mission_refresher_advisory_v1",current_step=start,
+            applied=False,plan=dict(ordinary=ordinary,extra_clean=clean)))
+    data = json.dumps(receipt).encode()
+    digest = hashlib.sha256(data).hexdigest()
+    path = root/"mission_refresher_approval.json"
+    meta = dict(run_name=root.name,step=start,
+                source_provenance={"git_commit":"a"*40})
+    args = dict(enabled=True,run_dir=root,receipt_sha256=digest,
+        config_sha256=config_sha,source_commit="a"*40,training_seed=736,
+        resumed_meta=meta,resumed_checkpoint=checkpoint,mature_step=100_000_000)
+    assert bind_refresher_receipt(**dict(args,receipt_sha256="")) == (None,None)
+    path.write_bytes(data)
+    with pytest.raises(ValueError,match="Unapproved"):
+        bind_refresher_receipt(**dict(args,receipt_sha256=""))
+    with pytest.raises(ValueError,match="disabled"):
+        bind_refresher_receipt(**dict(args,enabled=False))
+    with pytest.raises(ValueError,match="identity"):
+        bind_refresher_receipt(**dict(args,training_seed=737))
+    checkpoint.write_bytes(b"wrong activation checkpoint")
+    with pytest.raises(ValueError,match="activation checkpoint digest"):
+        bind_refresher_receipt(**args)
+    assert not (root/"mission_refresher_pin.json").exists()
+    checkpoint.write_bytes(b"exact frozen activation checkpoint")
+    pin,raw = bind_refresher_receipt(**args)
+    assert raw == data
+    # Crash before next checkpoint: exact activation remains valid.
+    assert bind_refresher_receipt(**args) == (pin,data)
+    # Later process resume validates the persisted pin, not newest file hash.
+    checkpoint.write_bytes(b"later learning checkpoint")
+    later = dict(meta,step=end,mission_refresher_pin=pin)
+    assert bind_refresher_receipt(**dict(args,resumed_meta=later)) == (pin,data)
+    with pytest.raises(ValueError,match="Unpinned checkpoint"):
+        bind_refresher_receipt(**dict(args,resumed_meta=dict(meta,step=end)))
+    with pytest.raises(ValueError,match="predates activation"):
+        bind_refresher_receipt(**dict(args,resumed_meta=dict(meta,step=start-1)))
+    with pytest.raises(ValueError,match="explicit pinned"):
+        bind_refresher_receipt(**dict(args,receipt_sha256="",resumed_meta=later))
+    path.write_bytes(data+b" ")
+    with pytest.raises(ValueError,match="approval digest"):
+        bind_refresher_receipt(**dict(args,resumed_meta=later))
