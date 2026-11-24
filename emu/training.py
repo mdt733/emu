@@ -224,8 +224,11 @@ def _annotate_teaching_report(
         params['academy_episode_probability'])
     for name in FOCUS_NAMES:
         report['focus_alloc_' + name] = float(params['focus_weight_' + name])
-    report['cross_stair_blend'] = float(params['cross_stair_blend'])
-    for name,prob in cross_stair_plan(float(params['cross_stair_blend'])).items():
+    # Historical synthetic report fixtures do not carry the new packet.
+    # The actual learner always supplies it; missing means legacy OFF.
+    blend=float(params.get('cross_stair_blend',0.))
+    report['cross_stair_blend'] = blend
+    for name,prob in cross_stair_plan(blend).items():
         report['cross_stair_extra_birth_prob_' + name] = prob
     report['teaching_profile'] = teaching_profile(
         step=step, foundation_steps=args.foundation_steps,
