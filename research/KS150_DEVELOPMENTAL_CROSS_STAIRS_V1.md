@@ -226,3 +226,50 @@ Before enabling any live consumer:
   unchanged school. No automatic training or promotion is authorized.
 
 The 90–110M shared-stair ramp remains independent of this prototype.
+
+
+### MJX clean-refresher delivery contract
+
+The research environment now accepts six appended teacher-only
+`clean_refresher_prob_<role>` conditional probabilities. All default to
+zero and historical parameter indices remain unchanged. The host rejects
+nonfinite/out-of-range probabilities, STEP clean births, non-mature
+specialist allocation, exact-exam overrides and a weighted clean birth
+budget exceeding 5% of the non-athletic role cohort. These are low-level
+packet guards, not approval authorization.
+
+The real prism birth generator samples an independent salted draw after
+role/Academy allocation and before terrain profile construction. Active
+clean births exclude STEP, Academy, athletic and inactive worlds. Both
+signed lips and the competing cross-stair assignment are removed; the
+SLOPE grade is preserved. The episode-local Boolean lives in EnvState
+and is replaced only for resetting worlds. Ordinary birth RNG draws,
+reward definitions, actor input width and Academy mechanics are unchanged
+by design. Exact physical examinations explicitly exclude the new cohort.
+
+Rollout reporting adds active clean fraction, per-role completed clean
+episodes and survived counts, and scheduled conditional probabilities.
+These are delivery/closure diagnostics, **not independent mission passes**.
+Like the existing cross-stair metrics, sparse rollout snapshots are not
+whole-campaign birth totals.
+
+The existing CPU-MJX prism probe now includes a deterministic matched-key
+real recovery-birth comparison: an eligible 5% recovery role is selected
+without changing the draw law, then the same reset key is exercised with
+and without a conditional clean assignment. Assertions check zero signed
+lips/grade/profiles for the assigned clean worlds, unchanged other worlds'
+terrain and observations, no competing cross-stair flag, and the same
+360-wide actor observation shape. Exact fixture tests check that the
+new packet defaults off and rejects an active clean override. These
+checks have been committed but need CI confirmation.
+
+The training loop still emits zero clean probabilities (via defaults);
+it does **not** load or consume an approval receipt. Existing checkpoint
+serialization persists learner/optimizer/normalizer/governor/health/field
+state and deliberately restarts live worlds on resume. The future
+approval consumer must persist a separate trusted approval hash and
+activation checkpoint identity, with explicit rollback/resume tests;
+it must not try to serialize the transient MJX episode flag. This
+preserves the shared-stairs-only experiment and existing training recipes.
+Do not launch an adaptive refresher training arm until that consumer,
+real examination receipts and CPU/GPU delivery checks are validated.
