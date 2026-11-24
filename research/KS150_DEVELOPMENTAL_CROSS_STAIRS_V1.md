@@ -505,3 +505,23 @@ Minimal WSL launch sequence (in the exact reviewed clean checkout):
 
 GO is the separate explicit large-run command. Stop after smoke if
 anything fails or the GPU acceptance output is physically unexpected.
+
+
+#### Final practical acceptance before the campaign
+
+The `smoke` command now runs three full 2048-world PPO updates with
+mixed, clean and Academy cohorts, including two post-compile throughput
+measurements and the existing physical motor-limit checks. It then
+completes the isolated eight-world checkpoint/extension/export lifecycle
+and exercises the **actual** discovery pulse and signed stair examiner
+with that frozen acceptance actor (seed 9582, not a study seed). The
+runner re-scores the pulse archive and checks the signed matrix identity
+and 292 comparison cells. The acceptance actor is not expected to walk
+well; this tests evidence delivery, not ability. It does not supply
+ancestry to the six students.
+
+No large-run launch is needed to test the complete path from PPO to
+frozen physical evidence. The operator can inspect the steady GPU FPS,
+acceptance archive and console before explicitly issuing GO. The local
+GPU results are not yet available, and the first mature live C
+intervention remains a separate review/validation gate.
