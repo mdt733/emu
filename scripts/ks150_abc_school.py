@@ -658,7 +658,7 @@ def main(argv=None):
                  *recipe(root,"A",TRAIN_SEEDS[0],STAGES[0]))
             call("scripts/smoke_gpu_carpet.py","--worlds",2048,"--frames",2,
                  "--device","cuda","--prisms","--ppo","--full-update",
-                 "--stair-survival-curriculum")
+                 "--stair-survival-curriculum","--abc-refresher-smoke")
             write_new(root/"smoke.json",dict(source_commit=lock["source_commit"],model_sha256=MODEL,
                                             operator_attested_ci=True,gpu_smoke=True))
             return 0
