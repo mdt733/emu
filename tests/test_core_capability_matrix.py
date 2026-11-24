@@ -360,11 +360,18 @@ class MatrixExamTests(unittest.TestCase):
             probe_linvel_mps=0.,probe_angvel_rad_s=0.,
             probe_joint_rad=0.,academy_episode_probability=0.)
         task=env.params_array(teacher)
+        from emu.contracts import P
+        np.testing.assert_array_equal(np.asarray(task)[
+            P.clean_refresher_prob_command:P.clean_refresher_prob_control+1],0.)
+        with self.assertRaisesRegex(ValueError,"mature non-exam"):
+            env.params_array(dict(teacher,specialist_mix=1.,
+                focus_weight_resilience=1.,clean_refresher_prob_resilience=.05))
         trainer=make_trainer(env,seed=1701,lr=PPO_LR,rollout=ROLLOUT_STEPS,
             epochs=1,minibatches=1,
             entropy_cost=PPO_ENTROPY_COST,value_cost=PPO_VALUE_COST)
         init=trainer["make_initial_state"](teacher)
         # Exact H40 one-metre tile: 22cm upstream and centred in Y.
+        self.assertFalse(np.any(np.asarray(init.env_state.clean_refresher_birth)))
         spawn_xy=np.asarray(jax.device_get(init.env_state.data.qpos[:,:2]))
         np.testing.assert_allclose(spawn_xy[:,0],.78,atol=1e-6)
         np.testing.assert_allclose(spawn_xy[:,1],.50,atol=1e-6)
