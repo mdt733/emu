@@ -39,7 +39,7 @@ C018 motors + knee support + shin flex + two spherical feet
 | Physics, reset, sensors, rewards' measurements | `emu/environment.py` |
 | 2×2 rolling terrain, triangular-prism collisions | `emu/terrain_carpet_mjx.py`, `emu/carpet_prism_mjx.py` |
 | Mass/friction/servo domain variation | `emu/domain_randomization.py` |
-| Six teaching cohorts, lesson selection, evidence | `emu/capability_focus.py`, `emu/curriculum.py`, `emu/capability_field.py`, `emu/step_goal.py` |
+| Six teaching cohorts, lesson selection, evidence | `emu/capability_focus.py`, `emu/curriculum.py`, `emu/capability_field.py`, `emu/step_goal.py`, experimental `emu/developmental_school.py` |
 | Eight base reward terms and optional hypotheses | `emu/rewards.py` |
 | Actor/critic, on-policy rollouts, GAE, PPO | `emu/ppo.py` |
 | Training orchestration, immutable recipe, learner health | `emu/training.py`, `emu/training_config.py`, `emu/training_health.py` |
