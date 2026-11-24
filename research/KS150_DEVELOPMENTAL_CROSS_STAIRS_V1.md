@@ -89,3 +89,42 @@ fraction is NOT sufficient retention proof.
 
 **Do not launch an automatic full-cost new school until the contracts,
 physical sampling and baseline-vs-treatment comparison pass review.**
+
+
+## Stage two prototype: independent mission refresher planning
+
+`emu.developmental_school.mission_refresher_plan` is an offline, opt-in
+pure host planning function, not a live allocation change. It accepts
+per-task **mission pass counts** from an earlier frozen checkpoint of
+the same student and a later frozen checkpoint, on the same two exam
+seeds, matching task IDs and equal denominators. This detects regression
+even when the unchanged control forgets too. Same-age control contrasts
+remain necessary for causal claims. Separate signed slope tasks must
+remain separate; do not average away a downhill or uphill failure.
+
+Provisional planning rules (not statistically calibrated):
+- A loss exceeding five percentage points on either seed protects that
+  specialty from donating lessons. A loss on both seeds requests refreshers.
+- Rank by the worst repeated task loss, using the smaller of its two
+  seed losses; improvement on another task cannot cancel this warning.
+- Redistribute at most five percentage points of the eligible role
+  birth cohort, taking no more than 10% of any healthy donor's existing
+  share. STEP never donates or receives this budget. If all potential
+  donors show regression, make no allocation change and report the alarm.
+- Reserve added births as **clean** mission lessons; they are separate
+  from the ordinary allocation, which retains the existing mixed lessons.
+  No new reward, lip height, Academy share, actor or PPO change.
+- Require at least ten attempts per task per seed by default; inadequate
+  or mismatched evidence is rejected. Two seeds are a screening rule,
+  not a confidence interval or replication across training seeds.
+
+The function validates the provided counts, not the authenticity of
+their source. **Do not wire it into PPO yet.** Next implement the
+source/checkpoint/task/world-identity receipt adapter, establish a
+fixed pre-ramp reference exam and suitable sample sizes, compare
+per-task mission scores on two independent cohorts, persist and audit
+the planned clean births, and decide in advance how often to review
+and when to stop/reduce refreshers. Validate with offline replay and
+separate matched from-zero experiments; never silently enable this in
+the shared-stairs-only treatment. The initial implementation and
+synthetic contract tests do not prove that targeted teaching works.
