@@ -1257,6 +1257,10 @@ def _verify_refresher_pin(tmp_path):
         bind_refresher_receipt(**args)
     assert not (root/"mission_refresher_pin.json").exists()
     checkpoint.write_bytes(b"exact frozen activation checkpoint")
+    with pytest.raises(ValueError,match="baseline"):
+        bind_refresher_receipt(**dict(args,expected_base=(base,.7)))
+    assert not (root/"mission_refresher_pin.json").exists()
+    args["expected_base"]=(base,.6)
     pin,raw = bind_refresher_receipt(**args)
     assert raw == data
     # Crash before next checkpoint: exact activation remains valid.
