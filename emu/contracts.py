@@ -227,6 +227,9 @@ UNIFIED_TERRAIN_FIELDS = (
     ('academy_height_down_m',0.003),
     # New cold-school exposure dose; appended to preserve previous offsets.
     ('cross_stair_blend',0.0),
+    # Conditional clean-refresher draw AFTER the one role draw, default off.
+    *((f'clean_refresher_prob_{name}',0.0) for name in
+      ('command','resilience','slope','step','transition','control')),
 )
 UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
 P = SimpleNamespace(
@@ -251,6 +254,9 @@ P = SimpleNamespace(
     academy_height_up_m=TERRAIN_TASK_PARAM_DIM+16,
     academy_height_down_m=TERRAIN_TASK_PARAM_DIM+17,
     cross_stair_blend=TERRAIN_TASK_PARAM_DIM+18,
+    **{f'clean_refresher_prob_{name}':TERRAIN_TASK_PARAM_DIM+19+i
+       for i,name in enumerate(
+           ('command','resilience','slope','step','transition','control'))},
 )
 
 
