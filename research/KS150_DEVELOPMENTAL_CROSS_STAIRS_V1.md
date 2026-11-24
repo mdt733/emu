@@ -167,3 +167,62 @@ next agreed milestone, audit the resulting advisory against raw task
 counts, and separately implement a persisted, opt-in allocation
 consumer only after receipt and replay validation. Keep shared stairs
 and adaptive refreshers as separate experimental treatments.
+
+
+### Approved refresher replay and eventual birth consumer (offline)
+
+The review CLI now optionally creates a bounded, explicit approval receipt:
+
+```bash
+python -m scripts.mission_refresher_review registration.json \
+  --approve-until 110000000 --academy-probability 0.6 \
+  --output approved_schedule.json
+```
+
+The numbers above are examples only, not a recommended schedule. In
+addition to the four pinned exam archives, approval requires separately
+trusted `training_config_sha256` and `current.checkpoint_sha256` in the
+registration, plus the actual conditional Academy probability at the
+activation checkpoint. The command repeats the evidence review before
+creating the receipt; it never accepts an edited advisory as authority.
+No output file is overwritten. The expiry is exclusive and no more
+than 10M steps after the current **actual PPO checkpoint step**.
+
+The pure host `replay_refresher_schedule` checks the receipt digest,
+registered source/run/seed/config/activation-checkpoint identities, step
+window and unchanged base birth allocation. The caller must obtain
+these identities from authenticated checkpoint state, not the approval
+file. It returns the historical allocation when disabled or expired,
+and refuses an active receipt with changed baseline or lineage.
+**This is a replay contract, not checkpoint integration.**
+
+`refresher_birth_parameters` combines ordinary and extra-clean shares into
+one role distribution and six conditional clean-birth probabilities.
+The STEP share and conditional Academy probability are invariant, and
+no ordinary donor loses more than 10% of its previous allocation.
+The maximum extra-clean budget is 5 percentage points **of the
+eligible non-athletic role cohort**, not of all world frames.
+
+A future caller can use `clean_refresher_assignment` with a new independent
+birth RNG salt, excluding inactive/athletic/Academy/STEP worlds, and
+`clean_refresher_terrain` before building actual prism profiles. The latter
+removes both signed lips and the mixed-stair flag only on clean births;
+SLOPE retains its existing earned incline, other clean roles are flat.
+These helpers are not yet called by the MJX environment; they do not
+guarantee exact mission-specific command or disturbance sampling.
+
+Before enabling any live consumer:
+- Verify the new synthetic review/replay regression checks in CI.
+- Record real matched pulse archives from the same fresh student at the
+  pre-ramp and later ages; audit each advisory against physical outcomes.
+- Persist the approval hash, activation ancestor and expiry in the
+  authenticated training state; test resume/rollback and reject unpinned
+  receipt swaps. Choose a fresh opt-in research arm with independent
+  configuration identity, rather than changing an existing run.
+- Add teacher parameter slots and birth-only episode flag/telemetry;
+  verify no changes to disabled-path worlds, rewards, actor observations,
+  Academy share, ordinary terrain or old checkpoint compatibility.
+- Compare the combined method against shared stairs alone and the
+  unchanged school. No automatic training or promotion is authorized.
+
+The 90–110M shared-stair ramp remains independent of this prototype.
