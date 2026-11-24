@@ -502,7 +502,9 @@ def prepare_decision(root,seed):
     return r,advisory,academy
 
 
-def decide(root,seed,action):
+def decide(root,seed,action,*,mode="operator"):
+    if mode not in ("operator","preregistered_unattended"):
+        raise ValueError("Unknown decision mode")
     from scripts.mission_refresher_review import approve_schedule
     r,a,academy=prepare_decision(root,seed)
     p=decision_path(root,seed)
@@ -522,11 +524,34 @@ def decide(root,seed,action):
         else:
             write_new(path,receipt)
         digest=sha(path)
-    write_new(p,dict(schema="ks150_abc_decision_v1",seed=seed,action=action,
+    write_new(p,dict(schema="ks150_abc_decision_v1",seed=seed,action=action,decision_mode=mode,
         approval_sha256=digest,
         registration_sha256=sha(p.parent/f"C-s{seed}-registration.json"),
         advisory_sha256=sha(p.parent/f"C-s{seed}-advisory.json")))
 
+
+
+def automatic_review(root):
+    """One explicit launch authorizes the already registered dose rule.
+
+    Review only the registered discovery cohorts of each C student.
+    Never consult the held-out tests or alter the intervention threshold.
+    Existing decisions remain immutable on resume.
+    """
+    if not stages_done(root,110_000_000):
+        raise RuntimeError("Automatic review requires all six 110M stages")
+    output=root/"results-110m.zip"
+    if not output.exists():
+        report(root,110_000_000)
+    for seed in TRAIN_SEEDS:
+        if decision_path(root,seed).exists():
+            approval_digest(root,"C",seed,120_000_000)
+            continue
+        _,advisory,_=prepare_decision(root,seed)
+        dose=sum(advisory["plan"]["extra_clean"].values())
+        action="approve" if dose>0. else "no_intervention"
+        decide(root,seed,action,mode="preregistered_unattended")
+        print(f"C-s{seed}: automatic registered decision {action}; clean share={dose:.6f}",flush=True)
 
 
 def _exam_cells(stage,seed):
@@ -767,10 +792,14 @@ def main(argv=None):
     p.add_argument("command",choices=("plan","lock","smoke","advance","go","review","decide","status","report"))
     p.add_argument("--root",type=Path,default=Path.home()/"emu-data/studies/ks150-abc-v1")
     p.add_argument("--ci-verified-sha",help="Optional exact-source CI record; GPU acceptance is the launch gate")
+    p.add_argument("--auto-review",action="store_true",
+                   help="GO only: authorize the registered 110M C dose rule without a manual stop")
     p.add_argument("--stage",type=int,choices=STAGES)
     p.add_argument("--seed",type=int,choices=TRAIN_SEEDS)
     p.add_argument("--action",choices=("approve","no_intervention"))
     a=p.parse_args(argv)
+    if a.auto_review and a.command!="go":
+        p.error("--auto-review requires go")
     root=root_checked(a.root)
     # Must precede imports of emu.contracts (physical variant is import-time).
     os.environ["EMU_PHYSICAL_PROFILE"]="h40-spring-only"
@@ -847,8 +876,11 @@ def main(argv=None):
                     output=root/"results-110m.zip"
                     if not output.exists():
                         report(root,110_000_000)
-                    print("STOP at matched 110M review. Review results-110m.zip, then review and decide for both C students; go again.")
-                    return 0
+                    if a.auto_review:
+                        automatic_review(root)
+                    else:
+                        print("STOP at matched 110M review. Review results-110m.zip, then review and decide for both C students; go again.")
+                        return 0
                 for seed in TRAIN_SEEDS:
                     approval_digest(root,"C",seed,stage)
             if stage==120_000_000:
