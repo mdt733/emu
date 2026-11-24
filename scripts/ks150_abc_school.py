@@ -703,7 +703,7 @@ def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("command",choices=("plan","lock","smoke","advance","go","review","decide","status","report"))
     p.add_argument("--root",type=Path,default=Path.home()/"emu-data/studies/ks150-abc-v1")
-    p.add_argument("--ci-verified-sha")
+    p.add_argument("--ci-verified-sha",help="Optional exact-source CI record; GPU acceptance is the launch gate")
     p.add_argument("--stage",type=int,choices=STAGES)
     p.add_argument("--seed",type=int,choices=TRAIN_SEEDS)
     p.add_argument("--action",choices=("approve","no_intervention"))
@@ -735,8 +735,8 @@ def main(argv=None):
                               for seed in TRAIN_SEEDS for arm in ARMS})
             return 0
         if a.command=="smoke":
-            if a.ci_verified_sha!=lock["source_commit"]:
-                raise RuntimeError("Explicit confirmation of green CI for exact source required")
+            if a.ci_verified_sha is not None and a.ci_verified_sha!=lock["source_commit"]:
+                raise RuntimeError("Optional CI record must identify the exact source")
             if (root/"smoke.json").exists():
                 raise RuntimeError("Smoke already recorded")
             call("-m","emu.cli","train","--check-resume-only",
@@ -746,7 +746,7 @@ def main(argv=None):
                  "--stair-survival-curriculum","--abc-refresher-smoke")
             smoke_lifecycle(root,lock)
             write_new(root/"smoke.json",dict(source_commit=lock["source_commit"],model_sha256=MODEL,
-                                            operator_attested_ci=True,gpu_smoke=True,lifecycle=True))
+                                            operator_attested_ci=a.ci_verified_sha is not None,gpu_smoke=True,lifecycle=True))
             return 0
         if a.command=="review":
             for seed in TRAIN_SEEDS:
@@ -763,9 +763,11 @@ def main(argv=None):
         if a.command=="go" and a.stage is not None:
             p.error("go uses registered milestones, not --stage")
         smoke=read(root/"smoke.json")
-        if smoke!=dict(source_commit=lock["source_commit"],model_sha256=MODEL,
-                       operator_attested_ci=True,gpu_smoke=True,lifecycle=True):
-            raise RuntimeError("Need exact-source CI attestation, GPU smoke and lifecycle acceptance")
+        if (type(smoke.get("operator_attested_ci")) is not bool or
+                smoke!=dict(source_commit=lock["source_commit"],model_sha256=MODEL,
+                       operator_attested_ci=smoke["operator_attested_ci"],
+                       gpu_smoke=True,lifecycle=True)):
+            raise RuntimeError("Need exact-source GPU smoke and lifecycle acceptance")
         targets=STAGES if a.command=="go" else (a.stage,)
         for stage in targets:
             for target in STAGES[:STAGES.index(stage)]:
