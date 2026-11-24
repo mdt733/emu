@@ -291,6 +291,20 @@ def run_stage(root,lock,arm,seed,target):
     resume=["--resume","auto"] if ckpt.exists() and any(ckpt.glob("*.pkl")) else []
     if target!=STAGES[0] and not resume:
         raise RuntimeError("Missing prior same-run checkpoint")
+    if target!=STAGES[0]:
+        previous=validated_stage(root,arm,seed,STAGES[STAGES.index(target)-1])
+        if previous is None:
+            raise RuntimeError("Missing frozen predecessor stage")
+        # Before changing target, require the exact completed predecessor.
+        # A silent fallback to an older rotating snapshot would replay
+        # training under a different milestone/restart history.
+        cfg_file=run/"training_config.json"
+        if cfg_file.exists() and read(cfg_file)["steps"]==previous["target"]:
+            final=ckpt/"final.pkl"
+            latest=ckpt/"latest.pkl"
+            if (not final.exists() or sha(final)!=previous["checkpoint_sha256"]
+                    or (latest.exists() and sha(latest)!=previous["checkpoint_sha256"])):
+                raise RuntimeError("Live predecessor differs from frozen stage checkpoint")
     if (run/"training_config.json").exists():
         old_target=read(run/"training_config.json")["steps"]
         if old_target>target or (old_target!=target and old_target!=STAGES[STAGES.index(target)-1]):
@@ -316,6 +330,16 @@ def run_stage(root,lock,arm,seed,target):
             m["source_provenance"]["git_commit"]!=lock["source_commit"] or
             m["robot_model_sha256"]!=MODEL):
         raise RuntimeError("Stage checkpoint does not match registration")
+    if target!=STAGES[0] and refresher_recipe_sha256(cfg)!=previous["recipe_sha256"]:
+        raise RuntimeError("Substantive training recipe changed between stages")
+    if digest:
+        pin_path=run/"mission_refresher_pin.json"
+        if not pin_path.exists() or m.get("mission_refresher_pin")!=read(pin_path):
+            raise RuntimeError("Approved programme not persisted in final checkpoint")
+        if m["mission_refresher_pin"].get("receipt_sha256")!=digest:
+            raise RuntimeError("Final checkpoint has wrong programme digest")
+    elif m.get("mission_refresher_pin") is not None:
+        raise RuntimeError("Unexpected programme in unapproved student")
     checkpoint_sha=sha(final)
     out.mkdir(parents=True,exist_ok=True)
     frozen=out/"checkpoint.pkl"
@@ -751,7 +775,13 @@ def main(argv=None):
                 continue
             if stage>110_000_000:
                 if a.command=="go" and not all(decision_path(root,s).exists() for s in TRAIN_SEEDS):
-                    print("STOP at matched 110M review. Run review and decide for both C students; then go again.")
+                    # The review gate is an evidence handoff, not just a
+                    # console pause. Preserve a complete uploadable report
+                    # before any treatment decision can be made.
+                    output=root/"results-110m.zip"
+                    if not output.exists():
+                        report(root,110_000_000)
+                    print("STOP at matched 110M review. Review results-110m.zip, then review and decide for both C students; go again.")
                     return 0
                 for seed in TRAIN_SEEDS:
                     approval_digest(root,"C",seed,stage)
