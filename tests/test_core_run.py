@@ -48,6 +48,7 @@ def training_flags(run_dir: Path, seed: int = 735) -> list[str]:
 
 def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     _verify_dev_birth_ramp()
+    _verify_mission_refresher()
     _verify_dev_real_height_limits()
     _verify_dev_cli_contract(tmp_path)
     from emu.cli import main as emu_cli_main
@@ -1078,3 +1079,50 @@ def _verify_dev_cli_contract(tmp_path):
                        "--stair-survival-curriculum",
                        "--cross-specialty-stairs-start-steps","10000000"])
     assert len(recorded)==2
+
+
+def _verify_mission_refresher():
+    from copy import deepcopy
+    from emu.developmental_school import mission_refresher_plan
+    base = (.20,.20,.20,.20,.10,.10)
+    roles = [r for r in FOCUS_NAMES if r != "step"]
+    reference = {r: {"mission": {6901:(9,10),6902:(9,10)}}
+                 for r in roles}
+    reference["slope"]["downhill"] = {6901:(9,10),6902:(9,10)}
+    current = deepcopy(reference)
+    current["resilience"]["mission"] = {6901:(6,10),6902:(7,10)}
+    current["slope"]["mission"] = {6901:(6,10),6902:(6,10)}
+    current["slope"]["downhill"] = {6901:(10,10),6902:(10,10)}
+    current["command"]["mission"] = {6901:(8,10),6902:(9,10)}
+    off = mission_refresher_plan(base_weights=base,reference={},current={})
+    assert tuple(off["ordinary"].values()) == base
+    assert not any(off["extra_clean"].values())
+    plan = mission_refresher_plan(base_weights=base,reference=reference,
+                                  current=current,enabled=True)
+    ordinary, clean = plan["ordinary"], plan["extra_clean"]
+    assert set(plan["confirmed"]) == {"resilience","slope"}
+    assert set(plan["warnings"]) == {"resilience","slope","command"}
+    assert clean["command"] == clean["step"] == 0.
+    assert clean["slope"] > clean["resilience"] > 0.
+    assert ordinary["step"] == ordinary["command"] == .20
+    assert sum(clean.values()) == pytest.approx(.02)
+    assert sum(ordinary.values()) + sum(clean.values()) == pytest.approx(1.)
+    assert all(ordinary[r] >= w*.90-1e-12
+               for r,w in zip(FOCUS_NAMES,base))
+    all_bad = {r:{task:{6901:(3,10),6902:(3,10)}
+                  for task in reference[r]} for r in roles}
+    no_donors = mission_refresher_plan(base_weights=base,
+                    reference=reference,current=all_bad,enabled=True)
+    assert set(no_donors["confirmed"]) == set(roles)
+    assert not any(no_donors["extra_clean"].values())
+    assert tuple(no_donors["ordinary"].values()) == base
+    incomplete = deepcopy(current)
+    del incomplete["slope"]["mission"][6902]
+    with pytest.raises(ValueError,match="distinct exam seeds"):
+        mission_refresher_plan(base_weights=base,reference=reference,
+                               current=incomplete,enabled=True)
+    unmatched = deepcopy(current)
+    unmatched["control"]["mission"][6901] = (9,11)
+    with pytest.raises(ValueError,match="unmatched mission counts"):
+        mission_refresher_plan(base_weights=base,reference=reference,
+                               current=unmatched,enabled=True)
