@@ -183,12 +183,53 @@ def review(registration):
                 plan=plan, applied=False)
 
 
+
+def approve_schedule(registration, *, until_step, academy_probability):
+    """Produce a time-limited, explicitly approved replay receipt.
+
+    Re-run the entire evidence review; do not trust a hand-edited advisory.
+    Checkpoint/config hashes must have been independently pinned by the
+    custodian. No live trainer reads this receipt yet.
+    """
+    from emu.developmental_school import refresher_birth_parameters
+    advisory = review(registration)
+    current = registration["current"]
+    source = current["actor_source"]
+    start = source["step"]
+    if (type(until_step) is not int or not start < until_step <= start+10_000_000
+            or not _hex(registration.get("training_config_sha256"))
+            or not _hex(current.get("checkpoint_sha256"))):
+        raise ValueError("Approval needs pinned config/checkpoint and bounded expiry")
+    base = registration["base_weights"]
+    refresher_birth_parameters(base_weights=base,
+        academy_probability=academy_probability, plan=advisory["plan"])
+    return dict(schema="emu_mission_refresher_schedule_v1",
+                run_name=source["run_name"], training_seed=source["seed"],
+                source_commit=source["git_commit"],
+                training_config_sha256=registration["training_config_sha256"],
+                activation_checkpoint_sha256=current["checkpoint_sha256"],
+                start_step=start, until_step=until_step,
+                base_weights=base, academy_probability=academy_probability,
+                advisory=advisory, applied=False)
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("registration", type=Path)
     p.add_argument("--output", type=Path, required=True)
+    p.add_argument("--approve-until", type=int, help="Explicit offline approval; absolute exclusive step boundary")
+    p.add_argument("--academy-probability", type=float, help="Pinned conditional Academy probability at activation")
     args = p.parse_args(argv)
-    result = review(json.loads(args.registration.read_text(encoding="utf-8")))
+    registration = json.loads(args.registration.read_text(encoding="utf-8"))
+    if args.approve_until is None:
+        if args.academy_probability is not None:
+            p.error("--academy-probability requires --approve-until")
+        result = review(registration)
+    else:
+        if args.academy_probability is None:
+            p.error("Approval requires --academy-probability")
+        result = approve_schedule(registration,until_step=args.approve_until,
+                                  academy_probability=args.academy_probability)
     # Exclusive creation protects earlier decisions from being rewritten.
     with args.output.open("x", encoding="utf-8") as f:
         json.dump(result, f, indent=2, sort_keys=True)
