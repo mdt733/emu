@@ -482,3 +482,26 @@ updates, then validated actor export. The acceptance directory is
 outside the six research students and never supplies their ancestry.
 This verifies basic staged resume, not a mature active refresher.
 The first live 110M intervention remains a monitored validation gate.
+
+### Launch policy clarification
+
+CI remains a watchdog, not a substitute for scientific validation. The
+ABC smoke command no longer requires a green CI attestation as an
+operator input. An optional `--ci-verified-sha` records a verified exact
+commit; it cannot claim success for another commit. The registered
+source, actual 2048-world mixed/clean/Academy GPU PPO acceptance and
+the bounded checkpoint lifecycle remain mandatory for GO. No training
+is launched by planning or locking. Inspect any substantive watchdog
+failure, rather than treating a green badge as physical evidence.
+
+Minimal WSL launch sequence (in the exact reviewed clean checkout):
+
+```bash
+.venv/bin/python -m scripts.ks150_abc_school plan
+.venv/bin/python -m scripts.ks150_abc_school lock
+.venv/bin/python -m scripts.ks150_abc_school smoke
+.venv/bin/python -m scripts.ks150_abc_school go
+```
+
+GO is the separate explicit large-run command. Stop after smoke if
+anything fails or the GPU acceptance output is physically unexpected.
