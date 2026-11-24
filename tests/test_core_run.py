@@ -47,6 +47,9 @@ def training_flags(run_dir: Path, seed: int = 735) -> list[str]:
 
 
 def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
+    _verify_dev_birth_ramp()
+    _verify_dev_real_height_limits()
+    _verify_dev_cli_contract(tmp_path)
     from emu.cli import main as emu_cli_main
     cli_args=training_flags(tmp_path/"run")
     seen=[]
@@ -972,3 +975,106 @@ def test_current_360_checkpoint_roundtrip_rejects_sensor_drift(tmp_path):
             ck3.parent,target_steps=512,envs=8,label='broken-run',
             expected_sensor_contract=contract)
 
+
+
+# Next-generation shared-stair teacher assertions are part of the EXISTING
+# core training contract, not another permanently counted experiment test.
+from emu.capability_focus import FOCUS_NAMES
+from emu.contracts import P, TERRAIN_TASK_PARAM_DIM, UNIFIED_TERRAIN_FIELDS
+from emu.developmental_school import (
+    CROSS_STAIR_ROLE_CAP_M,CROSS_STAIR_ROLE_PROBABILITIES,
+    cross_stair_exposure_blend,cross_stair_plan)
+from emu.terrain_carpet_mjx import cross_stair_assignment, role_envelope
+
+def _verify_dev_birth_ramp():
+    assert len(CROSS_STAIR_ROLE_PROBABILITIES)==len(FOCUS_NAMES)==6
+    assert CROSS_STAIR_ROLE_PROBABILITIES[FOCUS_NAMES.index("step")]==0.
+    assert cross_stair_exposure_blend(step=0,enabled=True)==0.
+    assert cross_stair_exposure_blend(step=90_000_000,enabled=True)==0.
+    assert cross_stair_exposure_blend(step=100_000_000,enabled=True)==.5
+    assert cross_stair_exposure_blend(step=110_000_000,enabled=True)==1.
+    assert cross_stair_exposure_blend(step=150_000_000,enabled=True)==1.
+    assert cross_stair_exposure_blend(step=140_000_000,enabled=False)==0.
+    assert cross_stair_plan(.5)["slope"]==pytest.approx(.075)
+    assert cross_stair_plan(1.)["control"]==pytest.approx(.06)
+    with pytest.raises(ValueError):
+        cross_stair_exposure_blend(step=-1,enabled=True)
+    with pytest.raises(ValueError):
+        cross_stair_exposure_blend(step=110_000_000,enabled=True,ramp_steps=0)
+    assert UNIFIED_TERRAIN_FIELDS[-1]==("cross_stair_blend",0.)
+    assert P.cross_stair_blend==TERRAIN_TASK_PARAM_DIM+18
+
+
+def _verify_dev_real_height_limits():
+    n=8192
+    seeds=np.arange(1,n+1,dtype=np.int32)
+    roles=np.arange(n,dtype=np.int32)%6
+    specialist=np.ones(n,dtype=bool)
+    athletic=np.zeros(n,dtype=np.float32)
+    academy=np.zeros(n,dtype=bool)
+    zeros=np.zeros(n,dtype=np.float32)
+    up=np.full(n,.003,dtype=np.float32)   # uphill Academy never earned >3mm
+    down=np.full(n,.040,dtype=np.float32) # downhill already strong: do NOT copy 40mm
+    old=role_envelope(np,roles,specialist,athletic,
+                      np.full(n,3.,np.float32),up,down,academy,
+                      0.,0.,seeds)
+    assert all(np.array_equal(a,zeros) for a in old)
+    assigned=cross_stair_assignment(np,roles,specialist,athletic,seeds,1.)
+    newer=role_envelope(np,roles,specialist,athletic,
+                        np.full(n,3.,np.float32),up,down,academy,
+                        0.,0.,seeds,cross_stair_blend=1.)
+    assert np.array_equal(newer[0],zeros) # mixed stair never adds unearned slope
+    assert assigned.any()
+    assert not assigned[roles==FOCUS_NAMES.index("step")].any()
+    assert np.array_equal(newer[1]>0.,assigned)
+    assert np.array_equal(newer[2]>0.,assigned)
+    caps=np.asarray(CROSS_STAIR_ROLE_CAP_M,np.float32)[roles]
+    assert np.all(newer[1]<=up+1e-7)
+    assert np.all(newer[2]<=caps+1e-7)
+    assert np.allclose(newer[1][assigned],.003,atol=1e-7)
+    for focus,name in enumerate(FOCUS_NAMES):
+        mask=roles==focus
+        actual=assigned[mask].mean()
+        budget=CROSS_STAIR_ROLE_PROBABILITIES[focus]
+        if focus==FOCUS_NAMES.index("step"):
+            assert actual==0.
+        else:
+            assert abs(actual-budget)<.03,(name,actual,budget)
+    assert not cross_stair_assignment(
+        np,roles,specialist,athletic,seeds,0.).any()
+    assert not cross_stair_assignment(
+        np,roles,np.zeros(n,dtype=bool),athletic,seeds,1.).any()
+    assert not cross_stair_assignment(
+        np,roles,specialist,np.ones(n,dtype=np.float32),seeds,1.).any()
+
+
+def _verify_dev_cli_contract(tmp_path):
+    from emu.cli import main
+    from emu.run import one_run_config
+    argv=["train","--run-dir",str(tmp_path/"nursery"),
+          "--steps","120000000","--envs","16","--seed","9501",
+          "--device","cpu","--profile","sim2real",
+          "--terrain-actor","--terrain-step-max-m",".055",
+          "--unified-capabilities","--terrain-carpet","--carpet-prisms",
+          "--academy-stream","--terrain-lesson","coherent-careful",
+          "--growth-recipe","main-mature"]
+    recorded=[]
+    def validate(ns):
+        recorded.append(one_run_config(ns))
+        return 0
+    with patch("emu.run.train_one",side_effect=validate):
+        assert main(argv)==0
+        assert recorded[-1].cross_specialty_stairs is False
+        assert main(argv+["--stair-survival-curriculum",
+                          "--cross-specialty-stairs"])==0
+        cfg=recorded[-1]
+        assert cfg.cross_specialty_stairs is True
+        assert cfg.cross_specialty_stairs_start_steps==90_000_000
+        assert cfg.cross_specialty_stairs_ramp_steps==20_000_000
+        with pytest.raises(ValueError,match="stair-survival-curriculum"):
+            main(argv+["--cross-specialty-stairs"])
+        with pytest.raises(ValueError,match="mature foundation"):
+            main(argv+["--cross-specialty-stairs",
+                       "--stair-survival-curriculum",
+                       "--cross-specialty-stairs-start-steps","10000000"])
+    assert len(recorded)==2
