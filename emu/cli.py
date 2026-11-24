@@ -152,6 +152,12 @@ def main(argv=None) -> int:
                    help='maximum earned UP or DOWN frontier in streaming terrain')
     q.add_argument('--academy-course-episode-frames',type=int,default=1200,
                    help='streaming episode time; ordinary births retain 700 frames')
+    q.add_argument('--cross-specialty-stairs',action='store_true',
+                   help='experimental nursery: modest earned-height stair encounters in command, resilience, slope, transition and control roles')
+    q.add_argument('--cross-specialty-stairs-start-steps',type=int,default=90000000,
+                   help='start the extra cross-specialty stair exposure ramp')
+    q.add_argument('--cross-specialty-stairs-ramp-steps',type=int,default=20000000,
+                   help='steps needed to reach maximum modest per-role exposure')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an authorised experiment fork')
     q.add_argument('--research-parent-source',default='',
                    help='explicit cross-source fork only: full 40-char parent Git SHA (requires parent SHA256)')

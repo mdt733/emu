@@ -220,6 +220,10 @@ class TrainingConfig:
     academy_max_share: float = 0.50
     academy_height_cap_m: float = 0.150
     academy_course_episode_frames: int = 1200  # 24s streaming lessons; other roles 14s
+    # Next-school research, off by default; age changes episode dose ONLY.
+    cross_specialty_stairs: bool = False
+    cross_specialty_stairs_start_steps: int = 90_000_000
+    cross_specialty_stairs_ramp_steps: int = 20_000_000
 
     # One executable 360-input prism trainer. Old attitude profiles live in Git.
     attitude_profile: str = "v5015"
@@ -285,8 +289,17 @@ class TrainingConfig:
         data=json.loads(path.read_text(encoding="utf-8"))
         expected={f.name for f in dataclass_fields(cls)}
         keys=set(data)
-        if keys == expected-{'stair_survival_curriculum'}:
-            data={**data,'stair_survival_curriculum':False}
+        old_development={'cross_specialty_stairs',
+                         'cross_specialty_stairs_start_steps',
+                         'cross_specialty_stairs_ramp_steps'}
+        old_survival={'stair_survival_curriculum'}
+        missing=expected-keys
+        # Accept only identified historical absent OFF fields in an
+        # explicitly authenticated external research ancestor; strict
+        # same-run load() still requires every serialized setting.
+        if not (keys-expected) and missing in (
+                set(),old_development,old_development|old_survival):
+            data={**data,**{k:getattr(cls,k) for k in missing}}
         elif keys != expected:
             raise ValueError(
                 f"research ancestor config keys mismatch: "

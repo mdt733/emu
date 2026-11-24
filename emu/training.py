@@ -57,6 +57,7 @@ from .curriculum import RegimeGovernor
 from .training_health import TrainingHealth
 from .capability_focus import (teaching_profile, birth_lesson_weights,
                                FOCUS_NAMES)
+from .developmental_school import cross_stair_exposure_blend, cross_stair_plan
 from .ppo import (make_trainer, update_running_stats, build_obs_norm_mask,
                   PerfBook, configure_jax, require_backend)
 from .results import (
@@ -223,6 +224,9 @@ def _annotate_teaching_report(
         params['academy_episode_probability'])
     for name in FOCUS_NAMES:
         report['focus_alloc_' + name] = float(params['focus_weight_' + name])
+    report['cross_stair_blend'] = float(params['cross_stair_blend'])
+    for name,prob in cross_stair_plan(float(params['cross_stair_blend'])).items():
+        report['cross_stair_extra_birth_prob_' + name] = prob
     report['teaching_profile'] = teaching_profile(
         step=step, foundation_steps=args.foundation_steps,
         foundation_mix=args.foundation_mix,
@@ -483,6 +487,14 @@ def train(args: TrainingConfig) -> int:
                 academy_intro_share=args.academy_intro_share,
                 academy_max_share=args.academy_max_share)
             d['academy_episode_probability']=academy_probability
+            # Age controls only extra specialist-terrain births; physical
+            # difficulty remains capped by independently earned UP/DOWN.
+            d['cross_stair_blend']=cross_stair_exposure_blend(
+                step=int(step),
+                enabled=bool(args.cross_specialty_stairs
+                             and profile.adaptive_specialists),
+                start_steps=args.cross_specialty_stairs_start_steps,
+                ramp_steps=args.cross_specialty_stairs_ramp_steps)
             for name,weight in zip(FOCUS_NAMES,weights):
                 d['focus_weight_'+name]=weight
             # Keep the 70-update steady-only bootstrap exactly where the

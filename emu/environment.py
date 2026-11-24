@@ -48,7 +48,9 @@ from .terrain_carpet_mjx import (
     TILE_M as CARPET_TILE_M, TILE_SIZE_Z_M as CARPET_SIZE_Z_M,
     midpoint_anchor as carpet_midpoint_anchor,
     PROFILE_HALF as CARPET_PROFILE_HALF,
-    role_envelope as carpet_role_envelope, make_profiles as carpet_make_profiles,
+    role_envelope as carpet_role_envelope,
+    cross_stair_assignment as carpet_cross_stair_assignment,
+    make_profiles as carpet_make_profiles,
     school_first_lip_course_limits as carpet_school_course_limits,
     exact_exam_lip_profiles as carpet_exam_lip_profiles,
     generate_window as carpet_generate_window, sample_surface as carpet_sample_surface,
@@ -219,6 +221,7 @@ class EnvState(NamedTuple):
     vx_reward_count: Any
     # Teacher-only rolling three-platform progress; lip count is unbounded.
     academy_active: Any
+    cross_stair_birth: Any  # teacher-only cohort; not actor data
     academy_lip_index: Any
     academy_streak: Any
     academy_crossings: Any
@@ -1566,6 +1569,8 @@ class EmuMJXEnv(TaskSampler):
             np.any(slope[16:18]<.001) or
             np.any(slope[16:18]>self.academy_height_cap_m)):
             raise ValueError('Academy UP/DOWN lip frontiers exceed physical compiled cap')
+        if not np.isfinite(slope[18]) or not 0.<=slope[18]<=1.:
+            raise ValueError('Cross-specialty stair blend must be [0,1]')
         if not np.all(np.isfinite(slope[~np.isnan(slope)])):
             raise ValueError('invalid physical terrain override')
         packed=np.concatenate((packed,slope))
@@ -2238,6 +2243,23 @@ class EmuMJXEnv(TaskSampler):
                     ('safe_crossed',stepped.academy_goal_transfer_ready &
                                     ~terminal_fail))},
             'academy_active':state.academy_active.astype(jnp.float32),
+            # Episode-local cross-specialty stair assignment is preserved
+            # through the same real first-life physics as normal roles.
+            'cross_stair_birth':state.cross_stair_birth.astype(jnp.float32),
+            'cross_stair_episodes':(
+                done & state.cross_stair_birth).astype(jnp.float32),
+            'cross_stair_survived':(
+                done & state.cross_stair_birth & ~terminal_fail).astype(jnp.float32),
+            **{f'cross_stair_{name}_episodes':(
+                done & state.cross_stair_birth & (state.focus_id==idx)
+                ).astype(jnp.float32)
+                for idx,name in enumerate(
+                    ('command','resilience','slope','step','transition','control'))},
+            **{f'cross_stair_{name}_survived':(
+                done & state.cross_stair_birth & (state.focus_id==idx)
+                & ~terminal_fail).astype(jnp.float32)
+                for idx,name in enumerate(
+                    ('command','resilience','slope','step','transition','control'))},
             'academy_lip_index':academy['lip_index'].astype(jnp.float32),
             'academy_lip_height_m':academy['height_m'],
             'academy_verdict_lip_height_m':academy_verdict_height,
@@ -2818,7 +2840,11 @@ class EmuMJXEnv(TaskSampler):
         slope,up,down=carpet_role_envelope(
             jnp,focus_id,specialist_active,task[:,T.athletic_rehearsal],
             params[P.slope_max_deg],up,down,academy,
-            params[P.slope_exposure],params[P.terrain_exposure],seeds)
+            params[P.slope_exposure],params[P.terrain_exposure],seeds,
+            cross_stair_blend=params[P.cross_stair_blend])
+        cross_stair_birth=carpet_cross_stair_assignment(
+            jnp,focus_id,specialist_active,task[:,T.athletic_rehearsal],
+            seeds,params[P.cross_stair_blend])
         if self.stair_survival_curriculum:
             # Keep a 24s first-UP lesson within the demonstrated UP
             # physical band; independently earned tall DOWN belongs
@@ -2862,6 +2888,7 @@ class EmuMJXEnv(TaskSampler):
             carpet_hfields=heights,carpet_center=window,carpet_seed=seeds,
             carpet_xprofile=xprof,carpet_yprofile=yprof,
             carpet_up=up,carpet_down=down,carpet_slope=slope,
+            cross_stair_birth=cross_stair_birth,
             carpet_confirmed=xy,
             carpet_seen_cells=visited,
             carpet_seen_write=jnp.ones((self.num_envs,),dtype=jnp.int32))
@@ -3116,6 +3143,7 @@ class EmuMJXEnv(TaskSampler):
             cmd_vx_reward_history=jnp.zeros((self.num_envs,25),dtype=jnp.float32),
             vx_reward_count=izeros,
             academy_active=academy_active,
+            cross_stair_birth=carpet['cross_stair_birth'],
             academy_lip_index=izeros,
             academy_streak=izeros,
             academy_crossings=izeros,

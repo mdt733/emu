@@ -137,8 +137,18 @@ def hash_float(xp,i,j,seed,salt):
     return ((x^(x>>xp.uint32(16))).astype(xp.float32)
             /xp.float32(4294967296.))
 
+def cross_stair_assignment(xp, focus, specialist, athletic, seeds, blend):
+    """Independent birth draw, excluding STEP Academy and fast rehearsal."""
+    from .developmental_school import CROSS_STAIR_ROLE_PROBABILITIES
+    probs=xp.asarray(CROSS_STAIR_ROLE_PROBABILITIES,dtype=xp.float32)
+    role=focus.astype(xp.int32)
+    return (specialist & (athletic<.5) &
+            (hash_float(xp,0,0,seeds,153)<probs[role]*xp.clip(blend,0.,1.)))
+
+
 def role_envelope(xp, focus, specialist, athletic, slope_deg, step_up_m,
-                  step_down_m, academy, slope_exposure, step_exposure, seeds):
+                  step_down_m, academy, slope_exposure, step_exposure, seeds,
+                  cross_stair_blend=0.):
     """Shared generator; one actor, six specialist-specific teacher limits.
 
     Foundation/athletic worlds remain essentially flat, then all specialist
@@ -171,10 +181,23 @@ def role_envelope(xp, focus, specialist, athletic, slope_deg, step_up_m,
     # The dedicated Academy is its OWN allocated STEP birth cohort.
     # It must receive the earned lip even if ordinary step exposure
     # is low; otherwise 50% Academy occupancy buys zero usable lessons.
-    step_on=step_on | academy
+    cross=cross_stair_assignment(
+        xp,focus,specialist,athletic,seeds,cross_stair_blend)
+    step_on=step_on | academy | cross
     slope=xp.where(slope_on,xp.maximum(0.,slope_deg)*slope_factor,0.)
-    up=xp.where(step_on,xp.maximum(0.,step_up_m)*step_factor,0.)
-    down=xp.where(step_on,xp.maximum(0.,step_down_m)*step_factor,0.)
+    base_up=xp.maximum(0.,step_up_m)*step_factor
+    base_down=xp.maximum(0.,step_down_m)*step_factor
+    from .developmental_school import CROSS_STAIR_ROLE_CAP_M
+    caps=xp.asarray(CROSS_STAIR_ROLE_CAP_M,dtype=xp.float32)[f]
+    # Non-STEP lessons practise physically earned lips, never a sudden
+    # unearned 32-80mm height. A shared encounter cannot lower any
+    # lip that the old ordinary school had already generated.
+    up=xp.where(step_on,xp.where(cross,
+        xp.maximum(base_up,xp.minimum(xp.maximum(0.,step_up_m),caps)),
+        base_up),0.)
+    down=xp.where(step_on,xp.where(cross,
+        xp.maximum(base_down,xp.minimum(xp.maximum(0.,step_down_m),caps)),
+        base_down),0.)
     return slope,up,down
 
 def school_first_lip_course_limits(xp, seeds, birth_tile_x, academy, up, down):
