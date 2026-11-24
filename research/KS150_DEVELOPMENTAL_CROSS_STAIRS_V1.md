@@ -128,3 +128,42 @@ and when to stop/reduce refreshers. Validate with offline replay and
 separate matched from-zero experiments; never silently enable this in
 the shared-stairs-only treatment. The initial implementation and
 synthetic contract tests do not prove that targeted teaching works.
+
+
+### Offline examination-to-advisory bridge
+
+`python -m scripts.mission_refresher_review registration.json --output advisory.json`
+is a CPU-only review of four previously completed specialist pulse ZIPs:
+two matched independent seeds at each of two frozen ages of one student.
+It does not run an exam, load a checkpoint, modify a teacher or train.
+The registration schema is `emu_mission_refresher_review_v1`:
+
+- `seeds`: two distinct registered exam seeds; `base_weights`: six
+  eligible ordinary role weights in FOCUS_NAMES order, summing to one.
+- `model_sha256`, `sensor_sha256`, `source_sha256`: independently pinned
+  robot, sensor and examiner file identities; the latter must match the
+  current review checkout's examiner dependency files.
+- `reference` and `current`: each contains the exact frozen export's
+  `actor_source` object, `artifact_sha256`, and two `exams` entries
+  with `seed`, `path`, `sha256` of the completed pulse ZIP.
+  Pin these identities at completion, not by copying untrusted manifests
+  after the fact. The checkpoint custodian must establish common student
+  lineage and training configuration before registration.
+
+The bridge checks archive bytes, source/actor/model/sensor identities,
+GPU first-life contract, runtime, ordered checkpoint ages, canonical
+2048-world assignment, all 46 separate task cells and physical mission
+flags by re-scoring the raw world scalars. It rejects unmatched or
+incomplete evidence; a survival-only result cannot trigger a pass.
+The advisory records the registration digest, exact per-task counts,
+the proposed budget and `applied: false`. Existing advisories cannot
+be overwritten. No teacher budget is changed by this command.
+
+The bridge is not a cryptographic signature or independent verification
+that a GPU ran; its integrity depends on trusted digests and checkpoint
+custody. Synthetic archive tests are not physical validation. Next:
+capture a real paired pulse at the pre-ramp checkpoint, then at the
+next agreed milestone, audit the resulting advisory against raw task
+counts, and separately implement a persisted, opt-in allocation
+consumer only after receipt and replay validation. Keep shared stairs
+and adaptive refreshers as separate experimental treatments.
