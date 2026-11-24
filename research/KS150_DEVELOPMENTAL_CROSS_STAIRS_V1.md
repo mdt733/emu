@@ -273,3 +273,99 @@ it must not try to serialize the transient MJX episode flag. This
 preserves the shared-stairs-only experiment and existing training recipes.
 Do not launch an adaptive refresher training arm until that consumer,
 real examination receipts and CPU/GPU delivery checks are validated.
+
+
+### First live consumer: one approved programme, checkpoint-pinned
+
+The research trainer now has `--mission-refreshers`, off by default and
+requiring `--cross-specialty-stairs`. Register it at cold birth, not
+mid-run or in an external research fork. It changes no lesson until a
+valid approval is explicitly supplied during same-run resume. Do not
+use it in the shared-stairs-only arm.
+
+The first implementation deliberately supports **one** approved
+programme per student, not an autonomous repeatedly mutating teacher.
+Activation must be at or after the completed Academy allocation ramp
+and at least 40M after foundation, with a mature stable host allocation.
+A student at 90M can provide the reference exam but a live approval
+waits for the stable allocation. The next PPO rollout uses the
+prescribed combined role distribution and conditional clean probabilities.
+
+Protocol (not an instruction to launch unvalidated GPU training):
+
+1. Freeze the same student's matched independent exams and full
+   activation checkpoint. Register the substantive config identity using
+   `refresher_recipe_sha256(TrainingConfig.load(config_path))` from
+   `emu.developmental_school`. This canonical digest excludes only
+   runtime device, resume path and final target steps; it includes
+   run directory, training seed, teacher settings and opt-in flag.
+   It is not the literal JSON file hash.
+2. Use the approved schedule CLI above, with actual checkpoint digest,
+   actual role weights and conditional Academy probability from
+   `birth_lesson_weights` at the actual PPO boundary. Place the approved
+   bytes in `<run-dir>/mission_refresher_approval.json`, and explicitly
+   supply their independently verified SHA256 in
+   `EMU_MISSION_REFRESHER_SHA256` on activation and subsequent resumes.
+   The trainer does not read a changed approval during an active process.
+3. The trainer checks the selected same-run checkpoint's full bytes,
+   same source/run/seed/config identity, age and actual baseline
+   allocation before exclusively publishing
+   `mission_refresher_pin.json`. Every subsequent checkpoint metadata
+   includes that pin, including fixed-exam best and recovery snapshots.
+   Crash before the first new checkpoint can revalidate the exact
+   activation ancestor. Later resume requires identical local and
+   checkpoint pins. Missing/changed receipts or a pre-activation
+   checkpoint fail closed, and another programme cannot replace this one.
+   Back up the approval and pin with the checkpoint; hashes assume
+   trusted operator custody, not protection from deliberate deletion or
+   forgery of all local artifacts.
+4. Expiry removes new clean allocations on the first host rollout
+   boundary at or after the registered exclusive step; live episodes
+   retain their birth assignment until natural reset. Rollback refuses
+   any recovery checkpoint with a different or missing programme pin.
+   This may reduce available early rollback candidates, so monitor
+   collapse/retreat and validate rollback behavior before a GPU arm.
+
+The ordinary cold learner, old source forks and shared-stair-only arm
+retain zero clean dose. No automatic approval or schedule replacement
+exists. Synthetic startup/replay tests cover wrong digest, wrong seed,
+wrong baseline, unapproved receipt, pre-activation resume, crash before
+new checkpoint, and changed receipt. CPU/MJX CI and a real staged resume
+with independently captured exam archives remain mandatory before
+calling the end-to-end path validated.
+
+### Next large experiment: learning principles, not a tournament
+
+Proposed three-arm cold-school screen, at least two matched independent
+training seeds per arm, same source/hardware/PPO/budget and matched
+restart milestones:
+
+| Arm | Teacher |
+| --- | --- |
+| C | Original unchanged school |
+| S | Shared-stair exposure only |
+| R | S plus one preregistered, mission-triggered clean refresher opportunity |
+
+Compare S-C for cross-subject stair transfer and R-S for targeted
+maintenance; R-C alone cannot isolate the mechanisms. All three arms
+use the same milestones/restart protocol. Proposed examination ages
+90M (pre-mixing baseline), 100M (ramp), 110M (full mixing, potential
+activation), 120M (post-programme) and 140M (durability), rounded to the
+same true PPO boundaries. Only activate R when the registered two-seed
+mission criteria request practice; if no loss qualifies, record the
+no-intervention result. Assess absolute performance against earlier
+checkpoints AND age-matched control. Use separate untouched final exam
+seeds never used for the teacher's decisions. Two training seeds are
+a screen, not statistical certification.
+
+Measure individual signed stair first-foot, bilateral support,
+controlled continuation and same-life survival; independent task pass
+counts at each signed slope, command, recovery and transition difficulty;
+and performance on new compound missions. Record scheduled vs observed
+clean/mixed births and their exposure, not only frontier or reward.
+The 28-to-32mm mechanical question requires separate physical feasibility
+probes and must not be inferred from the learning curve alone.
+No new reward fading or uphill promotion treatment should be silently
+bundled into these three arms. A timing-ramp comparison and ability-based
+uphill mastery ladder are separate follow-up hypotheses. No automatic
+launch, promotion or release is authorized by this protocol.
