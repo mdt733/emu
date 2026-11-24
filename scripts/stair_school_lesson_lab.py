@@ -13,6 +13,7 @@ Subcommands:
   run       : preflight then train ONE arm to a registered boundary
   examine   : frozen stair, signed-stair and core-retention exams for ONE arm
   go        : ONE command, all 13 arms sequentially, staged frozen exams
+  results   : package a shareable results.zip, including partial campaigns
 
 Separate evals/lesson synthesis happen outside this training launcher, never
 inside the teacher or PPO loop. No automatic champion promotion.
@@ -1001,6 +1002,119 @@ def _save_stage_ancestor(root:Path,lock:dict,arm:str,steps:int) -> Path:
     return final
 
 
+# --- Portable evidence, not a second copy of the PPO checkpoints ----------
+BUNDLE_EXTS=frozenset((".json",".jsonl",".md",".csv",".zip"))
+BUNDLE_RUN_EXTS=frozenset((".json",".jsonl",".md",".csv"))
+
+
+def _bundle_results(root:Path) -> Path:
+    """Make/update one atomic upload-ready results.zip, including partial runs."""
+    root=root.expanduser().resolve()
+    if not root.is_dir() or not _lock_path(root).is_file():
+        raise FileNotFoundError("Bundle needs an existing locked study root")
+    output=root/"results.zip"
+    temporary=root/".results.zip.partial"
+    with (root/".results_bundle.lock").open("a+") as guard:
+        fcntl.flock(guard.fileno(),fcntl.LOCK_EX)
+        chosen={}
+        for name in ("study_lock.json","go_events.jsonl","lesson_ledger.md"):
+            file=root/name
+            if file.is_file() and not file.is_symlink():
+                chosen[name]=file
+        for folder in ("runs","evidence","reviews","milestones"):
+            parent=root/folder
+            if not parent.is_dir() or parent.is_symlink():
+                continue
+            for file in parent.rglob("*"):
+                if not file.is_file() or file.is_symlink():
+                    continue
+                relative=file.relative_to(root)
+                if any(part.startswith(".") or part.endswith(".partial")
+                       for part in relative.parts):
+                    continue
+                if folder=="milestones" and file.name!="milestone.json":
+                    continue
+                exts=BUNDLE_RUN_EXTS if folder=="runs" else BUNDLE_EXTS
+                if file.suffix.lower() not in exts:
+                    continue
+                if folder=="runs" and "checkpoints" in relative.parts:
+                    continue
+                chosen[relative.as_posix()]=file
+        events=[]
+        journal=root/"go_events.jsonl"
+        if journal.is_file():
+            for line in journal.read_text(encoding="utf-8").splitlines():
+                try:
+                    item=json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if item.get("event") in ("study_started","study_failed","study_finished"):
+                    events.append(item["event"])
+        complete=bool(events and events[-1]=="study_finished")
+        lock=json.loads(_lock_path(root).read_text(encoding="utf-8"))
+        readme=(
+            "# EMU stair-school evidence bundle\n\n"
+            f"Status: {'COMPLETE' if complete else 'PARTIAL / RUNNING / STOPPED'}\n"
+            f"Training source: {lock.get('source_commit','unknown')}\n"
+            f"Parent SHA256: {lock.get('parent',{}).get('sha256','unknown')}\n\n"
+            "Included: per-world signed stair and same-trajectory exams, "
+            "six-specialty physical pulse ZIPs, original training metrics, "
+            "control-relative stage reviews, stage manifests and lesson ledger "
+            "(when available), with file SHA256 hashes in bundle_manifest.json.\n"
+            "A missing arm or stage is UNTESTED, not a negative result. "
+            "One-parent design-time research is not newborn validation.\n"
+            "Omitted: enormous PPO .pkl checkpoints, frozen .emupolicy actors, "
+            "source worktrees and unpublished .partial files. Their training "
+            "and actor hashes remain in the included provenance metadata.\n")
+        files=[]
+        try:
+            with zipfile.ZipFile(temporary,"w",
+                                 compression=zipfile.ZIP_DEFLATED,
+                                 compresslevel=6,allowZip64=True) as archive:
+                for name,file in sorted(chosen.items()):
+                    before=file.stat()
+                    archive.write(
+                        file,arcname=name,
+                        compress_type=(zipfile.ZIP_STORED if file.suffix==".zip"
+                                       else zipfile.ZIP_DEFLATED))
+                    after=file.stat()
+                    if (before.st_size!=after.st_size or
+                            before.st_mtime_ns!=after.st_mtime_ns):
+                        raise RuntimeError(f"Evidence changed during ZIP: {file}")
+                    files.append(dict(path=name,size=before.st_size,
+                                      sha256=_sha256(file)))
+                log=root/"go.log"
+                if log.is_file() and not log.is_symlink():
+                    with log.open("rb") as inp:
+                        inp.seek(0,os.SEEK_END)
+                        total=inp.tell()
+                        inp.seek(max(0,total-2_000_000))
+                        archive.writestr("go_log_tail.txt",inp.read())
+                archive.writestr("README.md",readme)
+                manifest=dict(
+                    schema="emu_stair_school_results_bundle_v1",
+                    generated_utc=datetime.now(timezone.utc).isoformat(),
+                    complete=complete,
+                    training_source_commit=lock.get("source_commit"),
+                    parent_sha256=lock.get("parent",{}).get("sha256"),
+                    stage_reviews=sum(1 for r in files if
+                                      r["path"].startswith("reviews/") and
+                                      r["path"].endswith(".json")),
+                    file_count=len(files),files=files)
+                archive.writestr("bundle_manifest.json",
+                                 json.dumps(manifest,indent=2,sort_keys=True)+"\n")
+            with zipfile.ZipFile(temporary) as check:
+                bad=check.testzip()
+                if bad:
+                    raise RuntimeError(f"Corrupt ZIP member {bad}")
+            os.replace(temporary,output)
+        finally:
+            temporary.unlink(missing_ok=True)
+    print(f"RESULTS ZIP: {output} ({len(files)} evidence files, "
+          f"{'complete' if complete else 'partial'})",flush=True)
+    return output
+
+
 def _go_run(root:Path,lock:dict) -> int:
     """Run one ordered study in this LOCAL process, guarded against duplicates."""
     root=root.resolve()
@@ -1083,6 +1197,7 @@ def _go_run(root:Path,lock:dict) -> int:
                        result=review["advancement"],
                        warnings=len(review["warnings"]),
                        hard_stops=len(review["hard_stops"]))
+                _bundle_results(root)
                 if review["hard_stops"]:
                     stopped=True
                     break
@@ -1090,12 +1205,13 @@ def _go_run(root:Path,lock:dict) -> int:
                    outcome="safety_stopped" if stopped else "all_stages_complete")
         _write_lesson_progress(root)
         _event(root,"study_finished",arms=len(ARMS))
+        _bundle_results(root)
         return 0
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("action", choices=("list", "lock", "plan", "preflight", "run", "examine", "go"))
+    parser.add_argument("action", choices=("list", "lock", "plan", "preflight", "run", "examine", "go", "results"))
     parser.add_argument("--root", type=Path, default=DEFAULT_ROOT)
     parser.add_argument("--parent", type=Path, default=DEFAULT_PARENT)
     parser.add_argument("--seed", type=int, default=8200)
@@ -1120,6 +1236,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.action == "lock":
         print("Registered immutable 13-arm study:",
               _lock(args.root, args.parent, args.seed))
+        return 0
+    if args.action == "results":
+        _bundle_results(args.root)
         return 0
     if args.action == "go":
         root=args.root.expanduser().resolve()
@@ -1147,6 +1266,10 @@ def main(argv: list[str] | None = None) -> int:
         except Exception as exc:
             _event(root,"study_failed",failure_type=type(exc).__name__,
                    message=str(exc))
+            try:
+                _bundle_results(root)
+            except Exception as bundle_error:
+                print(f"RESULTS ZIP also failed: {bundle_error!r}",flush=True)
             raise
     if args.detach or args.worker:
         parser.error("--detach belongs only to the one-button GO action")

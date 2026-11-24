@@ -1,5 +1,26 @@
 # EMU KS150 Stair Teaching: Lessons Laboratory v1
 
+### Upload-ready results.zip
+
+GO writes an atomic `results.zip` into the study root after every
+completed examination/review stage and again at campaign completion.
+The ZIP includes *original per-world stair and generalist physical
+evidence*, metrics, matching control-relative reviews, lesson ledger,
+source/parent hashes, metadata and a short log tail. It intentionally
+omits large PPO checkpoints and frozen actor binaries.
+
+To make or refresh a **partial** results ZIP at any point, even after
+a GPU or supervisor failure, run:
+
+```bash
+python scripts/stair_school_lesson_lab.py results \
+  --root ~/emu-data/studies/ks150-stair-school-go-v2
+```
+
+Upload `~/emu-data/studies/ks150-stair-school-go-v2/results.zip` here.
+An incomplete bundle is labeled PARTIAL; missing arms and milestones
+are untested, not failed. The file is replaced atomically, never left
+half-written after a power interruption.
 ## ONE-BUTTON GO — unattended 13-arm teaching study
 
 One command is sufficient to lock the existing full 120M seed-736

@@ -247,6 +247,58 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert json.loads((worktree_root/"study_lock.json").read_text())[
         "source_commit"]==first_sha
 
+    # A partial upload-ready ZIP retains original physical evidence,
+    # source/parent provenance and metrics, never giant PPO/actor bytes.
+    import zipfile
+    from scripts.stair_school_lesson_lab import _bundle_results
+    bundleroot=tmp_path/"evidence-bundle"
+    (bundleroot/"evidence"/"C00_control"/"130m-s6901"/"signed_stairs").mkdir(
+        parents=True)
+    (bundleroot/"runs"/"C00_control"/"checkpoints").mkdir(parents=True)
+    (bundleroot/"reviews"/"C00_control").mkdir(parents=True)
+    (bundleroot/"milestones"/"C00_control"/"130m").mkdir(parents=True)
+    (bundleroot/"study_lock.json").write_text(json.dumps(
+        {"source_commit":"a"*40,"parent":{"sha256":"b"*64}}))
+    (bundleroot/"go_events.jsonl").write_text(
+        '{"event":"study_started"}\n')
+    (bundleroot/"evidence"/"C00_control"/"130m-s6901"/
+     "signed_stairs"/"matrix_worlds.csv").write_text(
+         "world,lead_foot_top\n0,1\n")
+    (bundleroot/"evidence"/"C00_control"/"130m-s6901"/
+     "actor.emupolicy").write_bytes(b"inference actor")
+    (bundleroot/"runs"/"C00_control"/"metrics.csv").write_text(
+        "step,return\n130023424,3.18\n")
+    (bundleroot/"runs"/"C00_control"/"checkpoints"/"final.pkl").write_bytes(
+        b"large optimizer state")
+    (bundleroot/"milestones"/"C00_control"/"130m"/"final.pkl").write_bytes(
+        b"full-state milestone")
+    (bundleroot/"milestones"/"C00_control"/"130m"/"milestone.json").write_text(
+        '{"step":130000000}')
+    (bundleroot/"reviews"/"C00_control"/"130m.json").write_text(
+        '{"advancement":"continue"}')
+    (bundleroot/"go.log").write_text("control exams finished\n")
+    shared=_bundle_results(bundleroot)
+    with zipfile.ZipFile(shared) as archive:
+        names=set(archive.namelist())
+        assert {"study_lock.json","go_events.jsonl","README.md",
+                "go_log_tail.txt","bundle_manifest.json",
+                "runs/C00_control/metrics.csv",
+                "reviews/C00_control/130m.json",
+                "milestones/C00_control/130m/milestone.json",
+                "evidence/C00_control/130m-s6901/signed_stairs/matrix_worlds.csv"
+                }.issubset(names)
+        assert not any(x.endswith((".pkl",".emupolicy",".partial"))
+                       for x in names)
+        metadata=json.loads(archive.read("bundle_manifest.json"))
+        assert not metadata["complete"] and metadata["stage_reviews"]==1
+        assert metadata["training_source_commit"]=="a"*40
+        assert all(len(x["sha256"])==64 for x in metadata["files"])
+    (bundleroot/"go_events.jsonl").write_text(
+        '{"event":"study_started"}\n{"event":"study_finished"}\n')
+    _bundle_results(bundleroot)
+    with zipfile.ZipFile(shared) as archive:
+        assert json.loads(archive.read("bundle_manifest.json"))["complete"]
+
     # The lesson laboratory's 13 arms must all parse through the REAL
     # training CLI. Every experimental arm changes exactly ONE config
     # field from the same control, without running PPO or opening a GPU.
