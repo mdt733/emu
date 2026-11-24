@@ -189,15 +189,14 @@ def role_envelope(xp, focus, specialist, athletic, slope_deg, step_up_m,
     base_down=xp.maximum(0.,step_down_m)*step_factor
     from .developmental_school import CROSS_STAIR_ROLE_CAP_M
     caps=xp.asarray(CROSS_STAIR_ROLE_CAP_M,dtype=xp.float32)[f]
-    # Non-STEP lessons practise physically earned lips, never a sudden
-    # unearned 32-80mm height. A shared encounter cannot lower any
-    # lip that the old ordinary school had already generated.
+    # A mixed-role birth is a deliberately BOUNDED mild stair task.
+    # It may replace an ordinary larger lip on this chosen birth;
+    # remaining ordinary births retain the exact former role envelope.
+    # Never copy the 55mm earned DOWN Academy frontier into CONTROL.
     up=xp.where(step_on,xp.where(cross,
-        xp.maximum(base_up,xp.minimum(xp.maximum(0.,step_up_m),caps)),
-        base_up),0.)
+        xp.minimum(xp.maximum(0.,step_up_m),caps),base_up),0.)
     down=xp.where(step_on,xp.where(cross,
-        xp.maximum(base_down,xp.minimum(xp.maximum(0.,step_down_m),caps)),
-        base_down),0.)
+        xp.minimum(xp.maximum(0.,step_down_m),caps),base_down),0.)
     return slope,up,down
 
 def school_first_lip_course_limits(xp, seeds, birth_tile_x, academy, up, down):
