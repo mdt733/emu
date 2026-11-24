@@ -158,6 +158,8 @@ def main(argv=None) -> int:
                    help='start the extra cross-specialty stair exposure ramp')
     q.add_argument('--cross-specialty-stairs-ramp-steps',type=int,default=20000000,
                    help='steps needed to reach maximum modest per-role exposure')
+    q.add_argument('--mission-refreshers',action='store_true',
+                   help='cold research only: permit one explicitly pinned mature-school refresher programme')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an authorised experiment fork')
     q.add_argument('--research-parent-source',default='',
                    help='explicit cross-source fork only: full 40-char parent Git SHA (requires parent SHA256)')
