@@ -1395,12 +1395,13 @@ def _verify_abc_go_state_machine(tmp_path):
     is separate from this state-machine test.
     """
     from contextlib import ExitStack
+    import os
     from scripts import ks150_abc_school as abc
     root=tmp_path/"abc_go"
     root.mkdir()
     lock={"source_commit":"a"*40}
     smoke=dict(source_commit=lock["source_commit"],model_sha256=abc.MODEL,
-               operator_attested_ci=True,gpu_smoke=True,lifecycle=True)
+               operator_attested_ci=False,gpu_smoke=True,lifecycle=True)
     done=set()
     decisions=set()
     calls=[]
@@ -1422,6 +1423,9 @@ def _verify_abc_go_state_machine(tmp_path):
             raise RuntimeError("decision required")
         return ""
     with ExitStack() as stack:
+        # The CLI selects KS150 at process entry. Restore the test process
+        # environment so the subsequent default-H40 contracts stay isolated.
+        stack.enter_context(patch.dict(os.environ))
         stack.enter_context(patch.object(abc,"load_lock",return_value=lock))
         stack.enter_context(patch.object(abc,"stages_done",side_effect=complete))
         stack.enter_context(patch.object(abc,"run_stage",side_effect=stage))
