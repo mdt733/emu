@@ -124,3 +124,68 @@ def mission_refresher_plan(*, base_weights, reference, current,
             clean[role] = budget*severity/total
     return dict(ordinary=ordinary, extra_clean=clean,
                 warnings=warnings, confirmed=confirmed)
+
+
+def refresher_birth_parameters(*, base_weights, academy_probability,
+                                plan=None):
+    """Translate an offline plan to one role draw + conditional clean draw.
+
+    Input weights are the *post-Academy* non-athletic role allocation from
+    birth_lesson_weights. STEP probability and its conditional Academy
+    draw remain unchanged. No new environment or checkpoint fields yet.
+    """
+    import math
+    from .capability_focus import FOCUS_NAMES
+    weights = tuple(float(x) for x in base_weights)
+    if (len(weights) != len(FOCUS_NAMES)
+            or not all(math.isfinite(x) and 0. <= x <= 1. for x in weights)
+            or not math.isclose(sum(weights),1.,abs_tol=1e-9)
+            or not 0. <= academy_probability <= 1.):
+        raise ValueError("Invalid baseline birth parameters")
+    zeros = (0.,)*len(weights)
+    if plan is None:
+        return weights, academy_probability, zeros
+    ordinary, clean = plan["ordinary"], plan["extra_clean"]
+    if set(ordinary) != set(FOCUS_NAMES) or set(clean) != set(FOCUS_NAMES):
+        raise ValueError("Unexpected refresher role")
+    o = tuple(float(ordinary[r]) for r in FOCUS_NAMES)
+    c = tuple(float(clean[r]) for r in FOCUS_NAMES)
+    if (not all(math.isfinite(x) and 0. <= x <= 1. for x in o+c)
+            or not math.isclose(sum(o)+sum(c),1.,abs_tol=1e-9)
+            or sum(c) > .05+1e-9
+            or any(x < .90*w-1e-9 or x > w+1e-9
+                   for x,w in zip(o,weights))
+            or any(x > 0. and (w <= 0. or q < w-1e-9)
+                   for x,w,q in zip(c,weights,o))):
+        raise ValueError("Refresher budget violates baseline protections")
+    i = FOCUS_NAMES.index("step")
+    if c[i] != 0. or o[i] != weights[i]:
+        raise ValueError("Cannot alter STEP/Academy budget")
+    combined = tuple(x+y for x,y in zip(o,c))
+    conditional = tuple(y/t if t > 0. else 0.
+                        for y,t in zip(c,combined))
+    return combined, academy_probability, conditional
+
+
+def clean_refresher_assignment(xp, focus, specialist, athletic, academy,
+                               uniform, conditional):
+    """Birth-only mask from an independently salted [0,1) draw.
+
+    The caller must persist this birth assignment for the whole episode.
+    Do not resample on each frame or infer it from a changing host plan.
+    """
+    from .capability_focus import STEP
+    probs = xp.asarray(conditional, dtype=xp.float32)
+    return (specialist & (athletic < .5) & ~academy & (focus != STEP)
+            & (uniform < probs[focus]))
+
+
+def clean_refresher_terrain(xp, focus, clean, slope, up, down, cross):
+    """Clean means no competing lips; SLOPE retains its earned grade.
+
+    This isolates terrain context only, not an exact frozen-exam mission.
+    Original specialist commands, perturbations and rewards are untouched.
+    """
+    from .capability_focus import SLOPE
+    return (xp.where(clean & (focus != SLOPE),0.,slope),
+            xp.where(clean,0.,up), xp.where(clean,0.,down), cross & ~clean)
