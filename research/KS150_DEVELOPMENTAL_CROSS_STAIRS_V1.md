@@ -462,3 +462,23 @@ teaching flags; shared pauses and recovery-epoch reset are common.
 committed; CI and actual local GPU execution must still be confirmed.
 The first real staged checkpoint review is a further validation gate.
 No autonomous launch or claim of end-to-end experimental validation.
+
+
+#### Simplified gated launch
+
+After lock and the exact-source smoke gate, the operator may use
+`python -m scripts.ks150_abc_school go` instead of issuing individual
+advance commands. GO completes the common 90/100/110M milestones,
+then stops if either C decision has not been frozen. After reviewing
+and recording both decisions, GO resumes the 120/140M milestones and
+writes the final results ZIP. It neither approves a decision itself
+nor skips a partially completed cohort. Individual advance remains
+available for deliberate milestone-by-milestone review.
+
+The smoke gate additionally performs a separate eight-world,
+two-update bounded lifecycle acceptance: cold C-configured student,
+one complete PPO checkpoint, same-source target extension to two
+updates, then validated actor export. The acceptance directory is
+outside the six research students and never supplies their ancestry.
+This verifies basic staged resume, not a mature active refresher.
+The first live 110M intervention remains a monitored validation gate.
