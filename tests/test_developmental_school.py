@@ -90,23 +90,23 @@ def test_cli_requires_real_safe_ascent_school_for_mixed_stairs(tmp_path):
           "--unified-capabilities","--terrain-carpet","--carpet-prisms",
           "--academy-stream","--terrain-lesson","coherent-careful",
           "--growth-recipe","main-mature"]
-    with patch("emu.run.train_one",return_value=0) as training:
+    recorded=[]
+    def validate(ns):
+        recorded.append(one_run_config(ns))
+        return 0
+    with patch("emu.run.train_one",side_effect=validate):
         assert main(argv)==0
-        assert training.call_args.args[0].cross_specialty_stairs is False
+        assert recorded[-1].cross_specialty_stairs is False
         assert main(argv+["--stair-survival-curriculum",
                           "--cross-specialty-stairs"])==0
-        cfg=training.call_args.args[0]
+        cfg=recorded[-1]
         assert cfg.cross_specialty_stairs is True
         assert cfg.cross_specialty_stairs_start_steps==90_000_000
         assert cfg.cross_specialty_stairs_ramp_steps==20_000_000
-    with pytest.raises(ValueError,match="stair-survival-curriculum"):
-        one_run_config(__import__("argparse").Namespace(
-            **{**vars(__import__("argparse").Namespace(
-                **{"run_dir":str(tmp_path/"bad"),"steps":120000000,
-                   "envs":16,"seed":9501,"device":"cpu","profile":"sim2real",
-                   "terrain_actor":True,"terrain_step_max_m":.055,
-                   "unified_capabilities":True,"terrain_carpet":True,
-                   "carpet_prisms":True,"academy_stream":True,
-                   "terrain_lesson":"coherent-careful","growth_recipe":"main-mature",
-                   "cross_specialty_stairs":True})),
-            })))
+        with pytest.raises(ValueError,match="stair-survival-curriculum"):
+            main(argv+["--cross-specialty-stairs"])
+        with pytest.raises(ValueError,match="mature foundation"):
+            main(argv+["--cross-specialty-stairs",
+                       "--stair-survival-curriculum",
+                       "--cross-specialty-stairs-start-steps","10000000"])
+    assert len(recorded)==2
