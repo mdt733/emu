@@ -50,6 +50,7 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     _verify_dev_birth_ramp()
     _verify_mission_refresher()
     _verify_refresher_replay()
+    _verify_refresher_budget_properties()
     _verify_refresher_pin(tmp_path)
     _verify_abc_campaign_contract(tmp_path)
     _verify_dev_real_height_limits()
@@ -1326,3 +1327,60 @@ def _verify_abc_campaign_contract(tmp_path):
     with pytest.raises(FileExistsError):
         abc.write_new(run/"training_config.json",{"steps":120_000_000})
     assert json.loads((run/"training_config.json").read_text())["steps"]==110_000_000
+
+
+def _verify_refresher_budget_properties():
+    """Exhaustively exercise all healthy/warning/regression role patterns.
+
+    Run both the mature ABC allocation and balanced reference, then
+    deterministic randomized allocations including zero-share roles.
+    No synthetic physical performance is claimed.
+    """
+    import itertools
+    from emu.capability_focus import birth_lesson_weights, STEP
+    from emu.developmental_school import (
+        mission_refresher_plan,refresher_birth_parameters)
+    roles=tuple(r for r in FOCUS_NAMES if r!="step")
+    base,academy=birth_lesson_weights(schedule="terrain-early",
+        step=110_034_944,foundation_steps=20_000_000,retention_share=.30,
+        academy_enabled=True,athletic_share=.15,academy_intro_steps=60_000_000,
+        academy_start_steps=80_000_000,academy_ramp_steps=20_000_000,
+        academy_intro_share=.10,academy_max_share=.28)
+    for weights,ap in ((base,academy),((.2,.2,.2,.2,.1,.1),.6)):
+        for pattern in itertools.product(range(3),repeat=5):
+            reference={r:{"task":{6901:(40,48),6902:(40,48)}} for r in roles}
+            current={r:{"task":{6901:(40-6*(s>0),48),6902:(40-6*(s>1),48)}}
+                     for r,s in zip(roles,pattern)}
+            plan=mission_refresher_plan(base_weights=weights,reference=reference,
+                                       current=current,enabled=True)
+            w,p,clean=refresher_birth_parameters(base_weights=weights,
+                academy_probability=ap,plan=plan)
+            assert sum(w)==pytest.approx(1.)
+            assert w[STEP]==weights[STEP] and p==ap and clean[STEP]==0.
+            assert sum(x*y for x,y in zip(w,clean))==pytest.approx(
+                sum(plan["extra_clean"].values()))
+            assert sum(plan["extra_clean"].values())<=.05+1e-10
+            for r,s in zip(roles,pattern):
+                i=FOCUS_NAMES.index(r)
+                assert plan["ordinary"][r]>=weights[i]*.90-1e-10
+                if s>0:
+                    assert plan["ordinary"][r]==weights[i]
+                if s<2:
+                    assert plan["extra_clean"][r]==0.
+    rng=np.random.default_rng(20261125)
+    for _ in range(1000):
+        raw=rng.dirichlet(np.ones(6))
+        raw[rng.random(6)<.15]=0.
+        if not raw.any():
+            raw[STEP]=1.
+        weights=tuple(raw/raw.sum())
+        def counts():
+            return {r:{"task":{s:(int(rng.integers(0,49)),48)
+                               for s in (6901,6902)}} for r in roles}
+        plan=mission_refresher_plan(base_weights=weights,
+            reference=counts(),current=counts(),enabled=True)
+        w,p,clean=refresher_birth_parameters(base_weights=weights,
+                                            academy_probability=.7,plan=plan)
+        assert sum(w)==pytest.approx(1.)
+        assert w[STEP]==weights[STEP]
+        assert all(0.<=x<=1. for x in clean)
