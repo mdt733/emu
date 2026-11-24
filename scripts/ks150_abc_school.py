@@ -95,21 +95,23 @@ def boundary(target):
     return update_boundary_at_or_after(target,WORLDS)
 
 
-def env_for(digest=""):
+def env_for(digest="",bounded=False):
     env=os.environ.copy()
     for k in ("EMU_UNIFIED_ACCEPTANCE","EMU_MISSION_REFRESHER_SHA256"):
         env.pop(k,None)
     env.update(EMU_PHYSICAL_PROFILE="h40-spring-only",
                EMU_UNIFIED_CONTINUOUS="cold-growth-approved",
                XLA_PYTHON_CLIENT_PREALLOCATE="false",PYTHONPATH=str(REPO))
+    if bounded:
+        env["EMU_UNIFIED_ACCEPTANCE"]="bounded-ppo-lifecycle"
     if digest:
         env["EMU_MISSION_REFRESHER_SHA256"]=digest
     return env
 
 
-def call(*args,digest=""):
+def call(*args,digest="",bounded=False):
     subprocess.run([sys.executable,*map(str,args)],cwd=REPO,
-                   env=env_for(digest),check=True)
+                   env=env_for(digest,bounded),check=True)
 
 
 def student(root,arm,seed):
@@ -626,9 +628,56 @@ def report(root,until):
     print("Upload-ready comparison:",out)
 
 
+
+def smoke_lifecycle(root,lock):
+    """Real two-update checkpoint/target-extension acceptance, not an exam."""
+    from emu.training_config import ROLLOUT_STEPS,TrainingConfig,training_sensor_contract
+    from emu.checkpoint_io import load_checkpoint
+    from emu.policy_export import build_bundle,write_bundle,load_exported_actor_for_exam
+    run=root/"acceptance"/"lifecycle"
+    folder=root/"acceptance"
+    folder.mkdir(parents=True,exist_ok=True)
+    for target in (8*ROLLOUT_STEPS,16*ROLLOUT_STEPS):
+        receipt=folder/f"lifecycle-{target}.json"
+        if receipt.exists():
+            r=read(receipt)
+            if r["source_commit"]!=lock["source_commit"] or r["step"]!=target:
+                raise RuntimeError("Lifecycle receipt differs")
+            if sha(folder/f"lifecycle-{target}.emupolicy")!=r["artifact_sha256"]:
+                raise RuntimeError("Lifecycle actor changed")
+            continue
+        args=[*RECIPE,*ARMS["C"],"--envs","8","--run-dir",str(run),
+              "--seed","9581","--steps",str(target)]
+        ckpt=run/"checkpoints"
+        resume=["--resume","auto"] if ckpt.exists() and any(ckpt.glob("*.pkl")) else []
+        call("-m","emu.cli","train","--check-resume-only",*args,*resume,bounded=True)
+        call("-m","emu.cli","train",*args,*resume,bounded=True)
+        cfg=TrainingConfig.load(run/"training_config.json")
+        final=ckpt/"final.pkl"
+        payload=load_checkpoint(final,expected_sensor_contract=training_sensor_contract(cfg))
+        m=payload["meta"]
+        if (m["step"]!=target or m["source_provenance"]["git_commit"]!=lock["source_commit"]
+                or m["run_name"]!=run.name or m["robot_model_sha256"]!=MODEL
+                or m.get("mission_refresher_pin") is not None
+                or cfg.envs!=8 or not cfg.mission_refreshers):
+            raise RuntimeError("Lifecycle acceptance checkpoint mismatch")
+        policy=folder/f"lifecycle-{target}.emupolicy"
+        bundle=build_bundle(final)
+        if not policy.exists():
+            tmp=policy.with_suffix(".partial.emupolicy")
+            write_bundle(bundle,tmp)
+            os.link(tmp,policy)
+            tmp.unlink()
+        if read(policy)!=json.loads(json.dumps(bundle)):
+            raise RuntimeError("Lifecycle export differs")
+        load_exported_actor_for_exam(policy)
+        write_new(receipt,dict(source_commit=lock["source_commit"],step=target,
+                               checkpoint_sha256=sha(final),artifact_sha256=sha(policy)))
+
+
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument("command",choices=("plan","lock","smoke","advance","review","decide","status","report"))
+    p.add_argument("command",choices=("plan","lock","smoke","advance","go","review","decide","status","report"))
     p.add_argument("--root",type=Path,default=Path.home()/"emu-data/studies/ks150-abc-v1")
     p.add_argument("--ci-verified-sha")
     p.add_argument("--stage",type=int,choices=STAGES)
@@ -671,8 +720,9 @@ def main(argv=None):
             call("scripts/smoke_gpu_carpet.py","--worlds",2048,"--frames",2,
                  "--device","cuda","--prisms","--ppo","--full-update",
                  "--stair-survival-curriculum","--abc-refresher-smoke")
+            smoke_lifecycle(root,lock)
             write_new(root/"smoke.json",dict(source_commit=lock["source_commit"],model_sha256=MODEL,
-                                            operator_attested_ci=True,gpu_smoke=True))
+                                            operator_attested_ci=True,gpu_smoke=True,lifecycle=True))
             return 0
         if a.command=="review":
             for seed in TRAIN_SEEDS:
@@ -684,26 +734,41 @@ def main(argv=None):
                 p.error("decide requires --seed and --action")
             decide(root,a.seed,a.action)
             return 0
-        if a.stage is None:
+        if a.command=="advance" and a.stage is None:
             p.error("advance requires --stage")
+        if a.command=="go" and a.stage is not None:
+            p.error("go uses registered milestones, not --stage")
         smoke=read(root/"smoke.json")
         if smoke!=dict(source_commit=lock["source_commit"],model_sha256=MODEL,
-                       operator_attested_ci=True,gpu_smoke=True):
-            raise RuntimeError("Need exact-source CI attestation and GPU smoke")
-        for target in STAGES[:STAGES.index(a.stage)]:
-            if not stages_done(root,target):
-                raise RuntimeError("Cannot skip matched stage")
-        if a.stage>110_000_000:
-            for seed in TRAIN_SEEDS:
-                approval_digest(root,"C",seed,a.stage)
-        if a.stage==120_000_000:
+                       operator_attested_ci=True,gpu_smoke=True,lifecycle=True):
+            raise RuntimeError("Need exact-source CI attestation, GPU smoke and lifecycle acceptance")
+        targets=STAGES if a.command=="go" else (a.stage,)
+        for stage in targets:
+            for target in STAGES[:STAGES.index(stage)]:
+                if not stages_done(root,target):
+                    raise RuntimeError("Cannot skip matched stage")
+            if stages_done(root,stage):
+                continue
+            if stage>110_000_000:
+                if a.command=="go" and not all(decision_path(root,s).exists() for s in TRAIN_SEEDS):
+                    print("STOP at matched 110M review. Run review and decide for both C students; then go again.")
+                    return 0
+                for seed in TRAIN_SEEDS:
+                    approval_digest(root,"C",seed,stage)
+            if stage==120_000_000:
+                for seed in TRAIN_SEEDS:
+                    for arm in ARMS:
+                        reset_recovery_epoch(root,arm,seed)
             for seed in TRAIN_SEEDS:
                 for arm in ARMS:
-                    reset_recovery_epoch(root,arm,seed)
-        for seed in TRAIN_SEEDS:
-            for arm in ARMS:
-                run_stage(root,lock,arm,seed,a.stage)
-        print("Matched stage complete; no later stage started.")
+                    run_stage(root,lock,arm,seed,stage)
+            print("Matched stage complete:",stage,flush=True)
+        if a.command=="go":
+            output=root/"results-140m.zip"
+            if not output.exists():
+                report(root,STAGES[-1])
+        else:
+            print("No later stage started.")
     return 0
 
 
