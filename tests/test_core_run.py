@@ -54,6 +54,7 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     _verify_refresher_pin(tmp_path)
     _verify_abc_campaign_contract(tmp_path)
     _verify_abc_go_state_machine(tmp_path)
+    _verify_abc_unattended_review(tmp_path)
     _verify_dev_real_height_limits()
     _verify_dev_cli_contract(tmp_path)
     from emu.cli import main as emu_cli_main
@@ -1454,3 +1455,30 @@ def _verify_abc_go_state_machine(tmp_path):
         assert reports==[110_000_000,140_000_000]
         assert abc.main(["go","--root",str(root)])==0
         assert len(calls)==30 and len(reports)==2 and len(recovery)==6
+
+
+def _verify_abc_unattended_review(tmp_path):
+    from scripts import ks150_abc_school as abc
+    root=tmp_path/"abc_auto"
+    root.mkdir()
+    selected=[]
+    def prepare(root_arg,seed):
+        assert root_arg==root
+        dose=.03 if seed==abc.TRAIN_SEEDS[0] else 0.
+        return {},{"plan":{"extra_clean":{"resilience":dose}}},.6
+    def decide(root_arg,seed,action,*,mode):
+        selected.append((seed,action,mode))
+        abc.write_new(abc.decision_path(root_arg,seed),{"fixture":True})
+    with patch.object(abc,"stages_done",return_value=True), \
+         patch.object(abc,"prepare_decision",side_effect=prepare), \
+         patch.object(abc,"decide",side_effect=decide), \
+         patch.object(abc,"approval_digest",return_value=""), \
+         patch.object(abc,"report") as report:
+        abc.automatic_review(root)
+        report.assert_called_once_with(root,110_000_000)
+        assert selected==[
+            (abc.TRAIN_SEEDS[0],"approve","preregistered_unattended"),
+            (abc.TRAIN_SEEDS[1],"no_intervention","preregistered_unattended")]
+        (root/"results-110m.zip").write_bytes(b"mock report")
+        abc.automatic_review(root)
+        assert len(selected)==2
