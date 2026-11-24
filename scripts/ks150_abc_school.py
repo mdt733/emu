@@ -102,6 +102,9 @@ def env_for(digest="",bounded=False):
     env.update(EMU_PHYSICAL_PROFILE="h40-spring-only",
                EMU_UNIFIED_CONTINUOUS="cold-growth-approved",
                XLA_PYTHON_CLIENT_PREALLOCATE="false",PYTHONPATH=str(REPO))
+    # Reuse source/program-keyed XLA compilations across the many matched
+    # stage and exam subprocesses. Preserve an explicit operator override.
+    env.setdefault("JAX_COMPILATION_CACHE_DIR",str(Path.home()/".cache/emu/jax-abc"))
     if bounded:
         env["EMU_UNIFIED_ACCEPTANCE"]="bounded-ppo-lifecycle"
     if digest:
@@ -138,7 +141,7 @@ def spec(root,commit):
                 stages=list(STAGES),boundaries=[boundary(t) for t in STAGES],
                 arms={a:list(v) for a,v in ARMS.items()},recipe=list(RECIPE),
                 worlds=WORLDS,activation_stage=110_000_000,
-                policy="explicit review; no automatic promotion")
+                policy="registered dose rule; manual or explicitly unattended review; no automatic promotion")
 
 
 def root_checked(path):
@@ -775,15 +778,32 @@ def smoke_exams(root,lock):
                   device="gpu",zero_optimizer_updates=True,first_life_only=True)
     if any(manifest.get(k)!=v for k,v in expected.items()):
         raise RuntimeError("Acceptance signed matrix provenance mismatch")
+    # Smoke the longest deep-exam horizon and both summary gate families.
+    # This is a subset, not a final held-out performance assessment.
+    deep=folder/f"deep-{seed}.zip"
+    scenarios=["stand_zero_60s","forward_025_30s"]
+    if not deep.exists():
+        call("-m","emu.physical_capability_exam","--policy",policy,
+             "--output",deep,"--worlds",8,"--seed",seed,"--device","cuda",
+             "--scenario",scenarios[0],"--scenario",scenarios[1])
+    with zipfile.ZipFile(deep) as archive:
+        m=json.loads(archive.read("manifest.json"))
+    expected=dict(actor_training_source=src,actor_artifact_sha256=artifact,
+                  robot_model_sha256=MODEL,physical_profile="h40-spring-only",
+                  sensor_contract_sha256=sensor,seed=seed,worlds=8,device="gpu",
+                  no_optimizer_updates=True,first_life_only=True,scenarios=scenarios)
+    if any(m.get(k)!=v for k,v in expected.items()):
+        raise RuntimeError("Acceptance deep exam provenance mismatch")
     cells,_=_exam_cells({"exams":[entry]},seed)
-    if len(cells)!=92+40*5:
+    expected_cells=92+40*5+5
+    if len(cells)!=expected_cells:
         raise RuntimeError("Acceptance comparison did not cover all registered cells")
-    files={pulse.name:entry["sha256"]}
+    files={pulse.name:entry["sha256"],deep.name:sha(deep)}
     for name in ("matrix_summary.json","matrix_worlds.csv","matrix_curve.csv"):
         p=matrix/name
         files[str(p.relative_to(folder))]=sha(p)
     write_new(receipt,dict(actor_sha256=artifact,files=files,comparison_cells=len(cells)))
-    print("ABC GPU frozen evidence PASS: 2048 pulse worlds, 400 assigned signed stair worlds;",
+    print("ABC GPU frozen evidence PASS: 2048 pulse worlds, 400 assigned signed stair worlds, two deep scenarios;",
           len(cells),"comparison cells; no competence requirement.",flush=True)
 
 
