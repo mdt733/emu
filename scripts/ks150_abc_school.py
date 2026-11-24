@@ -699,6 +699,69 @@ def smoke_lifecycle(root,lock):
                                checkpoint_sha256=sha(final),artifact_sha256=sha(policy)))
 
 
+
+def smoke_exams(root,lock):
+    """Exercise the actual discovery evidence pipeline before the first 90M.
+
+    The acceptance actor is deliberately untrained. Passing means valid
+    physical evidence and scoring, NOT a competent robot.
+    """
+    from emu.training_config import ROLLOUT_STEPS,TrainingConfig,training_sensor_contract
+    from emu.policy_export import load_exported_actor_for_exam
+    from scripts.mission_refresher_review import read_pulse,source_hashes
+    from scripts.v5053_matrix_exam import exam_source_fingerprint
+    folder=root/"acceptance"
+    policy=folder/f"lifecycle-{16*ROLLOUT_STEPS}.emupolicy"
+    cfg=TrainingConfig.load(folder/"lifecycle"/"training_config.json")
+    _,_,actor=load_exported_actor_for_exam(policy)
+    src=actor["source"]
+    if src["git_commit"]!=lock["source_commit"] or src["seed"]!=9581:
+        raise RuntimeError("Wrong acceptance actor")
+    artifact=actor["artifact_sha256"]
+    sensor=training_sensor_contract(cfg)["sha256"]
+    # This seed is never used for the discovery or held-out comparisons.
+    seed=9582
+    pulse=folder/f"pulse-{seed}.zip"
+    matrix=folder/f"stairs-{seed}"
+    receipt=folder/"exams.json"
+    if receipt.exists():
+        old=read(receipt)
+        if (old["actor_sha256"]!=artifact or
+                any(sha(folder/name)!=h for name,h in old["files"].items())):
+            raise RuntimeError("Acceptance evidence changed")
+        return
+    if not pulse.exists():
+        call("-m","scripts.examine_h40_specialties","--policy",policy,
+             "--output",pulse,"--worlds",2048,"--horizon",600,"--seed",seed,"--device","cuda")
+    entry=dict(seed=seed,path=str(pulse),sha256=sha(pulse))
+    read_pulse(pulse,archive_sha256=entry["sha256"],actor_source=src,
+               artifact_sha256=artifact,seed=seed,model_sha256=MODEL,
+               sensor_sha256=sensor,expected_sources=source_hashes())
+    if not matrix.exists():
+        call("-m","scripts.v5053_matrix_exam","--policy",policy,
+             "--output",matrix,"--mode","stairs","--worlds",512,
+             "--levels",20,"--trials-per-level",10,"--horizon",350,
+             "--seed",seed,"--device","cuda")
+    manifest=read(matrix/"matrix_summary.json")["manifest"]
+    expected=dict(actor_training_source=src,policy_sha256=artifact,
+                  robot_model_sha256=MODEL,exam_source_sha256=exam_source_fingerprint(),
+                  seed=seed,worlds=512,assigned_worlds=400,horizon=350,
+                  mode="stairs",levels=20,trials_per_level=10,
+                  device="gpu",zero_optimizer_updates=True,first_life_only=True)
+    if any(manifest.get(k)!=v for k,v in expected.items()):
+        raise RuntimeError("Acceptance signed matrix provenance mismatch")
+    cells,_=_exam_cells({"exams":[entry]},seed)
+    if len(cells)!=92+40*5:
+        raise RuntimeError("Acceptance comparison did not cover all registered cells")
+    files={pulse.name:entry["sha256"]}
+    for name in ("matrix_summary.json","matrix_worlds.csv","matrix_curve.csv"):
+        p=matrix/name
+        files[str(p.relative_to(folder))]=sha(p)
+    write_new(receipt,dict(actor_sha256=artifact,files=files,comparison_cells=len(cells)))
+    print("ABC GPU frozen evidence PASS: 2048 pulse worlds, 400 assigned signed stair worlds;",
+          len(cells),"comparison cells; no competence requirement.",flush=True)
+
+
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
     p.add_argument("command",choices=("plan","lock","smoke","advance","go","review","decide","status","report"))
@@ -743,8 +806,9 @@ def main(argv=None):
                  *recipe(root,"A",TRAIN_SEEDS[0],STAGES[0]))
             call("scripts/smoke_gpu_carpet.py","--worlds",2048,"--frames",2,
                  "--device","cuda","--prisms","--ppo","--full-update",
-                 "--stair-survival-curriculum","--abc-refresher-smoke")
+                 "--stair-survival-curriculum","--abc-refresher-smoke","--benchmark-updates",3)
             smoke_lifecycle(root,lock)
+            smoke_exams(root,lock)
             write_new(root/"smoke.json",dict(source_commit=lock["source_commit"],model_sha256=MODEL,
                                             operator_attested_ci=a.ci_verified_sha is not None,gpu_smoke=True,lifecycle=True))
             return 0
