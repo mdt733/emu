@@ -854,6 +854,28 @@ class _PhysicalSpecialtyChecks(unittest.TestCase):
                              ["kick_forward/1"][6901],(0,32))
             self.assertEqual(result["current_counts"]["slope"]
                              ["downhill/1"][6901],(48,48))
+            from scripts.mission_refresher_review import approve_schedule
+            from emu.developmental_school import replay_refresher_schedule
+            registration["training_config_sha256"] = "7"*64
+            registration["current"]["checkpoint_sha256"] = "8"*64
+            receipt = approve_schedule(registration,until_step=110_000_000,
+                                       academy_probability=.6)
+            data = json.dumps(receipt,sort_keys=True).encode()
+            lineage = dict(run_name="student",training_seed=736,
+                source_commit="a"*40,training_config_sha256="7"*64,
+                activation_checkpoint_sha256="8"*64)
+            replay = dict(enabled=True,receipt_bytes=data,
+                receipt_sha256=sha256(data).hexdigest(),lineage=lineage,
+                base_weights=registration["base_weights"],
+                academy_probability=.6)
+            weights, academy, clean = replay_refresher_schedule(
+                step=100_000_000,**replay)
+            self.assertGreater(weights[1],.20)
+            self.assertGreater(clean[1],0.)
+            self.assertEqual(weights[3],.20)
+            self.assertEqual(academy,.6)
+            self.assertEqual(replay_refresher_schedule(
+                step=110_000_000,**replay)[2],(0.,)*6)
             registration["current"]["exams"][0]["sha256"] = "0"*64
             with self.assertRaisesRegex(ValueError,"archive digest mismatch"):
                 review(registration)
