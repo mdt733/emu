@@ -224,6 +224,7 @@ def _annotate_teaching_report(
         params['academy_episode_probability'])
     for name in FOCUS_NAMES:
         report['focus_alloc_' + name] = float(params['focus_weight_' + name])
+        report['clean_refresher_prob_' + name] = float(params.get('clean_refresher_prob_' + name,0.))
     # Historical synthetic report fixtures do not carry the new packet.
     # The actual learner always supplies it; missing means legacy OFF.
     blend=float(params.get('cross_stair_blend',0.))
