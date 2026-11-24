@@ -1003,7 +1003,11 @@ def _verify_dev_birth_ramp():
         cross_stair_exposure_blend(step=-1,enabled=True)
     with pytest.raises(ValueError):
         cross_stair_exposure_blend(step=110_000_000,enabled=True,ramp_steps=0)
-    assert UNIFIED_TERRAIN_FIELDS[-1]==("cross_stair_blend",0.)
+    assert UNIFIED_TERRAIN_FIELDS[-7]==("cross_stair_blend",0.)
+    assert UNIFIED_TERRAIN_FIELDS[-6:]==tuple(
+        ("clean_refresher_prob_"+r,0.) for r in FOCUS_NAMES)
+    assert P.clean_refresher_prob_command==TERRAIN_TASK_PARAM_DIM+19
+    assert P.clean_refresher_prob_control==TERRAIN_TASK_PARAM_DIM+24
     assert P.cross_stair_blend==TERRAIN_TASK_PARAM_DIM+18
 
 
