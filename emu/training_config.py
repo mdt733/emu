@@ -224,6 +224,7 @@ class TrainingConfig:
     cross_specialty_stairs: bool = False
     cross_specialty_stairs_start_steps: int = 90_000_000
     cross_specialty_stairs_ramp_steps: int = 20_000_000
+    mission_refreshers: bool = False  # one explicitly pinned programme per cold run
 
     # One executable 360-input prism trainer. Old attitude profiles live in Git.
     attitude_profile: str = "v5015"
@@ -297,9 +298,11 @@ class TrainingConfig:
         # Accept only identified historical absent OFF fields in an
         # explicitly authenticated external research ancestor; strict
         # same-run load() still requires every serialized setting.
+        old_refresher={'mission_refreshers'}
+        historical=(set(),old_survival,old_development,
+                    old_development|old_survival)
         if not (keys-expected) and missing in (
-                set(),old_survival,old_development,
-                old_development|old_survival):
+                *historical,*(x|old_refresher for x in historical)):
             data={**data,**{k:getattr(cls,k) for k in missing}}
         elif keys != expected:
             raise ValueError(
