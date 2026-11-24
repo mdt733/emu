@@ -332,6 +332,18 @@ def train(args: TrainingConfig) -> int:
     parent_meta = ((resumed_payload or {}).get('meta') or {})
     # Approval is opt-in at cold registration; only a trusted explicit hash
     # may activate it on a later process restart at a frozen checkpoint.
+    expected_refresher_base=None
+    if args.mission_refreshers:
+        expected_refresher_base=birth_lesson_weights(
+            schedule=args.teaching_schedule,step=resumed_step,
+            foundation_steps=args.foundation_steps,retention_share=args.retention_share,
+            academy_enabled=args.academy_stream,
+            athletic_share=args.athletic_rehearsal_frac,
+            academy_intro_steps=args.academy_intro_steps,
+            academy_start_steps=args.academy_start_steps,
+            academy_ramp_steps=args.academy_ramp_steps,
+            academy_intro_share=args.academy_intro_share,
+            academy_max_share=args.academy_max_share)
     refresher_pin,refresher_data=bind_refresher_receipt(
         enabled=args.mission_refreshers,run_dir=run_dir,
         receipt_sha256=os.environ.get('EMU_MISSION_REFRESHER_SHA256',''),
@@ -340,7 +352,8 @@ def train(args: TrainingConfig) -> int:
         training_seed=args.seed,resumed_meta=parent_meta,
         resumed_checkpoint=args.resume or None,
         mature_step=max(args.foundation_steps+40_000_000,
-                        args.academy_start_steps+args.academy_ramp_steps))
+                        args.academy_start_steps+args.academy_ramp_steps),
+        expected_base=expected_refresher_base)
     if refresher_pin is not None:
         obs_meta['mission_refresher_pin']=refresher_pin
         print(f'{LOG_PREFIX} pinned mission refresher schedule: '
