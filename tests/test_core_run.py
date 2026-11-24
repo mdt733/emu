@@ -47,6 +47,7 @@ def training_flags(run_dir: Path, seed: int = 735) -> list[str]:
 
 
 def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
+    import json
     from emu.cli import main as emu_cli_main
     cli_args=training_flags(tmp_path/"run")
     seen=[]
@@ -71,6 +72,416 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     assert cfg.freeze_obs_norm_after_steps==0
     assert cfg.stillness_birth_frac==0.
     assert cfg.science_step_finish_on_transfer is False
+
+    # The three stop-points share the one immutable parent and exact
+    # controls; there is no 40M launch that bypasses 10M and 20M review.
+    from scripts.stair_school_lesson_lab import (
+        _stage_extension_allowed, _command, STAGES, TARGET_STEPS)
+    assert STAGES == (130000000,140000000,TARGET_STEPS)
+    dry_root=tmp_path/"lab-stage-review"
+    dummy_lock={"branch_seed":8200,
+                "parent":{"path":str(tmp_path/"parent"/"checkpoints"/"final.pkl"),
+                          "source_commit":"a"*40,"sha256":"b"*64}}
+    first=_command(dummy_lock,dry_root,"C00_control",STAGES[0])
+    assert first[first.index("--steps")+1]=="130000000"
+    assert not _stage_extension_allowed(dry_root,"C00_control",STAGES[0])
+    with pytest.raises(RuntimeError,match="First fork"):
+        _stage_extension_allowed(dry_root,"C00_control",STAGES[1])
+    stage=dry_root/"runs"/"C00_control"
+    stage.mkdir(parents=True)
+    (stage/"training_config.json").write_text('{"steps":130000000}')
+    with pytest.raises(RuntimeError,match="Finish the previous stage"):
+        _stage_extension_allowed(dry_root,"C00_control",STAGES[1])
+    ck=stage/"checkpoints"; ck.mkdir()
+    (ck/"final.pkl").write_bytes(b"unit-only: core CLI will validate bytes")
+    assert _stage_extension_allowed(dry_root,"C00_control",STAGES[1])
+    with pytest.raises(RuntimeError,match="Do not skip stages"):
+        _stage_extension_allowed(dry_root,"C00_control",STAGES[2])
+
+    # Test the ACTUAL study lock serialization/round-trip (no checkpoint
+    # GPU state required). JSON changes tuples to arrays; lock and reader
+    # must agree on the canonical wire representation.
+    import hashlib
+    from scripts.stair_school_lesson_lab import (
+        _lock, _read_lock, _go_lock, _actor_weights_sha256, REFERENCE)
+    # The parent gate computes the SAME canonical float32 weights+bias
+    # byte digest used by the frozen .emupolicy examiner.
+    tiny_pi=[dict(w=np.asarray([[1.,2.]],np.float32),
+                  b=np.asarray([3.,4.],np.float32))]*3
+    little=hashlib.sha256()
+    for layer in tiny_pi:
+        little.update(np.asarray(layer["w"],dtype="<f4").tobytes(order="C"))
+        little.update(np.asarray(layer["b"],dtype="<f4").tobytes(order="C"))
+    assert _actor_weights_sha256({"state":{"params":{"pi":tiny_pi}}})==little.hexdigest()
+    control_parent=tmp_path/"verified-parent"/"checkpoints"/"final.pkl"
+    control_parent.parent.mkdir(parents=True)
+    control_parent.write_bytes(b"synthetic full ancestor; do not train")
+    fingerprint=hashlib.sha256(control_parent.read_bytes()).hexdigest()
+    identity={"path":str(control_parent),"sha256":fingerprint,
+              "source_commit":"4048e8450c36882501cbb624f4ca656e11da9419",
+              "step":120061952,"training_seed":736,
+              "physical_profile":"h40-spring-only"}
+    with patch("scripts.stair_school_lesson_lab._source_identity",
+               return_value="1"*40), patch(
+             "scripts.stair_school_lesson_lab._parent_identity",
+               return_value=identity):
+        study=tmp_path/"new-study-lock"
+        _lock(study,control_parent,8200)
+        read=_read_lock(study)
+        assert read["baseline_recipe"]==[list(pair) for pair in REFERENCE]
+        assert read["branch_seed"]==8200
+        assert read["milestone_targets"]==list(STAGES)
+        assert read["milestone_ppo_boundaries"]==[
+            130023424,140050432,160038912]
+        with pytest.raises(RuntimeError,match="Choose a NEW study root"):
+            _lock(study,control_parent,8200)
+        # Exactly the operator's reported failure: an UNUSED lock from
+        # a prior PR revision followed by git pull. GO may archive and
+        # re-pin that lock, but never do this after training has begun.
+        with patch("scripts.stair_school_lesson_lab._source_identity",
+                   return_value="2"*40):
+            with pytest.raises(RuntimeError,match="Source commit drift"):
+                _read_lock(study)
+            fixed=_go_lock(study,control_parent,8200)
+            assert fixed["source_commit"]=="2"*40
+            assert fixed["parent"]==identity
+            assert fixed["unused_lock_upgrade"]["prior_source_commit"]=="1"*40
+            retired=study/"retired_study_locks"/(
+                "study_lock-"+"1"*40+".json")
+            assert json.loads(retired.read_text())["source_commit"]=="1"*40
+            assert _go_lock(study,control_parent,8200)==fixed
+        (study/"runs"/"C00_control").mkdir(parents=True)
+        (study/"runs"/"C00_control"/"training_config.json").write_text(
+            '{"steps":130000000}')
+        with patch("scripts.stair_school_lesson_lab._source_identity",
+                   return_value="3"*40):
+            with pytest.raises(RuntimeError,match="never rebind a started study"):
+                _go_lock(study,control_parent,8200)
+            assert json.loads((study/"study_lock.json").read_text())[
+                "source_commit"]=="2"*40
+        control_parent.write_bytes(b"synthetic mutated ancestor")
+        with patch("scripts.stair_school_lesson_lab._source_identity",
+                   return_value="2"*40):
+            with pytest.raises(RuntimeError,match="changed since study lock"):
+                _read_lock(study)
+
+
+    # Exported .emupolicy stores robot identity in source provenance, not
+    # at the JSON top level. Reproduce the exact post-C00 signed-exam crash
+    # with an otherwise completed 400-world immutable physical manifest.
+    from scripts.stair_school_lesson_lab import _exam_valid
+    raw_actor={"source":{"actor_sha256":"weights-sha",
+                          "robot_model_sha256":"model-sha",
+                          "git_commit":"1"*40}}
+    signed=tmp_path/"complete-signed-exam"
+    signed.mkdir()
+    (signed/"matrix_worlds.csv").write_text("world\n0\n")
+    (signed/"matrix_summary.json").write_text(json.dumps(
+        {"manifest":{"seed":6901,"mode":"stairs",
+                     "assigned_worlds":400,"horizon":350,
+                     "actor_sha256":"weights-sha",
+                     "robot_model_sha256":"model-sha",
+                     "actor_training_source":raw_actor["source"]}}))
+    assert _exam_valid("signed_stairs",signed,raw_actor,6901)
+    with pytest.raises(RuntimeError,match="provenance"):
+        _exam_valid("signed_stairs",signed,raw_actor,6902)
+    import zipfile
+    pulse=tmp_path/"complete-generalist.zip"
+    with zipfile.ZipFile(pulse,"w") as archive:
+        archive.writestr("manifest.json",json.dumps(
+            {"seed":6901,"worlds":2048,"horizon_frames":600,
+             "actor_sha256":"weights-sha","robot_model_sha256":"model-sha",
+             "actor_source":raw_actor["source"]}))
+        for name in ("summary.json","pulse.csv","worlds.csv"):
+            archive.writestr(name,"{}")
+    assert _exam_valid("generalist_pulse",pulse,raw_actor,6901)
+    snapshot=tmp_path/"complete-stair-snapshot"
+    snapshot.mkdir()
+    (snapshot/"school_diagnostic.json").write_text(json.dumps(
+        {"seed":6901,"actor_sha256":"weights-sha",
+         "model_sha256":"model-sha",
+         "same_trajectory_prefix_verified":True,
+         "early_horizon_captured_from_same_rollout":True,
+         "horizon_prefix_disagreement_count":0}))
+    (snapshot/"school_diagnostic_heights.csv").write_text("level\n1\n")
+    assert _exam_valid("stair_speed_horizon",snapshot,raw_actor,6901)
+
+    # A repaired supervisor may run on a newer Git commit, but PPO and
+    # independent physics MUST remain on the old study's exact clean
+    # source. Exercise a REAL local Git detached worktree (no network,
+    # GPU, or repository checkout switch) to reproduce that recovery.
+    import subprocess as git_subprocess
+    from scripts.stair_school_lesson_lab import _attach_locked_training_checkout
+    git_repo=tmp_path/"independent-source-git"
+    git_subprocess.run(["git","init","-q",str(git_repo)],check=True)
+    (git_repo/"README").write_text("original training source\n")
+    git_subprocess.run(
+        ["git","-C",str(git_repo),"add","README"],check=True)
+    git_subprocess.run(
+        ["git","-C",str(git_repo),"-c","user.name=EMU CI",
+         "-c","user.email=ci@example.invalid",
+         "commit","-qm","original locked experiment"],check=True)
+    first_sha=git_subprocess.check_output(
+        ["git","-C",str(git_repo),"rev-parse","HEAD"],text=True).strip()
+    (git_repo/"README").write_text("newer supervisor source\n")
+    git_subprocess.run(["git","-C",str(git_repo),"add","README"],check=True)
+    git_subprocess.run(
+        ["git","-C",str(git_repo),"-c","user.name=EMU CI",
+         "-c","user.email=ci@example.invalid",
+         "commit","-qm","newer supervisor"],check=True)
+    worktree_root=tmp_path/"locked-training-study"
+    worktree_root.mkdir()
+    (worktree_root/"study_lock.json").write_text(
+        json.dumps({"source_commit":first_sha}))
+    with patch("scripts.stair_school_lesson_lab.REPO",git_repo):
+        _attach_locked_training_checkout(worktree_root)
+        from scripts import stair_school_lesson_lab as school_lab
+        assert school_lab._source_identity()==first_sha
+        assert school_lab.REPO.parent==worktree_root
+        assert (school_lab.REPO/"README").read_text()=="original training source\n"
+    # Repeated GO uses the same pinned worktree without changing the lock.
+    with patch("scripts.stair_school_lesson_lab.REPO",git_repo):
+        _attach_locked_training_checkout(worktree_root)
+        from scripts import stair_school_lesson_lab as school_lab
+        assert school_lab._source_identity()==first_sha
+    assert json.loads((worktree_root/"study_lock.json").read_text())[
+        "source_commit"]==first_sha
+
+    # A partial upload-ready ZIP retains original physical evidence,
+    # source/parent provenance and metrics, never giant PPO/actor bytes.
+    import zipfile
+    from scripts.stair_school_lesson_lab import _bundle_results
+    bundleroot=tmp_path/"evidence-bundle"
+    (bundleroot/"evidence"/"C00_control"/"130m-s6901"/"signed_stairs").mkdir(
+        parents=True)
+    (bundleroot/"runs"/"C00_control"/"checkpoints").mkdir(parents=True)
+    (bundleroot/"reviews"/"C00_control").mkdir(parents=True)
+    (bundleroot/"milestones"/"C00_control"/"130m").mkdir(parents=True)
+    (bundleroot/"study_lock.json").write_text(json.dumps(
+        {"source_commit":"a"*40,"parent":{"sha256":"b"*64}}))
+    (bundleroot/"go_events.jsonl").write_text(
+        '{"event":"study_started"}\n')
+    (bundleroot/"evidence"/"C00_control"/"130m-s6901"/
+     "signed_stairs"/"matrix_worlds.csv").write_text(
+         "world,lead_foot_top\n0,1\n")
+    (bundleroot/"evidence"/"C00_control"/"130m-s6901"/
+     "actor.emupolicy").write_bytes(b"inference actor")
+    (bundleroot/"runs"/"C00_control"/"metrics.csv").write_text(
+        "step,return\n130023424,3.18\n")
+    (bundleroot/"runs"/"C00_control"/"checkpoints"/"final.pkl").write_bytes(
+        b"large optimizer state")
+    (bundleroot/"milestones"/"C00_control"/"130m"/"final.pkl").write_bytes(
+        b"full-state milestone")
+    (bundleroot/"milestones"/"C00_control"/"130m"/"milestone.json").write_text(
+        '{"step":130000000}')
+    (bundleroot/"reviews"/"C00_control"/"130m.json").write_text(
+        '{"advancement":"continue"}')
+    (bundleroot/"go.log").write_text("control exams finished\n")
+    shared=_bundle_results(bundleroot)
+    with zipfile.ZipFile(shared) as archive:
+        names=set(archive.namelist())
+        assert {"study_lock.json","go_events.jsonl","README.md",
+                "go_log_tail.txt","bundle_manifest.json",
+                "runs/C00_control/metrics.csv",
+                "reviews/C00_control/130m.json",
+                "milestones/C00_control/130m/milestone.json",
+                "evidence/C00_control/130m-s6901/signed_stairs/matrix_worlds.csv"
+                }.issubset(names)
+        assert not any(x.endswith((".pkl",".emupolicy",".partial"))
+                       for x in names)
+        metadata=json.loads(archive.read("bundle_manifest.json"))
+        assert not metadata["complete"] and metadata["stage_reviews"]==1
+        assert metadata["training_source_commit"]=="a"*40
+        assert all(len(x["sha256"])==64 for x in metadata["files"])
+    (bundleroot/"go_events.jsonl").write_text(
+        '{"event":"study_started"}\n{"event":"study_finished"}\n')
+    _bundle_results(bundleroot)
+    with zipfile.ZipFile(shared) as archive:
+        assert json.loads(archive.read("bundle_manifest.json"))["complete"]
+
+    # The lesson laboratory's 13 arms must all parse through the REAL
+    # training CLI. Every experimental arm changes exactly ONE config
+    # field from the same control, without running PPO or opening a GPU.
+    from scripts.stair_school_lesson_lab import (
+        ARMS as LAB_ARMS, _recipe, _launch_env)
+    from emu.training import unified_launch_mode
+    assert len(LAB_ARMS)==13
+    from scripts.stair_school_lesson_lab import _exam_commands
+    for exam_seed in (6901,6902):
+        dest,commands=_exam_commands(
+            {"evaluation":{"discovery_seeds":[6901,6902]}},
+            dry_root,"C00_control",STAGES[0],exam_seed)
+        assert dest.name==f"130m-s{exam_seed}"
+        assert len(commands)==4
+        assert commands[0][3]=="export-policy"
+        assert "signed_stairs" in commands[1][commands[1].index("--output")+1]
+        assert "--mode" in commands[1] and "stairs" in commands[1]
+        assert "examine_h40_specialties.py" in commands[2][1]
+        assert "--school-diagnostic-snapshot-suite" in commands[3]
+        assert commands[3][commands[3].index("--lab-arm")+1]=="C00_control"
+        assert commands[3][commands[3].index("--seed")+1]==str(exam_seed)
+    with pytest.raises(ValueError,match="discovery seed"):
+        _exam_commands(
+            {"evaluation":{"discovery_seeds":[6901,6902]}},
+            dry_root,"C00_control",STAGES[0],7901)
+    launch_env=_launch_env()
+    assert launch_env["EMU_UNIFIED_CONTINUOUS"]=="cold-growth-approved"
+    assert launch_env["EMU_PHYSICAL_PROFILE"]=="h40-spring-only"
+    assert "EMU_UNIFIED_ACCEPTANCE" not in launch_env
+    saved=[]
+    def record_lab(ns):
+        saved.append(one_run_config(ns))
+        return 0
+    prefix=["train","--run-dir",str(tmp_path/"lesson-lab"),
+            "--steps","160000000","--envs","2048","--seed","8200",
+            "--device","cuda"]
+    with patch("emu.run.train_one",side_effect=record_lab):
+        for arm in LAB_ARMS:
+            assert emu_cli_main(prefix+_recipe(arm))==0
+    # Run EXACT real full-GPU launch gating (without compiling/running JAX).
+    # check-resume-only intentionally does not enter this trainer gate.
+    with patch.dict("os.environ",launch_env,clear=True):
+        assert unified_launch_mode(saved[0])=="continuous"
+        assert unified_launch_mode(replace(
+            saved[0],resume=dummy_lock["parent"]["path"]))=="continuous"
+        assert unified_launch_mode(replace(
+            saved[0],resume="auto"))=="continuous"
+    with patch.dict("os.environ",{"EMU_PHYSICAL_PROFILE":"h40-spring-only"},
+                    clear=True):
+        with pytest.raises(RuntimeError,match="PRE-LAUNCH"):
+            unified_launch_mode(saved[0])
+    reference=asdict(saved[0])
+    for arm,config in zip(LAB_ARMS,saved):
+        changed=[name for name,value in asdict(config).items()
+                 if value!=reference[name]]
+        flag=LAB_ARMS[arm][0]
+        expected=[] if flag is None else [flag[2:].replace("-","_")]
+        assert changed==expected, (arm,changed,expected)
+
+    # Unattended GO smoke: two representative arms, ALL three stage
+    # boundaries and both exam cohorts. No GPU, PPO, policy export or
+    # physical simulator runs. Stage order and crash-resume evidence rules
+    # must remain explicit despite the one-button operator surface.
+    from scripts.stair_school_lesson_lab import (
+        _go_run, _read_stair_funnel, _review_stage,
+        GO_CORE, GO_HARD_STOP_DROP)
+    import json as lab_json
+    lab_root=tmp_path/"go-unattended"
+    lab_root.mkdir()
+    sample_arms={
+        name:LAB_ARMS[name]
+        for name in ("C00_control","H06_more_bilateral_credit")}
+    dummy_go_lock={
+        **dummy_lock,"source_commit":"1"*40,
+        "evaluation":{"discovery_seeds":[6901,6902]},
+        "milestone_targets":list(STAGES)}
+    (lab_root/"study_lock.json").write_text(lab_json.dumps(dummy_go_lock))
+    launches=[]
+    exams=[]
+    def fake_training(cmd,**_):
+        if "--check-resume-only" in cmd:
+            return 0
+        target=int(cmd[cmd.index("--steps")+1])
+        run_dir=Path(cmd[cmd.index("--run-dir")+1])
+        (run_dir/"checkpoints").mkdir(parents=True,exist_ok=True)
+        (run_dir/"training_config.json").write_text(
+            lab_json.dumps({"steps":target}))
+        candidate=run_dir/"checkpoints"/"checkpoint-candidate.pkl"
+        candidate.write_bytes(f"fake full state {target}".encode("ascii"))
+        candidate.replace(run_dir/"checkpoints"/"final.pkl")
+        launches.append((run_dir.name,target))
+        return 0
+    def fake_evidence(_lock,root,arm,steps,seed,*,env):
+        d=root/"evidence"/arm/f"{steps//1_000_000}m-s{seed}"
+        d.mkdir(parents=True,exist_ok=True)
+        (d/"exam_receipt.json").write_text("{}")
+        exams.append((arm,steps,seed))
+        return {"actor_sha256":"test-only-actor"}
+    def harmless_review(_lock,root,arm,steps):
+        report={"hard_stops":[],"warnings":[],"advancement":"continue"}
+        review_dir=root/"reviews"/arm
+        review_dir.mkdir(parents=True,exist_ok=True)
+        (review_dir/f"{steps//1_000_000}m.json").write_text(lab_json.dumps(report))
+        return report
+    with patch.dict("scripts.stair_school_lesson_lab.ARMS",
+                    sample_arms,clear=True), patch(
+            "scripts.stair_school_lesson_lab.subprocess.run",
+            side_effect=fake_training), patch(
+            "scripts.stair_school_lesson_lab._physical_evidence",
+            side_effect=fake_evidence), patch(
+            "scripts.stair_school_lesson_lab._source_identity",
+            return_value="1"*40), patch(
+            "scripts.stair_school_lesson_lab._review_stage",
+            side_effect=harmless_review), patch(
+            "scripts.stair_school_lesson_lab._validate_completed_arm"), patch(
+            "scripts.stair_school_lesson_lab._write_lesson_progress"):
+        assert _go_run(lab_root,dummy_go_lock)==0
+    assert launches==[
+        (arm,stage) for arm in sample_arms for stage in STAGES]
+    for arm in sample_arms:
+        for stage in STAGES:
+            full=lab_root/"milestones"/arm/f"{stage//1_000_000}m"/"final.pkl"
+            assert full.is_file()
+            assert (full.parent/"milestone.json").is_file()
+            assert full.read_bytes()==f"fake full state {stage}".encode("ascii")
+    assert exams==[(arm,stage,seed)
+                   for arm in sample_arms for stage in STAGES
+                   for seed in (6901,6902)]
+    # A failed/aborted read-only exam must NEVER make GO retrain an
+    # already preserved PPO milestone. Its final full-state ancestor
+    # is the authority, not a missing later exam receipt.
+    launches.clear()
+    with patch.dict("scripts.stair_school_lesson_lab.ARMS",
+                    sample_arms,clear=True), patch(
+            "scripts.stair_school_lesson_lab.subprocess.run",
+            side_effect=fake_training), patch(
+            "scripts.stair_school_lesson_lab._physical_evidence",
+            side_effect=fake_evidence), patch(
+            "scripts.stair_school_lesson_lab._source_identity",
+            return_value="1"*40), patch(
+            "scripts.stair_school_lesson_lab._review_stage",
+            side_effect=harmless_review), patch(
+            "scripts.stair_school_lesson_lab._validate_completed_arm"), patch(
+            "scripts.stair_school_lesson_lab._write_lesson_progress"):
+        assert _go_run(lab_root,dummy_go_lock)==0
+    assert not launches, "GO must reuse 130M/140M/160M full-state milestones"
+    assert any(lab_json.loads(line)["event"]=="study_finished"
+               for line in (lab_root/"go_events.jsonl").read_text().splitlines())
+    assert GO_CORE==("command","control","transition","slope","resilience")
+    assert GO_HARD_STOP_DROP==.15
+
+    # Automated safety stop is per-arm, not a reason to abandon all later
+    # independently forked hypotheses. No subjective --reviewed handshake.
+    stopped_root=tmp_path/"go-safety-stop"
+    stopped_root.mkdir()
+    (stopped_root/"study_lock.json").write_text(lab_json.dumps(dummy_go_lock))
+    launches.clear()
+    exams.clear()
+    def safety_review(_lock,root,arm,steps):
+        serious=(arm=="H06_more_bilateral_credit" and steps==STAGES[0])
+        report={"hard_stops":[{"specialty":"control"}] if serious else [],
+                "warnings":[],"advancement":"stop_this_arm" if serious else "continue"}
+        review_dir=root/"reviews"/arm
+        review_dir.mkdir(parents=True,exist_ok=True)
+        (review_dir/f"{steps//1_000_000}m.json").write_text(lab_json.dumps(report))
+        return report
+    with patch.dict("scripts.stair_school_lesson_lab.ARMS",
+                    sample_arms,clear=True), patch(
+            "scripts.stair_school_lesson_lab.subprocess.run",
+            side_effect=fake_training), patch(
+            "scripts.stair_school_lesson_lab._physical_evidence",
+            side_effect=fake_evidence), patch(
+            "scripts.stair_school_lesson_lab._source_identity",
+            return_value="1"*40), patch(
+            "scripts.stair_school_lesson_lab._review_stage",
+            side_effect=safety_review), patch(
+            "scripts.stair_school_lesson_lab._validate_completed_arm"), patch(
+            "scripts.stair_school_lesson_lab._write_lesson_progress"):
+        assert _go_run(stopped_root,dummy_go_lock)==0
+    assert launches==[
+        ("C00_control",STAGES[0]),("C00_control",STAGES[1]),
+        ("C00_control",STAGES[2]),
+        ("H06_more_bilateral_credit",STAGES[0])]
 
     # Final and intermediate training reports must describe the identical
     # resolved next-birth allocation; this helper never changes the teacher.
