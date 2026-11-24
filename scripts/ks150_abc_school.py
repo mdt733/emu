@@ -510,11 +510,23 @@ def _exam_cells(stage,seed):
     with zipfile.ZipFile(p) as z:
         pulse=json.loads(z.read("summary.json"))
         runtime=json.loads(z.read("manifest.json"))["runtime"]
+        worlds=list(csv.DictReader(io.StringIO(z.read("worlds.csv").decode("utf-8"))))
     cells={}
+    for r in worlds:
+        key=f"{r['specialty']}/{r['kind']}/{r['level']}"
+        for gate,field in (("mission","physical_mission_pass"),("survival","survived")):
+            if r[field] not in ("True","False"):
+                raise RuntimeError("Malformed raw pulse outcome")
+            idx=("pulse",key,gate)
+            k,n=cells.get(idx,(0,0))
+            cells[idx]=(k+int(r[field]=="True"),n+1)
+    if len(worlds)!=2048 or len(cells)!=92:
+        raise RuntimeError("Incomplete pulse cells")
     for r in pulse["curves"]:
         key=f"{r['specialty']}/{r['kind']}/{r['level']}"
         for gate,count in (("mission",r["passed"]),("survival",r["survived"])):
-            cells[("pulse",key,gate)]=(count,r["attempted"])
+            if cells[("pulse",key,gate)]!=(count,r["attempted"]):
+                raise RuntimeError("Pulse summary disagrees with raw mission evidence")
     matrix=read(p.parent/f"stairs-{seed}"/"matrix_summary.json")
     for r in matrix["curves"]:
         key=f"{r['kind']}/{r['requested_step_mm']}mm"
