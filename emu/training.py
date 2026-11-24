@@ -57,7 +57,8 @@ from .curriculum import RegimeGovernor
 from .training_health import TrainingHealth
 from .capability_focus import (teaching_profile, birth_lesson_weights,
                                FOCUS_NAMES)
-from .developmental_school import cross_stair_exposure_blend, cross_stair_plan
+from .developmental_school import (cross_stair_exposure_blend, cross_stair_plan,
+    bind_refresher_receipt, refresher_recipe_sha256, replay_refresher_schedule)
 from .ppo import (make_trainer, update_running_stats, build_obs_norm_mask,
                   PerfBook, configure_jax, require_backend)
 from .results import (
@@ -329,6 +330,21 @@ def train(args: TrainingConfig) -> int:
         return 0
 
     parent_meta = ((resumed_payload or {}).get('meta') or {})
+    # Approval is opt-in at cold registration; only a trusted explicit hash
+    # may activate it on a later process restart at a frozen checkpoint.
+    refresher_pin,refresher_data=bind_refresher_receipt(
+        enabled=args.mission_refreshers,run_dir=run_dir,
+        receipt_sha256=os.environ.get('EMU_MISSION_REFRESHER_SHA256',''),
+        config_sha256=(refresher_recipe_sha256(args) if args.mission_refreshers else ''),
+        source_commit=source_provenance_from_env().get('git_commit',''),
+        training_seed=args.seed,resumed_meta=parent_meta,
+        resumed_checkpoint=args.resume or None,
+        mature_step=max(args.foundation_steps+40_000_000,
+                        args.academy_start_steps+args.academy_ramp_steps))
+    if refresher_pin is not None:
+        obs_meta['mission_refresher_pin']=refresher_pin
+        print(f'{LOG_PREFIX} pinned mission refresher schedule: '
+              f'{refresher_pin["start_step"]:,} to {refresher_pin["until_step"]:,} (exclusive)',flush=True)
     meta = {'version': version, 'source_provenance': source_provenance_from_env(),
             'ancestor_checkpoint_source': ((parent_meta.get('source_provenance') or {}).get('git_commit')),
             'ancestor_checkpoint_step': parent_meta.get('step'),
@@ -490,6 +506,14 @@ def train(args: TrainingConfig) -> int:
                 academy_ramp_steps=args.academy_ramp_steps,
                 academy_intro_share=args.academy_intro_share,
                 academy_max_share=args.academy_max_share)
+            if refresher_pin is not None:
+                weights,academy_probability,clean=replay_refresher_schedule(
+                    enabled=True,receipt_bytes=refresher_data,
+                    receipt_sha256=refresher_pin['receipt_sha256'],lineage=refresher_pin,
+                    step=int(step),base_weights=weights,
+                    academy_probability=academy_probability)
+                for name,prob in zip(FOCUS_NAMES,clean):
+                    d['clean_refresher_prob_'+name]=prob
             d['academy_episode_probability']=academy_probability
             # Age controls only extra specialist-terrain births; physical
             # difficulty remains capped by independently earned UP/DOWN.
@@ -815,7 +839,7 @@ def train(args: TrainingConfig) -> int:
                 obs_mean=obs_mean, obs_var=obs_var, obs_count=obs_count,
                 task_params_for_field=lambda new_field: params_with_field(
                     total_steps, teaching_field=new_field),
-                log_prefix=LOG_PREFIX)
+                log_prefix=LOG_PREFIX,expected_refresher_pin=refresher_pin)
             if restored is not None:
                 rollback_count += 1
                 print(f'{LOG_PREFIX} rollback_count={rollback_count} '
