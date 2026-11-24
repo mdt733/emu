@@ -185,8 +185,15 @@ def validated_stage(root,arm,seed,target):
     wanted=set(DISCOVERY+HOLDOUT if target==STAGES[-1] else DISCOVERY)
     if {x["seed"] for x in r["exams"]}!=wanted or len(r["exams"])!=len(wanted):
         raise RuntimeError("Incomplete stage exam receipt")
+    if (r["actor_source"].get("run_name")!=student(root,arm,seed).name
+            or r["actor_source"].get("seed")!=seed
+            or r["actor_source"].get("git_commit")!=read(root/"study.json")["source_commit"]
+            or r["actor_source"].get("robot_model_sha256")!=MODEL):
+        raise RuntimeError("Stage actor lineage mismatch")
     for rel,digest in r["files"].items():
         p=path.parent/rel
+        if not p.resolve().is_relative_to(path.parent.resolve()):
+            raise RuntimeError("Stage artifact escapes evidence folder")
         if sha(p)!=digest:
             raise RuntimeError("Stage artifact changed: "+str(p))
     required={"actor.emupolicy","checkpoint.pkl","training_config.json"}
@@ -251,6 +258,10 @@ def run_stage(root,lock,arm,seed,target):
     resume=["--resume","auto"] if ckpt.exists() and any(ckpt.glob("*.pkl")) else []
     if target!=STAGES[0] and not resume:
         raise RuntimeError("Missing prior same-run checkpoint")
+    if (run/"training_config.json").exists():
+        old_target=read(run/"training_config.json")["steps"]
+        if old_target>target or (old_target!=target and old_target!=STAGES[STAGES.index(target)-1]):
+            raise RuntimeError("Existing target does not match current or preceding stage")
     call("-m","emu.cli","train","--check-resume-only",*args,*resume,digest=digest)
     call("-m","emu.cli","train",*args,*resume,digest=digest)
     # Validate complete exact boundary before pinning immutable evidence.
@@ -281,12 +292,9 @@ def run_stage(root,lock,arm,seed,target):
     else:
         os.link(final,frozen)
     saved_cfg=out/"training_config.json"
-    if saved_cfg.exists():
-        if sha(saved_cfg)!=sha(cfgpath):
-            raise RuntimeError("Frozen config changed")
-    else:
+    if not saved_cfg.exists():
         write_new(saved_cfg,read(cfgpath))
-        # Pretty formatting differs; verify semantic identity, not source whitespace.
+    # Pretty formatting differs; verify semantic identity, not whitespace.
     if read(saved_cfg)!=read(cfgpath):
         raise RuntimeError("Frozen config differs")
     policy=out/"actor.emupolicy"
@@ -298,7 +306,7 @@ def run_stage(root,lock,arm,seed,target):
         write_bundle(bundle,temporary)
         os.link(temporary,policy)
         temporary.unlink()
-    if read(policy)!=bundle:
+    if read(policy)!=json.loads(json.dumps(bundle)):
         raise RuntimeError("Frozen actor differs from exact final checkpoint")
     _,_,actor=load_exported_actor_for_exam(policy)
     actor_source=actor["source"]
@@ -366,6 +374,14 @@ def run_stage(root,lock,arm,seed,target):
                     raise RuntimeError("Unsealed deep exam; preserve before retry")
                 call("-m","emu.physical_capability_exam","--policy",policy,
                      "--output",deep,"--worlds",8,"--seed",s,"--device","cuda")
+                with zipfile.ZipFile(deep) as archive:
+                    m=json.loads(archive.read("manifest.json"))
+                expected=dict(actor_training_source=actor_source,
+                    actor_artifact_sha256=artifact_sha,robot_model_sha256=MODEL,
+                    physical_profile="h40-spring-only",sensor_contract_sha256=sensor,
+                    seed=s,worlds=8,device="gpu",no_optimizer_updates=True,first_life_only=True)
+                if any(m.get(k)!=v for k,v in expected.items()):
+                    raise RuntimeError("Deep exam provenance mismatch")
                 write_new(deep_seal,dict(sha256=sha(deep)))
             if sha(deep)!=read(deep_seal)["sha256"]:
                 raise RuntimeError("Deep exam changed")
@@ -460,8 +476,9 @@ def main(argv=None):
         return 0
     if a.command=="lock":
         verify_model()
+        registration=spec(root,source())
         root.mkdir(parents=True,exist_ok=False)
-        write_new(root/"study.json",spec(root,source()))
+        write_new(root/"study.json",registration)
         return 0
     with locked(root):
         lock=load_lock(root)
