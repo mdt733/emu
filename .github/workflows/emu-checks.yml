@@ -4,7 +4,7 @@ on:
   pull_request:
     branches: [main]
   push:
-    branches: [main, research/h40-unified-school-cold-v1]
+    branches: [main, research/h40-unified-school-cold-v1, research/h40-developmental-cross-stairs-v1]
   workflow_dispatch:
 
 permissions:

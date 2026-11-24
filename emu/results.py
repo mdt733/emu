@@ -1079,6 +1079,22 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         # A streaming world has no prescribed up/down balance or finite finish.
         # Count actual approached and supported lips, in each direction.
         'academy_active_fraction': mean_metric(metrics,'academy_active'),
+        # Physical outcome counts for deliberately assigned cross-role
+        # stair births. Do not conflate with accidental ordinary step lips.
+        'clean_refresher_active_fraction':mean_metric(metrics,'clean_refresher_birth'),
+        **{f'clean_refresher_{name}_{kind}':float(np.asarray(
+            metrics.get(f'clean_refresher_{name}_{kind}',0.)).sum())
+            for name in ('command','resilience','slope','step','transition','control')
+            for kind in ('episodes','survived')},
+        'cross_stair_active_fraction':mean_metric(metrics,'cross_stair_birth'),
+        'cross_stair_episodes':float(np.asarray(
+            metrics.get('cross_stair_episodes',0.)).sum()),
+        'cross_stair_survived':float(np.asarray(
+            metrics.get('cross_stair_survived',0.)).sum()),
+        **{f'cross_stair_{name}_{field}':float(np.asarray(
+            metrics.get(f'cross_stair_{name}_{field}',0.)).sum())
+            for name in ('command','resilience','slope','step','transition','control')
+            for field in ('episodes','survived')},
         'academy_crossings': float(np.asarray(
             metrics.get('academy_cross_new',0.)).sum()),
         'academy_encounter_verdicts': float(np.asarray(

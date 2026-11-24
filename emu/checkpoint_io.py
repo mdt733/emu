@@ -536,7 +536,7 @@ def try_restore_recovery(
     health: Any, env: Any, step: int, report: dict[str, Any],
     obs_mean: Any, obs_var: Any, obs_count: float,
     task_params_for_field: Callable[[Any], dict[str, Any]],
-    log_prefix: str,
+    log_prefix: str, expected_refresher_pin: dict | None = None,
 ) -> RecoveredLearner | None:
     """Restore EVERY learning coordinate and reset the physical worlds.
 
@@ -568,6 +568,9 @@ def try_restore_recovery(
         if active_source and snapshot_source != active_source:
             print(f"{log_prefix} AUTO-RECOVERY: refusing a rollback from a "
                   "different source commit.", flush=True)
+            return None
+        if payload['meta'].get('mission_refresher_pin') != expected_refresher_pin:
+            print(f'{log_prefix} AUTO-RECOVERY: refusing a different refresher programme',flush=True)
             return None
         if not payload_train_state_is_finite(payload):
             print(f"{log_prefix} AUTO-RECOVERY triggered but {recovery_path.name} contains non-finite "

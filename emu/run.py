@@ -172,7 +172,18 @@ def one_run_config(args) -> TrainingConfig:
         if not math.isfinite(value) or not lo<=value<=hi:
             raise ValueError(f'{key} must be finite and in [{lo},{hi}]')
         science_args[key]=value
+    cross_stairs=bool(getattr(args,'cross_specialty_stairs',False))
+    cross_start=int(getattr(args,'cross_specialty_stairs_start_steps',90_000_000))
+    cross_ramp=int(getattr(args,'cross_specialty_stairs_ramp_steps',20_000_000))
+    if (cross_start<foundation_steps or cross_start<60_000_000 or
+            cross_ramp<1_000_000 or cross_ramp>60_000_000):
+        raise ValueError('cross-specialty stairs requires mature foundation and 1-60M ramp')
     survival_school=bool(getattr(args, 'stair_survival_curriculum', False))
+    mission_refreshers=bool(getattr(args,'mission_refreshers',False))
+    if mission_refreshers and not cross_stairs:
+        raise ValueError('--mission-refreshers requires --cross-specialty-stairs')
+    if cross_stairs and not survival_school:
+        raise ValueError('--cross-specialty-stairs requires --stair-survival-curriculum')
     if survival_school:
         # This feature selects a teaching method, NOT the student's birth
         # checkpoint. The cold-school runner chooses zero-step initiation,
@@ -224,6 +235,10 @@ def one_run_config(args) -> TrainingConfig:
                    science_step_retreat_mm=science_retreat,
                    science_step_min_attempts=science_attempts,
                    stair_survival_curriculum=survival_school,
+                   cross_specialty_stairs=cross_stairs,
+                   cross_specialty_stairs_start_steps=cross_start,
+                   cross_specialty_stairs_ramp_steps=cross_ramp,
+                   mission_refreshers=mission_refreshers,
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
@@ -426,6 +441,8 @@ def inspect_run(config: TrainingConfig, *, provenance: dict, resume: str,
     if resume == 'auto':
         raise RuntimeError('--resume auto requested but no valid checkpoint exists in this run directory')
     if resume:
+        if config.mission_refreshers:
+            raise RuntimeError('Mission refresher studies must start cold and resume their own run')
         from .checkpoint_io import load_checkpoint
         parent = Path(resume).expanduser().resolve()
         if not parent.is_file():

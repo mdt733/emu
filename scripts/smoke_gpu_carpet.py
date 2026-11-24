@@ -71,6 +71,8 @@ def main():
     p.add_argument("--stair-survival-curriculum",action="store_true",
                    help="compile survival-aware full first-life Academy, its safe-cross evidence and protected ordinary births")
     p.add_argument("--full-update",action="store_true")
+    p.add_argument("--abc-refresher-smoke",action="store_true",
+                   help="matched real 2048-world clean refresher birth acceptance")
     p.add_argument("--benchmark-updates",type=int,default=1,
                    help="1..8 full PPO updates; report synchronized steady FPS "
                         "after the first compilation; no checkpoint")
@@ -109,6 +111,8 @@ def main():
     if (not 1<=a.benchmark_updates<=8 or
             (a.benchmark_updates>1 and not a.full_update)):
         p.error("--benchmark-updates must be 1..8 and >1 requires --full-update")
+    if a.abc_refresher_smoke and (not a.full_update or a.worlds!=2048 or not a.stair_survival_curriculum):
+        p.error("ABC smoke requires 2048-world full-update survival school")
     if a.profile_rollout and (not a.full_update or a.benchmark_updates<3):
         p.error("--profile-rollout requires --ppo --full-update and --benchmark-updates >=3")
     if a.gpu_audit_dir and not a.profile_rollout:
@@ -182,6 +186,35 @@ def main():
                 athletic_rehearsal_frac=0.)
     packet=env.params_array(params)
     state,obs=env.reset(params)
+    if a.abc_refresher_smoke:
+        from emu.capability_focus import RESILIENCE
+        ordinary=dict(params,focus_weight_step=.50,focus_weight_command=.45,
+                      focus_weight_resilience=.05,academy_episode_probability=1.,
+                      cross_stair_blend=1.)
+        old,old_obs=env.reset(ordinary)
+        abc_ppo_params=dict(ordinary,clean_refresher_prob_resilience=1.)
+        clean,clean_obs=env.reset(abc_ppo_params)
+        mask=np.asarray(clean.clean_refresher_birth)
+        if not mask.any() or not np.array_equal(mask,np.asarray(clean.focus_id)==RESILIENCE):
+            raise RuntimeError("GPU clean refresher birth assignment mismatch")
+        np.testing.assert_array_equal(old.focus_id,clean.focus_id)
+        assert not np.asarray(old.clean_refresher_birth).any()
+        for field in ("carpet_up","carpet_down","carpet_slope",
+                      "carpet_xprofile","carpet_yprofile"):
+            x,y=np.asarray(getattr(old,field)),np.asarray(getattr(clean,field))
+            assert np.all(y[mask]==0.),field
+            np.testing.assert_array_equal(x[~mask],y[~mask])
+        np.testing.assert_array_equal(np.asarray(old_obs)[~mask],
+                                      np.asarray(clean_obs)[~mask])
+        assert clean_obs.shape==(a.worlds,360)
+        assert np.isfinite(np.asarray(clean_obs)).all()
+        assert not np.asarray(clean.cross_stair_birth)[mask].any()
+        np.testing.assert_array_equal(old.academy_active,clean.academy_active)
+        assert np.asarray(clean.academy_active).any()
+        assert not np.any(mask & np.asarray(clean.academy_active))
+        print("ABC GPU clean births PASS:",int(mask.sum()),"of",a.worlds,flush=True)
+        del old,old_obs,clean,clean_obs
+
     if obs.shape!=(a.worlds,360):
         raise RuntimeError(f"Invalid 360-input contract: {obs.shape}")
     ncon=int(state.data._impl.contact.geom1.shape[1])
@@ -316,11 +349,16 @@ def main():
              rollout=32 if a.full_update else 2,
              epochs=4 if a.full_update else 1,
              minibatches=8 if a.full_update else 1)
-        initial=trainer["make_initial_state"](params)
+        # In ABC acceptance the genuine PPO update must include active
+        # clean, shared-stair and Academy cohorts, not merely compile an
+        # inactive branch after an isolated reset probe.
+        if a.abc_refresher_smoke:
+            packet=env.params_array(abc_ppo_params)
+        initial=trainer["make_initial_state"](abc_ppo_params if a.abc_refresher_smoke else params)
         initial_leaves=jax.tree_util.tree_leaves(jax.device_get(initial.params))
         initial_actor=jax.tree_util.tree_leaves(jax.device_get(initial.params["pi"]))
         start_update=time.perf_counter()
-        updated,_,diag,_,_=trainer["train_update"](
+        updated,rollout_metrics,diag,_,_=trainer["train_update"](
              initial,packet,jnp.zeros((360,),dtype=jnp.float32),
              jnp.ones((360,),dtype=jnp.float32),jnp.asarray(.25,jnp.float32))
         # Device transfer synchronizes the asynchronous XLA update. Include
@@ -340,6 +378,22 @@ def main():
                             in zip(initial_actor,updated_actor))
         if not np.isfinite(max_actor_delta) or max_actor_delta<=1e-10:
             raise RuntimeError("PPO update changed the critic but not the actor")
+        if a.abc_refresher_smoke:
+            clean=np.asarray(jax.device_get(rollout_metrics["clean_refresher_birth"]))>.5
+            stairs=np.asarray(jax.device_get(rollout_metrics["cross_stair_birth"]))>.5
+            academy=np.asarray(jax.device_get(rollout_metrics["academy_active"]))>.5
+            assert clean.shape==stairs.shape==academy.shape==(32,a.worlds)
+            assert clean.any() and stairs.any() and academy.any()
+            assert not np.any(clean & (stairs | academy))
+            for role in ("command","resilience","slope","step","transition","control"):
+                for kind in ("episodes","survived"):
+                    key=f"clean_refresher_{role}_{kind}"
+                    values=np.asarray(jax.device_get(rollout_metrics[key]))
+                    assert values.shape==clean.shape and np.isfinite(values).all()
+                    if role!="resilience":
+                        assert not values.any()
+            print("ABC GPU active PPO cohort PASS: clean/mixed/Academy fractions",
+                  float(clean.mean()),float(stairs.mean()),float(academy.mean()),flush=True)
         rollout_frames=32 if a.full_update else 2
         first_update_world_steps=a.worlds*rollout_frames
         print("real batched PPO training update PASS; "

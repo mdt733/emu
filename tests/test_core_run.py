@@ -47,6 +47,16 @@ def training_flags(run_dir: Path, seed: int = 735) -> list[str]:
 
 
 def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
+    _verify_dev_birth_ramp()
+    _verify_mission_refresher()
+    _verify_refresher_replay()
+    _verify_refresher_budget_properties()
+    _verify_refresher_pin(tmp_path)
+    _verify_abc_campaign_contract(tmp_path)
+    _verify_abc_go_state_machine(tmp_path)
+    _verify_abc_unattended_review(tmp_path)
+    _verify_dev_real_height_limits()
+    _verify_dev_cli_contract(tmp_path)
     from emu.cli import main as emu_cli_main
     cli_args=training_flags(tmp_path/"run")
     seen=[]
@@ -972,3 +982,503 @@ def test_current_360_checkpoint_roundtrip_rejects_sensor_drift(tmp_path):
             ck3.parent,target_steps=512,envs=8,label='broken-run',
             expected_sensor_contract=contract)
 
+
+
+# Next-generation shared-stair teacher assertions are part of the EXISTING
+# core training contract, not another permanently counted experiment test.
+from emu.capability_focus import FOCUS_NAMES
+from emu.contracts import P, TERRAIN_TASK_PARAM_DIM, UNIFIED_TERRAIN_FIELDS
+from emu.developmental_school import (
+    CROSS_STAIR_ROLE_CAP_M,CROSS_STAIR_ROLE_PROBABILITIES,
+    cross_stair_exposure_blend,cross_stair_plan)
+from emu.terrain_carpet_mjx import cross_stair_assignment, role_envelope
+
+def _verify_dev_birth_ramp():
+    assert len(CROSS_STAIR_ROLE_PROBABILITIES)==len(FOCUS_NAMES)==6
+    assert CROSS_STAIR_ROLE_PROBABILITIES[FOCUS_NAMES.index("step")]==0.
+    assert cross_stair_exposure_blend(step=0,enabled=True)==0.
+    assert cross_stair_exposure_blend(step=90_000_000,enabled=True)==0.
+    assert cross_stair_exposure_blend(step=100_000_000,enabled=True)==.5
+    assert cross_stair_exposure_blend(step=110_000_000,enabled=True)==1.
+    assert cross_stair_exposure_blend(step=150_000_000,enabled=True)==1.
+    assert cross_stair_exposure_blend(step=140_000_000,enabled=False)==0.
+    assert cross_stair_plan(.5)["slope"]==pytest.approx(.075)
+    assert cross_stair_plan(1.)["control"]==pytest.approx(.06)
+    with pytest.raises(ValueError):
+        cross_stair_exposure_blend(step=-1,enabled=True)
+    with pytest.raises(ValueError):
+        cross_stair_exposure_blend(step=110_000_000,enabled=True,ramp_steps=0)
+    assert UNIFIED_TERRAIN_FIELDS[-7]==("cross_stair_blend",0.)
+    assert UNIFIED_TERRAIN_FIELDS[-6:]==tuple(
+        ("clean_refresher_prob_"+r,0.) for r in FOCUS_NAMES)
+    assert P.clean_refresher_prob_command==TERRAIN_TASK_PARAM_DIM+19
+    assert P.clean_refresher_prob_control==TERRAIN_TASK_PARAM_DIM+24
+    assert P.cross_stair_blend==TERRAIN_TASK_PARAM_DIM+18
+
+
+def _verify_dev_real_height_limits():
+    n=8192
+    seeds=np.arange(1,n+1,dtype=np.int32)
+    roles=np.arange(n,dtype=np.int32)%6
+    specialist=np.ones(n,dtype=bool)
+    athletic=np.zeros(n,dtype=np.float32)
+    academy=np.zeros(n,dtype=bool)
+    zeros=np.zeros(n,dtype=np.float32)
+    up=np.full(n,.003,dtype=np.float32)   # uphill Academy never earned >3mm
+    down=np.full(n,.040,dtype=np.float32) # downhill already strong: do NOT copy 40mm
+    old=role_envelope(np,roles,specialist,athletic,
+                      np.full(n,3.,np.float32),up,down,academy,
+                      0.,0.,seeds)
+    assert all(np.array_equal(a,zeros) for a in old)
+    assigned=cross_stair_assignment(np,roles,specialist,athletic,seeds,1.)
+    newer=role_envelope(np,roles,specialist,athletic,
+                        np.full(n,3.,np.float32),up,down,academy,
+                        0.,0.,seeds,cross_stair_blend=1.)
+    assert np.array_equal(newer[0],zeros) # mixed stair never adds unearned slope
+    assert assigned.any()
+    assert not assigned[roles==FOCUS_NAMES.index("step")].any()
+    assert np.array_equal(newer[1]>0.,assigned)
+    assert np.array_equal(newer[2]>0.,assigned)
+    caps=np.asarray(CROSS_STAIR_ROLE_CAP_M,np.float32)[roles]
+    assert np.all(newer[1]<=up+1e-7)
+    assert np.all(newer[2]<=caps+1e-7)
+    assert np.allclose(newer[1][assigned],.003,atol=1e-7)
+    for focus,name in enumerate(FOCUS_NAMES):
+        mask=roles==focus
+        actual=assigned[mask].mean()
+        budget=CROSS_STAIR_ROLE_PROBABILITIES[focus]
+        if focus==FOCUS_NAMES.index("step"):
+            assert actual==0.
+        else:
+            assert abs(actual-budget)<.03,(name,actual,budget)
+    assert not cross_stair_assignment(
+        np,roles,specialist,athletic,seeds,0.).any()
+    assert not cross_stair_assignment(
+        np,roles,np.zeros(n,dtype=bool),athletic,seeds,1.).any()
+    assert not cross_stair_assignment(
+        np,roles,specialist,np.ones(n,dtype=np.float32),seeds,1.).any()
+
+
+def _verify_dev_cli_contract(tmp_path):
+    from emu.cli import main
+    from emu.run import one_run_config
+    argv=["train","--run-dir",str(tmp_path/"nursery"),
+          "--steps","120000000","--envs","16","--seed","9501",
+          "--device","cpu","--profile","sim2real",
+          "--terrain-actor","--terrain-step-max-m",".055",
+          "--unified-capabilities","--terrain-carpet","--carpet-prisms",
+          "--academy-stream","--terrain-lesson","coherent-careful",
+          "--growth-recipe","main-mature"]
+    recorded=[]
+    def validate(ns):
+        recorded.append(one_run_config(ns))
+        return 0
+    with patch("emu.run.train_one",side_effect=validate):
+        assert main(argv)==0
+        assert recorded[-1].cross_specialty_stairs is False
+        assert main(argv+["--stair-survival-curriculum",
+                          "--cross-specialty-stairs"])==0
+        cfg=recorded[-1]
+        assert cfg.cross_specialty_stairs is True
+        assert cfg.cross_specialty_stairs_start_steps==90_000_000
+        assert cfg.cross_specialty_stairs_ramp_steps==20_000_000
+        assert cfg.mission_refreshers is False
+        assert main(argv+["--stair-survival-curriculum",
+                          "--cross-specialty-stairs","--mission-refreshers"])==0
+        assert recorded[-1].mission_refreshers is True
+        with pytest.raises(ValueError,match="requires --cross-specialty-stairs"):
+            main(argv+["--mission-refreshers"])
+        with pytest.raises(ValueError,match="stair-survival-curriculum"):
+            main(argv+["--cross-specialty-stairs"])
+        with pytest.raises(ValueError,match="mature foundation"):
+            main(argv+["--cross-specialty-stairs",
+                       "--stair-survival-curriculum",
+                       "--cross-specialty-stairs-start-steps","10000000"])
+    assert len(recorded)==3
+
+
+def _verify_mission_refresher():
+    from copy import deepcopy
+    from emu.developmental_school import mission_refresher_plan
+    base = (.20,.20,.20,.20,.10,.10)
+    roles = [r for r in FOCUS_NAMES if r != "step"]
+    reference = {r: {"mission": {6901:(9,10),6902:(9,10)}}
+                 for r in roles}
+    reference["slope"]["downhill"] = {6901:(9,10),6902:(9,10)}
+    current = deepcopy(reference)
+    current["resilience"]["mission"] = {6901:(6,10),6902:(7,10)}
+    current["slope"]["mission"] = {6901:(6,10),6902:(6,10)}
+    current["slope"]["downhill"] = {6901:(10,10),6902:(10,10)}
+    current["command"]["mission"] = {6901:(8,10),6902:(9,10)}
+    off = mission_refresher_plan(base_weights=base,reference={},current={})
+    assert tuple(off["ordinary"].values()) == base
+    assert not any(off["extra_clean"].values())
+    plan = mission_refresher_plan(base_weights=base,reference=reference,
+                                  current=current,enabled=True)
+    ordinary, clean = plan["ordinary"], plan["extra_clean"]
+    assert set(plan["confirmed"]) == {"resilience","slope"}
+    assert set(plan["warnings"]) == {"resilience","slope","command"}
+    assert clean["command"] == clean["step"] == 0.
+    assert clean["slope"] > clean["resilience"] > 0.
+    assert ordinary["step"] == ordinary["command"] == .20
+    assert sum(clean.values()) == pytest.approx(.02)
+    assert sum(ordinary.values()) + sum(clean.values()) == pytest.approx(1.)
+    assert all(ordinary[r] >= w*.90-1e-12
+               for r,w in zip(FOCUS_NAMES,base))
+    all_bad = {r:{task:{6901:(3,10),6902:(3,10)}
+                  for task in reference[r]} for r in roles}
+    no_donors = mission_refresher_plan(base_weights=base,
+                    reference=reference,current=all_bad,enabled=True)
+    assert set(no_donors["confirmed"]) == set(roles)
+    assert not any(no_donors["extra_clean"].values())
+    assert tuple(no_donors["ordinary"].values()) == base
+    incomplete = deepcopy(current)
+    del incomplete["slope"]["mission"][6902]
+    with pytest.raises(ValueError,match="distinct exam seeds"):
+        mission_refresher_plan(base_weights=base,reference=reference,
+                               current=incomplete,enabled=True)
+    unmatched = deepcopy(current)
+    unmatched["control"]["mission"][6901] = (9,11)
+    with pytest.raises(ValueError,match="unmatched mission counts"):
+        mission_refresher_plan(base_weights=base,reference=reference,
+                               current=unmatched,enabled=True)
+
+
+def _verify_refresher_replay():
+    import hashlib
+    import json
+    from emu.developmental_school import (
+        refresher_birth_parameters, replay_refresher_schedule,
+        clean_refresher_assignment, clean_refresher_terrain)
+    from emu.capability_focus import FOCUS_NAMES, STEP, SLOPE, RESILIENCE
+    base = (.20,.20,.20,.20,.10,.10)
+    ordinary = dict(zip(FOCUS_NAMES,(.19,.20,.19,.20,.095,.095)))
+    clean = dict.fromkeys(FOCUS_NAMES,0.)
+    clean["resilience"] = .03
+    plan = dict(ordinary=ordinary,extra_clean=clean)
+    lineage = dict(run_name="student",training_seed=736,
+        source_commit="a"*40,training_config_sha256="b"*64,
+        activation_checkpoint_sha256="c"*64)
+    receipt = dict(schema="emu_mission_refresher_schedule_v1",
+        **lineage,start_step=100_007_936,until_step=110_000_000,
+        base_weights=base,academy_probability=.6,applied=False,
+        advisory=dict(schema="emu_mission_refresher_advisory_v1",
+            current_step=100_007_936,applied=False,plan=plan))
+    data = json.dumps(receipt,sort_keys=True).encode()
+    digest = hashlib.sha256(data).hexdigest()
+    args = dict(enabled=True,receipt_bytes=data,receipt_sha256=digest,
+        lineage=lineage,step=100_007_936,base_weights=base,
+        academy_probability=.6)
+    result = replay_refresher_schedule(**args)
+    w, academy, conditional = result
+    assert sum(w) == pytest.approx(1.)
+    assert w[STEP] == base[STEP] and academy == .6
+    assert w[RESILIENCE] == pytest.approx(.23)
+    assert w[RESILIENCE]*conditional[RESILIENCE] == pytest.approx(.03)
+    assert all(p==0. for i,p in enumerate(conditional) if i!=RESILIENCE)
+    assert replay_refresher_schedule(**dict(args,step=105_000_000)) == result
+    baseline = (base,.6,(0.,)*6)
+    assert replay_refresher_schedule(**dict(args,step=110_000_000)) == baseline
+    assert replay_refresher_schedule(**dict(args,enabled=False,
+        receipt_bytes=None,receipt_sha256=None,lineage={})) == baseline
+    with pytest.raises(ValueError,match="digest"):
+        replay_refresher_schedule(**dict(args,receipt_bytes=data+b" "))
+    with pytest.raises(ValueError,match="lineage"):
+        replay_refresher_schedule(**dict(args,lineage=dict(lineage,
+            training_seed=737)))
+    with pytest.raises(ValueError,match="activation"):
+        replay_refresher_schedule(**dict(args,step=100_000_000))
+    with pytest.raises(ValueError,match="allocation changed"):
+        replay_refresher_schedule(**dict(args,academy_probability=.7))
+    broken = dict(plan,ordinary=dict(ordinary,step=.19),
+                  extra_clean=dict(clean,resilience=.04))
+    with pytest.raises(ValueError,match="STEP"):
+        refresher_birth_parameters(base_weights=base,
+            academy_probability=.6,plan=broken)
+    focus = np.array([RESILIENCE,RESILIENCE,RESILIENCE,RESILIENCE,STEP,SLOPE])
+    active = np.array([True,False,True,True,True,True])
+    athletic = np.array([0.,0.,1.,0.,0.,0.])
+    academy_birth = np.array([False,False,False,True,True,False])
+    mask = clean_refresher_assignment(np,focus,active,athletic,
+        academy_birth,np.zeros(6),(.0,.2,.2,.9,.0,.0))
+    assert np.array_equal(mask,[True,False,False,False,False,True])
+    slope, up, down, cross = clean_refresher_terrain(np,focus,mask,
+        np.full(6,3.),np.full(6,.01),np.full(6,.02),np.ones(6,bool))
+    assert np.array_equal(slope,[0.,3.,3.,3.,3.,3.])
+    assert np.array_equal(up==0.,mask) and np.array_equal(down==0.,mask)
+    assert np.array_equal(cross,~mask)
+
+
+def _verify_refresher_pin(tmp_path):
+    import hashlib
+    import json
+    from dataclasses import replace
+    from emu.developmental_school import (
+        bind_refresher_receipt, refresher_recipe_sha256)
+    from emu.training_config import TrainingConfig
+    root = tmp_path/"refresher_student"
+    ckpts = root/"checkpoints"
+    ckpts.mkdir(parents=True)
+    checkpoint = ckpts/"final.pkl"
+    checkpoint.write_bytes(b"exact frozen activation checkpoint")
+    cfg = TrainingConfig(run_dir=str(root),mission_refreshers=True,seed=736)
+    config_sha = refresher_recipe_sha256(cfg)
+    assert config_sha == refresher_recipe_sha256(replace(
+        cfg,steps=110_000_000,resume=str(checkpoint),device="cuda"))
+    assert config_sha != refresher_recipe_sha256(replace(cfg,seed=737))
+    identity = dict(run_name=root.name,training_seed=736,
+        source_commit="a"*40,training_config_sha256=config_sha,
+        activation_checkpoint_sha256=hashlib.sha256(
+            checkpoint.read_bytes()).hexdigest())
+    base = (.2,.2,.2,.2,.1,.1)
+    ordinary = dict(zip(FOCUS_NAMES,base))
+    clean = dict.fromkeys(FOCUS_NAMES,0.)
+    start = 100_007_936
+    end = 110_000_000
+    receipt = dict(schema="emu_mission_refresher_schedule_v1",**identity,
+        start_step=start,until_step=end,base_weights=base,
+        academy_probability=.6,applied=False,advisory=dict(
+            schema="emu_mission_refresher_advisory_v1",current_step=start,
+            applied=False,plan=dict(ordinary=ordinary,extra_clean=clean)))
+    data = json.dumps(receipt).encode()
+    digest = hashlib.sha256(data).hexdigest()
+    path = root/"mission_refresher_approval.json"
+    meta = dict(run_name=root.name,step=start,
+                source_provenance={"git_commit":"a"*40})
+    args = dict(enabled=True,run_dir=root,receipt_sha256=digest,
+        config_sha256=config_sha,source_commit="a"*40,training_seed=736,
+        resumed_meta=meta,resumed_checkpoint=checkpoint,mature_step=100_000_000)
+    assert bind_refresher_receipt(**dict(args,receipt_sha256="")) == (None,None)
+    path.write_bytes(data)
+    with pytest.raises(ValueError,match="Unapproved"):
+        bind_refresher_receipt(**dict(args,receipt_sha256=""))
+    with pytest.raises(ValueError,match="disabled"):
+        bind_refresher_receipt(**dict(args,enabled=False))
+    with pytest.raises(ValueError,match="identity"):
+        bind_refresher_receipt(**dict(args,training_seed=737))
+    checkpoint.write_bytes(b"wrong activation checkpoint")
+    with pytest.raises(ValueError,match="activation checkpoint digest"):
+        bind_refresher_receipt(**args)
+    assert not (root/"mission_refresher_pin.json").exists()
+    checkpoint.write_bytes(b"exact frozen activation checkpoint")
+    with pytest.raises(ValueError,match="baseline"):
+        bind_refresher_receipt(**dict(args,expected_base=(base,.7)))
+    assert not (root/"mission_refresher_pin.json").exists()
+    args["expected_base"]=(base,.6)
+    pin,raw = bind_refresher_receipt(**args)
+    assert raw == data
+    # Crash before next checkpoint: exact activation remains valid.
+    assert bind_refresher_receipt(**args) == (pin,data)
+    # Later process resume validates the persisted pin, not newest file hash.
+    checkpoint.write_bytes(b"later learning checkpoint")
+    later = dict(meta,step=end,mission_refresher_pin=pin)
+    assert bind_refresher_receipt(**dict(args,resumed_meta=later)) == (pin,data)
+    with pytest.raises(ValueError,match="Unpinned checkpoint"):
+        bind_refresher_receipt(**dict(args,resumed_meta=dict(meta,step=end)))
+    with pytest.raises(ValueError,match="predates activation"):
+        bind_refresher_receipt(**dict(args,resumed_meta=dict(meta,step=start-1)))
+    with pytest.raises(ValueError,match="explicit pinned"):
+        bind_refresher_receipt(**dict(args,receipt_sha256="",resumed_meta=later))
+    path.write_bytes(data+b" ")
+    with pytest.raises(ValueError,match="approval digest"):
+        bind_refresher_receipt(**dict(args,resumed_meta=later))
+
+
+def _verify_abc_campaign_contract(tmp_path):
+    import json
+    from dataclasses import asdict
+    from emu.cli import main
+    from emu.run import one_run_config
+    from scripts import ks150_abc_school as abc
+    root=tmp_path/"abc"
+    root.mkdir()
+    captured=[]
+    def capture(ns):
+        captured.append(asdict(one_run_config(ns)))
+        return 0
+    with patch("emu.run.train_one",side_effect=capture):
+        for arm in abc.ARMS:
+            assert main(["train",*abc.recipe(root,arm,abc.TRAIN_SEEDS[0],abc.STAGES[0])])==0
+    a,b,c=captured
+    for d in captured:
+        d.pop("run_dir")
+    assert not a["cross_specialty_stairs"] and not a["mission_refreshers"]
+    assert b["cross_specialty_stairs"] and not b["mission_refreshers"]
+    assert c["cross_specialty_stairs"] and c["mission_refreshers"]
+    assert {k for k in a if a[k]!=b[k]}=={"cross_specialty_stairs"}
+    assert {k for k in b if b[k]!=c[k]}=={"mission_refreshers"}
+    assert all(abc.boundary(s)>=s for s in abc.STAGES)
+    assert len(set(abc.TRAIN_SEEDS+abc.DISCOVERY+abc.HOLDOUT))==6
+    with pytest.raises(RuntimeError,match="decision required"):
+        abc.approval_digest(root,"C",abc.TRAIN_SEEDS[0],120_000_000)
+    assert abc.approval_digest(root,"A",abc.TRAIN_SEEDS[0],120_000_000)==""
+    assert abc.approval_digest(root,"C",abc.TRAIN_SEEDS[0],110_000_000)==""
+    run=abc.student(root,"A",abc.TRAIN_SEEDS[0])
+    (run/"checkpoints").mkdir(parents=True)
+    abc.write_new(run/"training_config.json",{"steps":110_000_000})
+    old=run/"checkpoints/recovery.pkl"
+    old.write_bytes(b"old candidate")
+    abc.reset_recovery_epoch(root,"A",abc.TRAIN_SEEDS[0])
+    assert not old.exists()
+    archived=root/"decisions/recovery-epoch"/(run.name+".pkl")
+    assert archived.read_bytes()==b"old candidate"
+    old.write_bytes(b"new candidate")
+    abc.reset_recovery_epoch(root,"A",abc.TRAIN_SEEDS[0])
+    assert old.read_bytes()==b"new candidate"
+    assert archived.read_bytes()==b"old candidate"
+    with pytest.raises(FileExistsError):
+        abc.write_new(run/"training_config.json",{"steps":120_000_000})
+    assert json.loads((run/"training_config.json").read_text())["steps"]==110_000_000
+
+
+def _verify_refresher_budget_properties():
+    """Exhaustively exercise all healthy/warning/regression role patterns.
+
+    Run both the mature ABC allocation and balanced reference, then
+    deterministic randomized allocations including zero-share roles.
+    No synthetic physical performance is claimed.
+    """
+    import itertools
+    from emu.capability_focus import birth_lesson_weights, STEP
+    from emu.developmental_school import (
+        mission_refresher_plan,refresher_birth_parameters)
+    roles=tuple(r for r in FOCUS_NAMES if r!="step")
+    base,academy=birth_lesson_weights(schedule="terrain-early",
+        step=110_034_944,foundation_steps=20_000_000,retention_share=.30,
+        academy_enabled=True,athletic_share=.15,academy_intro_steps=60_000_000,
+        academy_start_steps=80_000_000,academy_ramp_steps=20_000_000,
+        academy_intro_share=.10,academy_max_share=.28)
+    for weights,ap in ((base,academy),((.2,.2,.2,.2,.1,.1),.6)):
+        for pattern in itertools.product(range(3),repeat=5):
+            reference={r:{"task":{6901:(40,48),6902:(40,48)}} for r in roles}
+            current={r:{"task":{6901:(40-6*(s>0),48),6902:(40-6*(s>1),48)}}
+                     for r,s in zip(roles,pattern)}
+            plan=mission_refresher_plan(base_weights=weights,reference=reference,
+                                       current=current,enabled=True)
+            w,p,clean=refresher_birth_parameters(base_weights=weights,
+                academy_probability=ap,plan=plan)
+            assert sum(w)==pytest.approx(1.)
+            assert w[STEP]==weights[STEP] and p==ap and clean[STEP]==0.
+            assert sum(x*y for x,y in zip(w,clean))==pytest.approx(
+                sum(plan["extra_clean"].values()))
+            assert sum(plan["extra_clean"].values())<=.05+1e-10
+            for r,s in zip(roles,pattern):
+                i=FOCUS_NAMES.index(r)
+                assert plan["ordinary"][r]>=weights[i]*.90-1e-10
+                if s>0:
+                    assert plan["ordinary"][r]==weights[i]
+                if s<2:
+                    assert plan["extra_clean"][r]==0.
+    rng=np.random.default_rng(20261125)
+    for _ in range(1000):
+        raw=rng.dirichlet(np.ones(6))
+        raw[rng.random(6)<.15]=0.
+        if not raw.any():
+            raw[STEP]=1.
+        weights=tuple(raw/raw.sum())
+        def counts():
+            return {r:{"task":{s:(int(rng.integers(0,49)),48)
+                               for s in (6901,6902)}} for r in roles}
+        plan=mission_refresher_plan(base_weights=weights,
+            reference=counts(),current=counts(),enabled=True)
+        w,p,clean=refresher_birth_parameters(base_weights=weights,
+                                            academy_probability=.7,plan=plan)
+        assert sum(w)==pytest.approx(1.)
+        assert w[STEP]==weights[STEP]
+        assert all(0.<=x<=1. for x in clean)
+
+
+def _verify_abc_go_state_machine(tmp_path):
+    """No GPU: exercise orchestration with explicit mock stage receipts.
+
+    The campaign may not skip the review, bypass smoke or launch a later
+    stage after an incomplete predecessor. Actual GPU/ZIP validation
+    is separate from this state-machine test.
+    """
+    from contextlib import ExitStack
+    import os
+    from scripts import ks150_abc_school as abc
+    root=tmp_path/"abc_go"
+    root.mkdir()
+    lock={"source_commit":"a"*40}
+    smoke=dict(source_commit=lock["source_commit"],model_sha256=abc.MODEL,
+               operator_attested_ci=False,gpu_smoke=True,lifecycle=True)
+    done=set()
+    decisions=set()
+    calls=[]
+    reports=[]
+    recovery=[]
+    def complete(root_arg,stage):
+        return all((arm,seed,stage) in done
+                   for seed in abc.TRAIN_SEEDS for arm in abc.ARMS)
+    def stage(root_arg,lock_arg,arm,seed,target):
+        assert root_arg==root and lock_arg==lock
+        calls.append((arm,seed,target))
+        done.add((arm,seed,target))
+    def report(root_arg,target):
+        assert root_arg==root and complete(root,target)
+        reports.append(target)
+        (root/f"results-{target//1_000_000}m.zip").write_bytes(b"mock report")
+    def approve(root_arg,arm,seed,target):
+        if arm=="C" and target>110_000_000 and seed not in decisions:
+            raise RuntimeError("decision required")
+        return ""
+    with ExitStack() as stack:
+        # The CLI selects KS150 at process entry. Restore the test process
+        # environment so the subsequent default-H40 contracts stay isolated.
+        stack.enter_context(patch.dict(os.environ))
+        stack.enter_context(patch.object(abc,"load_lock",return_value=lock))
+        stack.enter_context(patch.object(abc,"stages_done",side_effect=complete))
+        stack.enter_context(patch.object(abc,"run_stage",side_effect=stage))
+        stack.enter_context(patch.object(abc,"report",side_effect=report))
+        stack.enter_context(patch.object(abc,"approval_digest",side_effect=approve))
+        stack.enter_context(patch.object(abc,"reset_recovery_epoch",
+            side_effect=lambda r,a,s:recovery.append((a,s))))
+        with pytest.raises(FileNotFoundError):
+            abc.main(["go","--root",str(root)])
+        assert not calls
+        abc.write_new(root/"smoke.json",smoke)
+        with pytest.raises(RuntimeError,match="Cannot skip"):
+            abc.main(["advance","--root",str(root),"--stage","100000000"])
+        assert not calls
+        assert abc.main(["go","--root",str(root)])==0
+        assert len(calls)==18 and all(t<=110_000_000 for _,_,t in calls)
+        assert reports==[110_000_000] and not recovery
+        assert abc.main(["go","--root",str(root)])==0
+        assert len(calls)==18 and reports==[110_000_000]
+        for seed in abc.TRAIN_SEEDS:
+            decisions.add(seed)
+            abc.write_new(abc.decision_path(root,seed),{"fixture":True})
+        assert abc.main(["go","--root",str(root)])==0
+        assert len(calls)==30 and len(set(calls))==30
+        assert len(recovery)==6 and len(set(recovery))==6
+        assert reports==[110_000_000,140_000_000]
+        assert abc.main(["go","--root",str(root)])==0
+        assert len(calls)==30 and len(reports)==2 and len(recovery)==6
+
+
+def _verify_abc_unattended_review(tmp_path):
+    from scripts import ks150_abc_school as abc
+    root=tmp_path/"abc_auto"
+    root.mkdir()
+    selected=[]
+    def prepare(root_arg,seed):
+        assert root_arg==root
+        dose=.03 if seed==abc.TRAIN_SEEDS[0] else 0.
+        return {},{"plan":{"extra_clean":{"resilience":dose}}},.6
+    def decide(root_arg,seed,action,*,mode):
+        selected.append((seed,action,mode))
+        abc.write_new(abc.decision_path(root_arg,seed),{"fixture":True})
+    with patch.object(abc,"stages_done",return_value=True), \
+         patch.object(abc,"prepare_decision",side_effect=prepare), \
+         patch.object(abc,"decide",side_effect=decide), \
+         patch.object(abc,"approval_digest",return_value=""), \
+         patch.object(abc,"report") as report:
+        abc.automatic_review(root)
+        report.assert_called_once_with(root,110_000_000)
+        assert selected==[
+            (abc.TRAIN_SEEDS[0],"approve","preregistered_unattended"),
+            (abc.TRAIN_SEEDS[1],"no_intervention","preregistered_unattended")]
+        (root/"results-110m.zip").write_bytes(b"mock report")
+        abc.automatic_review(root)
+        assert len(selected)==2

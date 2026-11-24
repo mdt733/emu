@@ -39,7 +39,7 @@ OWNED_BACKEND: dict[str, tuple[str, ...]] = {
                 "carpet_prism_mjx", "domain_randomization", "directional"),
     "learning": ("training", "ppo", "rewards", "curriculum",
                  "capability_focus", "capability_field", "training_health",
-                 "step_goal"),
+                 "developmental_school", "step_goal"),
     "state_and_exams": ("checkpoint_io", "results", "console_dashboard", "evaluation", "prism_exam", "physical_capability_exam", "step_autopsy"),
     "delivery": ("policy_export", "viewer_server", "capability_viewer"),
     "diagnostics": ("doctor",),
@@ -54,7 +54,7 @@ STAGES: dict[str, tuple[str, ...]] = {
     "physics": ("environment", "terrain_carpet_mjx", "carpet_prism_mjx",
                 "contracts", "domain_randomization", "rewards"),
     "learning": ("training", "ppo", "curriculum", "capability_focus",
-                 "training_health", "capability_field"),
+                 "developmental_school", "training_health", "capability_field"),
     "exam": ("evaluation", "prism_exam", "physical_capability_exam", "results"),
     "viewer": ("viewer_server",),
 }

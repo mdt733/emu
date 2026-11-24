@@ -57,6 +57,8 @@ from .curriculum import RegimeGovernor
 from .training_health import TrainingHealth
 from .capability_focus import (teaching_profile, birth_lesson_weights,
                                FOCUS_NAMES)
+from .developmental_school import (cross_stair_exposure_blend, cross_stair_plan,
+    bind_refresher_receipt, refresher_recipe_sha256, replay_refresher_schedule)
 from .ppo import (make_trainer, update_running_stats, build_obs_norm_mask,
                   PerfBook, configure_jax, require_backend)
 from .results import (
@@ -223,6 +225,13 @@ def _annotate_teaching_report(
         params['academy_episode_probability'])
     for name in FOCUS_NAMES:
         report['focus_alloc_' + name] = float(params['focus_weight_' + name])
+        report['clean_refresher_prob_' + name] = float(params.get('clean_refresher_prob_' + name,0.))
+    # Historical synthetic report fixtures do not carry the new packet.
+    # The actual learner always supplies it; missing means legacy OFF.
+    blend=float(params.get('cross_stair_blend',0.))
+    report['cross_stair_blend'] = blend
+    for name,prob in cross_stair_plan(blend).items():
+        report['cross_stair_extra_birth_prob_' + name] = prob
     report['teaching_profile'] = teaching_profile(
         step=step, foundation_steps=args.foundation_steps,
         foundation_mix=args.foundation_mix,
@@ -321,6 +330,34 @@ def train(args: TrainingConfig) -> int:
         return 0
 
     parent_meta = ((resumed_payload or {}).get('meta') or {})
+    # Approval is opt-in at cold registration; only a trusted explicit hash
+    # may activate it on a later process restart at a frozen checkpoint.
+    expected_refresher_base=None
+    if args.mission_refreshers:
+        expected_refresher_base=birth_lesson_weights(
+            schedule=args.teaching_schedule,step=resumed_step,
+            foundation_steps=args.foundation_steps,retention_share=args.retention_share,
+            academy_enabled=args.academy_stream,
+            athletic_share=args.athletic_rehearsal_frac,
+            academy_intro_steps=args.academy_intro_steps,
+            academy_start_steps=args.academy_start_steps,
+            academy_ramp_steps=args.academy_ramp_steps,
+            academy_intro_share=args.academy_intro_share,
+            academy_max_share=args.academy_max_share)
+    refresher_pin,refresher_data=bind_refresher_receipt(
+        enabled=args.mission_refreshers,run_dir=run_dir,
+        receipt_sha256=os.environ.get('EMU_MISSION_REFRESHER_SHA256',''),
+        config_sha256=(refresher_recipe_sha256(args) if args.mission_refreshers else ''),
+        source_commit=source_provenance_from_env().get('git_commit',''),
+        training_seed=args.seed,resumed_meta=parent_meta,
+        resumed_checkpoint=args.resume or None,
+        mature_step=max(args.foundation_steps+40_000_000,
+                        args.academy_start_steps+args.academy_ramp_steps),
+        expected_base=expected_refresher_base)
+    if refresher_pin is not None:
+        obs_meta['mission_refresher_pin']=refresher_pin
+        print(f'{LOG_PREFIX} pinned mission refresher schedule: '
+              f'{refresher_pin["start_step"]:,} to {refresher_pin["until_step"]:,} (exclusive)',flush=True)
     meta = {'version': version, 'source_provenance': source_provenance_from_env(),
             'ancestor_checkpoint_source': ((parent_meta.get('source_provenance') or {}).get('git_commit')),
             'ancestor_checkpoint_step': parent_meta.get('step'),
@@ -482,7 +519,23 @@ def train(args: TrainingConfig) -> int:
                 academy_ramp_steps=args.academy_ramp_steps,
                 academy_intro_share=args.academy_intro_share,
                 academy_max_share=args.academy_max_share)
+            if refresher_pin is not None:
+                weights,academy_probability,clean=replay_refresher_schedule(
+                    enabled=True,receipt_bytes=refresher_data,
+                    receipt_sha256=refresher_pin['receipt_sha256'],lineage=refresher_pin,
+                    step=int(step),base_weights=weights,
+                    academy_probability=academy_probability)
+                for name,prob in zip(FOCUS_NAMES,clean):
+                    d['clean_refresher_prob_'+name]=prob
             d['academy_episode_probability']=academy_probability
+            # Age controls only extra specialist-terrain births; physical
+            # difficulty remains capped by independently earned UP/DOWN.
+            d['cross_stair_blend']=cross_stair_exposure_blend(
+                step=int(step),
+                enabled=bool(args.cross_specialty_stairs
+                             and profile.adaptive_specialists),
+                start_steps=args.cross_specialty_stairs_start_steps,
+                ramp_steps=args.cross_specialty_stairs_ramp_steps)
             for name,weight in zip(FOCUS_NAMES,weights):
                 d['focus_weight_'+name]=weight
             # Keep the 70-update steady-only bootstrap exactly where the
@@ -799,7 +852,7 @@ def train(args: TrainingConfig) -> int:
                 obs_mean=obs_mean, obs_var=obs_var, obs_count=obs_count,
                 task_params_for_field=lambda new_field: params_with_field(
                     total_steps, teaching_field=new_field),
-                log_prefix=LOG_PREFIX)
+                log_prefix=LOG_PREFIX,expected_refresher_pin=refresher_pin)
             if restored is not None:
                 rollback_count += 1
                 print(f'{LOG_PREFIX} rollback_count={rollback_count} '

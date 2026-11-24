@@ -297,7 +297,8 @@ class MatrixExamTests(unittest.TestCase):
         for check in ("verify_specialist_allocation",
                       "verify_signed_terrain_crossing_not_survival",
                       "verify_recovery_needs_settling",
-                      "verify_exam_archive_nonoverwrite"):
+                      "verify_exam_archive_nonoverwrite",
+                      "verify_refresher_review"):
             getattr(specialties, check)()
 
     def test_signed_exact_step_and_continuous_grade_geometry(self):
@@ -359,11 +360,18 @@ class MatrixExamTests(unittest.TestCase):
             probe_linvel_mps=0.,probe_angvel_rad_s=0.,
             probe_joint_rad=0.,academy_episode_probability=0.)
         task=env.params_array(teacher)
+        from emu.contracts import P
+        np.testing.assert_array_equal(np.asarray(task)[
+            P.clean_refresher_prob_command:P.clean_refresher_prob_control+1],0.)
+        with self.assertRaisesRegex(ValueError,"mature non-exam"):
+            env.params_array(dict(teacher,specialist_mix=1.,
+                focus_weight_resilience=1.,clean_refresher_prob_resilience=.05))
         trainer=make_trainer(env,seed=1701,lr=PPO_LR,rollout=ROLLOUT_STEPS,
             epochs=1,minibatches=1,
             entropy_cost=PPO_ENTROPY_COST,value_cost=PPO_VALUE_COST)
         init=trainer["make_initial_state"](teacher)
         # Exact H40 one-metre tile: 22cm upstream and centred in Y.
+        self.assertFalse(np.any(np.asarray(init.env_state.clean_refresher_birth)))
         spawn_xy=np.asarray(jax.device_get(init.env_state.data.qpos[:,:2]))
         np.testing.assert_allclose(spawn_xy[:,0],.78,atol=1e-6)
         np.testing.assert_allclose(spawn_xy[:,1],.50,atol=1e-6)
@@ -798,6 +806,86 @@ class _PhysicalSpecialtyChecks(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 pulse_write_zip(dest, fixture_manifest, rows,
                                 heads, curves, auc)
+
+
+    def verify_refresher_review(self):
+        from hashlib import sha256
+        from scripts.mission_refresher_review import review, source_hashes
+        from scripts.examine_h40_specialties import SCHEMA
+        cases, evidence = self.fixture(2048)
+        sources = source_hashes()
+        model, sensor = "1"*64, "2"*64
+        seeds = [6901, 6902]
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            def stage(step, actor, regress):
+                source = dict(step=step, run_name="student", seed=736,
+                              git_commit="a"*40, robot_model_sha256=model,
+                              actor_sha256=actor)
+                artifact = ("3" if not regress else "4")*64
+                physical = {k:v.copy() for k,v in evidence.items()}
+                if regress:
+                    for t in cases:
+                        if t.case.kind == "kick_forward" and t.case.level == 1:
+                            physical["final2s_horizontal_speed_mps"][t.world] = .24
+                rows = pulse_score(cases, physical, 600)
+                heads, curves, auc = pulse_summary(rows)
+                entries = []
+                for seed in seeds:
+                    path = root / f"{step}-{seed}.zip"
+                    manifest = dict(schema=SCHEMA, source_sha256=sources,
+                        actor_source=source, actor_sha256=actor,
+                        artifact_sha256=artifact, actor_step=step,
+                        robot_model_sha256=model, sensor_sha256=sensor,
+                        physical_profile="h40-spring-only", seed=seed,
+                        worlds=2048, assigned_worlds=2048, horizon_frames=600,
+                        backend="gpu", training_updates=0, first_life_only=True,
+                        runtime={"fixture":True}, mjx_compute_wall_s=1.,
+                        trials_per_case={f"{c['specialty']}/{c['kind']}/{c['level']}":
+                                         c["attempted"] for c in curves})
+                    pulse_write_zip(path,manifest,rows,heads,curves,auc)
+                    entries.append(dict(seed=seed,path=str(path),
+                        sha256=sha256(path.read_bytes()).hexdigest()))
+                return dict(actor_source=source,artifact_sha256=artifact,
+                            exams=entries)
+            registration = dict(schema="emu_mission_refresher_review_v1",
+                seeds=seeds, source_sha256=sources, model_sha256=model,
+                sensor_sha256=sensor, base_weights=[.2,.2,.2,.2,.1,.1],
+                reference=stage(90_000_000,"5"*64,False),
+                current=stage(100_000_000,"6"*64,True))
+            result = review(registration)
+            self.assertFalse(result["applied"])
+            self.assertEqual(set(result["plan"]["confirmed"]), {"resilience"})
+            self.assertGreater(result["plan"]["extra_clean"]["resilience"],0.)
+            self.assertEqual(result["current_counts"]["resilience"]
+                             ["kick_forward/1"][6901],(0,32))
+            self.assertEqual(result["current_counts"]["slope"]
+                             ["downhill/1"][6901],(48,48))
+            from scripts.mission_refresher_review import approve_schedule
+            from emu.developmental_school import replay_refresher_schedule
+            registration["training_config_sha256"] = "7"*64
+            registration["current"]["checkpoint_sha256"] = "8"*64
+            receipt = approve_schedule(registration,until_step=110_000_000,
+                                       academy_probability=.6)
+            data = json.dumps(receipt,sort_keys=True).encode()
+            lineage = dict(run_name="student",training_seed=736,
+                source_commit="a"*40,training_config_sha256="7"*64,
+                activation_checkpoint_sha256="8"*64)
+            replay = dict(enabled=True,receipt_bytes=data,
+                receipt_sha256=sha256(data).hexdigest(),lineage=lineage,
+                base_weights=registration["base_weights"],
+                academy_probability=.6)
+            weights, academy, clean = replay_refresher_schedule(
+                step=100_000_000,**replay)
+            self.assertGreater(weights[1],.20)
+            self.assertGreater(clean[1],0.)
+            self.assertEqual(weights[3],.20)
+            self.assertEqual(academy,.6)
+            self.assertEqual(replay_refresher_schedule(
+                step=110_000_000,**replay)[2],(0.,)*6)
+            registration["current"]["exams"][0]["sha256"] = "0"*64
+            with self.assertRaisesRegex(ValueError,"archive digest mismatch"):
+                review(registration)
 
 
 if __name__=="__main__":
