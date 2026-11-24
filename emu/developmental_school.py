@@ -238,3 +238,109 @@ def replay_refresher_schedule(*, enabled, receipt_bytes, receipt_sha256,
         raise ValueError("Invalid underlying mission advisory")
     return refresher_birth_parameters(base_weights=base_weights,
                academy_probability=academy_probability,plan=advisory["plan"])
+
+
+def refresher_recipe_sha256(config):
+    """Stable substantive recipe identity across same-run target extensions."""
+    from dataclasses import asdict
+    import hashlib
+    import json
+    d = asdict(config)
+    for name in ("steps","resume","device"):
+        d.pop(name,None)
+    return hashlib.sha256(json.dumps(
+        d,sort_keys=True,separators=(",",":"),allow_nan=False).encode()).hexdigest()
+
+
+def bind_refresher_receipt(*, enabled, run_dir, receipt_sha256, config_sha256,
+                           source_commit, training_seed, resumed_meta,
+                           resumed_checkpoint, mature_step):
+    """Bind at one exact checkpoint; permanently pin one receipt per run.
+
+    Called at process startup only. The independent operator supplies
+    receipt_sha256; the receipt itself is never the source of trust.
+    The immutable local lock survives a crash before the first new
+    checkpoint. Subsequent checkpoints also carry the exact pin.
+    """
+    import hashlib
+    import json
+    import os
+    from pathlib import Path
+    import re
+    import tempfile
+    root = Path(run_dir).resolve()
+    pin_path = root/"mission_refresher_pin.json"
+    receipt_path = root/"mission_refresher_approval.json"
+    old = (resumed_meta or {}).get("mission_refresher_pin")
+    if not enabled:
+        if old is not None or pin_path.exists() or receipt_sha256:
+            raise ValueError("Refresher approval present in disabled run")
+        return None, None
+    if not (receipt_sha256 or pin_path.exists() or old is not None):
+        if receipt_path.exists():
+            raise ValueError("Unapproved refresher receipt; supply trusted digest")
+        return None, None
+    if not re.fullmatch("[0-9a-f]{64}",receipt_sha256 or ""):
+        raise ValueError("Refresher resume requires explicit pinned SHA256")
+    data = receipt_path.read_bytes()
+    if hashlib.sha256(data).hexdigest()!=receipt_sha256:
+        raise ValueError("Refresher approval digest mismatch")
+    receipt = json.loads(data)
+    start = receipt["start_step"]
+    end = receipt["until_step"]
+    if (type(start) is not int or type(end) is not int
+            or not mature_step<=start<end<=start+10_000_000):
+        raise ValueError("Refresher activation requires stable mature allocation")
+    identity = dict(run_name=root.name,training_seed=training_seed,
+        source_commit=source_commit,training_config_sha256=config_sha256,
+        activation_checkpoint_sha256=receipt["activation_checkpoint_sha256"])
+    if (not re.fullmatch("[0-9a-f]{40}",source_commit)
+            or not re.fullmatch("[0-9a-f]{64}",identity["activation_checkpoint_sha256"])
+            or any(receipt.get(k)!=v for k,v in identity.items())):
+        raise ValueError("Refresher approval identity mismatch")
+    pin = dict(receipt_sha256=receipt_sha256,**identity,
+               start_step=start,until_step=end)
+    if (not resumed_meta or resumed_checkpoint is None
+            or resumed_meta.get("run_name")!=root.name
+            or (resumed_meta.get("source_provenance") or {}).get("git_commit")!=source_commit
+            or Path(resumed_checkpoint).resolve().parent != root/"checkpoints"):
+        raise ValueError("Refresher requires same-student same-source resume")
+    step = resumed_meta["step"]
+    if step<start or (old is not None and old!=pin):
+        raise ValueError("Refresher checkpoint predates activation or has another pin")
+    if pin_path.exists():
+        if json.loads(pin_path.read_text(encoding="utf-8"))!=pin:
+            raise ValueError("Refresher pin cannot be replaced")
+    elif old is not None:
+        raise ValueError("Missing permanent refresher pin")
+    if old is None:
+        # First activation (or crash before the first new checkpoint).
+        if step!=start:
+            raise ValueError("Unpinned checkpoint is not activation checkpoint")
+        h=hashlib.sha256()
+        with Path(resumed_checkpoint).open("rb") as stream:
+            for block in iter(lambda:stream.read(1024*1024),b""):
+                h.update(block)
+        if h.hexdigest()!=identity["activation_checkpoint_sha256"]:
+            raise ValueError("Refresher activation checkpoint digest mismatch")
+    # Validate the replay contract before creating the permanent pin.
+    replay_refresher_schedule(enabled=True,receipt_bytes=data,
+        receipt_sha256=receipt_sha256,lineage=identity,step=start,
+        base_weights=receipt["base_weights"],
+        academy_probability=receipt["academy_probability"])
+    if not pin_path.exists():
+        # Exclusive hard link of complete fsynced bytes: a racing process
+        # cannot replace an existing pin and partial JSON is never visible.
+        tmp=None
+        try:
+            with tempfile.NamedTemporaryFile("w",dir=root,delete=False,
+                                             encoding="utf-8") as stream:
+                tmp=Path(stream.name)
+                json.dump(pin,stream,sort_keys=True)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.link(tmp,pin_path)
+        finally:
+            if tmp is not None:
+                tmp.unlink(missing_ok=True)
+    return pin,data
