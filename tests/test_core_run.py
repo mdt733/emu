@@ -51,6 +51,7 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     _verify_mission_refresher()
     _verify_refresher_replay()
     _verify_refresher_pin(tmp_path)
+    _verify_abc_campaign_contract(tmp_path)
     _verify_dev_real_height_limits()
     _verify_dev_cli_contract(tmp_path)
     from emu.cli import main as emu_cli_main
@@ -1278,3 +1279,50 @@ def _verify_refresher_pin(tmp_path):
     path.write_bytes(data+b" ")
     with pytest.raises(ValueError,match="approval digest"):
         bind_refresher_receipt(**dict(args,resumed_meta=later))
+
+
+def _verify_abc_campaign_contract(tmp_path):
+    import json
+    from dataclasses import asdict
+    from emu.cli import main
+    from emu.run import one_run_config
+    from scripts import ks150_abc_school as abc
+    root=tmp_path/"abc"
+    root.mkdir()
+    captured=[]
+    def capture(ns):
+        captured.append(asdict(one_run_config(ns)))
+        return 0
+    with patch("emu.run.train_one",side_effect=capture):
+        for arm in abc.ARMS:
+            assert main(["train",*abc.recipe(root,arm,abc.TRAIN_SEEDS[0],abc.STAGES[0])])==0
+    a,b,c=captured
+    for d in captured:
+        d.pop("run_dir")
+    assert not a["cross_specialty_stairs"] and not a["mission_refreshers"]
+    assert b["cross_specialty_stairs"] and not b["mission_refreshers"]
+    assert c["cross_specialty_stairs"] and c["mission_refreshers"]
+    assert {k for k in a if a[k]!=b[k]}=={"cross_specialty_stairs"}
+    assert {k for k in b if b[k]!=c[k]}=={"mission_refreshers"}
+    assert all(abc.boundary(s)>=s for s in abc.STAGES)
+    assert len(set(abc.TRAIN_SEEDS+abc.DISCOVERY+abc.HOLDOUT))==6
+    with pytest.raises(RuntimeError,match="decision required"):
+        abc.approval_digest(root,"C",abc.TRAIN_SEEDS[0],120_000_000)
+    assert abc.approval_digest(root,"A",abc.TRAIN_SEEDS[0],120_000_000)==""
+    assert abc.approval_digest(root,"C",abc.TRAIN_SEEDS[0],110_000_000)==""
+    run=abc.student(root,"A",abc.TRAIN_SEEDS[0])
+    (run/"checkpoints").mkdir(parents=True)
+    abc.write_new(run/"training_config.json",{"steps":110_000_000})
+    old=run/"checkpoints/recovery.pkl"
+    old.write_bytes(b"old candidate")
+    abc.reset_recovery_epoch(root,"A",abc.TRAIN_SEEDS[0])
+    assert not old.exists()
+    archived=root/"decisions/recovery-epoch"/(run.name+".pkl")
+    assert archived.read_bytes()==b"old candidate"
+    old.write_bytes(b"new candidate")
+    abc.reset_recovery_epoch(root,"A",abc.TRAIN_SEEDS[0])
+    assert old.read_bytes()==b"new candidate"
+    assert archived.read_bytes()==b"old candidate"
+    with pytest.raises(FileExistsError):
+        abc.write_new(run/"training_config.json",{"steps":120_000_000})
+    assert json.loads((run/"training_config.json").read_text())["steps"]==110_000_000
