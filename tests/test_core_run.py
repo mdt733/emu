@@ -53,6 +53,7 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     _verify_refresher_budget_properties()
     _verify_refresher_pin(tmp_path)
     _verify_abc_campaign_contract(tmp_path)
+    _verify_abc_go_state_machine(tmp_path)
     _verify_dev_real_height_limits()
     _verify_dev_cli_contract(tmp_path)
     from emu.cli import main as emu_cli_main
@@ -1384,3 +1385,68 @@ def _verify_refresher_budget_properties():
         assert sum(w)==pytest.approx(1.)
         assert w[STEP]==weights[STEP]
         assert all(0.<=x<=1. for x in clean)
+
+
+def _verify_abc_go_state_machine(tmp_path):
+    """No GPU: exercise orchestration with explicit mock stage receipts.
+
+    The campaign may not skip the review, bypass smoke or launch a later
+    stage after an incomplete predecessor. Actual GPU/ZIP validation
+    is separate from this state-machine test.
+    """
+    from contextlib import ExitStack
+    from scripts import ks150_abc_school as abc
+    root=tmp_path/"abc_go"
+    root.mkdir()
+    lock={"source_commit":"a"*40}
+    smoke=dict(source_commit=lock["source_commit"],model_sha256=abc.MODEL,
+               operator_attested_ci=True,gpu_smoke=True,lifecycle=True)
+    done=set()
+    decisions=set()
+    calls=[]
+    reports=[]
+    recovery=[]
+    def complete(root_arg,stage):
+        return all((arm,seed,stage) in done
+                   for seed in abc.TRAIN_SEEDS for arm in abc.ARMS)
+    def stage(root_arg,lock_arg,arm,seed,target):
+        assert root_arg==root and lock_arg==lock
+        calls.append((arm,seed,target))
+        done.add((arm,seed,target))
+    def report(root_arg,target):
+        assert root_arg==root and complete(root,target)
+        reports.append(target)
+        (root/f"results-{target//1_000_000}m.zip").write_bytes(b"mock report")
+    def approve(root_arg,arm,seed,target):
+        if arm=="C" and target>110_000_000 and seed not in decisions:
+            raise RuntimeError("decision required")
+        return ""
+    with ExitStack() as stack:
+        stack.enter_context(patch.object(abc,"load_lock",return_value=lock))
+        stack.enter_context(patch.object(abc,"stages_done",side_effect=complete))
+        stack.enter_context(patch.object(abc,"run_stage",side_effect=stage))
+        stack.enter_context(patch.object(abc,"report",side_effect=report))
+        stack.enter_context(patch.object(abc,"approval_digest",side_effect=approve))
+        stack.enter_context(patch.object(abc,"reset_recovery_epoch",
+            side_effect=lambda r,a,s:recovery.append((a,s))))
+        with pytest.raises(FileNotFoundError):
+            abc.main(["go","--root",str(root)])
+        assert not calls
+        abc.write_new(root/"smoke.json",smoke)
+        with pytest.raises(RuntimeError,match="Cannot skip"):
+            abc.main(["advance","--root",str(root),"--stage","100000000"])
+        assert not calls
+        assert abc.main(["go","--root",str(root)])==0
+        assert len(calls)==18 and all(t<=110_000_000 for _,_,t in calls)
+        assert reports==[110_000_000] and not recovery
+        assert abc.main(["go","--root",str(root)])==0
+        assert len(calls)==18 and reports==[110_000_000]
+        for seed in abc.TRAIN_SEEDS:
+            decisions.add(seed)
+            abc.write_new(abc.decision_path(root,seed),{"fixture":True})
+        assert abc.main(["go","--root",str(root)])==0
+        assert len(calls)==30 and len(set(calls))==30
+        assert len(recovery)==6 and len(set(recovery))==6
+        assert reports==[110_000_000,140_000_000]
+        assert abc.main(["go","--root",str(root)])==0
+        assert len(calls)==30 and len(reports)==2 and len(recovery)==6
