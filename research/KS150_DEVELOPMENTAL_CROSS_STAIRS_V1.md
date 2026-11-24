@@ -369,3 +369,96 @@ No new reward fading or uphill promotion treatment should be silently
 bundled into these three arms. A timing-ramp comparison and ability-based
 uphill mastery ladder are separate follow-up hypotheses. No automatic
 launch, promotion or release is authorized by this protocol.
+
+
+### Executable A/B/C comparison (first campaign runner)
+
+The executable arm names supersede the earlier C/S/R notation:
+A = original school, B = shared stairs, C = B + one optional approved
+mission refresher. Six cold students: training seeds 9501 and 9502 in
+each arm. Discovery exam seeds 6901/6902; final-only holdout 7901/7902.
+The study compares at requested 90, 100, 110, 120 and 140M, rounded to
+true PPO boundaries. The 90M exam is at the first complete update at
+or after the ramp start (not mathematically before it). Nominal total
+training budget is 840M world steps, excluding exams and smoke.
+The 350-frame signed stair matrix uses 10 trials per signed height per
+seed; the 600-frame pulse uses 2048 worlds per seed. The final milestone
+adds both holdout seeds and independent deep capability exams (8 worlds
+per seed). These are screening sample sizes. The existing 1200-frame
+school diagnostic is locked to a historical actor, so this campaign
+does not claim paired 350/1200-frame stair evidence or a new compound
+stair-plus-command examination. Those remain separate follow-ups.
+
+From a clean checkout of the exact reviewed branch commit, using its
+installed project virtual environment, the intended operator interface is:
+
+```bash
+python -m scripts.ks150_abc_school plan
+python -m scripts.ks150_abc_school lock
+# Only after confirming CI green for this exact source:
+python -m scripts.ks150_abc_school smoke --ci-verified-sha "$(git rev-parse HEAD)"
+python -m scripts.ks150_abc_school advance --stage 90000000
+python -m scripts.ks150_abc_school advance --stage 100000000
+python -m scripts.ks150_abc_school advance --stage 110000000
+python -m scripts.ks150_abc_school review
+```
+
+Default root: `~/emu-data/studies/ks150-abc-v1`; use the same
+`--root` for all commands. Plan writes no study files. Lock requires a
+new root and freezes exact recipe, seeds, source and model. Smoke
+requires explicit operator attestation of green CI for the exact SHA
+and then actually checks 2048-world GPU clean births and one PPO
+update; it does not create student checkpoints. Smoke success is
+necessary, not full proof of checkpoint resume or learned performance.
+
+Inspect both C advisories at 110M before continuing. For each training
+seed separately, use the registered decision `approve` if the planner
+has a nonzero qualifying allocation, otherwise `no_intervention`:
+
+```bash
+python -m scripts.ks150_abc_school decide --seed 9501 --action approve
+python -m scripts.ks150_abc_school decide --seed 9502 --action no_intervention
+```
+
+The choices above are **examples**, not predicted results. The runner
+rejects a decision inconsistent with its preregistered dose rule.
+The operator can halt the study if the evidence is unsafe or invalid;
+never manufacture a qualifying effect. The approval lasts at most 10M
+actual steps; expiry is evaluated at the next host PPO boundary.
+
+```bash
+python -m scripts.ks150_abc_school advance --stage 120000000
+python -m scripts.ks150_abc_school advance --stage 140000000
+python -m scripts.ks150_abc_school report --stage 140000000
+```
+
+Each advance command trains **only one common milestone** for all six
+students. It cannot skip a milestone or train past 110M until both C
+decisions are sealed. The same command can resume a partially completed
+stage. Completed stage checkpoints are hard-linked to immutable
+evidence (same filesystem), with frozen actor/config and raw evidence
+digests; interrupted unsealed outputs fail closed and must be preserved
+under a different name before retry. Do not modify the live checkpoint
+or frozen hard-linked ancestor in place. Use `status` for progress.
+
+At the 110M-to-120M transition, archive the previous recovery candidate
+for **all six** students, regardless of C dose. This is a matched
+restart/rollback policy change relative to an uninterrupted historical
+run: it prevents the C pin from uniquely disqualifying old rollback
+candidates. Students retain the selected full PPO checkpoint and must
+earn a new recovery candidate under the post-review teacher.
+
+Report writes an exclusive `results-140m.zip` (or an earlier common
+stage ZIP), with raw pulse/stair/deep evidence, frozen recipe and stage
+receipts, sparse training telemetry, decisions, and per-task matched
+B−A/C−B/C−A percentage-point contrasts separately for each training
+seed and exam seed. It excludes large checkpoint and actor binaries.
+No ranking, promotion, automatic decision or new run is triggered by
+reporting. C without a qualifying intervention remains part of the
+intention-to-treat comparison. A/B/C differ only by registered
+teaching flags; shared pauses and recovery-epoch reset are common.
+
+**Readiness:** runner, synthetic contract tests and GPU smoke gate are
+committed; CI and actual local GPU execution must still be confirmed.
+The first real staged checkpoint review is a further validation gate.
+No autonomous launch or claim of end-to-end experimental validation.
