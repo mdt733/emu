@@ -71,6 +71,8 @@ def main():
     p.add_argument("--stair-survival-curriculum",action="store_true",
                    help="compile survival-aware full first-life Academy, its safe-cross evidence and protected ordinary births")
     p.add_argument("--full-update",action="store_true")
+    p.add_argument("--abc-refresher-smoke",action="store_true",
+                   help="matched real 2048-world clean refresher birth acceptance")
     p.add_argument("--benchmark-updates",type=int,default=1,
                    help="1..8 full PPO updates; report synchronized steady FPS "
                         "after the first compilation; no checkpoint")
@@ -109,6 +111,8 @@ def main():
     if (not 1<=a.benchmark_updates<=8 or
             (a.benchmark_updates>1 and not a.full_update)):
         p.error("--benchmark-updates must be 1..8 and >1 requires --full-update")
+    if a.abc_refresher_smoke and (not a.full_update or a.worlds!=2048 or not a.stair_survival_curriculum):
+        p.error("ABC smoke requires 2048-world full-update survival school")
     if a.profile_rollout and (not a.full_update or a.benchmark_updates<3):
         p.error("--profile-rollout requires --ppo --full-update and --benchmark-updates >=3")
     if a.gpu_audit_dir and not a.profile_rollout:
@@ -182,6 +186,31 @@ def main():
                 athletic_rehearsal_frac=0.)
     packet=env.params_array(params)
     state,obs=env.reset(params)
+    if a.abc_refresher_smoke:
+        from emu.capability_focus import RESILIENCE
+        ordinary=dict(params,focus_weight_step=0.,focus_weight_command=.95,
+                      focus_weight_resilience=.05,academy_episode_probability=0.,
+                      cross_stair_blend=1.)
+        old,old_obs=env.reset(ordinary)
+        clean,clean_obs=env.reset(dict(ordinary,clean_refresher_prob_resilience=1.))
+        mask=np.asarray(clean.clean_refresher_birth)
+        if not mask.any() or not np.array_equal(mask,np.asarray(clean.focus_id)==RESILIENCE):
+            raise RuntimeError("GPU clean refresher birth assignment mismatch")
+        np.testing.assert_array_equal(old.focus_id,clean.focus_id)
+        assert not np.asarray(old.clean_refresher_birth).any()
+        for field in ("carpet_up","carpet_down","carpet_slope",
+                      "carpet_xprofile","carpet_yprofile"):
+            x,y=np.asarray(getattr(old,field)),np.asarray(getattr(clean,field))
+            assert np.all(y[mask]==0.),field
+            np.testing.assert_array_equal(x[~mask],y[~mask])
+        np.testing.assert_array_equal(np.asarray(old_obs)[~mask],
+                                      np.asarray(clean_obs)[~mask])
+        assert clean_obs.shape==(a.worlds,360)
+        assert np.isfinite(np.asarray(clean_obs)).all()
+        assert not np.asarray(clean.cross_stair_birth)[mask].any()
+        print("ABC GPU clean births PASS:",int(mask.sum()),"of",a.worlds,flush=True)
+        del old,old_obs,clean,clean_obs
+
     if obs.shape!=(a.worlds,360):
         raise RuntimeError(f"Invalid 360-input contract: {obs.shape}")
     ncon=int(state.data._impl.contact.geom1.shape[1])
