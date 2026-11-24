@@ -49,6 +49,7 @@ def training_flags(run_dir: Path, seed: int = 735) -> list[str]:
 def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     _verify_dev_birth_ramp()
     _verify_mission_refresher()
+    _verify_refresher_replay()
     _verify_dev_real_height_limits()
     _verify_dev_cli_contract(tmp_path)
     from emu.cli import main as emu_cli_main
@@ -1126,3 +1127,68 @@ def _verify_mission_refresher():
     with pytest.raises(ValueError,match="unmatched mission counts"):
         mission_refresher_plan(base_weights=base,reference=reference,
                                current=unmatched,enabled=True)
+
+
+def _verify_refresher_replay():
+    import hashlib
+    import json
+    from emu.developmental_school import (
+        refresher_birth_parameters, replay_refresher_schedule,
+        clean_refresher_assignment, clean_refresher_terrain)
+    from emu.capability_focus import FOCUS_NAMES, STEP, SLOPE, RESILIENCE
+    base = (.20,.20,.20,.20,.10,.10)
+    ordinary = dict(zip(FOCUS_NAMES,(.19,.20,.19,.20,.095,.095)))
+    clean = dict.fromkeys(FOCUS_NAMES,0.)
+    clean["resilience"] = .03
+    plan = dict(ordinary=ordinary,extra_clean=clean)
+    lineage = dict(run_name="student",training_seed=736,
+        source_commit="a"*40,training_config_sha256="b"*64,
+        activation_checkpoint_sha256="c"*64)
+    receipt = dict(schema="emu_mission_refresher_schedule_v1",
+        **lineage,start_step=100_007_936,until_step=110_000_000,
+        base_weights=base,academy_probability=.6,applied=False,
+        advisory=dict(schema="emu_mission_refresher_advisory_v1",
+            current_step=100_007_936,applied=False,plan=plan))
+    data = json.dumps(receipt,sort_keys=True).encode()
+    digest = hashlib.sha256(data).hexdigest()
+    args = dict(enabled=True,receipt_bytes=data,receipt_sha256=digest,
+        lineage=lineage,step=100_007_936,base_weights=base,
+        academy_probability=.6)
+    result = replay_refresher_schedule(**args)
+    w, academy, conditional = result
+    assert sum(w) == pytest.approx(1.)
+    assert w[STEP] == base[STEP] and academy == .6
+    assert w[RESILIENCE] == pytest.approx(.23)
+    assert w[RESILIENCE]*conditional[RESILIENCE] == pytest.approx(.03)
+    assert all(p==0. for i,p in enumerate(conditional) if i!=RESILIENCE)
+    assert replay_refresher_schedule(**dict(args,step=105_000_000)) == result
+    baseline = (base,.6,(0.,)*6)
+    assert replay_refresher_schedule(**dict(args,step=110_000_000)) == baseline
+    assert replay_refresher_schedule(**dict(args,enabled=False,
+        receipt_bytes=None,receipt_sha256=None,lineage={})) == baseline
+    with pytest.raises(ValueError,match="digest"):
+        replay_refresher_schedule(**dict(args,receipt_bytes=data+b" "))
+    with pytest.raises(ValueError,match="lineage"):
+        replay_refresher_schedule(**dict(args,lineage=dict(lineage,
+            training_seed=737)))
+    with pytest.raises(ValueError,match="activation"):
+        replay_refresher_schedule(**dict(args,step=100_000_000))
+    with pytest.raises(ValueError,match="allocation changed"):
+        replay_refresher_schedule(**dict(args,academy_probability=.7))
+    broken = dict(plan,ordinary=dict(ordinary,step=.19),
+                  extra_clean=dict(clean,resilience=.04))
+    with pytest.raises(ValueError,match="STEP"):
+        refresher_birth_parameters(base_weights=base,
+            academy_probability=.6,plan=broken)
+    focus = np.array([RESILIENCE,RESILIENCE,RESILIENCE,RESILIENCE,STEP,SLOPE])
+    active = np.array([True,False,True,True,True,True])
+    athletic = np.array([0.,0.,1.,0.,0.,0.])
+    academy_birth = np.array([False,False,False,True,True,False])
+    mask = clean_refresher_assignment(np,focus,active,athletic,
+        academy_birth,np.zeros(6),(.0,.2,.2,.9,.0,.0))
+    assert np.array_equal(mask,[True,False,False,False,False,True])
+    slope, up, down, cross = clean_refresher_terrain(np,focus,mask,
+        np.full(6,3.),np.full(6,.01),np.full(6,.02),np.ones(6,bool))
+    assert np.array_equal(slope,[0.,3.,3.,3.,3.,3.])
+    assert np.array_equal(up==0.,mask) and np.array_equal(down==0.,mask)
+    assert np.array_equal(cross,~mask)
