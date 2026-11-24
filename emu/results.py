@@ -1081,6 +1081,11 @@ def summarize_rollout(metrics: dict[str, Any], frontier_params: dict[str, float]
         'academy_active_fraction': mean_metric(metrics,'academy_active'),
         # Physical outcome counts for deliberately assigned cross-role
         # stair births. Do not conflate with accidental ordinary step lips.
+        'clean_refresher_active_fraction':mean_metric(metrics,'clean_refresher_birth'),
+        **{f'clean_refresher_{name}_{kind}':float(np.asarray(
+            metrics.get(f'clean_refresher_{name}_{kind}',0.)).sum())
+            for name in ('command','resilience','slope','step','transition','control')
+            for kind in ('episodes','survived')},
         'cross_stair_active_fraction':mean_metric(metrics,'cross_stair_birth'),
         'cross_stair_episodes':float(np.asarray(
             metrics.get('cross_stair_episodes',0.)).sum()),
