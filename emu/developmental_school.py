@@ -189,3 +189,52 @@ def clean_refresher_terrain(xp, focus, clean, slope, up, down, cross):
     from .capability_focus import SLOPE
     return (xp.where(clean & (focus != SLOPE),0.,slope),
             xp.where(clean,0.,up), xp.where(clean,0.,down), cross & ~clean)
+
+
+def replay_refresher_schedule(*, enabled, receipt_bytes, receipt_sha256,
+                              lineage, step, base_weights,
+                              academy_probability):
+    """Pure host replay for a future explicit, checkpointed consumer.
+
+    The caller supplies a TRUSTED receipt hash and lineage identities from
+    authenticated checkpoint state, never from the receipt being checked.
+    At activation the checkpoint hash identifies the exact frozen student;
+    later it denotes the original activation ancestor, not the newest file.
+    No receipt is read or applied when disabled. Expiry returns baseline.
+    Invalid active receipts fail closed; caller must not silently replace
+    them or infer identity from filenames.
+    """
+    import hashlib
+    import json
+    if type(enabled) is not bool:
+        raise ValueError("Explicit Boolean refresher enable required")
+    baseline = refresher_birth_parameters(base_weights=base_weights,
+                                          academy_probability=academy_probability)
+    if not enabled:
+        return baseline
+    if (not isinstance(receipt_bytes,bytes)
+            or hashlib.sha256(receipt_bytes).hexdigest() != receipt_sha256):
+        raise ValueError("Approved refresher receipt digest mismatch")
+    r = json.loads(receipt_bytes)
+    keys = ("run_name","training_seed","source_commit",
+            "training_config_sha256","activation_checkpoint_sha256")
+    if (r.get("schema") != "emu_mission_refresher_schedule_v1"
+            or r.get("applied") is not False
+            or any(k not in lineage or r.get(k) != lineage[k] for k in keys)):
+        raise ValueError("Approved refresher lineage mismatch")
+    start, end = r["start_step"], r["until_step"]
+    if (type(start) is not int or type(end) is not int or type(step) is not int
+            or not 0 < start < end <= start+10_000_000 or step < start):
+        raise ValueError("Invalid refresher activation or expiry")
+    if step >= end:
+        return baseline
+    if (tuple(r["base_weights"]) != baseline[0]
+            or r["academy_probability"] != academy_probability):
+        raise ValueError("Baseline teaching allocation changed; require new review")
+    advisory = r["advisory"]
+    if (advisory.get("schema") != "emu_mission_refresher_advisory_v1"
+            or advisory.get("current_step") != start
+            or advisory.get("applied") is not False):
+        raise ValueError("Invalid underlying mission advisory")
+    return refresher_birth_parameters(base_weights=base_weights,
+               academy_probability=academy_probability,plan=advisory["plan"])
