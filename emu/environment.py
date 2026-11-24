@@ -41,6 +41,7 @@ from .capability_focus import (focus_indices, diamond_commands,
                                control_effort_weights, COMMAND, RESILIENCE,
                                SLOPE, STEP, TRANSITION, CONTROL,
                                NONFOCUS_STRENGTH, CONTROL_STRENGTH)
+from .developmental_school import clean_refresher_assignment, clean_refresher_terrain
 from .terrain_carpet_mjx import (
     update_tile_mocaps, validate_prism_only_geoms,
     add_carpet_geoms, BODY_NAMES as CARPET_BODY_NAMES,
@@ -222,6 +223,7 @@ class EnvState(NamedTuple):
     # Teacher-only rolling three-platform progress; lip count is unbounded.
     academy_active: Any
     cross_stair_birth: Any  # teacher-only cohort; not actor data
+    clean_refresher_birth: Any  # immutable teacher-only episode assignment
     academy_lip_index: Any
     academy_streak: Any
     academy_crossings: Any
@@ -1571,6 +1573,15 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('Academy UP/DOWN lip frontiers exceed physical compiled cap')
         if not np.isfinite(slope[18]) or not 0.<=slope[18]<=1.:
             raise ValueError('Cross-specialty stair blend must be [0,1]')
+        clean=slope[19:25]
+        if (not np.isfinite(clean).all() or np.any(clean<0.) or
+                np.any(clean>1.) or clean[STEP]!=0.):
+            raise ValueError('Invalid clean refresher probabilities; STEP is protected')
+        if np.any(clean>0.):
+            if (self.exam_fixture_steps is not None or slope[6]!=1. or
+                    not np.isclose(focus_weights.sum(),1.,atol=1e-6) or
+                    np.dot(focus_weights,clean)>.05+1e-6):
+                raise ValueError('Clean refresher requires mature non-exam allocation within 5% budget')
         if not np.all(np.isfinite(slope[~np.isnan(slope)])):
             raise ValueError('invalid physical terrain override')
         packed=np.concatenate((packed,slope))
@@ -2260,6 +2271,14 @@ class EmuMJXEnv(TaskSampler):
                 & ~terminal_fail).astype(jnp.float32)
                 for idx,name in enumerate(
                     ('command','resilience','slope','step','transition','control'))},
+            'clean_refresher_birth':state.clean_refresher_birth.astype(jnp.float32),
+            **{f'clean_refresher_{name}_{kind}':(
+                done & state.clean_refresher_birth & (state.focus_id==idx)
+                & condition).astype(jnp.float32)
+                for idx,name in enumerate(
+                    ('command','resilience','slope','step','transition','control'))
+                for kind,condition in (('episodes',jnp.ones_like(done,dtype=jnp.bool_)),
+                                       ('survived',~terminal_fail))},
             'academy_lip_index':academy['lip_index'].astype(jnp.float32),
             'academy_lip_height_m':academy['height_m'],
             'academy_verdict_lip_height_m':academy_verdict_height,
@@ -2845,6 +2864,17 @@ class EmuMJXEnv(TaskSampler):
         cross_stair_birth=carpet_cross_stair_assignment(
             jnp,focus_id,specialist_active,task[:,T.athletic_rehearsal],
             seeds,params[P.cross_stair_blend])
+        # New independent RNG salt: no changes to historical birth draws.
+        clean_probs=params[P.clean_refresher_prob_command:P.clean_refresher_prob_control+1]
+        clean_draw=jax.vmap(lambda k:jax.random.uniform(
+            jax.random.fold_in(k,50417),(),dtype=jnp.float32))(keys)
+        clean_birth=clean_refresher_assignment(
+            jnp,focus_id,specialist_active,task[:,T.athletic_rehearsal],
+            academy,clean_draw,clean_probs)
+        if self.exam_fixture_steps is not None:
+            clean_birth=jnp.zeros_like(clean_birth)
+        slope,up,down,cross_stair_birth=clean_refresher_terrain(
+            jnp,focus_id,clean_birth,slope,up,down,cross_stair_birth)
         if self.stair_survival_curriculum:
             # Keep a 24s first-UP lesson within the demonstrated UP
             # physical band; independently earned tall DOWN belongs
@@ -2889,6 +2919,7 @@ class EmuMJXEnv(TaskSampler):
             carpet_xprofile=xprof,carpet_yprofile=yprof,
             carpet_up=up,carpet_down=down,carpet_slope=slope,
             cross_stair_birth=cross_stair_birth,
+            clean_refresher_birth=clean_birth,
             carpet_confirmed=xy,
             carpet_seen_cells=visited,
             carpet_seen_write=jnp.ones((self.num_envs,),dtype=jnp.int32))
@@ -3144,6 +3175,7 @@ class EmuMJXEnv(TaskSampler):
             vx_reward_count=izeros,
             academy_active=academy_active,
             cross_stair_birth=carpet['cross_stair_birth'],
+            clean_refresher_birth=carpet['clean_refresher_birth'],
             academy_lip_index=izeros,
             academy_streak=izeros,
             academy_crossings=izeros,
