@@ -254,7 +254,8 @@ def refresher_recipe_sha256(config):
 
 def bind_refresher_receipt(*, enabled, run_dir, receipt_sha256, config_sha256,
                            source_commit, training_seed, resumed_meta,
-                           resumed_checkpoint, mature_step):
+                           resumed_checkpoint, mature_step,
+                           expected_base=None):
     """Bind at one exact checkpoint; permanently pin one receipt per run.
 
     Called at process startup only. The independent operator supplies
@@ -323,6 +324,11 @@ def bind_refresher_receipt(*, enabled, run_dir, receipt_sha256, config_sha256,
                 h.update(block)
         if h.hexdigest()!=identity["activation_checkpoint_sha256"]:
             raise ValueError("Refresher activation checkpoint digest mismatch")
+    # Validate the actual host allocation before creating the permanent pin.
+    if expected_base is not None and (
+            tuple(receipt['base_weights'])!=tuple(expected_base[0]) or
+            receipt['academy_probability']!=expected_base[1]):
+        raise ValueError('Approved refresher baseline does not match live teacher')
     # Validate the replay contract before creating the permanent pin.
     replay_refresher_schedule(enabled=True,receipt_bytes=data,
         receipt_sha256=receipt_sha256,lineage=identity,step=start,
