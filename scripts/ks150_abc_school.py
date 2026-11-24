@@ -8,11 +8,14 @@ Run from the project's venv: python -m scripts.ks150_abc_school ...
 from __future__ import annotations
 
 import argparse
+import csv
+import io
 from contextlib import contextmanager
 import fcntl
 import hashlib
 import json
 import os
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -247,6 +250,34 @@ def approval_digest(root,arm,seed,target):
     return d["approval_sha256"]
 
 
+
+def reset_recovery_epoch(root,arm,seed):
+    """Match the 110M rollback boundary in ALL arms, including no-dose C.
+
+    Preserve old recovery candidates rather than silently deleting them.
+    The PPO checkpoint/optimizer/governor are NOT changed by this reset.
+    """
+    run=student(root,arm,seed)
+    folder=root/"decisions"/"recovery-epoch"
+    folder.mkdir(parents=True,exist_ok=True)
+    marker=folder/f"{run.name}.json"
+    archive=folder/f"{run.name}.pkl"
+    live=run/"checkpoints"/"recovery.pkl"
+    if marker.exists():
+        m=read(marker)
+        if m!=dict(student=run.name,archived_sha256=sha(archive) if archive.exists() else None):
+            raise RuntimeError("Recovery epoch receipt changed")
+        return
+    if read(run/"training_config.json")["steps"]!=110_000_000:
+        raise RuntimeError("Missing matched recovery-epoch reset before stage extension")
+    if archive.exists() and live.exists():
+        raise RuntimeError("Ambiguous interrupted recovery reset")
+    if live.exists():
+        os.replace(live,archive)
+    write_new(marker,dict(student=run.name,
+                         archived_sha256=sha(archive) if archive.exists() else None))
+
+
 def run_stage(root,lock,arm,seed,target):
     if validated_stage(root,arm,seed,target) is not None:
         return
@@ -392,6 +423,20 @@ def run_stage(root,lock,arm,seed,target):
                artifact_sha256=artifact_sha,sensor_sha256=sensor,
                source_sha256=sources,recipe_sha256=refresher_recipe_sha256(cfg),
                exams=exams,files=files)
+    # Freeze sparse training telemetry at this age, not a later live CSV.
+    for name in ("metrics.csv","fixed_eval.csv","performance.json",
+                 "results_data.json","run_meta.json"):
+        original=run/name
+        snapshot=out/name
+        if original.is_file():
+            if not snapshot.exists():
+                # Atomic complete copy, never link a mutable training log.
+                tmp=snapshot.with_suffix(snapshot.suffix+".partial")
+                shutil.copyfile(original,tmp)
+                os.replace(tmp,snapshot)
+            if sha(snapshot)!=sha(original):
+                raise RuntimeError("Frozen training telemetry differs: "+name)
+            files[name]=sha(snapshot)
     write_new(receipt_path(root,arm,seed,target),stage)
     validated_stage(root,arm,seed,target)
 
@@ -457,9 +502,121 @@ def decide(root,seed,action):
         advisory_sha256=sha(p.parent/f"C-s{seed}-advisory.json")))
 
 
+
+def _exam_cells(stage,seed):
+    """Per-task fractions; never combine unlike missions into a score."""
+    e=next(x for x in stage["exams"] if x["seed"]==seed)
+    p=Path(e["path"])
+    with zipfile.ZipFile(p) as z:
+        pulse=json.loads(z.read("summary.json"))
+        runtime=json.loads(z.read("manifest.json"))["runtime"]
+    cells={}
+    for r in pulse["curves"]:
+        key=f"{r['specialty']}/{r['kind']}/{r['level']}"
+        for gate,count in (("mission",r["passed"]),("survival",r["survived"])):
+            cells[("pulse",key,gate)]=(count,r["attempted"])
+    matrix=read(p.parent/f"stairs-{seed}"/"matrix_summary.json")
+    for r in matrix["curves"]:
+        key=f"{r['kind']}/{r['requested_step_mm']}mm"
+        n=r["worlds"]
+        for gate in ("leading_top","each_foot_top_five","traversed_5frame",
+                     "completed_destinations"):
+            cells[("signed_stairs",key,gate)]=(r[gate],n)
+        cells[("signed_stairs",key,"survival")]=(round(r["survival_rate"]*n),n)
+    deep=p.parent/f"deep-{seed}.zip"
+    if deep.exists():
+        with zipfile.ZipFile(deep) as z:
+            summary=json.loads(z.read("summary.json"))["scenarios"]
+        for r in summary:
+            for gate in ("full_survivals","zero_command_balance_passes",
+                         "bounded_standing_passes","locomotion_mission_passes"):
+                if r[gate] is not None:
+                    cells[("deep",r["scenario"],gate)]=(r[gate],r["trials"])
+    if any(not 0<=k<=n or n<=0 for k,n in cells.values()):
+        raise RuntimeError("Invalid examination denominator")
+    return cells,runtime
+
+
+def comparison_rows(root,until):
+    rows=[]
+    for target in STAGES[:STAGES.index(until)+1]:
+        if not stages_done(root,target):
+            raise RuntimeError("Comparison requires all six students at every included age")
+        for seed in TRAIN_SEEDS:
+            stages={a:validated_stage(root,a,seed,target) for a in ARMS}
+            for exam_seed in DISCOVERY+HOLDOUT if target==STAGES[-1] else DISCOVERY:
+                data={a:_exam_cells(st,exam_seed) for a,st in stages.items()}
+                if any(v[1]!=data["A"][1] or set(v[0])!=set(data["A"][0])
+                       for v in data.values()):
+                    raise RuntimeError("Nonmatched exam task or runtime")
+                for key in sorted(data["A"][0]):
+                    counts=[data[a][0][key] for a in ARMS]
+                    n=counts[0][1]
+                    if any(m!=n for _,m in counts):
+                        raise RuntimeError("Nonmatched exam cohort")
+                    a,b,c=(k/n for k,_ in counts)
+                    rows.append(dict(target=target,training_seed=seed,
+                        exam_seed=exam_seed,cohort="holdout" if exam_seed in HOLDOUT else "discovery",
+                        exam=key[0],task=key[1],gate=key[2],attempts_each=n,
+                        A_pass=counts[0][0],B_pass=counts[1][0],C_pass=counts[2][0],
+                        B_minus_A_pp=round(100*(b-a),6),C_minus_B_pp=round(100*(c-b),6),
+                        C_minus_A_pp=round(100*(c-a),6)))
+    return rows
+
+
+def report(root,until):
+    rows=comparison_rows(root,until)
+    out=root/f"results-{until//1_000_000}m.zip"
+    if out.exists():
+        raise FileExistsError(out)
+    csvbuf=io.StringIO()
+    writer=csv.DictWriter(csvbuf,fieldnames=list(rows[0]))
+    writer.writeheader()
+    writer.writerows(rows)
+    temporary=out.with_suffix(".zip.partial")
+    if temporary.exists():
+        raise FileExistsError(temporary)
+    with zipfile.ZipFile(temporary,"x",zipfile.ZIP_DEFLATED) as z:
+        z.write(root/"study.json","study.json")
+        z.write(root/"smoke.json","smoke.json")
+        z.writestr("comparison.csv",csvbuf.getvalue())
+        z.writestr("README.md",
+            "# A/B/C school comparison\n\n"
+            "B−A isolates shared-stair teaching; C−B screens the refresher opportunity. "
+            "Separate training seeds and examination seeds are retained. "
+            "A no-intervention C is an intention-to-treat outcome, not proof of effective revision. "
+            "Raw pulse, signed stairs and final deep exam evidence are included. "
+            "No composite ranking, no automatic promotion. No full checkpoints or actor binaries.\n")
+        for target in STAGES[:STAGES.index(until)+1]:
+            for seed in TRAIN_SEEDS:
+                for arm in ARMS:
+                    st=validated_stage(root,arm,seed,target)
+                    p=receipt_path(root,arm,seed,target)
+                    z.write(p,str(p.relative_to(root)))
+                    for name in st["files"]:
+                        if name not in ("checkpoint.pkl","actor.emupolicy"):
+                            artifact=p.parent/name
+                            z.write(artifact,str(artifact.relative_to(root)))
+        if until>=120_000_000:
+            for seed in TRAIN_SEEDS:
+                for p in (root/"decisions").glob(f"C-s{seed}*.json"):
+                    z.write(p,str(p.relative_to(root)))
+                p=student(root,"C",seed)/"mission_refresher_approval.json"
+                if p.exists():
+                    z.write(p,str(p.relative_to(root)))
+                p=student(root,"C",seed)/"mission_refresher_pin.json"
+                if p.exists():
+                    z.write(p,str(p.relative_to(root)))
+            for p in (root/"decisions"/"recovery-epoch").glob("*.json"):
+                z.write(p,str(p.relative_to(root)))
+    os.link(temporary,out)
+    temporary.unlink()
+    print("Upload-ready comparison:",out)
+
+
 def main(argv=None):
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument("command",choices=("plan","lock","smoke","advance","review","decide","status"))
+    p.add_argument("command",choices=("plan","lock","smoke","advance","review","decide","status","report"))
     p.add_argument("--root",type=Path,default=Path.home()/"emu-data/studies/ks150-abc-v1")
     p.add_argument("--ci-verified-sha")
     p.add_argument("--stage",type=int,choices=STAGES)
@@ -482,6 +639,11 @@ def main(argv=None):
         return 0
     with locked(root):
         lock=load_lock(root)
+        if a.command=="report":
+            if a.stage is None:
+                p.error("report requires --stage")
+            report(root,a.stage)
+            return 0
         if a.command=="status":
             for target in STAGES:
                 print(target,{f"{arm}-s{seed}":validated_stage(root,arm,seed,target) is not None
@@ -522,6 +684,10 @@ def main(argv=None):
         if a.stage>110_000_000:
             for seed in TRAIN_SEEDS:
                 approval_digest(root,"C",seed,a.stage)
+        if a.stage==120_000_000:
+            for seed in TRAIN_SEEDS:
+                for arm in ARMS:
+                    reset_recovery_epoch(root,arm,seed)
         for seed in TRAIN_SEEDS:
             for arm in ARMS:
                 run_stage(root,lock,arm,seed,a.stage)
