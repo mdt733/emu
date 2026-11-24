@@ -375,6 +375,7 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
         **dummy_lock,"source_commit":"1"*40,
         "evaluation":{"discovery_seeds":[6901,6902]},
         "milestone_targets":list(STAGES)}
+    (lab_root/"study_lock.json").write_text(lab_json.dumps(dummy_go_lock))
     launches=[]
     exams=[]
     def fake_training(cmd,**_):
@@ -453,6 +454,7 @@ def test_current_cli_forks_preserve_sensor_and_reward_economics(tmp_path):
     # independently forked hypotheses. No subjective --reviewed handshake.
     stopped_root=tmp_path/"go-safety-stop"
     stopped_root.mkdir()
+    (stopped_root/"study_lock.json").write_text(lab_json.dumps(dummy_go_lock))
     launches.clear()
     exams.clear()
     def safety_review(_lock,root,arm,steps):
