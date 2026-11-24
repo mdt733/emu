@@ -298,7 +298,8 @@ class TrainingConfig:
         # explicitly authenticated external research ancestor; strict
         # same-run load() still requires every serialized setting.
         if not (keys-expected) and missing in (
-                set(),old_development,old_development|old_survival):
+                set(),old_survival,old_development,
+                old_development|old_survival):
             data={**data,**{k:getattr(cls,k) for k in missing}}
         elif keys != expected:
             raise ValueError(
