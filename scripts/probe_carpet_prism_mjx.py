@@ -99,6 +99,46 @@ def run_probe(worlds=4, frames=2):
                   athletic_rehearsal_frac=0.)
     state,obs=env.reset(settings)
     assert obs.shape==(worlds,360),obs.shape
+    # Same real reset path and fixed RNG keys, with a 5% recovery cohort.
+    # Find a seed that actually draws recovery instead of hoping that
+    # four random smoke worlds happen to include a rare clean birth.
+    from emu.capability_focus import RESILIENCE
+    assert not np.asarray(state.clean_refresher_birth).any()
+    ordinary=dict(settings,focus_weight_step=0.,focus_weight_command=.95,
+                  focus_weight_resilience=.05,academy_episode_probability=0.,
+                  cross_stair_blend=1.)
+    old_packet=env.params_array(ordinary)
+    active_packet=env.params_array(dict(
+        ordinary,clean_refresher_prob_resilience=1.))
+    roots=jax.vmap(jax.random.PRNGKey)(jnp.arange(256,dtype=jnp.int32))
+    def assigned(root):
+        env_key,_=jax.random.split(root)
+        keys=jax.random.split(env_key,worlds)
+        return env._focus_for_birth(keys,old_packet)
+    candidates=np.asarray(jax.vmap(assigned)(roots))
+    eligible=np.flatnonzero(np.any(candidates==RESILIENCE,axis=1))
+    assert eligible.size,"no recovery smoke seed"
+    key=roots[int(eligible[0])]
+    old=env.reset_jit(key,old_packet)
+    clean=env.reset_jit(key,active_packet)
+    mask=np.asarray(clean.clean_refresher_birth)
+    assert mask.any() and np.array_equal(mask,np.asarray(clean.focus_id)==RESILIENCE)
+    assert not np.asarray(old.clean_refresher_birth).any()
+    np.testing.assert_array_equal(old.focus_id,clean.focus_id)
+    assert np.all(np.asarray(old.carpet_up)[mask]>0.)
+    for field in ("carpet_up","carpet_down","carpet_slope",
+                  "carpet_xprofile","carpet_yprofile"):
+        x,y=np.asarray(getattr(old,field)),np.asarray(getattr(clean,field))
+        assert np.all(y[mask]==0.),field
+        np.testing.assert_array_equal(x[~mask],y[~mask])
+    assert not np.asarray(clean.cross_stair_birth)[mask].any()
+    np.testing.assert_array_equal(np.asarray(old.carpet_hfields)[~mask],
+                                  np.asarray(clean.carpet_hfields)[~mask])
+    np.testing.assert_array_equal(np.asarray(env.obs(old))[~mask],
+                                  np.asarray(env.obs(clean))[~mask])
+    assert env.obs(clean).shape==(worlds,360)
+    print("clean refresher real-prism birth PASS: isolated terrain, same ordinary worlds")
+
     assert len(env.carpet_prism_geom_ids)==PRISM_COUNT
     validate_prism_only_geoms(mujoco,env.mj_model)
     hf=np.asarray(jax.device_get(state.carpet_hfields))
