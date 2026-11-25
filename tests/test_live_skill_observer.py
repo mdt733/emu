@@ -434,6 +434,8 @@ def test_adaptive_uphill_birth_latched_prerequisite():
     academy=jnp.arange(4096)%2==0
     assign=jax.jit(lambda w:uphill_assignment(jax,jnp,keys,academy,1.,.15,.15,w))
     a=np.asarray(assign(jnp.full(6,1./6)))
+    uniform=jax.jit(lambda:uphill_assignment(jax,jnp,keys,academy,1.,.15,.15))()
+    np.testing.assert_array_equal(a,np.asarray(uniform))
     b=assign(jnp.array([1./12]*4+[7./12,1./12]))
     bh=np.asarray(b)
     fixed=(a>=0)&(a<6)
