@@ -128,6 +128,7 @@ class LiveSkillObserver:
             self._add(f"role_survival/{name}", sel.sum(), (sel & survived).sum())
         # Separate fixed, signed, flat reference tasks from changing ordinary
         # recovery severity. No survival-only verdict can count as settling.
+        teacher_counts=[[0,0] for _ in range(6)]
         if 'skill_reference_id' in metrics:
             assigned=np.asarray(metrics['skill_reference_id'])
             if assigned.shape!=done.shape or np.any((assigned<-1)|(assigned>=12)):
@@ -151,7 +152,13 @@ class LiveSkillObserver:
                 settled=terminal('skill_reference_settled')[cohort]>.5
                 self._binned(prefix+'/settled',reference[cohort]%6,settled)
                 self._binned(prefix+'/survived',reference[cohort]%6,survived[cohort])
-                self._binned(prefix+'/mission',reference[cohort]%6,settled & survived[cohort])
+                mission=settled & survived[cohort]
+                self._binned(prefix+'/mission',reference[cohort]%6,mission)
+                if prefix=='reference_recovery':
+                    cases=reference[cohort]
+                    n=np.bincount(cases,minlength=6)
+                    k=np.bincount(cases,weights=mission,minlength=6).astype(np.int64)
+                    teacher_counts=[[int(a),int(b)] for a,b in zip(n,k)]
             # Ordinary physical birth residuals include carryover and are
             # observational cohorts, not isolated kicks or matched references.
             ordinary=(role==1)&(~take)&np.isfinite(vx)&np.isfinite(vy)
@@ -190,6 +197,7 @@ class LiveSkillObserver:
         self.last = int(step)
         self.updates += 1
         self.host_seconds += time.perf_counter() - t
+        return teacher_counts
 
     def flush(self, *, reason="window", force=False):
         if not self.updates or (not force and self.last - self.start < self.window_steps):
