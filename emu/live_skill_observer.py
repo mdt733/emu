@@ -123,17 +123,19 @@ class LiveSkillObserver:
         if 'skill_reference_id' in metrics:
             reference=terminal('skill_reference_id').astype(int)
             take=reference>=0
-            if np.any(reference[take]>=6):
+            if np.any(reference[take]>=12):
                 raise ValueError('Unknown reference task')
             vx=terminal('skill_birth_vx_error')
             vy=terminal('skill_birth_vy_error')
             from .live_skill_reference import REFERENCE_KICKS_MPS
-            expected=np.asarray(REFERENCE_KICKS_MPS)[reference[take]]
+            expected=np.asarray(REFERENCE_KICKS_MPS)[reference[take]%6]
             if not np.allclose(vx[take],expected,atol=1e-5) or not np.allclose(vy[take],0.,atol=1e-5):
                 raise ValueError('Reference physical birth velocity mismatch')
-            self._binned('reference_recovery/settled',reference[take],
-                         terminal('skill_reference_settled')[take]>.5)
-            self._binned('reference_recovery/survived',reference[take],survived[take])
+            for prefix, cohort in (('reference_recovery',take & (reference<6)),
+                                   ('practice_recovery',reference>=6)):
+                self._binned(prefix+'/settled',reference[cohort]%6,
+                             terminal('skill_reference_settled')[cohort]>.5)
+                self._binned(prefix+'/survived',reference[cohort]%6,survived[cohort])
             # Ordinary physical birth residuals include carryover and are
             # observational cohorts, not isolated kicks or matched references.
             ordinary=(role==1)&(~take)&np.isfinite(vx)&np.isfinite(vy)
@@ -188,6 +190,7 @@ class LiveSkillObserver:
         self.counts.clear()
         self.updates = 0
         self.host_seconds = 0.
+        return row
 
     def rollback(self):
         self.flush(reason="before_rollback", force=True)
