@@ -19,7 +19,10 @@ def uphill_assignment(jax,xp,keys,academy,mix,reference_share,practice_share,wei
     draw=jax.vmap(lambda k:jax.random.uniform(jax.random.fold_in(k,50611),()))(keys)
     case=jax.vmap(lambda k:jax.random.randint(jax.random.fold_in(k,50612),(),0,6))(keys)
     practice_case=case
-    if weights is not None:
+    if practice_share>0.:
+        # Uniform and adaptive arms use the SAME practice RNG stream.
+        # Before the first teacher decision their assignments are exact matches.
+        weights=xp.full((6,),1./6,dtype=xp.float32) if weights is None else weights
         logits=xp.log(xp.maximum(weights,1e-30))
         practice_case=jax.vmap(lambda k:jax.random.categorical(
             jax.random.fold_in(k,50613),logits))(keys)
