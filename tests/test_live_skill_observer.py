@@ -109,3 +109,52 @@ def test_field_event_sink_does_not_change_field(tmp_path):
     assert ppo_minibatches_for_envs(2048) == 8
     assert ppo_minibatches_for_envs(4096) == 16
     assert 2048*32//8 == 4096*32//16
+
+
+def test_reference_assignment_velocity_and_settling():
+    import jax
+    import jax.numpy as jnp
+    from emu.live_skill_reference import (reference_assignment, reference_velocity,
+        reference_progress, REFERENCE_KICKS_MPS, SETTLE_FRAMES)
+    n=4096
+    keys=jax.random.split(jax.random.PRNGKey(771),n)
+    role=jnp.arange(n)%2==0
+    athletic=jnp.arange(n)%7==0
+    active=jnp.ones(n,dtype=bool)
+    ids=jax.jit(lambda k: reference_assignment(jax,jnp,k,role,active,athletic,1.,.30))(keys)
+    ids=np.asarray(ids)
+    assert set(ids)==set(range(-1,6))
+    assert not np.any((ids>=0)&(~np.asarray(role)|np.asarray(athletic)))
+    assert np.all(np.asarray(reference_assignment(jax,jnp,keys,role,active,athletic,.9,.30))==-1)
+    before=jnp.ones((n,12))
+    after=np.asarray(jax.jit(reference_velocity,static_argnums=0)(jnp,before,jnp.asarray(ids)))
+    mask=ids>=0
+    np.testing.assert_array_equal(after[~mask],np.asarray(before)[~mask])
+    np.testing.assert_allclose(after[mask,0]-.16,np.asarray(REFERENCE_KICKS_MPS)[ids[mask]],atol=1e-6)
+    assert np.all(after[mask,1:6]==0)
+    metrics=dict(vx=jnp.full(n,.16),vy=jnp.zeros(n),yaw_rate=jnp.zeros(n),
+                 structural_attitude_ok=jnp.ones(n),support=jnp.ones(n),bad_contact=jnp.zeros(n))
+    step=jax.jit(lambda s,d,m,f,t:reference_progress(jnp,jnp.asarray(ids),s,d,m,f,t))
+    s=jnp.zeros(n,dtype=jnp.int32); d=jnp.zeros(n,dtype=bool)
+    for i in range(SETTLE_FRAMES):
+        s,d=step(s,d,metrics,jnp.zeros(n,dtype=bool),.02*(i+1))
+    np.testing.assert_array_equal(np.asarray(d),mask)
+    s,d=step(jnp.zeros(n,dtype=jnp.int32),jnp.zeros(n,dtype=bool),metrics,jnp.ones(n,dtype=bool),.02)
+    assert not np.asarray(s).any() and not np.asarray(d).any()
+    s,d=step(jnp.full(n,24),jnp.zeros(n,dtype=bool),metrics,jnp.zeros(n,dtype=bool),3.02)
+    assert not np.asarray(d).any()
+
+
+def test_reference_ledger_requires_repeated_disjoint_evidence():
+    from emu.live_skill_ledger import Block, assess_reference
+    good=Block(100,95)
+    bad=Block(100,60)
+    assert assess_reference([good])["status"]=="developing"
+    assert assess_reference([good,good])["status"]=="mastered_reference"
+    assert assess_reference([good,good,bad])["status"]=="regression_watch"
+    assert assess_reference([good,good,bad,bad])["status"]=="repair_advised"
+    assert assess_reference([good,good,bad,good])["status"]=="retained"
+    assert assess_reference([good,good,Block(2,0)])["status"]=="insufficient_evidence"
+    assert assess_reference([good,Block(2,2),good])["anchor"] is None
+    with pytest.raises(ValueError):
+        Block(5,6)
