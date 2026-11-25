@@ -62,6 +62,8 @@ class LiveSkillObserver:
         self.updates = 0
         self.epoch = 0
         self.host_seconds = 0.
+        self.reference_frames=np.zeros(12,dtype=np.int64)
+        self.world_frames=0
 
     def _add(self, key, attempts, passes):
         n, k = int(attempts), int(passes)
@@ -107,6 +109,7 @@ class LiveSkillObserver:
         done = np.asarray(metrics["episode_done"]) > .5
         if done.ndim != 2 or done.shape[1] != self.header["worlds"]:
             raise ValueError("Wrong live rollout shape")
+        self.world_frames+=done.size
         # Gather only terminal rows, once per metric. Reuse one flat index.
         ids = np.flatnonzero(done.ravel())
         cache = {}
@@ -126,10 +129,17 @@ class LiveSkillObserver:
         # Separate fixed, signed, flat reference tasks from changing ordinary
         # recovery severity. No survival-only verdict can count as settling.
         if 'skill_reference_id' in metrics:
+            assigned=np.asarray(metrics['skill_reference_id'])
+            if assigned.shape!=done.shape or np.any((assigned<-1)|(assigned>=12)):
+                raise ValueError('Unknown reference task or rollout shape')
+            # Exposure is measured in actual PPO frames, NOT attempts or
+            # nominal birth probability. Short trials change occupancy.
+            self.reference_frames+=np.bincount(assigned[assigned>=0].astype(np.int64),minlength=12)
             reference=terminal('skill_reference_id').astype(int)
             take=reference>=0
-            if np.any(reference[take]>=12):
-                raise ValueError('Unknown reference task')
+            lengths=terminal('episode_length')[take]
+            if np.any((lengths<1)|(lengths>150)) or np.any(survived[take] & (lengths!=150)):
+                raise ValueError('Wrong reference first-life horizon')
             vx=terminal('skill_birth_vx_error')
             vy=terminal('skill_birth_vy_error')
             from .live_skill_reference import REFERENCE_KICKS_MPS
@@ -187,6 +197,9 @@ class LiveSkillObserver:
         row = dict(self.header, start_step=self.start, end_step=self.last,
                    policy_epoch=self.epoch, updates=self.updates, reason=reason,
                    host_aggregation_seconds=self.host_seconds,
+                   world_frames=int(self.world_frames),
+                   reference_frames_by_case=self.reference_frames[:6].tolist(),
+                   practice_frames_by_case=self.reference_frames[6:].tolist(),
                    cells={key: {"attempts": n, "passes": k}
                           for key, (n, k) in sorted(self.counts.items())})
         with self.path.open("a", encoding="utf-8") as f:
@@ -196,6 +209,8 @@ class LiveSkillObserver:
         self.counts.clear()
         self.updates = 0
         self.host_seconds = 0.
+        self.reference_frames.fill(0)
+        self.world_frames=0
         return row
 
     def rollback(self):
