@@ -134,6 +134,7 @@ class LiveSkillObserver:
         # Separate fixed, signed, flat reference tasks from changing ordinary
         # recovery severity. No survival-only verdict can count as settling.
         teacher_counts=[[0,0] for _ in range(6)]
+        self.last_uphill_counts=[[0]*6 for _ in range(6)]
         if 'skill_reference_id' in metrics:
             assigned=np.asarray(metrics['skill_reference_id'])
             if assigned.shape!=done.shape or np.any((assigned<-1)|(assigned>=12)):
@@ -194,6 +195,14 @@ class LiveSkillObserver:
                         self._binned(prefix+'/'+gate,ids[cohort]%6,(terminal('skill_stair_'+gate)>.5)[cohort])
                     self._binned(prefix+'/mission',ids[cohort]%6,(survived & (terminal('skill_stair_traversed')>.5))[cohort])
                     self._binned(prefix+'/survived',ids[cohort]%6,survived[cohort])
+            reference=fixed & (ids<6)
+            for case in range(6):
+                take=reference & (ids==case)
+                if take.any():
+                    self.last_uphill_counts[case]=[int(take.sum())]+[
+                        int((take & (terminal('skill_stair_'+gate)>.5)).sum())
+                        for gate in ('first_contact','first_support','each_foot_five','traversed')]+[
+                        int((take & survived & (terminal('skill_stair_traversed')>.5)).sum())]
             academy=academy & ~fixed
         for sign, direction in ((1, "up"), (-1, "down")):
             take = academy & (sign * lip > 1.5) & np.isfinite(lip)
