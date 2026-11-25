@@ -43,6 +43,7 @@ from .domain_randomization import DomainRandomizationConfig, doctrine_dict as do
 from .capability_field import CapabilityField, RECOVERY_BINS, EDGE_DIRS
 from .live_skill_observer import LiveSkillObserver
 from .live_skill_teacher import UNIFORM, RecoveryTeacher
+from .live_skill_uphill_teacher import UphillTeacher
 from .contracts import ACTION_DIM, OBS_SCHEMA_TERRAIN, TERRAIN_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
     TrainingConfig, doctrine_dict, training_sensor_contract, ppo_minibatches_for_envs,
@@ -162,6 +163,7 @@ def env_kwargs_from_args(args) -> dict:
         skill_uphill_reference_share=args.skill_uphill_reference_share,
         skill_uphill_practice_share=args.skill_uphill_practice_share,
         skill_uphill_stage=args.skill_uphill_stage,
+        skill_adaptive_uphill=args.skill_adaptive_uphill,
         science_gate_mode=args.science_gate_mode,
         science_phase_lowcmd_scale=args.science_phase_lowcmd_scale,
         science_phase_sync_strength=args.science_phase_sync_strength,
@@ -492,16 +494,25 @@ def train(args: TrainingConfig) -> int:
             raise RuntimeError(f"--resume capability-field restore failed: {exc}") from exc
 
     teacher=RecoveryTeacher() if args.skill_adaptive_recovery else None
+    uphill_teacher=UphillTeacher() if args.skill_adaptive_uphill else None
     same_run_resume=bool(args.resume and (args.resume=='auto' or
         Path(args.resume).resolve().parent==(run_dir/'checkpoints').resolve()))
     if teacher is not None and same_run_resume and resumed_payload is not None:
         teacher=RecoveryTeacher.from_state_dict(parent_meta.get('live_recovery_teacher'),resumed_step)
+    if uphill_teacher is not None and same_run_resume and resumed_payload is not None:
+        uphill_teacher=UphillTeacher.from_state_dict(parent_meta.get('live_uphill_teacher'),resumed_step)
     def teacher_meta(step):
-        return ({'live_recovery_teacher':teacher.state_dict(step)} if teacher is not None else {})
+        out={}
+        if teacher is not None: out['live_recovery_teacher']=teacher.state_dict(step)
+        if uphill_teacher is not None: out['live_uphill_teacher']=uphill_teacher.state_dict(step)
+        return out
+    def restore_teachers(m):
+        return (RecoveryTeacher.from_state_dict(m.get('live_recovery_teacher'),m['step']) if teacher is not None else None,
+                UphillTeacher.from_state_dict(m.get('live_uphill_teacher'),m['step']) if uphill_teacher is not None else None)
 
     def params_with_field(
         step: int, *, teaching_field: CapabilityField | None = None,
-        teaching_teacher: RecoveryTeacher | None = None,
+        teaching_teacher=None,
     ) -> dict[str, Any]:
         """Build the next lesson for the live OR restored capability field."""
         d = governor.params_dict()
@@ -588,9 +599,13 @@ def train(args: TrainingConfig) -> int:
             node_count=FIELD_NODE_ANCHORS, edge_count=FIELD_EDGE_ANCHORS)
         d.update(packet)
         if args.skill_practice_recovery_share>0.:
-            active_teacher=teacher if teaching_teacher is None else teaching_teacher
+            active_teacher=teacher if teaching_teacher is None else teaching_teacher[0]
             for i,weight in enumerate(active_teacher.weights if active_teacher is not None else UNIFORM):
                 d[f'skill_practice_weight_{i}']=float(weight)
+        if uphill_teacher is not None:
+            active_uphill=uphill_teacher if teaching_teacher is None else teaching_teacher[1]
+            for name,values in (('weight',active_uphill.weights),('stage',active_uphill.stage),('bonus',active_uphill.bonus)):
+                for i,value in enumerate(values): d[f'skill_uphill_{name}_{i}']=float(value)
         return d
 
     # --- Initial policy, normalizer and first genuine PPO update ------------
@@ -739,6 +754,12 @@ def train(args: TrainingConfig) -> int:
             if plan is not None:
                 import json
                 with (run_dir/'live_skills'/('teacher-'+observer.path.name)).open('a',encoding='utf-8') as f:
+                    f.write(json.dumps(dict(step=step,policy_epoch=observer.epoch,**plan),allow_nan=False)+'\n')
+        if uphill_teacher is not None:
+            plan=uphill_teacher.observe(observer.last_uphill_counts,args.envs*ROLLOUT_STEPS)
+            if plan is not None:
+                import json
+                with (run_dir/'live_skills'/('uphill-teacher-'+observer.path.name)).open('a',encoding='utf-8') as f:
                     f.write(json.dumps(dict(step=step,policy_epoch=observer.epoch,**plan),allow_nan=False)+'\n')
     event_sink = observer.field_events if observer is not None else None
     log_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(LOG_EVERY_UPDATES))
@@ -897,13 +918,12 @@ def train(args: TrainingConfig) -> int:
                 task_params_for_field=lambda new_field,new_teacher=None: params_with_field(
                     total_steps, teaching_field=new_field,teaching_teacher=new_teacher),
                 log_prefix=LOG_PREFIX,expected_refresher_pin=refresher_pin,
-                restore_teacher=(lambda m:RecoveryTeacher.from_state_dict(
-                    m.get('live_recovery_teacher'),m['step'])) if teacher is not None else None)
+                restore_teacher=restore_teachers if teacher is not None or uphill_teacher is not None else None)
             if restored is not None:
                 if observer is not None:
                     observer.rollback()
-                if teacher is not None:
-                    teacher=restored.teacher
+                if teacher is not None or uphill_teacher is not None:
+                    teacher,uphill_teacher=restored.teacher
                 rollback_count += 1
                 print(f'{LOG_PREFIX} rollback_count={rollback_count} '
                       f'at step={total_steps:,} (step clock is NOT rewound)',
