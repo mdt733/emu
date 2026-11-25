@@ -224,7 +224,7 @@ class EnvState(NamedTuple):
     academy_active: Any
     cross_stair_birth: Any  # teacher-only cohort; not actor data
     clean_refresher_birth: Any  # immutable teacher-only episode assignment
-    skill_reference_id: Any  # -1 ordinary; 0..5 signed flat recovery references
+    skill_reference_id: Any  # -1 ordinary; 0..5 reference; 6..11 practice
     skill_birth_vx_error: Any  # actual free-joint vx minus birth command, including carryover
     skill_birth_vy_error: Any
     skill_reference_streak: Any
@@ -1032,6 +1032,7 @@ class EmuMJXEnv(TaskSampler):
                  temporal_vx_reward_share: float = 0.0,
                  stillness_birth_frac: float = 0.0,
                  skill_reference_recovery_share: float = 0.0,
+                 skill_practice_recovery_share: float = 0.0,
                  science_gate_mode: str = "legacy",
                  science_phase_lowcmd_scale: float = 1.0,
                  science_phase_sync_strength: float = 1.0,
@@ -1114,6 +1115,12 @@ class EmuMJXEnv(TaskSampler):
                 (skill_reference_recovery_share and self.exam_fixture_steps is not None)):
             raise ValueError('Invalid live reference recovery share or exam overlap')
         self.skill_reference_recovery_share = float(skill_reference_recovery_share)
+        if (not np.isfinite(skill_practice_recovery_share) or
+                not 0. <= skill_practice_recovery_share <= .15 or
+                skill_reference_recovery_share+skill_practice_recovery_share>.30+1e-7 or
+                (skill_practice_recovery_share and not skill_reference_recovery_share)):
+            raise ValueError('Invalid bounded recovery practice share')
+        self.skill_practice_recovery_share=float(skill_practice_recovery_share)
         if science_gate_mode not in ("legacy","zero-only","off"):
             raise ValueError("Invalid v5051 gate mode")
         limits=dict(science_phase_lowcmd_scale=(0.,1.),
@@ -1593,6 +1600,11 @@ class EmuMJXEnv(TaskSampler):
                     not np.isclose(focus_weights.sum(),1.,atol=1e-6) or
                     np.dot(focus_weights,clean)>.05+1e-6):
                 raise ValueError('Clean refresher requires mature non-exam allocation within 5% budget')
+        practice=slope[25:31]
+        if (not np.isfinite(practice).all() or np.any(practice<0.) or
+                (self.skill_practice_recovery_share>0. and not np.isclose(practice.sum(),1.,atol=1e-6)) or
+                (self.skill_practice_recovery_share==0. and np.any(practice!=0.))):
+            raise ValueError('Invalid recovery practice distribution')
         if not np.all(np.isfinite(slope[~np.isnan(slope)])):
             raise ValueError('invalid physical terrain override')
         packed=np.concatenate((packed,slope))
@@ -3111,7 +3123,8 @@ class EmuMJXEnv(TaskSampler):
         from .live_skill_reference import reference_assignment, reference_task, reference_velocity
         reference_id=reference_assignment(jax,jnp,keys,focus_id==RESILIENCE,
             specialist_active,task[:,T.athletic_rehearsal],params[P.specialist_mix],
-            self.skill_reference_recovery_share)
+            self.skill_reference_recovery_share,self.skill_practice_recovery_share,
+            params[P.skill_practice_weight_0:P.skill_practice_weight_5+1])
         if self.skill_reference_recovery_share>0.:
             task=reference_task(jnp,task,T,reference_id,self.vx_hi_max,self.phase_speed_gain)
         data = self._birth_physics(
