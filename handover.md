@@ -11,7 +11,7 @@ Repository: [mdt733/emu](https://github.com/mdt733/emu).
 Active research branch: `research/ks150-live-skill-school-v1`,
 [draft PR #106](https://github.com/mdt733/emu/pull/106), based on PR #105.
 The most recent implementation commit at this handover is
-`ea7cd66287a6d2f9bef097b2d8774832963d116c`; later documentation commits
+`298ba8f5961edfa40e6f15740336bd5a3c29096e`; later documentation commits
 may follow. Keep work on this branch. No merge, champion replacement,
 Pages publication or hardware qualification without explicit owner approval.
 [Previous handover (23 Nov)](https://github.com/mdt733/emu/blob/372bb57bc59ab7ca4bcfb0f99d4460ff23d3c646/handover.md)
@@ -167,7 +167,7 @@ milestone, practice only, never failure frame. CLI flags
 `--skill-uphill-reference-share .15 --skill-uphill-practice-share .15
 --skill-uphill-stage none`.
 
-**Newest implementation, NOT YET VALIDATED (ea7cd662):**
+**Adaptive uphill implementation (isolated CPU validation passed; GPU pending):**
 `--skill-adaptive-uphill` selects per-height practice stage and bonus
 from unchanged reference evidence. Six cases, separate practice draw,
 teacher packet appends six weights + six stage IDs + six bonuses.
@@ -179,64 +179,55 @@ on two blocks fades reward 4→3→2→1→0; fresh disjoint pairs required for
 each fade. Two teacher states are saved/restored in the same learner
 checkpoint. This is an initial hypothesis; not proof of mastery.
 No contact deficit or post-traversal survival bonus is automatically
-selected. Potential stalled-stage handling, acquisition scheduling,
-and retention after bonus removal still need explicit design/validation.
+selected. Three disjoint block pairs without a 5pp improvement pause
+credit; one fresh pair clears cooldown, another fresh pair can restart.
+Teacher schema v2. Uniform/adaptive use the same initial RNG stream.
+Post-fade retention and actual physical learning still need validation.
 
 ## Exact point to continue
 
-The latest user interruption requested this handover **while the new
-adaptive uphill integration was being written**. Do not say this slice is
-tested or campaign-ready. All eight integration edits above were committed;
-next work is validation and finishing, not a new speculative feature.
+The adaptive uphill modules have now passed isolated CPU/JAX tests,
+and a matched pilot is registered. Full GPU and trainer integration
+are still unexecuted. Continue here:
 
-1. Re-read current `emu/live_skill_uphill_teacher.py` and trainer,
-   observer, packet, environment and checkpoint integrations. Check actual
-   keys, signatures, shape compatibility, stage/bonus bounds, reference
-   ID/geometry preservation, and restore of both teachers. The latest
-   new module and integration have NOT been executed in this turn.
-2. Add focused synthetic CPU tests: repeated gate loss selects correct
-   height and prerequisite; low contact/no trials do not create bonus;
-   four separate fresh block-pair fades; zero bonus preserved in reference
-   and ordinary cohorts; per-birth latch survives teacher changes;
-   weights and cohorts invariant; checkpoint serialization/replay and
-   rollback of both teachers; malformed packets rejected. Consider
-   bounded escape/reassessment for a stage stuck forever at low success.
-   Check mastery flags on regression and ensure stale blocks cannot
-   trigger repeated action. Compare actual delivered frame exposure.
-3. Review the actual mature 4096 GPU smoke (including adaptive packet)
-   and fix integration blockers before offering a launch. Existing
-   `scripts/live_skill_smoke.py` cold 2-update test cannot exercise mature
-   references. Existing active recovery smoke uses 5 updates; existing
-   uphill smoke is static bilateral and docs say 8 updates, which is
-   only 256 frames (<350). Require surviving complete first-life
-   episodes and nonzero reference/practice counts; use at least 12
-   updates or a bounded sufficient horizon. Check `TILE_M` import,
-   config cap argument names and reset paths rather than assuming they
-   work. Verify trainer's fixed-eval snapshots and recovery snapshot
-   timing (teacher before evaluated rollout versus post-PPO learner),
-   existing checkpoint schema/ancestor guards, and old parameter-shape
-   assumptions. Run host tests as useful watchdog, not a CI-only project.
-4. Build one efficient matched experiment runner using authenticated
-   full parent checkpoints, not .emupolicy. Prefer A or B parent
-   checkpoints for initial forks to avoid C's pinned refresher guard;
-   if using C110, deliberately resolve historical pin compatibility
-   without bypassing provenance. Parent location/availability must be
-   verified locally. Use same parent/seed/config and equal world-step
-   budget across uniform/adaptive or no-bonus/prerequisite arms;
-   start with ~5M additional steps per arm (explicit round to
-   131072 boundary). Preserve original Academy and generalist practice.
-   Holdout at start/end only, live observer in between. Include exact
-   source/config/model/parent SHA, per-case physical counts, policy
-   decisions, actual frame exposure and final independent exam raw data
-   in results ZIP; no large checkpoint binaries in ZIP. Source-lock,
-   resume and unattended lifecycle matter. Distinguish training evidence
-   from held-out frozen actor exams, and multiple worlds from independent
-   learner seeds. No automatic promotion.
-5. After evidence, precision/stop/settling references and retention
-   experiments. Assess whether position information is observable with
-   current sensors before adding station-keeping reward. Avoid rewarding
-   immobility at expense of normal gait. Do not overbuild before actual
-   GPU learning data.
+1. Read the latest phase 5 in
+   `research/KS150_LIVE_SKILL_SCHOOL_V1.md` and the new
+   `scripts/live_skill_pilot_plan.py`. Build the unattended pilot
+   runner, not more speculative teacher features. Verify full parent
+   bytes locally: A9501/A9502 frozen **120M** stage in the A/B/C
+   evidence tree; exact hashes are in the registration module.
+   The 140M final age is off the 4096-world boundary by 65536 steps;
+   120061952 is aligned. Use an immutable staged parent checkpoint
+   under checkpoints/ with its matching training_config.json;
+   don't mutate A/B/C. Existing CLI requires explicit ancestor
+   source+checkpoint SHA. Checkpoint source, sensor, model, optimizer
+   and resume/final boundary checks remain strict.
+2. U uniform both, R adaptive recovery only, H adaptive uphill only;
+   matched triplets from both parents, same seed per triplet. 40
+   PPO updates per arm, 5242880 extra steps each, target 125304832,
+   total 31457280. All arms have both .15/.15 conditional reference
+   and practice budgets; no routine independent exams. Start/end
+   frozen exams only, using fresh registered seeds and comparable
+   physical mission counts. Report actual frame exposure, task
+   counts, teacher decisions, any rollback, throughput and raw
+   endpoint results. Equal birth budgets do not imply equal frames.
+   This short pilot may yield few decisions or fades; do not extend
+   only the treatment arms or confuse exam trials with replications.
+3. Finish full integration review and acceptance. Active uphill GPU
+   smoke now uses adaptive packet, >=12 updates and changes weights
+   and bonus after update 6, checks exact reference isolation,
+   birth-latched rewards and completed cases. It reports survival
+   separately instead of requiring a random actor to pass. Recovery
+   active smoke >=5 updates. Cold 2-update smoke doesn't exercise
+   mature births. Check actual trainer checkpoint timing, config/
+   packet contracts, old tests and restored dual teacher states.
+   The GPU is operator-local; don't claim these acceptance commands
+   have run. Make one unattended source-pinned launch only when the
+   runner, preflight and report lifecycle are ready.
+4. Once the pilot produces evidence, consider precision/stop/settling
+   and longer retention experiments. Assess sensor observability
+   before absolute XY rewards; avoid rewarding immobility. No
+   automatic promotion.
 
 ## Validation and launch status
 
@@ -244,9 +235,11 @@ Historical isolated host tests reported passing: observer counts, recovery
 selection/velocity/settling, checkpoint teacher replay, first-lip gates,
 fixed uphill assignment and static once-only credit. These were synthetic
 NumPy/JAX tests, not end-to-end MJX. Prior chat reported 323 reference and
-320 practice births for a 4096-world synthetic uphill assignment. The new
-adaptive uphill code has **no new test result yet**. No real GPU run of
-PR #106 is known. No new large campaign is authorized by this handover.
+320 practice births for a 4096-world synthetic uphill assignment. New adaptive uphill validation (hash-matched exact modules):
+four fades 4→3→2→1→0, restoration and rollback snapshot, stall/cooldown,
+no-contact guard, 291 fixed and 339 practice cohort assignments preserved;
+28mm practice 55→203, one-time credit, exact initial uniform/adaptive
+4096-element assignment match. No real GPU run of PR #106 is known. No new large campaign is authorized by this handover.
 The operator's machine previously supported 4096 worlds; no sustained
 throughput measurement on this new code is available. The latest full CI
 status is not asserted.
@@ -265,7 +258,8 @@ only after the actual runner and relevant preflight are reviewed.
 on mdt733/emu branch research/ks150-live-skill-school-v1 (PR #106),
 then research/KS150_LIVE_SKILL_SCHOOL_V1.md and current source. Resume
 at the exact next-work section; don't restart the design or change main.
-The newest adaptive uphill slice needs validation. Focus on efficient
+The adaptive uphill CPU tests passed; build the matched pilot runner and
+validate physical GPU integration. Focus on efficient
 4096-world live education and one unattended matched experiment."
 
 Update this file at meaningful completion points so a fresh chat can
