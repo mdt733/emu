@@ -224,6 +224,11 @@ class EnvState(NamedTuple):
     academy_active: Any
     cross_stair_birth: Any  # teacher-only cohort; not actor data
     clean_refresher_birth: Any  # immutable teacher-only episode assignment
+    skill_reference_id: Any  # -1 ordinary; 0..5 signed flat recovery references
+    skill_birth_vx_error: Any  # actual free-joint vx minus birth command, including carryover
+    skill_birth_vy_error: Any
+    skill_reference_streak: Any
+    skill_reference_settled: Any
     academy_lip_index: Any
     academy_streak: Any
     academy_crossings: Any
@@ -1026,6 +1031,7 @@ class EmuMJXEnv(TaskSampler):
                  terrain_lesson: str = 'mixed',
                  temporal_vx_reward_share: float = 0.0,
                  stillness_birth_frac: float = 0.0,
+                 skill_reference_recovery_share: float = 0.0,
                  science_gate_mode: str = "legacy",
                  science_phase_lowcmd_scale: float = 1.0,
                  science_phase_sync_strength: float = 1.0,
@@ -1103,6 +1109,11 @@ class EmuMJXEnv(TaskSampler):
         if not np.isfinite(stillness_birth_frac) or not 0. <= stillness_birth_frac <= .25:
             raise ValueError("stillness_birth_frac must be in [0,0.25]")
         self.stillness_birth_frac = float(stillness_birth_frac)
+        if (not np.isfinite(skill_reference_recovery_share) or
+                not 0. <= skill_reference_recovery_share <= .30 or
+                (skill_reference_recovery_share and self.exam_fixture_steps is not None)):
+            raise ValueError('Invalid live reference recovery share or exam overlap')
+        self.skill_reference_recovery_share = float(skill_reference_recovery_share)
         if science_gate_mode not in ("legacy","zero-only","off"):
             raise ValueError("Invalid v5051 gate mode")
         limits=dict(science_phase_lowcmd_scale=(0.,1.),
@@ -1629,7 +1640,9 @@ class EmuMJXEnv(TaskSampler):
         env_key, stagger_key = jax.random.split(key)
         state = self._reset_with_keys(jax.random.split(env_key, self.num_envs), params)
         step_i = jax.random.randint(stagger_key, (self.num_envs,), 0, self.max_episode_steps, dtype=jnp.int32)
-        return state._replace(step_i=step_i)
+        # Reference tasks get their complete physical time budget even at
+        # process birth; ordinary timeout staggering is unchanged.
+        return state._replace(step_i=jnp.where(state.skill_reference_id>=0,0,step_i))
 
     def _step_impl(self, state: EnvState, action, params) -> StepOut:
         """Advance a control frame and publish a truthful PPO transition.
@@ -1944,7 +1957,13 @@ class EmuMJXEnv(TaskSampler):
                 return jnp.where(mask, reset_val, step_val)
             return step_val
 
+        from .live_skill_reference import reference_progress
+        ref_streak,ref_settled=reference_progress(jnp,state.skill_reference_id,
+            state.skill_reference_streak,state.skill_reference_settled,metrics,terminal_fail,
+            (state.ep_len+1.)*CONTROL_DT)
         stepped = state._replace(
+            skill_reference_streak=ref_streak,
+            skill_reference_settled=ref_settled,
             data=data,
             hist=hist,
             rng=physics.next_keys,
@@ -2337,6 +2356,10 @@ class EmuMJXEnv(TaskSampler):
                 self._rotation_body_to_world(data)[:,0,0]),
             'academy_goal_sequential_feet_ready':(
                 stepped.academy_goal_transfer_ready).astype(jnp.float32),
+            'skill_reference_id':state.skill_reference_id,
+            'skill_birth_vx_error':state.skill_birth_vx_error,
+            'skill_birth_vy_error':state.skill_birth_vy_error,
+            'skill_reference_settled':(done & stepped.skill_reference_settled).astype(jnp.float32),
             'skill_first_birth_lip_m':state.academy_birth_lip_m,
             'skill_first_goal_completed':(done & state.academy_active &
                 stepped.academy_goal_completed).astype(jnp.float32),
@@ -2449,7 +2472,7 @@ class EmuMJXEnv(TaskSampler):
                                       jnp.logical_and(state.ep_len >= 5.0, state.ep_len < 6.0))
         random_start = jnp.logical_and(jnp.logical_not(push_active),
                                        push_roll < (PUSH_PROB_PER_STEP * resilience_frac))
-        should_start = jnp.where(probe_enabled, probe_start, random_start)
+        should_start = jnp.where(probe_enabled, probe_start, random_start) & (state.skill_reference_id<0)
         random_push_angle = jax.vmap(lambda k: jax.random.uniform(k, (), minval=0.0, maxval=2.0 * jnp.pi))(angle_key)
         probe_push_angle = (2.0 * jnp.pi / 8.0) * jnp.mod(self.env_index.astype(jnp.int32), 8).astype(jnp.float32)
         push_angle = jnp.where(probe_enabled, probe_push_angle, random_push_angle)
@@ -2833,7 +2856,7 @@ class EmuMJXEnv(TaskSampler):
         return model
 
     def _carpet_birth(self,data,keys,params,focus_id,specialist_active,
-                      task,birth_root_z,academy_active):
+                      task,birth_root_z,academy_active,reference_id=None):
         """The same four real triangle-pair tiles for ALL six roles.
 
         A foundation episode has zero terrain difficulty. Every specialist
@@ -2886,6 +2909,11 @@ class EmuMJXEnv(TaskSampler):
                 jnp,seeds,
                 jnp.floor(data.qpos[:,0]/CARPET_TILE_M).astype(jnp.int32),
                 academy,up,down)
+        if reference_id is not None:
+            reference=reference_id>=0
+            slope,up,down=(jnp.where(reference,0.,x) for x in (slope,up,down))
+            cross_stair_birth=cross_stair_birth & ~reference
+            clean_birth=clean_birth & ~reference
         xprof,yprof=carpet_make_profiles(jnp,seeds,up,down)
         if self.exam_fixture_steps is not None:
             # No sampled ±X sign, jitter or extra lip. Exact 1m seam,
@@ -3073,12 +3101,18 @@ class EmuMJXEnv(TaskSampler):
             task=task.at[:,T.regime].set(jnp.where(still,0.,task[:,T.regime]))
             focus_id=jnp.where(still,CONTROL,focus_id)
             specialist_active=jnp.where(still,False,specialist_active)
+        from .live_skill_reference import reference_assignment, reference_task, reference_velocity
+        reference_id=reference_assignment(jax,jnp,keys,focus_id==RESILIENCE,
+            specialist_active,task[:,T.athletic_rehearsal],params[P.specialist_mix],
+            self.skill_reference_recovery_share)
+        task=reference_task(jnp,task,T,reference_id,self.vx_hi_max,self.phase_speed_gain)
         data = self._birth_physics(
             data, task, params,
             (noise_keys, vnoise_keys, tilt_keys, pos_keys, angvel_keys,
              linvel_keys, joint_keys, carry_keys),
             carryover_qvel,
         )
+        data=data.replace(qvel=reference_velocity(jnp,data.qvel,reference_id))
         if self.exam_fixture_steps is not None:
             # Every frozen trial begins 22cm before the first real seam,
             # centred in Y. Kicks are velocity initial conditions, not
@@ -3106,7 +3140,7 @@ class EmuMJXEnv(TaskSampler):
         birth_root_z=data.qpos[:,2]
         data,carpet=self._carpet_birth(
             data,keys,params,focus_id,specialist_active,task,
-            birth_root_z,academy_active)
+            birth_root_z,academy_active,reference_id)
         ctrl = data.ctrl
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(ctrl=ctrl)
@@ -3179,6 +3213,11 @@ class EmuMJXEnv(TaskSampler):
             academy_active=academy_active,
             cross_stair_birth=carpet['cross_stair_birth'],
             clean_refresher_birth=carpet['clean_refresher_birth'],
+            skill_reference_id=reference_id,
+            skill_birth_vx_error=data.qvel[:,0]-task[:,T.vx],
+            skill_birth_vy_error=data.qvel[:,1]-task[:,T.vy],
+            skill_reference_streak=izeros,
+            skill_reference_settled=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_lip_index=izeros,
             academy_streak=izeros,
             academy_crossings=izeros,
