@@ -2444,6 +2444,7 @@ class EmuMJXEnv(TaskSampler):
             **({
                 'skill_stair_approach':(done & stepped.skill_stair_approach_seen).astype(jnp.float32),
                 'skill_stair_first_contact':(done & stepped.skill_stair_contact_seen).astype(jnp.float32),
+                'skill_stair_first_support':(done & jnp.any(stepped.skill_stair_feet_seen,axis=1)).astype(jnp.float32),
                 'skill_stair_each_foot_five':(done & jnp.all(stepped.skill_stair_feet_seen,axis=1)).astype(jnp.float32),
                 'skill_stair_traversed':(done & stepped.skill_stair_traversed).astype(jnp.float32),
             } if self.live_skill_observer else {}),
