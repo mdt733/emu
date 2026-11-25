@@ -13,15 +13,20 @@ UP_SENSOR_SCALE=1.
 UP_STAGE_NAMES=("none","first_support","bilateral","traversal")
 
 
-def uphill_assignment(jax,xp,keys,academy,mix,reference_share,practice_share):
+def uphill_assignment(jax,xp,keys,academy,mix,reference_share,practice_share,weights=None):
     if reference_share<=0. and practice_share<=0.:
         return xp.full(academy.shape,-1,dtype=xp.int32)
     draw=jax.vmap(lambda k:jax.random.uniform(jax.random.fold_in(k,50611),()))(keys)
     case=jax.vmap(lambda k:jax.random.randint(jax.random.fold_in(k,50612),(),0,6))(keys)
+    practice_case=case
+    if weights is not None:
+        logits=xp.log(xp.maximum(weights,1e-30))
+        practice_case=jax.vmap(lambda k:jax.random.categorical(
+            jax.random.fold_in(k,50613),logits))(keys)
     eligible=academy & (mix>=.999999)
     return xp.where(eligible & (draw<reference_share),case,
         xp.where(eligible & (draw>=reference_share) &
-                 (draw<reference_share+practice_share),6+case,-1)).astype(xp.int32)
+                 (draw<reference_share+practice_share),6+practice_case,-1)).astype(xp.int32)
 
 
 def assigned_height(xp,ids):
@@ -61,3 +66,18 @@ def prerequisite_payment(xp,ids,stage,previous_feet,next_feet,previous_traversed
     else:
         raise ValueError("Unknown uphill prerequisite stage")
     return 4.*(new & (ids>=6) & ~failed).astype(xp.float32)
+
+
+def birth_credit(xp,ids,stages,bonuses):
+    case=xp.mod(xp.maximum(ids,0),6)
+    return (xp.where(ids>=6,stages[case],0).astype(xp.int32),
+            xp.where(ids>=6,bonuses[case],0.))
+
+
+def assigned_prerequisite_payment(xp,ids,stage,bonus,previous_feet,next_feet,
+                                 previous_traversed,next_traversed,failed):
+    before=xp.sum(previous_feet,axis=1); after=xp.sum(next_feet,axis=1)
+    new=((stage==1)&(before==0)&(after>=1)) | (
+         (stage==2)&(before<2)&(after==2)) | (
+         (stage==3)&next_traversed&~previous_traversed)
+    return xp.where(new & (ids>=6) & ~failed,bonus,0.)
