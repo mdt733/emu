@@ -258,3 +258,59 @@ verify completed surviving episodes before research launch. The next
 slice is the bounded checkpoint-owned stair stage/difficulty allocator
 and a matched uniform-versus-prerequisite experiment. No champion
 promotion or large-run launch is authorized.
+
+
+## Phase 5 — adaptive uphill teacher and matched pilot registration
+
+The new `--skill-adaptive-uphill` flag enables per-height prerequisite
+selection, a gradually adjusted practice distribution, and birth-latched
+extra credit (0–4 units). Uniform and adaptive arms now share the exact
+same initial practice RNG stream. References remain independent, uniform,
+and unshaped throughout. Minimum 40 reference trials per disjoint block,
+two supported blocks for a diagnosis. A candidate's preceding gate must
+pass >=30%, target gate <=80%, repeated gap >=15pp. One bonus unit fades
+after each fresh pair whose target gate has Wilson lower bound >=.70.
+A stage that fails to gain at least 5pp relative to its recorded
+baseline over three disjoint pairs pauses extra credit; one additional
+fresh pair is required for cooldown and a further pair to re-diagnose.
+This does not guarantee a different successful teaching method: it may
+retry the same stage. The checkpoint-owned teacher schema is now v2
+(no deployed v1 checkpoints known). Reference mastery is descriptive;
+mastery while practice still receives credit is not proof of durable
+retention after complete removal. Preserve this distinction in reports.
+
+Isolated CPU validation executed against blob-hash-matched committed
+teacher and assignment modules: four successive fades 4→3→2→1→0;
+exact restored decision sequence; rollback snapshot; stall/cooldown;
+no spurious no-contact reward; 4096-world JAX selection preserved all
+291 reference and 339 practice cohort memberships while 28mm practice
+births moved 55→203; zero reference and duplicate credit. The latest
+uniform/adaptive RNG alignment also passed exact 4096-element equality.
+Full trainer and physical GPU integration remain unexecuted.
+
+Active uphill smoke now requires at least 12 PPO updates (384 frames)
+and uses the adaptive packet, with a weight/bonus change at update 6.
+It checks real reference geometry and observations, birth-latched
+reward isolation and completed trials for every case in both cohorts.
+Survival counts are printed separately: a random actor need not pass a
+physical mission for integration acceptance. Replace the older 8-update
+command with `--live-uphill-smoke --benchmark-updates 12`. Real GPU
+acceptance must still be run.
+
+Pilot registration: `scripts/live_skill_pilot_plan.py` is planning and
+parent verification only, not a launcher. Recovered exact parent hashes
+from the uploaded A/B/C final ZIP. Select A9501 and A9502 archived 120M
+parents (120,061,952 steps, aligned to 131072); the 140M checkpoints are
+65536 steps off that grid. Do not silently round the ancestor age.
+Use the 120M frozen evidence checkpoint, config and actor hashes; stage
+the full checkpoint in a new checkpoints/ directory with its original
+config, not a .emupolicy warm start. Actual local bytes must still be
+verified. U = uniform both; R = adaptive recovery only; H = adaptive
+uphill only. Identical physical recipe, both reference/practice budgets,
+same matched parent and seed within triplet. Each arm initially gets
+40 updates / 5,242,880 additional steps to 125,304,832; all six total
+31,457,280 additional steps. This is an initial feasibility/effect
+pilot, not a sufficient guarantee of many fades or independent training
+replications. If evidence is too sparse, report it; do not silently
+extend only treatment arms. Next implement source-pinned unattended
+runner and endpoint exam/report bundle; validate actual GPU lifecycle.
