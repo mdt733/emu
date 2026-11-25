@@ -36,10 +36,13 @@ class LiveSkillObserver:
         folder = Path(folder)
         folder.mkdir(parents=True, exist_ok=True)
         self.path = folder / f"segment-{int(start_step)}-{uuid.uuid4().hex}.jsonl"
-        from .live_skill_reference import REFERENCE_KICKS_MPS, REFERENCE_VX_MPS, SETTLE_DEADLINE_S, SETTLE_FRAMES
+        from .live_skill_reference import (REFERENCE_KICKS_MPS, REFERENCE_VX_MPS,
+            REFERENCE_SENSOR_SCALE, REFERENCE_STEP_COMMAND_M, SETTLE_DEADLINE_S, SETTLE_FRAMES)
         self.header = dict(schema=SCHEMA, worlds=int(worlds),
                            reference_kicks_mps=list(REFERENCE_KICKS_MPS),
                            reference_vx_mps=REFERENCE_VX_MPS,
+                           reference_sensor_scale=REFERENCE_SENSOR_SCALE,
+                           reference_step_command_m=REFERENCE_STEP_COMMAND_M,
                            reference_settle_deadline_s=SETTLE_DEADLINE_S,
                            reference_settle_frames=SETTLE_FRAMES,
                            source_commit=str(source_commit),
