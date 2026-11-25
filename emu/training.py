@@ -40,7 +40,7 @@ from .checkpoint_io import (
 )
 from .environment import EmuMJXEnv
 from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
-from .capability_field import CapabilityField
+from .capability_field import CapabilityField, RECOVERY_BINS, EDGE_DIRS
 from .live_skill_observer import LiveSkillObserver
 from .contracts import ACTION_DIM, OBS_SCHEMA_TERRAIN, TERRAIN_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
@@ -705,7 +705,9 @@ def train(args: TrainingConfig) -> int:
     stair_audit = StairCreditAudit()
     observer = (LiveSkillObserver(run_dir/'live_skills', start_step=resumed_step,
                     worlds=args.envs, field_shape=field.shape, field_bounds=field.bounds,
-                    source_commit=source_provenance_from_env().get('git_commit',''))
+                    source_commit=source_provenance_from_env().get('git_commit',''),
+                    recovery_bins=RECOVERY_BINS, edge_directions=EDGE_DIRS,
+                    field_evidence_from_taught=args.field_evidence_from_taught)
                 if args.live_skill_observer else None)
     def observe_skills(step):
         if observer is not None:
