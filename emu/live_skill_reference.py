@@ -7,6 +7,8 @@ births replace only a bounded fraction of mature RESILIENCE births.
 """
 REFERENCE_KICKS_MPS = (-.40,-.25,-.10,.10,.25,.40)
 REFERENCE_VX_MPS = .16
+REFERENCE_SENSOR_SCALE = 1.
+REFERENCE_STEP_COMMAND_M = .012
 SETTLE_DEADLINE_S = 3.
 SETTLE_FRAMES = 25  # .5 seconds continuous good physical tracking
 
@@ -32,9 +34,11 @@ def reference_assignment(jax,jnp,keys,is_resilience,active,athletic,mix,share,
 def reference_task(jnp,task,T,ids,vx_hi,phase_gain):
     from .environment import command_phase_rate
     mask=ids>=0
-    for col in (T.vy,T.yaw,T.height,T.pitch,T.roll,T.step_height,T.resilience,T.birth_resilience_d,T.field_taught):
+    for col in (T.vy,T.yaw,T.height,T.pitch,T.roll,T.resilience,T.birth_resilience_d,T.field_taught):
         task=task.at[:,col].set(jnp.where(mask,0.,task[:,col]))
     task=task.at[:,T.vx].set(jnp.where(mask,REFERENCE_VX_MPS,task[:,T.vx]))
+    task=task.at[:,T.sensor_scale].set(jnp.where(mask,REFERENCE_SENSOR_SCALE,task[:,T.sensor_scale]))
+    task=task.at[:,T.step_height].set(jnp.where(mask,REFERENCE_STEP_COMMAND_M,task[:,T.step_height]))
     task=task.at[:,T.regime].set(jnp.where(mask,2.,task[:,T.regime]))
     phase=command_phase_rate(jnp.full(ids.shape,REFERENCE_VX_MPS),jnp.zeros(ids.shape),vx_hi,phase_gain,jnp.ones(ids.shape))
     return task.at[:,T.phase_rate].set(jnp.where(mask,phase,task[:,T.phase_rate]))
