@@ -315,3 +315,74 @@ def test_first_lip_physical_gates_do_not_require_torso_crossing():
     assert not np.any(s[5])
     step(second,beyond,np.array([False,True,False,False]))
     assert s[5].tolist()==[True,False,False,False]
+
+
+def test_uphill_reference_assignment_and_once_only_credit():
+    import jax
+    import jax.numpy as jnp
+    from emu.live_skill_uphill import uphill_assignment, assigned_height, prerequisite_payment, UP_HEIGHTS_M
+    n=4096
+    keys=jax.random.split(jax.random.PRNGKey(831),n)
+    academy=jnp.arange(n)%2==0
+    assign=jax.jit(lambda r,p:uphill_assignment(jax,jnp,keys,academy,1.,r,p),
+                   static_argnums=(0,1))
+    a=np.asarray(assign(.15,0.)); b=np.asarray(assign(.15,.15))
+    np.testing.assert_array_equal(a>=0,(b>=0)&(b<6))
+    np.testing.assert_array_equal(a[a>=0],b[a>=0])
+    assert set(b)==set(range(-1,12))
+    assert not np.any((b>=0)&(~np.asarray(academy)))
+    h=np.asarray(assigned_height(jnp,jnp.asarray(b)))
+    np.testing.assert_allclose(h[b>=0],np.asarray(UP_HEIGHTS_M)[b[b>=0]%6],atol=1e-7)
+    assert np.all(h[b<0]==0.)
+    failed=jnp.arange(n)%13==0
+    zero=jnp.zeros((n,2),bool); first=zero.at[:,0].set(True); both=jnp.ones((n,2),bool)
+    no=jnp.zeros(n,bool); yes=jnp.ones(n,bool)
+    mask=(b>=6)&~np.asarray(failed)
+    for stage,old,new,old_t,new_t in (('first_support',zero,first,no,no),
+           ('bilateral',first,both,no,no),('traversal',both,both,no,yes)):
+        pay=jax.jit(lambda p,q,v,w:prerequisite_payment(jnp,jnp.asarray(b),stage,p,q,v,w,failed))
+        np.testing.assert_array_equal(np.asarray(pay(old,new,old_t,new_t)),4.*mask)
+        assert not np.asarray(pay(new,new,new_t,new_t)).any()
+
+
+def test_uphill_reference_review_repeated_gap():
+    from emu.live_skill_uphill_review import diagnose_uphill, GATES
+    def row(n,counts):
+        return {g:dict(attempts=n,passes=p) for g,p in zip(GATES,counts)}
+    blocks=[{4:row(100,[95,50,40,35])},{4:row(100,[90,45,40,34])}]
+    r=diagnose_uphill(blocks)
+    assert r['candidates'][0]['stage']=='bilateral'
+    assert r['candidates'][0]['case']==4
+    assert diagnose_uphill(blocks[:1])['status']=='insufficient_evidence'
+    assert not diagnose_uphill([{4:row(10,[9,5,4,3])}]*2)['candidates']
+    with pytest.raises(ValueError,match="Inconsistent"):
+        diagnose_uphill([{4:row(100,[10,90,50,40])}]*2)
+
+
+def test_uphill_fixed_reference_and_practice_ledger(tmp_path):
+    obs=_observer(tmp_path)
+    m=_rollout()
+    shape=m["episode_done"].shape
+    m["skill_uphill_id"]=np.full(shape,-1,np.int32)
+    m["episode_length"]=np.zeros(shape,np.float32)
+    for gate in ("approach","first_contact","first_support","each_foot_five","traversed"):
+        m["skill_stair_"+gate]=np.zeros(shape,np.float32)
+    # Noncontiguous done positions deliberately catch incorrect terminal
+    # indexing when fixed task IDs happen to be small integers.
+    cols=[44,117,3001]
+    m["skill_uphill_id"][:,cols]=[4,10,-1]
+    m["academy_active"][:,cols]=1
+    m["skill_first_birth_lip_m"][:,cols]=.028
+    m["episode_done"][-1,cols]=1
+    m["episode_length"][-1,cols]=[350,100,1200]
+    m["episode_fell"][-1,117]=1
+    for gate in ("approach","first_contact","first_support","each_foot_five","traversed"):
+        m["skill_stair_"+gate][-1,cols]=1
+    obs.observe(m,step=131072)
+    row=obs.flush(force=True)
+    assert row["uphill_reference_frames_by_case"][4]==32
+    assert row["uphill_practice_frames_by_case"][4]==32
+    assert row["cells"]["reference_uphill/mission/4"]==dict(attempts=1,passes=1)
+    assert row["cells"]["practice_uphill/mission/4"]==dict(attempts=1,passes=0)
+    assert sum(v["attempts"] for k,v in row["cells"].items()
+               if k.startswith("academy_physical_first_lip/up/traversed/"))==1
