@@ -99,7 +99,9 @@ def summarize_segment(rows):
                 row.get("reference_sensor_scale")!=1. or
                 row.get("reference_step_command_m")!=.012 or
                 row["reference_settle_deadline_s"]!=3. or
-                row["reference_settle_frames"]!=25):
+                row["reference_settle_frames"]!=25 or
+                row.get('reference_horizon_s')!=3. or
+                row.get('reference_mastery_gate')!='settled_and_survived'):
             raise ValueError("Reference contract differs")
         if last is not None and row["start_step"]!=last:
             raise ValueError("Noncontiguous or overlapping segment")
@@ -112,7 +114,7 @@ def summarize_segment(rows):
             blocks=[]
             n=k=0
             for row in windows:
-                c=row["cells"].get(f"reference_recovery/settled/{case}",
+                c=row["cells"].get(f"reference_recovery/mission/{case}",
                                    dict(attempts=0,passes=0))
                 block=Block(c["attempts"],c["passes"])
                 n+=block.attempts; k+=block.passes
