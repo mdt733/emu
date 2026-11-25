@@ -113,6 +113,22 @@ class LiveSkillObserver:
         for i, name in enumerate(FOCUS):
             sel = role == i
             self._add(f"role_survival/{name}", sel.sum(), (sel & survived).sum())
+        # Separate fixed, signed, flat reference tasks from changing ordinary
+        # recovery severity. No survival-only verdict can count as settling.
+        if 'skill_reference_id' in metrics:
+            reference=terminal('skill_reference_id').astype(int)
+            take=reference>=0
+            if np.any(reference[take]>=6):
+                raise ValueError('Unknown reference task')
+            vx=terminal('skill_birth_vx_error')
+            vy=terminal('skill_birth_vy_error')
+            from .live_skill_reference import REFERENCE_KICKS_MPS
+            expected=np.asarray(REFERENCE_KICKS_MPS)[reference[take]]
+            if not np.allclose(vx[take],expected,atol=1e-5) or not np.allclose(vy[take],0.,atol=1e-5):
+                raise ValueError('Reference physical birth velocity mismatch')
+            self._binned('reference_recovery/settled',reference[take],
+                         terminal('skill_reference_settled')[take]>.5)
+            self._binned('reference_recovery/survived',reference[take],survived[take])
         academy = terminal("academy_active") > .5
         lip = terminal("skill_first_birth_lip_m") * 1000.
         for sign, direction in ((1, "up"), (-1, "down")):
