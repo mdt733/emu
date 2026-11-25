@@ -71,6 +71,8 @@ def main():
     p.add_argument("--stair-survival-curriculum",action="store_true",
                    help="compile survival-aware full first-life Academy, its safe-cross evidence and protected ordinary births")
     p.add_argument("--full-update",action="store_true")
+    p.add_argument("--live-recovery-smoke",action="store_true",
+                   help="actual mature fixed reference and targeted practice births and PPO")
     p.add_argument("--abc-refresher-smoke",action="store_true",
                    help="matched real 2048-world clean refresher birth acceptance")
     p.add_argument("--benchmark-updates",type=int,default=1,
@@ -106,13 +108,16 @@ def main():
     if (a.solver_ls_iterations is not None and
             not 1<=a.solver_ls_iterations<=100):
         p.error("--solver-ls-iterations must be 1..100")
-    if a.full_update and (a.worlds not in (1024,2048) or not a.ppo or a.device=="cpu"):
-        p.error("--full-update requires --worlds 1024 or 2048, --device cuda --ppo")
+    if a.full_update and (a.worlds not in (1024,2048,4096) or not a.ppo or a.device=="cpu"):
+        p.error("--full-update requires --worlds 1024, 2048 or 4096, --device cuda --ppo")
     if (not 1<=a.benchmark_updates<=8 or
             (a.benchmark_updates>1 and not a.full_update)):
         p.error("--benchmark-updates must be 1..8 and >1 requires --full-update")
     if a.abc_refresher_smoke and (not a.full_update or a.worlds!=2048 or not a.stair_survival_curriculum):
         p.error("ABC smoke requires 2048-world full-update survival school")
+    if a.live_recovery_smoke and (not a.full_update or a.worlds!=4096 or
+            not a.stair_survival_curriculum or a.abc_refresher_smoke or a.benchmark_updates<5):
+        p.error("Live recovery smoke needs 4096-world full-update survival school and >=5 updates")
     if a.profile_rollout and (not a.full_update or a.benchmark_updates<3):
         p.error("--profile-rollout requires --ppo --full-update and --benchmark-updates >=3")
     if a.gpu_audit_dir and not a.profile_rollout:
@@ -168,6 +173,8 @@ def main():
         science_followthrough_bonus=7.,retention_share=.30,
         academy_course_episode_frames=1200)
         if a.stair_survival_curriculum else {})
+    if a.live_recovery_smoke:
+        school_kwargs.update(skill_reference_recovery_share=.15,skill_practice_recovery_share=.15)
     env=EmuMJXEnv(
         robot_xml_path,num_envs=a.worlds,seed=a.seed,max_episode_steps=700,
         terrain_step_max_m=(.055 if a.stair_survival_curriculum else .08),
@@ -184,6 +191,8 @@ def main():
                 academy_height_up_m=.02,academy_height_down_m=.03,
                 focus_weight_step=1.,academy_episode_probability=1.,
                 athletic_rehearsal_frac=0.)
+    if a.live_recovery_smoke:
+        params.update({f"skill_practice_weight_{i}":1./6 for i in range(6)})
     packet=env.params_array(params)
     state,obs=env.reset(params)
     if a.abc_refresher_smoke:
@@ -214,6 +223,36 @@ def main():
         assert not np.any(mask & np.asarray(clean.academy_active))
         print("ABC GPU clean births PASS:",int(mask.sum()),"of",a.worlds,flush=True)
         del old,old_obs,clean,clean_obs
+
+    if a.live_recovery_smoke:
+        from emu.live_skill_reference import REFERENCE_KICKS_MPS
+        from emu.environment import T
+        ordinary=dict(params,focus_weight_step=.50,focus_weight_resilience=.50)
+        old,old_obs=env.reset(ordinary)
+        old_ids=np.asarray(old.skill_reference_id)
+        old_obs_host=np.asarray(old_obs)
+        del old,old_obs
+        live_ppo_params=dict(ordinary,**{f"skill_practice_weight_{i}":
+                                      (7./12 if i==0 else 1./12) for i in range(6)})
+        new,new_obs=env.reset(live_ppo_params)
+        ids=np.asarray(new.skill_reference_id)
+        fixed=(ids>=0)&(ids<6); practice=ids>=6; active=ids>=0
+        assert fixed.any() and practice.any() and set(ids[fixed])==set(range(6))
+        np.testing.assert_array_equal(old_ids[fixed],ids[fixed])
+        np.testing.assert_array_equal((old_ids>=0)&(old_ids<6),fixed)
+        np.testing.assert_array_equal(old_ids>=6,practice)
+        np.testing.assert_array_equal(old_obs_host[~practice],np.asarray(new_obs)[~practice])
+        for name in ("carpet_up","carpet_down","carpet_slope","carpet_xprofile","carpet_yprofile"):
+            assert np.all(np.asarray(getattr(new,name))[active]==0.),name
+        assert not np.asarray(new.academy_active)[active].any()
+        assert not np.asarray(new.cross_stair_birth)[active].any()
+        assert np.all(np.asarray(new.step_i)[active]==0)
+        np.testing.assert_allclose(np.asarray(new.data.qvel)[active,0]-.16,
+            np.asarray(REFERENCE_KICKS_MPS)[ids[active]%6],atol=1e-5)
+        np.testing.assert_allclose(np.asarray(new.data.qvel)[active,1:6],0.,atol=1e-5)
+        np.testing.assert_allclose(np.asarray(new.task)[active,T.sensor_scale],1.,atol=1e-6)
+        print("LIVE RECOVERY GPU birth isolation PASS:",int(fixed.sum()),int(practice.sum()),flush=True)
+        del new,new_obs,old_obs_host
 
     if obs.shape!=(a.worlds,360):
         raise RuntimeError(f"Invalid 360-input contract: {obs.shape}")
@@ -345,16 +384,36 @@ def main():
         print("SURVIVAL SCHOOL physical metrics and nominal cap PASS",flush=True)
     if a.ppo:
         from emu.ppo import make_trainer
+        from emu.training_config import ppo_minibatches_for_envs
         trainer=make_trainer(env,seed=a.seed,lr=2e-4,
              rollout=32 if a.full_update else 2,
              epochs=4 if a.full_update else 1,
-             minibatches=8 if a.full_update else 1)
+             minibatches=ppo_minibatches_for_envs(a.worlds) if a.full_update else 1)
         # In ABC acceptance the genuine PPO update must include active
         # clean, shared-stair and Academy cohorts, not merely compile an
         # inactive branch after an isolated reset probe.
-        if a.abc_refresher_smoke:
-            packet=env.params_array(abc_ppo_params)
-        initial=trainer["make_initial_state"](abc_ppo_params if a.abc_refresher_smoke else params)
+        active_params=(abc_ppo_params if a.abc_refresher_smoke else
+                       live_ppo_params if a.live_recovery_smoke else params)
+        packet=env.params_array(active_params)
+        initial=trainer["make_initial_state"](active_params)
+        reference_verdicts=[0,0]
+        def check_live_metrics(metrics):
+            if not a.live_recovery_smoke:
+                return
+            keys=("skill_reference_id","episode_done","episode_fell","episode_length",
+                  "skill_birth_vx_error","skill_birth_vy_error","skill_reference_settled")
+            m={k:np.asarray(v) for k,v in jax.device_get({k:metrics[k] for k in keys}).items()}
+            ids=m["skill_reference_id"]; active=ids>=0
+            assert active.any() and ids.shape==(32,a.worlds)
+            np.testing.assert_allclose(m["skill_birth_vx_error"][active],
+                np.asarray(REFERENCE_KICKS_MPS)[ids[active].astype(int)%6],atol=1e-5)
+            np.testing.assert_allclose(m["skill_birth_vy_error"][active],0.,atol=1e-5)
+            done=active & (m["episode_done"]>.5)
+            survived=done & (m["episode_fell"]<.5)
+            assert np.all(m["episode_length"][done]<=150)
+            assert np.all(m["episode_length"][survived]==150)
+            reference_verdicts[0]+=int((done & (ids<6)).sum())
+            reference_verdicts[1]+=int((done & (ids>=6)).sum())
         initial_leaves=jax.tree_util.tree_leaves(jax.device_get(initial.params))
         initial_actor=jax.tree_util.tree_leaves(jax.device_get(initial.params["pi"]))
         start_update=time.perf_counter()
@@ -394,6 +453,7 @@ def main():
                         assert not values.any()
             print("ABC GPU active PPO cohort PASS: clean/mixed/Academy fractions",
                   float(clean.mean()),float(stairs.mean()),float(academy.mean()),flush=True)
+        check_live_metrics(rollout_metrics)
         rollout_frames=32 if a.full_update else 2
         first_update_world_steps=a.worlds*rollout_frames
         print("real batched PPO training update PASS; "
@@ -420,6 +480,10 @@ def main():
                 steady_update_times.append(time.perf_counter()-start_steady)
                 last=nxt
                 final_steady_metrics=steady_metrics
+                check_live_metrics(steady_metrics)
+            if a.live_recovery_smoke:
+                assert all(reference_verdicts),reference_verdicts
+                print("LIVE RECOVERY GPU terminal verdicts PASS:",reference_verdicts,flush=True)
             # Keep output meaningful if a later PPO update blows up.
             if not bool(np.asarray(jax.device_get(
                     jnp.all(jnp.isfinite(last.params["pi"][-1]["w"]))))):
