@@ -245,7 +245,7 @@ class CapabilityField:
     # ------------------------------------------------------------------
     # Event accumulation helpers
     # ------------------------------------------------------------------
-    def _add_node_events(self, flats: list[np.ndarray], successes: list[np.ndarray], qualities: list[np.ndarray], step: int) -> int:
+    def _add_node_events(self, flats: list[np.ndarray], successes: list[np.ndarray], qualities: list[np.ndarray], step: int, event_sink=None) -> int:
         if not flats:
             return 0
         flat = np.concatenate(flats).astype(np.int64, copy=False)
@@ -259,10 +259,12 @@ class CapabilityField:
         self.node_quality_sum += np.bincount(flat, weights=qua, minlength=size).reshape(self.shape).astype(np.float32)
         touched = np.unique(flat)
         self.node_last_step.ravel()[touched] = int(step)
+        if event_sink is not None:
+            event_sink('command_window', flat, suc)
         self.total_node_events += int(flat.size)
         return int(flat.size)
 
-    def _add_recovery_events(self, flats: list[np.ndarray], bins: list[np.ndarray], successes: list[np.ndarray]) -> int:
+    def _add_recovery_events(self, flats: list[np.ndarray], bins: list[np.ndarray], successes: list[np.ndarray], event_sink=None) -> int:
         if not flats:
             return 0
         flat = np.concatenate(flats).astype(np.int64, copy=False)
@@ -275,6 +277,8 @@ class CapabilityField:
         shape = self.rec_success.shape
         self.rec_success += np.bincount(rflat, weights=suc, minlength=rsize).reshape(shape).astype(np.float32)
         self.rec_failure += np.bincount(rflat, weights=1.0-suc, minlength=rsize).reshape(shape).astype(np.float32)
+        if event_sink is not None:
+            event_sink('recovery_relative', rflat, suc)
         self.total_recovery_events += int(flat.size)
         return int(flat.size)
 
@@ -287,7 +291,7 @@ class CapabilityField:
         return sector, rate, mag
 
     def _add_edge_events(self, source_flats: list[np.ndarray], sources: list[np.ndarray], targets: list[np.ndarray],
-                         rate_cmds: list[np.ndarray], successes: list[np.ndarray]) -> int:
+                         rate_cmds: list[np.ndarray], successes: list[np.ndarray], event_sink=None) -> int:
         if not source_flats:
             return 0
         sf = np.concatenate(source_flats).astype(np.int64, copy=False)
@@ -309,6 +313,8 @@ class CapabilityField:
         self.edge_failure += np.bincount(eflat, weights=1.0-suc, minlength=esize).reshape(shape).astype(np.float32)
         # Maneuver-rate frontier is meaningful only for successful edges.
         self.edge_rate_sum += np.bincount(eflat, weights=rate*suc, minlength=esize).reshape(shape).astype(np.float32)
+        if event_sink is not None:
+            event_sink('transition_edge', eflat, suc)
         self.total_edge_events += int(eflat.size)
         return int(eflat.size)
 
@@ -337,7 +343,7 @@ class CapabilityField:
         self._have_prev[ids] = False
 
     def update_from_rollout(self, metrics: dict[str, Any], *, step: int, control_dt: float = CONTROL_DT,
-                            exclude_field_taught: bool = False) -> dict[str, float]:
+                            exclude_field_taught: bool = False, event_sink=None) -> dict[str, float]:
         """Convert one PPO rollout into semantic node/recovery/maneuver events.
 
         ``exclude_field_taught`` is used only by the clean-evidence tournament arm:
@@ -458,7 +464,7 @@ class CapabilityField:
             self._prev_cmd[unbiased]=cmd_t[unbiased]; self._have_prev[unbiased]=True
             self._have_prev[blocked]=False
 
-        n_node=self._add_node_events(node_flats,node_succ,node_qual,step); n_rec=self._add_recovery_events(rec_flats,rec_bins,rec_succ); n_edge=self._add_edge_events(edge_sf,edge_src,edge_tgt,edge_rate,edge_succ)
+        n_node=self._add_node_events(node_flats,node_succ,node_qual,step,event_sink); n_rec=self._add_recovery_events(rec_flats,rec_bins,rec_succ,event_sink); n_edge=self._add_edge_events(edge_sf,edge_src,edge_tgt,edge_rate,edge_succ,event_sink)
         a=float(SLOW_ALPHA); self.node_slow+=a*(self.node_competence()-self.node_slow); self.edge_slow+=a*(self.edge_competence()-self.edge_slow); self.total_updates+=1
         out=self.summary(); out.update({'field_node_events_update':float(n_node),'field_recovery_events_update':float(n_rec),'field_edge_events_update':float(n_edge)}); return out
 
