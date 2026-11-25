@@ -158,6 +158,8 @@ def main(argv=None) -> int:
                    help='start the extra cross-specialty stair exposure ramp')
     q.add_argument('--cross-specialty-stairs-ramp-steps',type=int,default=20000000,
                    help='steps needed to reach maximum modest per-role exposure')
+    q.add_argument('--skill-reference-recovery-share',type=float,default=0.,
+                   help='fraction of mature resilience births assigned fixed signed flat recovery tasks (max .30)')
     q.add_argument('--live-skill-observer',action='store_true',
                    help='write passive per-skill counts from existing PPO rollouts; no extra exams')
     q.add_argument('--mission-refreshers',action='store_true',
