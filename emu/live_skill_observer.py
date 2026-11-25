@@ -190,7 +190,7 @@ class LiveSkillObserver:
                 if np.any(length[fixed]>UP_FRAMES) or np.any(fixed & survived & (length!=UP_FRAMES)):
                     raise ValueError('Wrong uphill first-life horizon')
                 for prefix,cohort in (('reference_uphill',fixed & (ids<6)),('practice_uphill',ids>=6)):
-                    for gate in ('approach','first_contact','each_foot_five','traversed'):
+                    for gate in ('approach','first_contact','first_support','each_foot_five','traversed'):
                         self._binned(prefix+'/'+gate,ids[cohort]%6,(terminal('skill_stair_'+gate)>.5)[cohort])
                     self._binned(prefix+'/mission',ids[cohort]%6,(survived & (terminal('skill_stair_traversed')>.5))[cohort])
                     self._binned(prefix+'/survived',ids[cohort]%6,survived[cohort])
@@ -208,7 +208,7 @@ class LiveSkillObserver:
                 ("safe_bilateral", (terminal("academy_episode_two_foot_ready") > .5) & survived)):
                 self._binned(f"academy_first_birth/{direction}/{gate}", bins, value[take])
             if 'skill_stair_first_contact' in metrics:
-                for gate in ('approach','first_contact','each_foot_five','traversed'):
+                for gate in ('approach','first_contact','first_support','each_foot_five','traversed'):
                     passed=terminal('skill_stair_'+gate)>.5
                     self._binned(f'academy_physical_first_lip/{direction}/{gate}',bins,passed[take])
                 self._binned(f'academy_physical_first_lip/{direction}/traversed_and_survived',bins,
