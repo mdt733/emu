@@ -191,3 +191,70 @@ Next: fixed signed uphill reference births and prerequisite practice,
 matched budget against the current Academy. GPU acceptance remains
 outstanding. The teacher state and first-lip gate tests are added;
 the full physical lifecycle still needs the real GPU run.
+
+
+## Phase 4 — isolated uphill prerequisite laboratory
+
+New optional recipe switches:
+
+- `--skill-uphill-reference-share .15`
+- `--skill-uphill-practice-share .15`
+- `--skill-uphill-stage none|first_support|bilateral|traversal`
+
+These reserve at most 15% + 15% of eligible mature Academy births,
+not all training worlds. Both cohorts sample the same six exact upward
+lip heights uniformly: 4, 8, 12, 20, 28 and 32mm. They start 22cm before
+the single real +X prism seam, centered in Y, .16m/s forward request,
+zero pitch/roll/yaw/lateral command, fixed sensor scale 1, no extra
+resilience disturbance or velocity carryover. Both end after 350
+control frames (7s) or physical failure. The same eight real prism
+colliders, actor, normalizer and PPO are used. Ordinary Academy births
+retain their existing course and teacher. Isolated uphill trials do not
+count toward the legacy Academy promotion or ordinary steady frontier
+gates. Global training health still sees all actual experience.
+
+The reference cohort has the original reward. In the practice cohort
+only, the optional selected prerequisite pays four reward units once
+per life on a newly demonstrated milestone, never on the failure frame.
+The `none` control uses identical physical exposure with no added bonus.
+No permanent mastery claims, adaptive height weights or automatic
+reward fading are enabled yet. A new advisory function
+`diagnose_uphill` identifies repeated deficits from two disjoint blocks
+of at least 40 reference attempts per height, using shared denominators
+and a 15 percentage-point minimum repeated stage loss. An initial
+first-support deficit may instead be a failure to reach the lip; inspect
+the approach/contact counts before selecting a treatment. Post-traversal
+survival gaps are reported but are not a selectable bonus stage.
+
+The observer separates first contact, first supported foot, each foot
+independently supported, five-frame traversal and traversal plus
+survival. It reports actual sampled frame exposure by case and cohort.
+The extra prerequisite credit is exposed in rollout metrics. Stable
+reference counts are distinct from shaped practice counts. Neither
+is an independent held-out examination.
+
+Exact committed uphill assignment and advisory modules were copied to
+the local CPU test environment and checked by Git blob hash. A
+4096-world JAX synthetic test preserved all 323 reference assignments
+when adding 320 practice births; height-index assignment, no-repeat
+bonus, reference/ordinary/failure-frame exclusion and repeated-gap
+advice passed. Additional repository ledger tests are included; the
+actual physical integration remains unexecuted.
+
+GPU acceptance (not a training campaign):
+
+```bash
+EMU_PHYSICAL_PROFILE=h40-spring-only \
+python scripts/smoke_gpu_carpet.py --worlds 4096 --device cuda \
+  --prisms --ppo --full-update --stair-survival-curriculum \
+  --live-uphill-smoke --benchmark-updates 8
+```
+
+This checks exact physical lip heights, spawn positions, flat sides,
+active reference/practice cohorts, reward isolation and terminal
+verdicts when present during actual PPO. Eight updates cover 256
+frames, shorter than the 350-frame horizon; a longer acceptance must
+verify completed surviving episodes before research launch. The next
+slice is the bounded checkpoint-owned stair stage/difficulty allocator
+and a matched uniform-versus-prerequisite experiment. No champion
+promotion or large-run launch is authorized.
