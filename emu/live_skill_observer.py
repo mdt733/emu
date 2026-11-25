@@ -36,7 +36,12 @@ class LiveSkillObserver:
         folder = Path(folder)
         folder.mkdir(parents=True, exist_ok=True)
         self.path = folder / f"segment-{int(start_step)}-{uuid.uuid4().hex}.jsonl"
+        from .live_skill_reference import REFERENCE_KICKS_MPS, REFERENCE_VX_MPS, SETTLE_DEADLINE_S, SETTLE_FRAMES
         self.header = dict(schema=SCHEMA, worlds=int(worlds),
+                           reference_kicks_mps=list(REFERENCE_KICKS_MPS),
+                           reference_vx_mps=REFERENCE_VX_MPS,
+                           reference_settle_deadline_s=SETTLE_DEADLINE_S,
+                           reference_settle_frames=SETTLE_FRAMES,
                            source_commit=str(source_commit),
                            field_shape=list(map(int, field_shape)),
                            field_bounds=np.asarray(field_bounds).tolist(),
@@ -129,6 +134,12 @@ class LiveSkillObserver:
             self._binned('reference_recovery/settled',reference[take],
                          terminal('skill_reference_settled')[take]>.5)
             self._binned('reference_recovery/survived',reference[take],survived[take])
+            # Ordinary physical birth residuals include carryover and are
+            # observational cohorts, not isolated kicks or matched references.
+            ordinary=(role==1)&(~take)&np.isfinite(vx)&np.isfinite(vy)
+            speed=np.hypot(vx[ordinary],vy[ordinary])
+            bins=np.searchsorted((.10,.25,.40,.60,.80,1.),speed,side='right')
+            self._binned('ordinary_recovery_birth_residual/survival',bins,survived[ordinary])
         academy = terminal("academy_active") > .5
         lip = terminal("skill_first_birth_lip_m") * 1000.
         for sign, direction in ((1, "up"), (-1, "down")):
