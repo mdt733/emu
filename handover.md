@@ -1,157 +1,274 @@
-# EMU handover — one known-good robot, one improving school
+# EMU handover — Live Skill School
 
-**Updated 23 November 2026.** This is the short entry point for resuming the
-project. The task checklist stays in [issue #62](https://github.com/mdt733/emu/issues/62).
-Detailed measurements, caveats and historical decisions belong in
-[research findings](docs/RESEARCH_FINDINGS.md) and Git history, not a
-second roadmap here.
+**Updated 26 November 2026.** Read this first when resuming the project in a
+new conversation. This file is the current research entry point, not an
+instruction to launch training. Check the live branch head before editing;
+the source IDs below identify implementation/evidence milestones.
 
-## The two active source identities
+## Current repository and owner direction
 
-| Lane | Purpose | Identity |
-| --- | --- | --- |
-| `main` | Known-good original H40, protected browser policy and approval | Original training commit `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`; source-pinned 120M seed735 actor `showcase/champion.emupolicy` |
-| `research/h40-unified-school-cold-v1` | **One** active improvement branch; teach robust locomotion and stairs from birth | [Draft PR #103](https://github.com/mdt733/emu/pull/103); explicit Spring-only research physics and survival-aware Academy teacher |
+Repository: [mdt733/emu](https://github.com/mdt733/emu).
+Active research branch: `research/ks150-live-skill-school-v1`,
+[draft PR #106](https://github.com/mdt733/emu/pull/106), based on PR #105.
+The most recent implementation commit at this handover is
+`ea7cd66287a6d2f9bef097b2d8774832963d116c`; later documentation commits
+may follow. Keep work on this branch. No merge, champion replacement,
+Pages publication or hardware qualification without explicit owner approval.
+[Previous handover (23 Nov)](https://github.com/mdt733/emu/blob/372bb57bc59ab7ca4bcfb0f99d4460ff23d3c646/handover.md)
+preserves older history. See issue #62 and docs/RESEARCH_FINDINGS.md for
+historical context; do not assume their older roadmap supersedes this one.
 
-**Do not create a new branch for every lesson idea.** Maintain this one
-improvement branch against `main` until we have evidence worth promoting.
-The old Spring-only, Balanced Stairs and Safe Ascent PRs are **completed
-diagnostics**, preserved in Git, not active competing schools. Do not
-replace the checked-in champion or publish to Pages without independent
-qualification and owner approval.
+The owner wants a single unified robot that learns individual skills,
+retains them, and transfers them. Prioritize educational quality and
+efficient GPU use over elaborate CI rituals. CI is a watchdog, not the
+scientific objective. The owner explicitly wants **4096 simultaneous
+environments** (previous 2048 gave diminishing throughput returns),
+live feedback from those same training worlds, and independent exams
+only at meaningful checkpoints. When a campaign is ready, provide one
+unattended, source-pinned launch and a complete results archive; avoid
+routine approval stops and babysitting. Do not claim a GPU run happened
+unless the operator actually ran it or its evidence is available.
 
-**North star:** a coherent, repeatable **teacher** that produces the
-strongest possible six-servo H40 policy **from random initial weights**,
-across multiple independent training seeds, without hand-changing lessons
-every 20M steps. Warm starts remain a **supported generic research tool**;
-our present cold-study chooses not to use one.
+## Immutable physical and deployment constraints
 
-## Actual system
+- One six-actuator H40 robot, one PPO actor/critic/optimizer, 360 inputs
+  (four-frame sensor history, IMU, optical flow, 4x4 ToF, proprioception
+  and movement command), 256/256 hidden sizes, six motor position outputs.
+  No teacher labels, privileged world XY, extra networks or exam geometry
+  in the actor. All ordinary, reference and practice worlds train PPO.
+- Research uses `EMU_PHYSICAL_PROFILE=h40-spring-only`, calibrated
+  KS150 passive knee rocker, model SHA256
+  `21b5856b7a248e5d5b988e2735255d57ec79bae1a7cab0bcb72f481bfc36f470`.
+  Real rolling 2x2 carpet, eight MJX triangular prism colliders.
+  Do not conflate research physics with protected original `h40`.
+- Main champion stays unchanged: original 120M seed735 actor,
+  source `301d18b7b1cd1b165e6578fc53f9f8cda94fb680`, actor SHA256
+  `d4e35f814baef5e46afa6e96e942c86ab100ef25a4ae1913c76bbdb22615e673`.
+  Browser Infinite Meadow is a demo, not the independent physical exam.
+  Simulation evidence is not hardware validation.
+- 4096 worlds x 32 rollout frames = 131072 experiences/update.
+  16 minibatches preserve 8192 samples/minibatch vs 2048 x 32 / 8.
+  Four PPO epochs unchanged. Policy updates per fixed step budget halve;
+  actual sustained throughput and learning efficiency still need measuring.
 
-- **Robot:** about 40 cm; six chassis-mounted 12 V C018 servo actuators,
-  passive shins/knees and 36 mm ball feet. `h40` is the immutable
-  mainline physical profile. The opt-in `h40-spring-only` research
-  profile uses a calibrated 150 N/m passive knee rocker; hardware
-  design and physical manufacture are **unproven**. Never conflate
-  the two models.
-- **Observation/action:** one 360-input four-frame IMU, optical flow,
-  4×4 ToF, proprioception and commanded-movement contract → 256 →
-  256 → **six motor position actions**. No privileged teacher-only
-  position in the deployed actor.
-- **World:** MuJoCo MJX rolling 2×2 metre-scale carpet with eight real
-  signed convex prisms, randomized disturbances and sensor error.
-  Actual contacts, not a fake box/height proxy, teach the robot. The
-  browser's Infinite Meadow has *different* CPU/WASM geometry and is
-  a demonstration and sensor inspection tool, **not** the stair exam.
-- **Learning:** one PPO actor/critic/optimizer; one governor decides
-  physical difficulty from completed experience. One
-  `birth_lesson_weights` decision combines six focus-cohort
-  allocation, retention, athletic rehearsal and Academy births.
-  `CapabilityField` records command/recovery/transition experience;
-  its current `shadow` setting **does not choose lessons**. Do not
-  add another scheduler or neural teacher.
-- **Academy:** supported first-lip crossing requires independent
-  confirmed upper-tile support of **both feet**. Uphill graduation
-  requires that crossing **and survival in the same completed life**.
-  Uphill/downhill frontiers advance separately; keep ordinary
-  command, flat, slope and recovery rehearsal. Strict global-XY
-  parking is **not** required for dynamic competence. Ordinary
-  **nominal** step cap 40 mm, Academy **nominal** aspiration 55 mm.
-  The desired 8 cm uphill step is a stretch exam, **not yet taught
-  intentionally at 8 cm**.
-- **Evidence/outputs:** full optimizer, critic, normalizer, teacher,
-  health, capability field, rollout metrics and provenance live in
-  `~/emu-data/runs/` **outside Git**. Read-only physical examiners
-  independently check signed 4–80 mm true crossings, first-life
-  survival, commands, slope, balance, recovery and post-lip progress.
-  A `.emupolicy` export cannot resume PPO.
+## What the completed A/B/C study taught us
 
-See [core skeleton](docs/CORE_SKELETON.md) for module ownership,
-[physical quality](docs/PHYSICAL_QUALITY.md) for acceptance,
-[maintenance](docs/MAINTENANCE.md) for supported tests and
-[release readiness](docs/RELEASE_READINESS.md) for the manual
-showcase/Pages barrier.
+Completed source: `7b6c3f9e10b9b6ad2f7302dad00d9d25bbd5d574`,
+PR #105 `research/h40-developmental-cross-stairs-v1`.
+Operator's WSL study root:
+`~/emu-data/studies/ks150-abc-unattended-v2`.
+Final evidence: `results-140m.zip` (previously supplied in chat; not
+assumed accessible in a new chat or committed to Git). Full checkpoint
+binaries and actor exports live on the operator's machine, not in this ZIP.
+Ask the operator for the archive if exact raw measurements are needed.
+Do not invent a file path in a new session or assert files remain available.
 
-## What's actually measured
+A = original school; B = shared stairs; C = B + registered broad
+mission refresher. Training seeds 9501 and 9502, discovery exam seeds
+6901/6902, final holdout 7901/7902 (held out of this campaign's teaching
+decisions, not necessarily unseen project-wide). All six students completed
+140,050,432 steps each; 840,302,592 total, 30/30 stages at 90/100/110/120/140M.
+Both C students received real refreshers at 110M. The prior chat verified
+included stage hashes and actual intervention telemetry.
 
-- The original `main` H40 seed735 120M actor is protected:
-  actor SHA256 `d4e35f814baef5e46afa6e96e942c86ab100ef25a4ae1913c76bbdb22615e673`.
-  Original actor and training checkpoint are not interchangeable;
-  the original complete `final.pkl` remains on the operator's PC.
-  Viewer gait/slope impressions are qualitative, not hardware proof.
-- Independent **evaluation seeds 1701 and 2701** of the warm KS150
-  150M learner reproduced improved **4–40 mm uphill traversals** and
-  dramatically better tall downhill survival, **but worse 44–56 mm
-  uphill survival**. This is a reason to test the safety-aware teacher,
-  **not** proof that it works cold. Exact tables and actor/physics
-  fingerprints are in [research findings](docs/RESEARCH_FINDINGS.md).
-- **Finished user-local 0→120M sanity trial:** seed735, source
-  `1fa832fc7cd9241e2772b44ad434613c6080adfa`, **120,061,952**
-  steps / 2,048 worlds, no external parent, no recorded resume.
-  Operator supplied `school-evidence.zip` with clean 120M run and
-  three independent read-only physical exams. Full checkpoints remain
-  outside Git at
-  `~/emu-data/runs/h40-school-cold-120m-s735/`.
-  **Pipeline succeeded; teacher still struggles uphill.** Fixed
-  350-frame core/dynamic/combined survival each 100%; 30/60s deep
-  trials survive 8/8 across scenarios, but command missions
-  (especially lateral/reverse/stop) frequently fail.
-  In the signed 4–80mm test (50 trials/height/direction, seed4701):
-  controlled traversal **UP 39/500 at 4–40mm and 0/500 at 44–80mm**;
-  **DOWN 138/500 at 4–40mm and 71/500 at 44–80mm**. Uphill
-  Academy frontier reached just 3.5mm three times then retreated to
-  **3mm**; downhill reached **55mm**. Full source/evidence audit in
-  [research findings](docs/RESEARCH_FINDINGS.md). This is **a
-  successful execution shakeout, not a proven good teacher**.
-- **Revised 120M cold student (not promoted):** seed **736**, source
-  `4048e8450c36882501cbb624f4ca656e11da9419`, reached
-  **120,061,952** steps and completed held-out physical exams at seed
-  **5701**. Signed five-frame traversals: **uphill 64/500** at
-  4–40 mm and **0/500** at 44–80 mm; **downhill 132/500** and
-  **84/500** respectively. The uphill Academy frontier ended
-  **3.5 mm**, downhill **55 mm**. Short command pulses passed
-  **360/384**, but long missions and station keeping remain weak.
-  Different training/evaluation seeds and teacher sources mean this
-  is not controlled proof of improvement, nor an actor qualified to
-  replace the original H40 on `main`. Results and caveats live in
-  [research findings](docs/RESEARCH_FINDINGS.md).
-- **Source isolation:** the finished seed-735 run is pinned to
-  `1fa832fc7cd9241e2772b44ad434613c6080adfa`; revised seed-736
-  is pinned to `4048e8450c36882501cbb624f4ca656e11da9419`.
-  Neither can be resumed from a newer cleanup commit. Trainer
-  source fingerprints protect checkpoint continuity.
-- The intended longer school experiment is **0→180M** with a
-  predeclared, unchanged teacher; new full cold seeds require one
-  frozen code/configuration/budget. Exam seed **5701** was first held
-  out for the revised seed-736 run and is now **inspected evidence**:
-  use a new preregistered unseen exam seed for future revisions.
-  A single successful learner is not proof of repeatable teacher quality.
+Final compact mission pass percentages (pooled two training seeds and two
+final exam seeds, descriptive, not independent replicate counts):
 
-## Operator commands and next work
+| Mission | A | B | C |
+|---|---:|---:|---:|
+| Command | 95.77 | 98.57 | 94.99 |
+| Resilience | 84.67 | 78.61 | 71.97 |
+| Slope | 69.21 | 83.72 | 60.42 |
+| Steps | 44.09 | 54.35 | 32.86 |
+| Transition | 99.71 | 98.63 | 99.80 |
+| Control | 100 | 98.44 | 100 |
 
-```bash
-# In the research checkout: reproducible baseline checks always select
-# original h40 inside check.sh (no caller-shell profile mutation).
-cd ~/emu
-bash scripts/check.sh --full
+B was already substantially ahead at 90M before meaningful shared-stair
+exposure; do NOT attribute its final advantage causally to treatment.
+A improved stair scores more consistently. C's recovery dropped during
+extra practice (9501 -13.1pp, 9502 -39.8pp at 110→120M), while slope
+improved. Broad specialty practice did not reliably preserve the actual
+missing recovery task. Need matched from-parent comparisons. Only two
+independent training seeds per arm.
 
-# Run only against the appropriate frozen source identity:
-# seed-735: 1fa832fc7cd9241e2772b44ad434613c6080adfa
-# seed-736: 4048e8450c36882501cbb624f4ca656e11da9419
-# Do not resume completed training from the moving branch head.
-```
+The persistent uphill bottleneck: zero controlled held-out traversals
+in 1560 attempts at 32mm and above, all earned 55mm downhill, uphill
+frontiers only 3–3.5mm. At 28mm, ~96% leading-foot placement, ~53%
+independent bilateral contact, ~14% five-frame traversal (120 trials per
+height across six students); at 32mm leading contact itself fell sharply.
+Contact is not measured weight transfer. All 96 deep 60s standing trials
+survived and passed balance; none passed bounded standing. Distinguish
+survival, physical movement and precision; assess observability before
+teaching absolute XY station keeping.
 
-**Next priorities:** preserve both complete checkpoint/export identities
-and the external evidence bundle; perform a matched authenticated
-original-H40-versus-Spring-only task comparison for *selection*, not
-causal teacher attribution. The revised teacher's downstream-descents
-correction is still a **hypothesis**: small uphill traversals increased
-in one revised cold student, but the uphill Academy frontier remains
-near 3 mm and no 44–80 mm uphill traversal was achieved.
-For a future cold replicate, pre-register an unused training seed,
-one frozen source/config/budget and an unseen qualification seed.
-No actor promotion or Pages release without separate owner approval.
+Historical 13-arm lab PR #104 used full-state 120M seed736 forks and
+130/140/160M exams. Exact per-arm results were not recovered; prior root
+`~/emu-data/studies/ks150-stair-school-go-v2/results.zip`. Do not claim
+specific hypothesis effects without the raw archive.
 
-**Research principle:** one student, one teacher for its whole life;
-one improving research branch; physical crossing **plus** survival and
-retained walking matter more than reward or a pretty viewer clip.
+## Implemented in PR #106 (read before changing)
+
+Detailed evolving specification:
+[research/KS150_LIVE_SKILL_SCHOOL_V1.md](research/KS150_LIVE_SKILL_SCHOOL_V1.md).
+Its phases 1–4 describe the earlier slices; the current handover supersedes
+older statements saying teacher memory resets or uphill is static-only.
+
+| Component | Module / integration |
+|---|---|
+| Passive counts | emu/live_skill_observer.py; environment.py + capability_field.py + training.py |
+| Fixed recovery | emu/live_skill_reference.py |
+| Mastery and regression | emu/live_skill_ledger.py |
+| Recovery practice | emu/live_skill_teacher.py |
+| Physical stair gates | emu/live_skill_stairs.py |
+| Exact uphill births and credit | emu/live_skill_uphill.py |
+| Offline uphill diagnosis | emu/live_skill_uphill_review.py |
+| NEW adaptive uphill teacher | emu/live_skill_uphill_teacher.py |
+| Recipe / CLI / packet | emu/training_config.py, emu/run.py, emu/cli.py, emu/contracts.py |
+| Resume + rollback | emu/training.py, emu/checkpoint_io.py |
+| Tests / bounded GPU checks | tests/test_live_skill_observer.py, scripts/live_skill_smoke.py, scripts/smoke_gpu_carpet.py |
+
+Observer: approximately 1M-step sparse JSONL windows under
+`RUN/live_skills/segment-*.jsonl`; actual counts, signed difficulty and
+frame exposure; uses existing real contacts and capability event machines.
+New process/rollback log segments separate raw evidence. Incomplete
+episodes never fabricated. Command windows are not complete missions;
+relative recovery bins and terminal slope grade are observational, not
+fixed physical tasks. No extra simulation or actor. Prior isolated host
+observer test ~0.55ms/update synthetic 4096-world rollout; not actual GPU
+overhead.
+
+Recovery: six signed longitudinal offsets [-.40,-.25,-.10,+.10,+.25,+.40]
+m/s, fixed .16m/s forward command, flat real prisms, sensor scale 1,
+step command .012m, no extra random pushes/velocity carryover. 150 control
+frames/3s or failure, 25 consecutive good tracking frames + survival
+required for mission. Opt-in flags:
+`--live-skill-observer --skill-reference-recovery-share .15
+--skill-practice-recovery-share .15 --skill-adaptive-recovery`.
+Shares are conditional on eligible mature RESILIENCE births, not all
+worlds; total <=.30, practice <=.15. Fixed reference uniform; separate
+practice uniform unless adaptive flag. Two supported mastery blocks,
+repeated regression, min 40 attempts, descriptive Wilson screening;
+half maintenance, gradual <=5pp weight change per review. No extra
+recovery reward. Teacher state includes closed/pending evidence, clock,
+weights, saved with learner. External research forks start fresh teacher;
+same-run resume/rollback restores saved teaching state. Log history is
+not replayed as learning memory.
+
+Uphill: six exact positive heights 4/8/12/20/28/32mm, actual single real
+seam, birth 22cm before edge, .16m/s request, sensor scale 1, no carryover,
+350 frames/7s or failure. Reference and practice each max .15 of
+eligible mature Academy births. Independent physical first contact,
+first sustained foothold, each foot five consecutive top-contact frames,
+five-frame traversal beyond lip, traversal+survival. No torso-crossing
+requirement for first-foot contact. Reference/practice distinct from
+legacy Academy/steady promotion evidence. Static practice reward stages
+`none|first_support|bilateral|traversal`; bonus 4 once per life on new
+milestone, practice only, never failure frame. CLI flags
+`--skill-uphill-reference-share .15 --skill-uphill-practice-share .15
+--skill-uphill-stage none`.
+
+**Newest implementation, NOT YET VALIDATED (ea7cd662):**
+`--skill-adaptive-uphill` selects per-height practice stage and bonus
+from unchanged reference evidence. Six cases, separate practice draw,
+teacher packet appends six weights + six stage IDs + six bonuses.
+Stage/bonus latched at episode birth; never change mid-life. Repeated
+supported gaps of >=15pp with preceding gate >=30%, target <=80% choose
+first support/bilateral/traversal. Half uniform maintenance; <=5pp
+allocation movement per review. Reference gate lower Wilson bound >=.70
+on two blocks fades reward 4→3→2→1→0; fresh disjoint pairs required for
+each fade. Two teacher states are saved/restored in the same learner
+checkpoint. This is an initial hypothesis; not proof of mastery.
+No contact deficit or post-traversal survival bonus is automatically
+selected. Potential stalled-stage handling, acquisition scheduling,
+and retention after bonus removal still need explicit design/validation.
+
+## Exact point to continue
+
+The latest user interruption requested this handover **while the new
+adaptive uphill integration was being written**. Do not say this slice is
+tested or campaign-ready. All eight integration edits above were committed;
+next work is validation and finishing, not a new speculative feature.
+
+1. Re-read current `emu/live_skill_uphill_teacher.py` and trainer,
+   observer, packet, environment and checkpoint integrations. Check actual
+   keys, signatures, shape compatibility, stage/bonus bounds, reference
+   ID/geometry preservation, and restore of both teachers. The latest
+   new module and integration have NOT been executed in this turn.
+2. Add focused synthetic CPU tests: repeated gate loss selects correct
+   height and prerequisite; low contact/no trials do not create bonus;
+   four separate fresh block-pair fades; zero bonus preserved in reference
+   and ordinary cohorts; per-birth latch survives teacher changes;
+   weights and cohorts invariant; checkpoint serialization/replay and
+   rollback of both teachers; malformed packets rejected. Consider
+   bounded escape/reassessment for a stage stuck forever at low success.
+   Check mastery flags on regression and ensure stale blocks cannot
+   trigger repeated action. Compare actual delivered frame exposure.
+3. Review the actual mature 4096 GPU smoke (including adaptive packet)
+   and fix integration blockers before offering a launch. Existing
+   `scripts/live_skill_smoke.py` cold 2-update test cannot exercise mature
+   references. Existing active recovery smoke uses 5 updates; existing
+   uphill smoke is static bilateral and docs say 8 updates, which is
+   only 256 frames (<350). Require surviving complete first-life
+   episodes and nonzero reference/practice counts; use at least 12
+   updates or a bounded sufficient horizon. Check `TILE_M` import,
+   config cap argument names and reset paths rather than assuming they
+   work. Verify trainer's fixed-eval snapshots and recovery snapshot
+   timing (teacher before evaluated rollout versus post-PPO learner),
+   existing checkpoint schema/ancestor guards, and old parameter-shape
+   assumptions. Run host tests as useful watchdog, not a CI-only project.
+4. Build one efficient matched experiment runner using authenticated
+   full parent checkpoints, not .emupolicy. Prefer A or B parent
+   checkpoints for initial forks to avoid C's pinned refresher guard;
+   if using C110, deliberately resolve historical pin compatibility
+   without bypassing provenance. Parent location/availability must be
+   verified locally. Use same parent/seed/config and equal world-step
+   budget across uniform/adaptive or no-bonus/prerequisite arms;
+   start with ~5M additional steps per arm (explicit round to
+   131072 boundary). Preserve original Academy and generalist practice.
+   Holdout at start/end only, live observer in between. Include exact
+   source/config/model/parent SHA, per-case physical counts, policy
+   decisions, actual frame exposure and final independent exam raw data
+   in results ZIP; no large checkpoint binaries in ZIP. Source-lock,
+   resume and unattended lifecycle matter. Distinguish training evidence
+   from held-out frozen actor exams, and multiple worlds from independent
+   learner seeds. No automatic promotion.
+5. After evidence, precision/stop/settling references and retention
+   experiments. Assess whether position information is observable with
+   current sensors before adding station-keeping reward. Avoid rewarding
+   immobility at expense of normal gait. Do not overbuild before actual
+   GPU learning data.
+
+## Validation and launch status
+
+Historical isolated host tests reported passing: observer counts, recovery
+selection/velocity/settling, checkpoint teacher replay, first-lip gates,
+fixed uphill assignment and static once-only credit. These were synthetic
+NumPy/JAX tests, not end-to-end MJX. Prior chat reported 323 reference and
+320 practice births for a 4096-world synthetic uphill assignment. The new
+adaptive uphill code has **no new test result yet**. No real GPU run of
+PR #106 is known. No new large campaign is authorized by this handover.
+The operator's machine previously supported 4096 worlds; no sustained
+throughput measurement on this new code is available. The latest full CI
+status is not asserted.
+
+Use the existing WSL repository venv (often `~/emu/.venv/bin/python`),
+a clean pinned worktree, and `EMU_PHYSICAL_PROFILE=h40-spring-only`.
+Do not run the old A/B/C commands on this new branch. The previous
+successful A/B/C archive and all checkpoints must remain preserved.
+If a run is started on a frozen source, don't change its source mid-run
+or silently overwrite study registration. Provide one launch block
+only after the actual runner and relevant preflight are reviewed.
+
+## Suggested opening message for a new chat
+
+"Continue my EMU Live Skill School project. Read the root handover.md
+on mdt733/emu branch research/ks150-live-skill-school-v1 (PR #106),
+then research/KS150_LIVE_SKILL_SCHOOL_V1.md and current source. Resume
+at the exact next-work section; don't restart the design or change main.
+The newest adaptive uphill slice needs validation. Focus on efficient
+4096-world live education and one unattended matched experiment."
+
+Update this file at meaningful completion points so a fresh chat can
+resume without relying on remembered messages. Keep precise measured
+evidence and test limitations explicit. The goal is the best teaching
+method, not merely more steps, more exams or more commits.
