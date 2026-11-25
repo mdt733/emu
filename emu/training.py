@@ -155,6 +155,7 @@ def env_kwargs_from_args(args) -> dict:
         terrain_lesson=args.terrain_lesson,
         temporal_vx_reward_share=args.temporal_vx_reward_share,
         stillness_birth_frac=args.stillness_birth_frac,
+        skill_reference_recovery_share=args.skill_reference_recovery_share,
         science_gate_mode=args.science_gate_mode,
         science_phase_lowcmd_scale=args.science_phase_lowcmd_scale,
         science_phase_sync_strength=args.science_phase_sync_strength,
