@@ -96,6 +96,8 @@ def summarize_segment(rows):
             raise ValueError("Wrong live evidence schema")
         if (row["reference_kicks_mps"]!=list(REFERENCE_KICKS_MPS) or
                 row["reference_vx_mps"]!=.16 or
+                row.get("reference_sensor_scale")!=1. or
+                row.get("reference_step_command_m")!=.012 or
                 row["reference_settle_deadline_s"]!=3. or
                 row["reference_settle_frames"]!=25):
             raise ValueError("Reference contract differs")
