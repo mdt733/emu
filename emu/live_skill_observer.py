@@ -167,6 +167,25 @@ class LiveSkillObserver:
             self._binned('ordinary_recovery_birth_residual/survival',bins,survived[ordinary])
         academy = terminal("academy_active") > .5
         lip = terminal("skill_first_birth_lip_m") * 1000.
+        if 'skill_uphill_id' in metrics:
+            from .live_skill_uphill import UP_HEIGHTS_M,UP_FRAMES
+            ids=terminal('skill_uphill_id').astype(int)
+            fixed=ids>=0
+            if np.any(ids[fixed]>=12) or np.any(fixed & ~academy):
+                raise ValueError('Invalid uphill cohort identity')
+            if fixed.any():
+                expected=np.asarray(UP_HEIGHTS_M)[ids[fixed]%6]*1000.
+                if not np.allclose(lip[fixed],expected,atol=.05):
+                    raise ValueError('Physical uphill lip mismatch')
+                length=terminal('episode_length')
+                if np.any(length[fixed]>UP_FRAMES) or np.any(fixed & survived & (length!=UP_FRAMES)):
+                    raise ValueError('Wrong uphill first-life horizon')
+                for prefix,cohort in (('reference_uphill',fixed & (ids<6)),('practice_uphill',ids>=6)):
+                    for gate in ('approach','first_contact','each_foot_five','traversed'):
+                        self._binned(prefix+'/'+gate,ids[cohort]%6,(terminal('skill_stair_'+gate)>.5)[cohort])
+                    self._binned(prefix+'/mission',ids[cohort]%6,(survived & (terminal('skill_stair_traversed')>.5))[cohort])
+                    self._binned(prefix+'/survived',ids[cohort]%6,survived[cohort])
+            academy=academy & ~fixed
         for sign, direction in ((1, "up"), (-1, "down")):
             take = academy & (sign * lip > 1.5) & np.isfinite(lip)
             bins = np.searchsorted(LIP_EDGES_MM, np.abs(lip[take]), side="right")
