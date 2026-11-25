@@ -196,9 +196,10 @@ def test_practice_plan_uses_only_fixed_reference_not_practice():
             reference_kicks_mps=list(REFERENCE_KICKS_MPS),reference_vx_mps=.16,
             reference_sensor_scale=1.,reference_step_command_m=.012,
             reference_settle_deadline_s=3.,reference_settle_frames=25,
+            reference_horizon_s=3.,reference_mastery_gate='settled_and_survived',
             policy_epoch=0,start_step=i*1000000,end_step=(i+1)*1000000,
-            cells={"reference_recovery/settled/0":dict(attempts=100,passes=p),
-                   "practice_recovery/settled/1":dict(attempts=10000,passes=0)}))
+            cells={"reference_recovery/mission/0":dict(attempts=100,passes=p),
+                   "practice_recovery/mission/1":dict(attempts=10000,passes=0)}))
     assert practice_plan(rows[:3])["reason"]=="uniform_maintenance"
     p=practice_plan(rows)
     assert p["reason"]=="repair" and p["selected"]==[0]
