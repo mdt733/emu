@@ -239,6 +239,7 @@ def one_run_config(args) -> TrainingConfig:
                    cross_specialty_stairs_start_steps=cross_start,
                    cross_specialty_stairs_ramp_steps=cross_ramp,
                    mission_refreshers=mission_refreshers,
+                   live_skill_observer=bool(getattr(args,'live_skill_observer',False)),
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
