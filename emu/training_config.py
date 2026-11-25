@@ -232,6 +232,8 @@ class TrainingConfig:
     mission_refreshers: bool = False  # one explicitly pinned programme per cold run
     live_skill_observer: bool = False  # read-only, no teacher feedback
     skill_reference_recovery_share: float = 0.0  # fraction of mature resilience births
+    skill_practice_recovery_share: float = 0.0  # separate fixed-budget practice
+    skill_adaptive_recovery: bool = False  # uniform practice unless enabled
 
     # One executable 360-input prism trainer. Old attitude profiles live in Git.
     attitude_profile: str = "v5015"
@@ -312,8 +314,10 @@ class TrainingConfig:
         old_observer={'live_skill_observer'}
         historical=(*historical,*(x|old_observer for x in historical))
         old_reference={'skill_reference_recovery_share'}
+        historical=(*historical,*(x|old_reference for x in historical))
+        old_practice={'skill_practice_recovery_share','skill_adaptive_recovery'}
         if not (keys-expected) and missing in (
-                *historical,*(x|old_reference for x in historical)):
+                *historical,*(x|old_practice for x in historical)):
             data={**data,**{k:getattr(cls,k) for k in missing}}
         elif keys != expected:
             raise ValueError(
