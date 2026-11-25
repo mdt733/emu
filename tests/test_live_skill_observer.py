@@ -244,3 +244,34 @@ def test_reference_and_practice_exposure_and_mission_separation(tmp_path):
     m["episode_length"][-1,0]=149
     with pytest.raises(ValueError,match="horizon"):
         obs.observe(m,step=262144)
+
+
+def test_checkpoint_teacher_continuation_and_rollback():
+    from emu.live_skill_teacher import RecoveryTeacher
+    a=RecoveryTeacher()
+    batch=131072
+    decisions=[]
+    for i in range(36):
+        counts=[[30,29 if i<16 else 15]]+[[0,0] for _ in range(5)]
+        plan=a.observe(counts,batch)
+        if plan is not None:
+            decisions.append(plan)
+    checkpoint=a.state_dict(120000000)
+    b=RecoveryTeacher.from_state_dict(checkpoint,120000000)
+    assert b.state_dict(120000000)==checkpoint
+    for i in range(20):
+        counts=[[25,12]]+[[0,0] for _ in range(5)]
+        assert a.observe(counts,batch)==b.observe(counts,batch)
+        assert a.state_dict(130000000)==b.state_dict(130000000)
+    # Rollback discards later history and reinstates exact practice weights.
+    rewind=RecoveryTeacher.from_state_dict(checkpoint,120000000)
+    assert rewind.state_dict(120000000)==checkpoint
+    assert rewind.clock<a.clock
+    assert checkpoint["clock"]==36*batch  # detached immutable checkpoint copy
+    with pytest.raises(ValueError,match="identity"):
+        RecoveryTeacher.from_state_dict(checkpoint,120000001)
+    with pytest.raises(ValueError,match="identity"):
+        RecoveryTeacher.from_state_dict(None,120000000)
+    corrupted={**checkpoint,"weights":[1.,0.,0.,0.,0.,0.]}
+    with pytest.raises(ValueError,match="weights"):
+        RecoveryTeacher.from_state_dict(corrupted,120000000)
