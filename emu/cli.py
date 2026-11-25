@@ -164,6 +164,9 @@ def main(argv=None) -> int:
                    help='separate fixed-budget practice share within mature resilience births (max .15)')
     q.add_argument('--skill-adaptive-recovery',action='store_true',
                    help='bias the practice distribution using fixed reference evidence; otherwise uniform')
+    q.add_argument('--skill-uphill-reference-share',type=float,default=0.)
+    q.add_argument('--skill-uphill-practice-share',type=float,default=0.)
+    q.add_argument('--skill-uphill-stage',choices=('none','first_support','bilateral','traversal'),default='none')
     q.add_argument('--live-skill-observer',action='store_true',
                    help='write passive per-skill counts from existing PPO rollouts; no extra exams')
     q.add_argument('--mission-refreshers',action='store_true',
