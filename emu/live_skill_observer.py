@@ -38,7 +38,11 @@ class LiveSkillObserver:
         self.path = folder / f"segment-{int(start_step)}-{uuid.uuid4().hex}.jsonl"
         from .live_skill_reference import (REFERENCE_KICKS_MPS, REFERENCE_VX_MPS,
             REFERENCE_SENSOR_SCALE, REFERENCE_STEP_COMMAND_M, SETTLE_DEADLINE_S, SETTLE_FRAMES)
+        from .live_skill_uphill import UP_HEIGHTS_M,UP_FRAMES,UP_VX,UP_APPROACH_M,UP_SENSOR_SCALE
         self.header = dict(schema=SCHEMA, worlds=int(worlds),
+                           uphill_heights_m=list(UP_HEIGHTS_M),uphill_horizon_frames=UP_FRAMES,
+                           uphill_vx_mps=UP_VX,uphill_approach_m=UP_APPROACH_M,
+                           uphill_sensor_scale=UP_SENSOR_SCALE,
                            reference_kicks_mps=list(REFERENCE_KICKS_MPS),
                            reference_vx_mps=REFERENCE_VX_MPS,
                            reference_sensor_scale=REFERENCE_SENSOR_SCALE,
@@ -63,6 +67,7 @@ class LiveSkillObserver:
         self.epoch = 0
         self.host_seconds = 0.
         self.reference_frames=np.zeros(12,dtype=np.int64)
+        self.uphill_frames=np.zeros(12,dtype=np.int64)
         self.world_frames=0
 
     def _add(self, key, attempts, passes):
@@ -111,7 +116,7 @@ class LiveSkillObserver:
             raise ValueError("Wrong live rollout shape")
         self.world_frames+=done.size
         # Gather only terminal rows, once per metric. Reuse one flat index.
-        ids = np.flatnonzero(done.ravel())
+        terminal_indices = np.flatnonzero(done.ravel())
         cache = {}
         def terminal(name):
             if name in cache:
@@ -119,7 +124,7 @@ class LiveSkillObserver:
             a = np.asarray(metrics[name])
             if a.shape != done.shape:
                 raise ValueError("Wrong metric shape: " + name)
-            cache[name] = a.ravel()[ids]
+            cache[name] = a.ravel()[terminal_indices]
             return cache[name]
         role = terminal("specialist_focus").astype(int)
         survived = terminal("episode_fell") < .5
@@ -169,6 +174,10 @@ class LiveSkillObserver:
         lip = terminal("skill_first_birth_lip_m") * 1000.
         if 'skill_uphill_id' in metrics:
             from .live_skill_uphill import UP_HEIGHTS_M,UP_FRAMES
+            assigned_up=np.asarray(metrics['skill_uphill_id'])
+            if assigned_up.shape!=done.shape or np.any((assigned_up<-1)|(assigned_up>=12)):
+                raise ValueError('Invalid uphill rollout cohort')
+            self.uphill_frames+=np.bincount(assigned_up[assigned_up>=0].astype(np.int64),minlength=12)
             ids=terminal('skill_uphill_id').astype(int)
             fixed=ids>=0
             if np.any(ids[fixed]>=12) or np.any(fixed & ~academy):
@@ -233,6 +242,8 @@ class LiveSkillObserver:
                    world_frames=int(self.world_frames),
                    reference_frames_by_case=self.reference_frames[:6].tolist(),
                    practice_frames_by_case=self.reference_frames[6:].tolist(),
+                   uphill_reference_frames_by_case=self.uphill_frames[:6].tolist(),
+                   uphill_practice_frames_by_case=self.uphill_frames[6:].tolist(),
                    cells={key: {"attempts": n, "passes": k}
                           for key, (n, k) in sorted(self.counts.items())})
         with self.path.open("a", encoding="utf-8") as f:
@@ -243,6 +254,7 @@ class LiveSkillObserver:
         self.updates = 0
         self.host_seconds = 0.
         self.reference_frames.fill(0)
+        self.uphill_frames.fill(0)
         self.world_frames=0
         return row
 
