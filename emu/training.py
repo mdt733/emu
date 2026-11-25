@@ -42,7 +42,7 @@ from .environment import EmuMJXEnv
 from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .capability_field import CapabilityField, RECOVERY_BINS, EDGE_DIRS
 from .live_skill_observer import LiveSkillObserver
-from .live_skill_teacher import UNIFORM, practice_plan
+from .live_skill_teacher import UNIFORM, RecoveryTeacher
 from .contracts import ACTION_DIM, OBS_SCHEMA_TERRAIN, TERRAIN_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
     TrainingConfig, doctrine_dict, training_sensor_contract, ppo_minibatches_for_envs,
@@ -487,11 +487,17 @@ def train(args: TrainingConfig) -> int:
         except Exception as exc:
             raise RuntimeError(f"--resume capability-field restore failed: {exc}") from exc
 
-    practice_weights=list(UNIFORM)
-    practice_rows=[]
+    teacher=RecoveryTeacher() if args.skill_adaptive_recovery else None
+    same_run_resume=bool(args.resume and (args.resume=='auto' or
+        Path(args.resume).resolve().parent==(run_dir/'checkpoints').resolve()))
+    if teacher is not None and same_run_resume and resumed_payload is not None:
+        teacher=RecoveryTeacher.from_state_dict(parent_meta.get('live_recovery_teacher'),resumed_step)
+    def teacher_meta(step):
+        return ({'live_recovery_teacher':teacher.state_dict(step)} if teacher is not None else {})
 
     def params_with_field(
         step: int, *, teaching_field: CapabilityField | None = None,
+        teaching_teacher: RecoveryTeacher | None = None,
     ) -> dict[str, Any]:
         """Build the next lesson for the live OR restored capability field."""
         d = governor.params_dict()
@@ -578,7 +584,8 @@ def train(args: TrainingConfig) -> int:
             node_count=FIELD_NODE_ANCHORS, edge_count=FIELD_EDGE_ANCHORS)
         d.update(packet)
         if args.skill_practice_recovery_share>0.:
-            for i,weight in enumerate(practice_weights):
+            active_teacher=teacher if teaching_teacher is None else teaching_teacher
+            for i,weight in enumerate(active_teacher.weights if active_teacher is not None else UNIFORM):
                 d[f'skill_practice_weight_{i}']=float(weight)
         return d
 
@@ -647,6 +654,7 @@ def train(args: TrainingConfig) -> int:
     rollout_curriculum_state_for_metrics = governor.state_dict()
     rollout_health_state_for_metrics = health.state_dict()
     rollout_field_state_for_metrics = field.state_dict()
+    rollout_teacher_meta_for_metrics=teacher_meta(resumed_step+args.envs*ROLLOUT_STEPS)
     rollout_lr_scale_for_metrics = lr_scale
     norm_diag = {'obs_norm_update_mean_l2': 0.0, 'obs_norm_update_std_l2': 0.0,
                  'obs_norm_anchor_mean_l2': 0.0, 'obs_norm_anchor_std_l2': 0.0,
@@ -719,22 +727,16 @@ def train(args: TrainingConfig) -> int:
                     field_evidence_from_taught=args.field_evidence_from_taught)
                 if args.live_skill_observer else None)
     def observe_skills(step):
-        if observer is not None:
-            observer.observe(rollout_metrics, step=step)
-    event_sink = observer.field_events if observer is not None else None
-    def review_skills(window):
-        nonlocal practice_weights
-        if window is None or not args.skill_adaptive_recovery:
+        if observer is None:
             return
-        # Keep only the small fixed reference subset in host memory.
-        compact={**window,'cells':{k:v for k,v in window['cells'].items()
-                                  if k.startswith('reference_recovery/')}}
-        practice_rows.append(compact)
-        plan=practice_plan(practice_rows,practice_weights)
-        practice_weights=plan['weights']
-        import json
-        with (run_dir/'live_skills'/('teacher-'+observer.path.name)).open('a',encoding='utf-8') as f:
-            f.write(json.dumps(dict(step=window['end_step'],policy_epoch=window['policy_epoch'],**plan),allow_nan=False)+'\n')
+        counts=observer.observe(rollout_metrics, step=step)
+        if teacher is not None:
+            plan=teacher.observe(counts,args.envs*ROLLOUT_STEPS)
+            if plan is not None:
+                import json
+                with (run_dir/'live_skills'/('teacher-'+observer.path.name)).open('a',encoding='utf-8') as f:
+                    f.write(json.dumps(dict(step=step,policy_epoch=observer.epoch,**plan),allow_nan=False)+'\n')
+    event_sink = observer.field_events if observer is not None else None
     log_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(LOG_EVERY_UPDATES))
     save_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(CHECKPOINT_EVERY_UPDATES))
     snapshot_every_steps = max(0, int(SNAPSHOT_EVERY_STEPS))
@@ -784,7 +786,7 @@ def train(args: TrainingConfig) -> int:
             best_score=best_eval_score, best_path=best_eval_path,
             curriculum_state=governor.state_dict, health_state=health.state_dict,
             field_state=field.state_dict, lr_scale=lr_scale, version=version,
-            checkpoint_meta=obs_meta, perf=perf, log_prefix=LOG_PREFIX,
+            checkpoint_meta={**obs_meta,**teacher_meta(step)}, perf=perf, log_prefix=LOG_PREFIX,
             progress=lambda message: print(f'{LOG_PREFIX} {message}',flush=True))
         last_eval_step = step
         latest_eval.update(out)
@@ -802,7 +804,7 @@ def train(args: TrainingConfig) -> int:
             rollout_metrics, step=total_steps, control_dt=CONTROL_DT,
             exclude_field_taught=not bool(args.field_evidence_from_taught), event_sink=event_sink)
         if observer is not None:
-            review_skills(observer.flush())
+            observer.flush()
         perf.add('capability_field_update', time.perf_counter() - field_t0)
         row.update(field_diag)
         reward_mean = float(np.asarray(aux.get('rollout_reward_mean', 0.0)))
@@ -865,6 +867,7 @@ def train(args: TrainingConfig) -> int:
             save_checkpoint(
                 run_dir / 'checkpoints' / 'recovery.pkl', rollout_policy_state,
                 {'step': total_steps, 'run_name': run_name, **obs_meta,
+                 **rollout_teacher_meta_for_metrics,
                  'competence': comp_med, 'core_competence': core_med,
                  'recovery_tier': recovery_tier, 'recovery_rank': list(recovery_rank),
                  'lr_scale': rollout_lr_scale_for_metrics, 'evaluated_policy': True},
@@ -887,14 +890,16 @@ def train(args: TrainingConfig) -> int:
                 recovery_path, state=state, governor=governor,
                 health=health, env=env, step=total_steps, report=report,
                 obs_mean=obs_mean, obs_var=obs_var, obs_count=obs_count,
-                task_params_for_field=lambda new_field: params_with_field(
-                    total_steps, teaching_field=new_field),
-                log_prefix=LOG_PREFIX,expected_refresher_pin=refresher_pin)
+                task_params_for_field=lambda new_field,new_teacher=None: params_with_field(
+                    total_steps, teaching_field=new_field,teaching_teacher=new_teacher),
+                log_prefix=LOG_PREFIX,expected_refresher_pin=refresher_pin,
+                restore_teacher=(lambda m:RecoveryTeacher.from_state_dict(
+                    m.get('live_recovery_teacher'),m['step'])) if teacher is not None else None)
             if restored is not None:
                 if observer is not None:
                     observer.rollback()
-                practice_rows.clear()
-                practice_weights=list(UNIFORM)
+                if teacher is not None:
+                    teacher=restored.teacher
                 rollback_count += 1
                 print(f'{LOG_PREFIX} rollback_count={rollback_count} '
                       f'at step={total_steps:,} (step clock is NOT rewound)',
@@ -994,7 +999,7 @@ def train(args: TrainingConfig) -> int:
             # loop completely rather than relying on a single guard.
             ck_timing = save_checkpoint(
                 run_dir / 'checkpoints' / 'latest.pkl', state,
-                {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale, **obs_meta}, obs_norm,
+                {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale, **obs_meta, **teacher_meta(total_steps)}, obs_norm,
                 curriculum_state=governor.state_dict(), health_state=health.state_dict(),
                 field_state=field.state_dict(), require_finite_state=True)
             perf.add('checkpoint_latest_device_get', ck_timing['device_get_s'])
@@ -1011,7 +1016,7 @@ def train(args: TrainingConfig) -> int:
             obs_norm = {'mean': obs_mean, 'var': obs_var, 'count': obs_count}
             snap_timing = save_rotating_snapshot(
                 run_dir / 'checkpoints', state,
-                {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale, **obs_meta}, obs_norm,
+                {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale, **obs_meta, **teacher_meta(total_steps)}, obs_norm,
                 curriculum_state=governor.state_dict(), health_state=health.state_dict(),
                 field_state=field.state_dict(), step=total_steps,
                 keep=max(0, int(SNAPSHOT_KEEP)))
@@ -1026,6 +1031,7 @@ def train(args: TrainingConfig) -> int:
         rollout_curriculum_state_for_metrics = governor.state_dict()
         rollout_health_state_for_metrics = health.state_dict()
         rollout_field_state_for_metrics = field.state_dict()
+        rollout_teacher_meta_for_metrics=teacher_meta(total_steps+args.envs*ROLLOUT_STEPS)
         rollout_lr_scale_for_metrics = float(lr_scale)
         evaluated_obs_norm = {'mean': obs_mean, 'var': obs_var, 'count': obs_count}
         old_mean, old_std = obs_mean, obs_var ** 0.5
@@ -1173,7 +1179,7 @@ def train(args: TrainingConfig) -> int:
         run_dir, step=total_steps, params=params, report=report, metrics_row=final_row)
     final_ck_timing = save_checkpoint(
         run_dir / 'checkpoints' / 'latest.pkl', state,
-        {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale, **obs_meta},
+        {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale, **obs_meta, **teacher_meta(total_steps)},
         {'mean': obs_mean, 'var': obs_var, 'count': obs_count},
         curriculum_state=governor.state_dict(), health_state=health.state_dict(),
         field_state=field.state_dict(), require_finite_state=True)
