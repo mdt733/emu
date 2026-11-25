@@ -192,6 +192,17 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('Invalid fixed-budget skill practice configuration')
     if reference_share and (not getattr(args,'live_skill_observer',False) or mission_refreshers or stillness_birth_frac):
         raise ValueError('Reference recovery needs observer and no overlapping refresher/stillness programme')
+    uphill_ref=float(getattr(args,'skill_uphill_reference_share',0.))
+    uphill_practice=float(getattr(args,'skill_uphill_practice_share',0.))
+    uphill_stage=getattr(args,'skill_uphill_stage','none')
+    if (not math.isfinite(uphill_ref) or not math.isfinite(uphill_practice)
+            or not 0.<=uphill_ref<=.15 or not 0.<=uphill_practice<=.15
+            or (uphill_practice and not uphill_ref)
+            or uphill_stage not in ('none','first_support','bilateral','traversal')
+            or (uphill_stage!='none' and not uphill_practice)
+            or (uphill_ref and (not survival_school or not getattr(args,'live_skill_observer',False)
+                or mission_refreshers or stillness_birth_frac))):
+        raise ValueError('Invalid isolated uphill reference/practice configuration')
     if mission_refreshers and not cross_stairs:
         raise ValueError('--mission-refreshers requires --cross-specialty-stairs')
     if cross_stairs and not survival_school:
@@ -255,6 +266,9 @@ def one_run_config(args) -> TrainingConfig:
                    skill_reference_recovery_share=reference_share,
                    skill_practice_recovery_share=practice_share,
                    skill_adaptive_recovery=adaptive_recovery,
+                   skill_uphill_reference_share=uphill_ref,
+                   skill_uphill_practice_share=uphill_practice,
+                   skill_uphill_stage=uphill_stage,
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
