@@ -158,3 +158,55 @@ def test_reference_ledger_requires_repeated_disjoint_evidence():
     assert assess_reference([good,Block(2,2),good])["anchor"] is None
     with pytest.raises(ValueError):
         Block(5,6)
+
+
+def test_practice_reallocation_preserves_fixed_reference_births():
+    import jax
+    import jax.numpy as jnp
+    from emu.live_skill_reference import reference_assignment, reference_velocity
+    from emu.live_skill_teacher import UNIFORM
+    n=4096
+    keys=jax.random.split(jax.random.PRNGKey(397),n)
+    role=jnp.arange(n)%2==0
+    active=jnp.ones(n,dtype=bool)
+    athletic=jnp.arange(n)%7==0
+    make=jax.jit(lambda w:reference_assignment(jax,jnp,keys,role,active,athletic,
+                                                1.,.15,.15,w))
+    a=np.asarray(make(jnp.asarray(UNIFORM)))
+    b=np.asarray(make(jnp.asarray([7/12]+[1/12]*5)))
+    fixed=(a>=0)&(a<6)
+    np.testing.assert_array_equal(fixed,(b>=0)&(b<6))
+    np.testing.assert_array_equal(a[fixed],b[fixed])
+    np.testing.assert_array_equal(a>=6,b>=6)
+    np.testing.assert_array_equal(a<0,b<0)
+    assert np.count_nonzero(b==6)>np.count_nonzero(a==6)
+    assert not np.any((b>=0)&(~np.asarray(role)|np.asarray(athletic)))
+    from emu.live_skill_reference import REFERENCE_KICKS_MPS
+    after=np.asarray(reference_velocity(jnp,jnp.zeros((n,12)),jnp.asarray(b)))
+    np.testing.assert_allclose(after[b>=0,0]-.16,
+        np.asarray(REFERENCE_KICKS_MPS)[b[b>=0]%6],atol=1e-6)
+
+
+def test_practice_plan_uses_only_fixed_reference_not_practice():
+    from emu.live_skill_teacher import practice_plan, UNIFORM, MAX_WEIGHT_CHANGE
+    from emu.live_skill_reference import REFERENCE_KICKS_MPS
+    rows=[]
+    for i,p in enumerate((95,95,60,60)):
+        rows.append(dict(schema="emu_live_skill_window_v1",
+            reference_kicks_mps=list(REFERENCE_KICKS_MPS),reference_vx_mps=.16,
+            reference_sensor_scale=1.,reference_step_command_m=.012,
+            reference_settle_deadline_s=3.,reference_settle_frames=25,
+            policy_epoch=0,start_step=i*1000000,end_step=(i+1)*1000000,
+            cells={"reference_recovery/settled/0":dict(attempts=100,passes=p),
+                   "practice_recovery/settled/1":dict(attempts=10000,passes=0)}))
+    assert practice_plan(rows[:3])["reason"]=="uniform_maintenance"
+    p=practice_plan(rows)
+    assert p["reason"]=="repair" and p["selected"]==[0]
+    assert p["weights"][0]>UNIFORM[0]
+    assert max(abs(x-y) for x,y in zip(p["weights"],UNIFORM))<=MAX_WEIGHT_CHANGE+1e-9
+    for _ in range(20):
+        p=practice_plan(rows,p["weights"])
+    np.testing.assert_allclose(p["weights"],[7/12]+[1/12]*5)
+    assert abs(sum(p["weights"])-1)<1e-9
+    clean=[dict(rows[-1],policy_epoch=1)]
+    assert practice_plan(clean)["reason"]=="uniform_maintenance"
