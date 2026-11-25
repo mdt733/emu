@@ -45,6 +45,8 @@ class LiveSkillObserver:
                            reference_step_command_m=REFERENCE_STEP_COMMAND_M,
                            reference_settle_deadline_s=SETTLE_DEADLINE_S,
                            reference_settle_frames=SETTLE_FRAMES,
+                           reference_horizon_s=SETTLE_DEADLINE_S,
+                           reference_mastery_gate='settled_and_survived',
                            source_commit=str(source_commit),
                            field_shape=list(map(int, field_shape)),
                            field_bounds=np.asarray(field_bounds).tolist(),
@@ -136,9 +138,10 @@ class LiveSkillObserver:
                 raise ValueError('Reference physical birth velocity mismatch')
             for prefix, cohort in (('reference_recovery',take & (reference<6)),
                                    ('practice_recovery',reference>=6)):
-                self._binned(prefix+'/settled',reference[cohort]%6,
-                             terminal('skill_reference_settled')[cohort]>.5)
+                settled=terminal('skill_reference_settled')[cohort]>.5
+                self._binned(prefix+'/settled',reference[cohort]%6,settled)
                 self._binned(prefix+'/survived',reference[cohort]%6,survived[cohort])
+                self._binned(prefix+'/mission',reference[cohort]%6,settled & survived[cohort])
             # Ordinary physical birth residuals include carryover and are
             # observational cohorts, not isolated kicks or matched references.
             ordinary=(role==1)&(~take)&np.isfinite(vx)&np.isfinite(vy)
