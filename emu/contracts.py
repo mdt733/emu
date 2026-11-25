@@ -231,6 +231,9 @@ UNIFIED_TERRAIN_FIELDS = (
     *((f'clean_refresher_prob_{name}',0.0) for name in
       ('command','resilience','slope','step','transition','control')),
     *((f'skill_practice_weight_{i}',0.0) for i in range(6)),
+    *((f'skill_uphill_weight_{i}',0.0) for i in range(6)),
+    *((f'skill_uphill_stage_{i}',0.0) for i in range(6)),
+    *((f'skill_uphill_bonus_{i}',0.0) for i in range(6)),
 )
 UNIFIED_TASK_PARAM_DIM = TERRAIN_TASK_PARAM_DIM + len(UNIFIED_TERRAIN_FIELDS)
 P = SimpleNamespace(
@@ -259,6 +262,9 @@ P = SimpleNamespace(
        for i,name in enumerate(
            ('command','resilience','slope','step','transition','control'))},
     **{f'skill_practice_weight_{i}':TERRAIN_TASK_PARAM_DIM+25+i for i in range(6)},
+    **{f'skill_uphill_weight_{i}':TERRAIN_TASK_PARAM_DIM+31+i for i in range(6)},
+    **{f'skill_uphill_stage_{i}':TERRAIN_TASK_PARAM_DIM+37+i for i in range(6)},
+    **{f'skill_uphill_bonus_{i}':TERRAIN_TASK_PARAM_DIM+43+i for i in range(6)},
 )
 
 
