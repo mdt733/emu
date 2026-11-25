@@ -229,6 +229,7 @@ class EnvState(NamedTuple):
     skill_birth_vy_error: Any
     skill_reference_streak: Any
     skill_reference_settled: Any
+    skill_uphill_id: Any  # -1 ordinary, 0..5 reference, 6..11 practice
     skill_stair_approach_seen: Any
     skill_stair_contact_seen: Any
     skill_stair_foot_streak: Any
@@ -1040,6 +1041,9 @@ class EmuMJXEnv(TaskSampler):
                  live_skill_observer: bool = False,
                  skill_reference_recovery_share: float = 0.0,
                  skill_practice_recovery_share: float = 0.0,
+                 skill_uphill_reference_share: float = 0.0,
+                 skill_uphill_practice_share: float = 0.0,
+                 skill_uphill_stage: str = 'none',
                  science_gate_mode: str = "legacy",
                  science_phase_lowcmd_scale: float = 1.0,
                  science_phase_sync_strength: float = 1.0,
@@ -1129,6 +1133,21 @@ class EmuMJXEnv(TaskSampler):
                 (skill_practice_recovery_share and not skill_reference_recovery_share)):
             raise ValueError('Invalid bounded recovery practice share')
         self.skill_practice_recovery_share=float(skill_practice_recovery_share)
+        from .live_skill_uphill import UP_STAGE_NAMES, UP_HEIGHTS_M
+        if (not np.isfinite([skill_uphill_reference_share,skill_uphill_practice_share]).all()
+                or not 0.<=skill_uphill_reference_share<=.15
+                or not 0.<=skill_uphill_practice_share<=.15
+                or (skill_uphill_practice_share and not skill_uphill_reference_share)
+                or skill_uphill_stage not in UP_STAGE_NAMES
+                or (skill_uphill_stage!='none' and not skill_uphill_practice_share)
+                or (skill_uphill_reference_share and (not live_skill_observer or
+                    not academy_stream or not stair_survival_curriculum or
+                    self.exam_fixture_steps is not None or stillness_birth_frac or
+                    terrain_step_max_m<max(UP_HEIGHTS_M) or academy_height_cap_m<max(UP_HEIGHTS_M)))):
+            raise ValueError('Invalid isolated uphill teaching configuration')
+        self.skill_uphill_reference_share=float(skill_uphill_reference_share)
+        self.skill_uphill_practice_share=float(skill_uphill_practice_share)
+        self.skill_uphill_stage=skill_uphill_stage
         if science_gate_mode not in ("legacy","zero-only","off"):
             raise ValueError("Invalid v5051 gate mode")
         limits=dict(science_phase_lowcmd_scale=(0.,1.),
@@ -1662,7 +1681,7 @@ class EmuMJXEnv(TaskSampler):
         step_i = jax.random.randint(stagger_key, (self.num_envs,), 0, self.max_episode_steps, dtype=jnp.int32)
         # Reference tasks get their complete physical time budget even at
         # process birth; ordinary timeout staggering is unchanged.
-        return state._replace(step_i=jnp.where(state.skill_reference_id>=0,0,step_i))
+        return state._replace(step_i=jnp.where((state.skill_reference_id>=0)|(state.skill_uphill_id>=0),0,step_i))
 
     def _step_impl(self, state: EnvState, action, params) -> StepOut:
         """Advance a control frame and publish a truthful PPO transition.
@@ -1790,6 +1809,9 @@ class EmuMJXEnv(TaskSampler):
             # Ordinary lessons keep their full episode clocks.
             reference_timeout=(state.ep_len+1)>=round(SETTLE_DEADLINE_S/CONTROL_DT)
             timeout=jnp.where(state.skill_reference_id>=0,reference_timeout,timeout)
+        if self.skill_uphill_reference_share>0.:
+            from .live_skill_uphill import UP_FRAMES
+            timeout=jnp.where(state.skill_uphill_id>=0,state.ep_len+1>=UP_FRAMES,timeout)
         terminal_fail=jnp.logical_or(metrics['terminal']>.5,physics_diverged)
         terminal_or_timeout=jnp.logical_or(terminal_fail,timeout)
         academy=self._carpet_events(state,data,metrics,terminal_or_timeout,params)
@@ -2001,6 +2023,13 @@ class EmuMJXEnv(TaskSampler):
                 approach_seen=stair_state[0],contact_seen=stair_state[1],
                 foot_streak=stair_state[2],feet_seen=stair_state[3],
                 traverse_streak=stair_state[4],traversed=stair_state[5])
+        if self.skill_uphill_stage!='none':
+            from .live_skill_uphill import prerequisite_payment
+            credit=prerequisite_payment(jnp,state.skill_uphill_id,self.skill_uphill_stage,
+                state.skill_stair_feet_seen,stair_state[3],state.skill_stair_traversed,
+                stair_state[5],terminal_fail)
+            reward=reward+credit
+            ep_return=ep_return+credit
         stepped = state._replace(
             skill_stair_approach_seen=stair_state[0],skill_stair_contact_seen=stair_state[1],
             skill_stair_foot_streak=stair_state[2],skill_stair_feet_seen=stair_state[3],
@@ -2148,7 +2177,7 @@ class EmuMJXEnv(TaskSampler):
         # or a single foothold as a survived stair trial. A real terminal
         # fall is the only failure; reaching timeout upright is survival.
         safe_ascent_first_up = (
-            done & state.academy_active &
+            done & state.academy_active & (state.skill_uphill_id<0) &
             (state.academy_birth_lip_m > .0015) &
             (state.academy_birth_frontier_m >= .003) &
             # An episode generated before a frontier expansion may finish
@@ -2360,7 +2389,7 @@ class EmuMJXEnv(TaskSampler):
                 (jnp.abs(state.academy_birth_lip_m)>.0015),
                 academy['attempt_new']).astype(jnp.float32),
             **{f'academy_{band}_{outcome}_{direction}':
-                (band_mask & verdict &
+                (band_mask & verdict & (state.skill_uphill_id<0) &
                  direction_mask).astype(jnp.float32)
                 for band,band_mask in (('near',academy_near),
                                        ('easy',academy_easy))
@@ -2404,6 +2433,7 @@ class EmuMJXEnv(TaskSampler):
             'regime_resilience_frontier':metrics['regime_resilience_frontier'] *
                 (state.skill_reference_id<0).astype(jnp.float32),
             'skill_reference_id':state.skill_reference_id,
+            'skill_uphill_id':state.skill_uphill_id,
             'skill_birth_vx_error':state.skill_birth_vx_error,
             'skill_birth_vy_error':state.skill_birth_vy_error,
             'skill_reference_settled':(done & stepped.skill_reference_settled).astype(jnp.float32),
@@ -2911,7 +2941,7 @@ class EmuMJXEnv(TaskSampler):
         return model
 
     def _carpet_birth(self,data,keys,params,focus_id,specialist_active,
-                      task,birth_root_z,academy_active,reference_id=None):
+                      task,birth_root_z,academy_active,reference_id=None,uphill_id=None):
         """The same four real triangle-pair tiles for ALL six roles.
 
         A foundation episode has zero terrain difficulty. Every specialist
@@ -2970,6 +3000,13 @@ class EmuMJXEnv(TaskSampler):
             cross_stair_birth=cross_stair_birth & ~reference
             clean_birth=clean_birth & ~reference
         xprof,yprof=carpet_make_profiles(jnp,seeds,up,down)
+        if self.skill_uphill_reference_share>0.:
+            from .live_skill_uphill import assigned_height
+            exact=uphill_id>=0
+            xp,yp=carpet_exam_lip_profiles(jnp,assigned_height(jnp,uphill_id))
+            xprof=jnp.where(exact[:,None],xp,xprof)
+            yprof=jnp.where(exact[:,None],yp,yprof)
+            slope,up,down=(jnp.where(exact,0.,v) for v in (slope,up,down))
         if self.exam_fixture_steps is not None:
             # No sampled ±X sign, jitter or extra lip. Exact 1m seam,
             # optional continuous signed grade, unchanged real colliders.
@@ -3161,13 +3198,20 @@ class EmuMJXEnv(TaskSampler):
             specialist_active,task[:,T.athletic_rehearsal],params[P.specialist_mix],
             self.skill_reference_recovery_share,self.skill_practice_recovery_share,
             params[P.skill_practice_weight_0:P.skill_practice_weight_5+1])
+        academy_active=self._academy_birth(keys,params,focus_id,specialist_active,
+            task[:,T.athletic_rehearsal])
+        from .live_skill_uphill import uphill_assignment,uphill_task,UP_APPROACH_M
+        uphill_id=uphill_assignment(jax,jnp,keys,academy_active,params[P.specialist_mix],
+            self.skill_uphill_reference_share,self.skill_uphill_practice_share)
+        if self.skill_uphill_reference_share>0.:
+            task=uphill_task(jnp,task,T,uphill_id,self.vx_hi_max,self.phase_speed_gain)
         if self.skill_reference_recovery_share>0.:
             task=reference_task(jnp,task,T,reference_id,self.vx_hi_max,self.phase_speed_gain)
         data = self._birth_physics(
             data, task, params,
             (noise_keys, vnoise_keys, tilt_keys, pos_keys, angvel_keys,
              linvel_keys, joint_keys, carry_keys),
-            carryover_qvel,reference_id,
+            carryover_qvel,jnp.maximum(reference_id,uphill_id),
         )
         if self.skill_reference_recovery_share>0.:
             data=data.replace(qvel=reference_velocity(jnp,data.qvel,reference_id))
@@ -3180,9 +3224,6 @@ class EmuMJXEnv(TaskSampler):
             data=data.replace(qpos=qpos,qvel=qvel)
         # One episode-local collision course. The standard flat path above
         # is bitwise untouched whenever terrain_step_max_m is zero.
-        academy_active=self._academy_birth(
-            keys,params,focus_id,specialist_active,
-            task[:,T.athletic_rehearsal])
         if self.science_step_approach_m > 0.:
             # Academic stair nursery: Academy-only births land a fixed safe
             # distance BEFORE the next authentic 1m prism seam. The
@@ -3195,10 +3236,15 @@ class EmuMJXEnv(TaskSampler):
                 jnp,data.qpos[:,0],self.science_step_approach_m)
             data=data.replace(qpos=data.qpos.at[:,0].set(
                 jnp.where(academy_active,near_x,data.qpos[:,0])))
+        if self.skill_uphill_reference_share>0.:
+            fixed=uphill_id>=0
+            qpos=data.qpos.at[:,0].set(jnp.where(fixed,CARPET_TILE_M-UP_APPROACH_M,data.qpos[:,0]))
+            qpos=qpos.at[:,1].set(jnp.where(fixed,.5*CARPET_TILE_M,qpos[:,1]))
+            data=data.replace(qpos=qpos)
         birth_root_z=data.qpos[:,2]
         data,carpet=self._carpet_birth(
             data,keys,params,focus_id,specialist_active,task,
-            birth_root_z,academy_active,reference_id)
+            birth_root_z,academy_active,reference_id,uphill_id)
         ctrl = data.ctrl
         ctrl = ctrl.at[:, :ACTION_DIM].set(self.home_target)
         data = data.replace(ctrl=ctrl)
@@ -3276,6 +3322,7 @@ class EmuMJXEnv(TaskSampler):
             skill_birth_vy_error=data.qvel[:,1]-task[:,T.vy],
             skill_reference_streak=izeros,
             skill_reference_settled=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            skill_uphill_id=uphill_id,
             skill_stair_approach_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             skill_stair_contact_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             skill_stair_foot_streak=jnp.zeros((self.num_envs,2),dtype=jnp.int32),
