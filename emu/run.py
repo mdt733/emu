@@ -183,6 +183,13 @@ def one_run_config(args) -> TrainingConfig:
     reference_share=float(getattr(args,'skill_reference_recovery_share',0.))
     if not math.isfinite(reference_share) or not 0. <= reference_share <= .30:
         raise ValueError('Reference recovery share must be in [0,.30]')
+    practice_share=float(getattr(args,'skill_practice_recovery_share',0.))
+    adaptive_recovery=bool(getattr(args,'skill_adaptive_recovery',False))
+    if (not math.isfinite(practice_share) or not 0.<=practice_share<=.15 or
+            reference_share+practice_share>.30+1e-7 or
+            (practice_share and not reference_share) or
+            (adaptive_recovery and not practice_share)):
+        raise ValueError('Invalid fixed-budget skill practice configuration')
     if reference_share and (not getattr(args,'live_skill_observer',False) or mission_refreshers or stillness_birth_frac):
         raise ValueError('Reference recovery needs observer and no overlapping refresher/stillness programme')
     if mission_refreshers and not cross_stairs:
@@ -246,6 +253,8 @@ def one_run_config(args) -> TrainingConfig:
                    mission_refreshers=mission_refreshers,
                    live_skill_observer=bool(getattr(args,'live_skill_observer',False)),
                    skill_reference_recovery_share=reference_share,
+                   skill_practice_recovery_share=practice_share,
+                   skill_adaptive_recovery=adaptive_recovery,
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
