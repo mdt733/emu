@@ -160,6 +160,10 @@ def main(argv=None) -> int:
                    help='steps needed to reach maximum modest per-role exposure')
     q.add_argument('--skill-reference-recovery-share',type=float,default=0.,
                    help='fraction of mature resilience births assigned fixed signed flat recovery tasks (max .30)')
+    q.add_argument('--skill-practice-recovery-share',type=float,default=0.,
+                   help='separate fixed-budget practice share within mature resilience births (max .15)')
+    q.add_argument('--skill-adaptive-recovery',action='store_true',
+                   help='bias the practice distribution using fixed reference evidence; otherwise uniform')
     q.add_argument('--live-skill-observer',action='store_true',
                    help='write passive per-skill counts from existing PPO rollouts; no extra exams')
     q.add_argument('--mission-refreshers',action='store_true',
