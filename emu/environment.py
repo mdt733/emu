@@ -2337,6 +2337,9 @@ class EmuMJXEnv(TaskSampler):
                 self._rotation_body_to_world(data)[:,0,0]),
             'academy_goal_sequential_feet_ready':(
                 stepped.academy_goal_transfer_ready).astype(jnp.float32),
+            'skill_first_birth_lip_m':state.academy_birth_lip_m,
+            'skill_first_goal_completed':(done & state.academy_active &
+                stepped.academy_goal_completed).astype(jnp.float32),
             'academy_episode_attempt':(done & state.academy_active).astype(jnp.float32),
             # Separate first-tile proof gates at EPISODE END. These are
             # read-only diagnostics, not actor observations or reward flags.
