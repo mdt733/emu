@@ -386,3 +386,68 @@ def test_uphill_fixed_reference_and_practice_ledger(tmp_path):
     assert row["cells"]["practice_uphill/mission/4"]==dict(attempts=1,passes=0)
     assert sum(v["attempts"] for k,v in row["cells"].items()
                if k.startswith("academy_physical_first_lip/up/traversed/"))==1
+
+
+def test_adaptive_uphill_teacher_fade_stall_and_checkpoint():
+    from emu.live_skill_uphill_teacher import UphillTeacher, REVIEW_STEPS
+    weak=[100,96,92,40,30,25]
+    good=[100,98,96,95,90,85]
+    def block(t,row):
+        return t.observe([[0]*6 for _ in range(4)]+[row,[0]*6], REVIEW_STEPS)
+    a=UphillTeacher()
+    block(a,weak); assert a.stage==[0]*6
+    block(a,weak); assert a.stage[4]==2 and a.bonus[4]==4.
+    assert a.weights[4]>1./6
+    ck=a.state_dict(120000000)
+    b=UphillTeacher.from_state_dict(ck,120000000)
+    for expected in (3.,2.,1.,0.):
+        for _ in range(2):
+            assert block(a,good)==block(b,good)
+        assert a.bonus[4]==expected
+    assert a.stage[4]==0 and a.unassisted[4]
+    assert a.state_dict(140000000)==b.state_dict(140000000)
+    assert UphillTeacher.from_state_dict(ck,120000000).bonus[4]==4.
+    s=UphillTeacher()
+    block(s,weak); block(s,weak)
+    for _ in range(6): block(s,weak)
+    assert s.stage[4]==0 and s.cooldown[4]
+    block(s,weak); block(s,weak)
+    assert not s.cooldown[4] and s.stage[4]==0
+    block(s,weak); block(s,weak)
+    assert s.stage[4]==2
+    z=UphillTeacher()
+    for _ in range(10): block(z,[100,10,0,0,0,0])
+    assert z.stage==[0]*6
+    for _ in range(4): block(z,[0]*6)
+    assert z.bonus==[0.]*6
+    with pytest.raises(ValueError,match="nested"):
+        block(z,[100,90,99,0,0,0])
+    with pytest.raises(ValueError,match="identity"):
+        UphillTeacher.from_state_dict(ck,120000001)
+
+
+def test_adaptive_uphill_birth_latched_prerequisite():
+    import jax
+    import jax.numpy as jnp
+    from emu.live_skill_uphill import uphill_assignment,birth_credit,assigned_prerequisite_payment
+    keys=jax.random.split(jax.random.PRNGKey(821),4096)
+    academy=jnp.arange(4096)%2==0
+    assign=jax.jit(lambda w:uphill_assignment(jax,jnp,keys,academy,1.,.15,.15,w))
+    a=np.asarray(assign(jnp.full(6,1./6)))
+    b=assign(jnp.array([1./12]*4+[7./12,1./12]))
+    bh=np.asarray(b)
+    fixed=(a>=0)&(a<6)
+    np.testing.assert_array_equal(fixed,(bh>=0)&(bh<6))
+    np.testing.assert_array_equal(a[fixed],bh[fixed])
+    np.testing.assert_array_equal(a>=6,bh>=6)
+    s,v=birth_credit(jnp,b,jnp.array([0,1,2,3,2,0]),jnp.array([0.,4.,3.,2.,1.,0.]))
+    later_s,later_v=birth_credit(jnp,b,jnp.zeros(6),jnp.zeros(6))
+    assert not np.asarray(later_s).any() and not np.asarray(later_v).any()
+    assert not np.asarray(v)[bh<6].any()
+    old=jnp.tile(jnp.array([[True,False]]),(4096,1))
+    new=jnp.ones_like(old)
+    no=jnp.zeros(4096,bool)
+    pay=jax.jit(lambda:assigned_prerequisite_payment(jnp,b,s,v,old,new,no,no,no))()
+    np.testing.assert_array_equal(np.asarray(pay),np.where(np.asarray(s)==2,np.asarray(v),0.))
+    repeat=assigned_prerequisite_payment(jnp,b,s,v,new,new,no,no,no)
+    assert not np.asarray(repeat).any()
