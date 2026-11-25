@@ -78,7 +78,7 @@ def main():
     p.add_argument("--abc-refresher-smoke",action="store_true",
                    help="matched real 2048-world clean refresher birth acceptance")
     p.add_argument("--benchmark-updates",type=int,default=1,
-                   help="1..8 full PPO updates; report synchronized steady FPS "
+                   help="1..16 full PPO updates; report synchronized steady FPS "
                         "after the first compilation; no checkpoint")
     p.add_argument("--profile-rollout",action="store_true",
                    help="independently time the exact 32-frame training rollout "
@@ -112,9 +112,9 @@ def main():
         p.error("--solver-ls-iterations must be 1..100")
     if a.full_update and (a.worlds not in (1024,2048,4096) or not a.ppo or a.device=="cpu"):
         p.error("--full-update requires --worlds 1024, 2048 or 4096, --device cuda --ppo")
-    if (not 1<=a.benchmark_updates<=8 or
+    if (not 1<=a.benchmark_updates<=16 or
             (a.benchmark_updates>1 and not a.full_update)):
-        p.error("--benchmark-updates must be 1..8 and >1 requires --full-update")
+        p.error("--benchmark-updates must be 1..16 and >1 requires --full-update")
     if a.abc_refresher_smoke and (not a.full_update or a.worlds!=2048 or not a.stair_survival_curriculum):
         p.error("ABC smoke requires 2048-world full-update survival school")
     if a.live_recovery_smoke and (not a.full_update or a.worlds!=4096 or
@@ -122,8 +122,8 @@ def main():
         p.error("Live recovery smoke needs 4096-world full-update survival school and >=5 updates")
     if a.live_uphill_smoke and (not a.full_update or a.worlds!=4096 or
             not a.stair_survival_curriculum or a.abc_refresher_smoke or
-            a.live_recovery_smoke or a.benchmark_updates<3):
-        p.error("Live uphill smoke needs 4096-world full-update survival school and >=3 updates")
+            a.live_recovery_smoke or a.benchmark_updates<12):
+        p.error("Live uphill smoke needs 4096-world full-update survival school and >=12 updates")
     if a.profile_rollout and (not a.full_update or a.benchmark_updates<3):
         p.error("--profile-rollout requires --ppo --full-update and --benchmark-updates >=3")
     if a.gpu_audit_dir and not a.profile_rollout:
@@ -183,7 +183,7 @@ def main():
         school_kwargs.update(skill_reference_recovery_share=.15,skill_practice_recovery_share=.15)
     if a.live_uphill_smoke:
         school_kwargs.update(live_skill_observer=True,skill_uphill_reference_share=.15,
-                             skill_uphill_practice_share=.15,skill_uphill_stage="bilateral")
+                             skill_uphill_practice_share=.15,skill_adaptive_uphill=True)
     env=EmuMJXEnv(
         robot_xml_path,num_envs=a.worlds,seed=a.seed,max_episode_steps=700,
         terrain_step_max_m=(.055 if a.stair_survival_curriculum else .08),
@@ -202,6 +202,10 @@ def main():
                 athletic_rehearsal_frac=0.)
     if a.live_recovery_smoke:
         params.update({f"skill_practice_weight_{i}":1./6 for i in range(6)})
+    if a.live_uphill_smoke:
+        params.update({f"skill_uphill_weight_{i}":1./6 for i in range(6)})
+        params.update({f"skill_uphill_stage_{i}":2. for i in range(6)})
+        params.update({f"skill_uphill_bonus_{i}":4. for i in range(6)})
     packet=env.params_array(params)
     state,obs=env.reset(params)
     if a.abc_refresher_smoke:
@@ -277,6 +281,20 @@ def main():
         np.testing.assert_allclose(np.asarray(state.task)[active,T.vx],UP_VX,atol=1e-6)
         for field in ("carpet_up","carpet_down","carpet_slope","carpet_yprofile"):
             assert np.all(np.asarray(getattr(state,field))[active]==0.),field
+        # Reallocate practice and fade credit, without changing fixed births.
+        fixed=(ids>=0)&(ids<6); practice=ids>=6
+        changed=dict(params,**{f"skill_uphill_weight_{i}":(7./12 if i==4 else 1./12) for i in range(6)},
+                     **{f"skill_uphill_bonus_{i}":1. for i in range(6)})
+        changed_state,changed_obs=env.reset(changed)
+        changed_ids=np.asarray(changed_state.skill_uphill_id)
+        np.testing.assert_array_equal(fixed,(changed_ids>=0)&(changed_ids<6))
+        np.testing.assert_array_equal(ids[fixed],changed_ids[fixed])
+        np.testing.assert_array_equal(practice,changed_ids>=6)
+        np.testing.assert_array_equal(np.asarray(obs)[~practice],np.asarray(changed_obs)[~practice])
+        assert np.all(np.asarray(state.skill_uphill_birth_bonus)[practice]==4.)
+        assert np.all(np.asarray(changed_state.skill_uphill_birth_bonus)[practice]==1.)
+        assert not np.asarray(changed_state.skill_uphill_birth_bonus)[~practice].any()
+        del changed_state,changed_obs
         print("LIVE UPHILL GPU exact signed prism births PASS:",
             int(((ids>=0)&(ids<6)).sum()),int((ids>=6).sum()),flush=True)
 
@@ -423,11 +441,14 @@ def main():
         packet=env.params_array(active_params)
         initial=trainer["make_initial_state"](active_params)
         reference_verdicts=[0,0]
+        uphill_verdicts=np.zeros((2,6),dtype=np.int64)
+        uphill_survivors=np.zeros((2,6),dtype=np.int64)
         def check_uphill_metrics(metrics):
             if not a.live_uphill_smoke:
                 return
             keys=("skill_uphill_id","skill_first_birth_lip_m","episode_done","episode_length",
-                  "episode_fell","reward_uphill_prerequisite","skill_stair_first_support",
+                  "episode_fell","reward_uphill_prerequisite","skill_uphill_birth_stage",
+                  "skill_uphill_birth_bonus","skill_stair_first_support",
                   "skill_stair_each_foot_five","skill_stair_traversed")
             m={k:np.asarray(v) for k,v in jax.device_get({k:metrics[k] for k in keys}).items()}
             ids=m["skill_uphill_id"]; active=ids>=0
@@ -435,7 +456,8 @@ def main():
             np.testing.assert_allclose(m["skill_first_birth_lip_m"][active],
                 np.asarray(UP_HEIGHTS_M)[ids[active].astype(int)%6],atol=5e-5)
             credit=m["reward_uphill_prerequisite"]
-            assert np.all((credit==0.)|(credit==4.))
+            assert np.all((credit==0.)|(credit==m["skill_uphill_birth_bonus"]))
+            assert not m["skill_uphill_birth_bonus"][ids<6].any()
             assert not credit[ids<6].any() and not credit[m["episode_fell"]>.5].any()
             done=active & (m["episode_done"]>.5)
             survived=done & (m["episode_fell"]<.5)
@@ -443,6 +465,11 @@ def main():
             assert np.all(m["episode_length"][survived]==350)
             assert np.all(m["skill_stair_traversed"][done]<=m["skill_stair_each_foot_five"][done])
             assert np.all(m["skill_stair_each_foot_five"][done]<=m["skill_stair_first_support"][done])
+            for i,mask in enumerate(((ids>=0)&(ids<6),ids>=6)):
+                for case in range(6):
+                    selected=mask & (ids%6==case)
+                    uphill_verdicts[i,case]+=int((done & selected).sum())
+                    uphill_survivors[i,case]+=int((survived & selected).sum())
         def check_live_metrics(metrics):
             if not a.live_recovery_smoke:
                 return
@@ -518,6 +545,10 @@ def main():
             last=updated
             final_steady_metrics=None
             for i in range(1,a.benchmark_updates):
+                if a.live_uphill_smoke and i==6:
+                    # A real teacher change during active lives: existing birth
+                    # credit is retained, subsequent births receive faded credit.
+                    packet=env.params_array(changed)
                 start_steady=time.perf_counter()
                 nxt,steady_metrics,_,_,_=trainer["train_update"](
                     last,packet,jnp.zeros((360,),dtype=jnp.float32),
@@ -532,6 +563,12 @@ def main():
             if a.live_recovery_smoke:
                 assert all(reference_verdicts),reference_verdicts
                 print("LIVE RECOVERY GPU terminal verdicts PASS:",reference_verdicts,flush=True)
+            if a.live_uphill_smoke:
+                assert np.all(uphill_verdicts>0),uphill_verdicts
+                print("LIVE UPHILL GPU completed trials per cohort/case:",uphill_verdicts.tolist(),flush=True)
+                print("LIVE UPHILL GPU survived full horizons:",uphill_survivors.tolist(),flush=True)
+                # Random initial actor need not master or survive a climb.
+                # Survival counts are learning evidence, not software acceptance.
             # Keep output meaningful if a later PPO update blows up.
             if not bool(np.asarray(jax.device_get(
                     jnp.all(jnp.isfinite(last.params["pi"][-1]["w"]))))):
