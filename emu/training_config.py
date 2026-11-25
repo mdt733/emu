@@ -27,6 +27,11 @@ FOUNDATION_STEPS = 20_000_000
 ROLLOUT_STEPS = 32
 PPO_EPOCHS = 4
 PPO_MINIBATCHES = 8
+
+
+def ppo_minibatches_for_envs(envs: int) -> int:
+    """4k research classroom: preserve the 2048-world minibatch size."""
+    return 16 if envs == 4096 else PPO_MINIBATCHES
 PPO_LR = 2e-4
 PPO_ENTROPY_COST = 0.002
 PPO_VALUE_COST = 0.5
@@ -225,6 +230,7 @@ class TrainingConfig:
     cross_specialty_stairs_start_steps: int = 90_000_000
     cross_specialty_stairs_ramp_steps: int = 20_000_000
     mission_refreshers: bool = False  # one explicitly pinned programme per cold run
+    live_skill_observer: bool = False  # read-only, no teacher feedback
 
     # One executable 360-input prism trainer. Old attitude profiles live in Git.
     attitude_profile: str = "v5015"
@@ -301,8 +307,10 @@ class TrainingConfig:
         old_refresher={'mission_refreshers'}
         historical=(set(),old_survival,old_development,
                     old_development|old_survival)
+        historical=(*historical,*(x|old_refresher for x in historical))
+        old_observer={'live_skill_observer'}
         if not (keys-expected) and missing in (
-                *historical,*(x|old_refresher for x in historical)):
+                *historical,*(x|old_observer for x in historical)):
             data={**data,**{k:getattr(cls,k) for k in missing}}
         elif keys != expected:
             raise ValueError(
