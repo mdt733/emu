@@ -230,6 +230,8 @@ class EnvState(NamedTuple):
     skill_reference_streak: Any
     skill_reference_settled: Any
     skill_uphill_id: Any  # -1 ordinary, 0..5 reference, 6..11 practice
+    skill_uphill_birth_stage: Any
+    skill_uphill_birth_bonus: Any
     skill_stair_approach_seen: Any
     skill_stair_contact_seen: Any
     skill_stair_foot_streak: Any
@@ -1044,6 +1046,7 @@ class EmuMJXEnv(TaskSampler):
                  skill_uphill_reference_share: float = 0.0,
                  skill_uphill_practice_share: float = 0.0,
                  skill_uphill_stage: str = 'none',
+                 skill_adaptive_uphill: bool = False,
                  science_gate_mode: str = "legacy",
                  science_phase_lowcmd_scale: float = 1.0,
                  science_phase_sync_strength: float = 1.0,
@@ -1148,6 +1151,9 @@ class EmuMJXEnv(TaskSampler):
         self.skill_uphill_reference_share=float(skill_uphill_reference_share)
         self.skill_uphill_practice_share=float(skill_uphill_practice_share)
         self.skill_uphill_stage=skill_uphill_stage
+        if skill_adaptive_uphill and (not skill_uphill_practice_share or skill_uphill_stage!='none'):
+            raise ValueError('Adaptive uphill needs practice and no static prerequisite stage')
+        self.skill_adaptive_uphill=bool(skill_adaptive_uphill)
         if science_gate_mode not in ("legacy","zero-only","off"):
             raise ValueError("Invalid v5051 gate mode")
         limits=dict(science_phase_lowcmd_scale=(0.,1.),
@@ -1632,6 +1638,15 @@ class EmuMJXEnv(TaskSampler):
                 (self.skill_practice_recovery_share>0. and not np.isclose(practice.sum(),1.,atol=1e-6)) or
                 (self.skill_practice_recovery_share==0. and np.any(practice!=0.))):
             raise ValueError('Invalid recovery practice distribution')
+        uw,us,ub=slope[31:37],slope[37:43],slope[43:49]
+        if self.skill_adaptive_uphill:
+            if (not np.isfinite(slope[31:49]).all() or np.any(uw<1./12-1e-6) or
+                    np.any(uw>7./12+1e-6) or not np.isclose(uw.sum(),1.,atol=1e-6) or
+                    not np.isin(us,[0.,1.,2.,3.]).all() or not np.isin(ub,[0.,1.,2.,3.,4.]).all() or
+                    np.any((us==0.)!=(ub==0.))):
+                raise ValueError('Invalid adaptive uphill teacher packet')
+        elif np.any(slope[31:49]!=0.):
+            raise ValueError('Inactive uphill teacher packet must be zero')
         if not np.all(np.isfinite(slope[~np.isnan(slope)])):
             raise ValueError('invalid physical terrain override')
         packed=np.concatenate((packed,slope))
@@ -2024,8 +2039,9 @@ class EmuMJXEnv(TaskSampler):
                 foot_streak=stair_state[2],feet_seen=stair_state[3],
                 traverse_streak=stair_state[4],traversed=stair_state[5])
         if self.skill_uphill_reference_share>0.:
-            from .live_skill_uphill import prerequisite_payment
-            credit=prerequisite_payment(jnp,state.skill_uphill_id,self.skill_uphill_stage,
+            from .live_skill_uphill import assigned_prerequisite_payment
+            credit=assigned_prerequisite_payment(jnp,state.skill_uphill_id,
+                state.skill_uphill_birth_stage,state.skill_uphill_birth_bonus,
                 state.skill_stair_feet_seen,stair_state[3],state.skill_stair_traversed,
                 stair_state[5],terminal_fail)
             reward=reward+credit
@@ -2437,6 +2453,8 @@ class EmuMJXEnv(TaskSampler):
                 (state.skill_reference_id<0).astype(jnp.float32),
             'skill_reference_id':state.skill_reference_id,
             'skill_uphill_id':state.skill_uphill_id,
+            'skill_uphill_birth_stage':state.skill_uphill_birth_stage,
+            'skill_uphill_birth_bonus':state.skill_uphill_birth_bonus,
             'skill_birth_vx_error':state.skill_birth_vx_error,
             'skill_birth_vy_error':state.skill_birth_vy_error,
             'skill_reference_settled':(done & stepped.skill_reference_settled).astype(jnp.float32),
@@ -3204,9 +3222,18 @@ class EmuMJXEnv(TaskSampler):
             params[P.skill_practice_weight_0:P.skill_practice_weight_5+1])
         academy_active=self._academy_birth(keys,params,focus_id,specialist_active,
             task[:,T.athletic_rehearsal])
-        from .live_skill_uphill import uphill_assignment,uphill_task,UP_APPROACH_M
+        from .live_skill_uphill import uphill_assignment,uphill_task,UP_APPROACH_M,birth_credit,UP_STAGE_NAMES
         uphill_id=uphill_assignment(jax,jnp,keys,academy_active,params[P.specialist_mix],
-            self.skill_uphill_reference_share,self.skill_uphill_practice_share)
+            self.skill_uphill_reference_share,self.skill_uphill_practice_share,
+            params[P.skill_uphill_weight_0:P.skill_uphill_weight_5+1] if self.skill_adaptive_uphill else None)
+        if self.skill_adaptive_uphill:
+            stages=params[P.skill_uphill_stage_0:P.skill_uphill_stage_5+1]
+            bonuses=params[P.skill_uphill_bonus_0:P.skill_uphill_bonus_5+1]
+        else:
+            stage=UP_STAGE_NAMES.index(self.skill_uphill_stage)
+            stages=jnp.full((6,),stage,dtype=jnp.int32)
+            bonuses=jnp.full((6,),4. if stage else 0.,dtype=jnp.float32)
+        uphill_stage,uphill_bonus=birth_credit(jnp,uphill_id,stages,bonuses)
         if self.skill_uphill_reference_share>0.:
             task=uphill_task(jnp,task,T,uphill_id,self.vx_hi_max,self.phase_speed_gain)
         if self.skill_reference_recovery_share>0.:
@@ -3327,6 +3354,7 @@ class EmuMJXEnv(TaskSampler):
             skill_reference_streak=izeros,
             skill_reference_settled=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             skill_uphill_id=uphill_id,
+            skill_uphill_birth_stage=uphill_stage,skill_uphill_birth_bonus=uphill_bonus,
             skill_stair_approach_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             skill_stair_contact_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             skill_stair_foot_streak=jnp.zeros((self.num_envs,2),dtype=jnp.int32),
