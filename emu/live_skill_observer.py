@@ -29,7 +29,8 @@ class LiveSkillObserver:
     tasks; comparisons against them must respect changing lesson exposure.
     """
     def __init__(self, folder, *, start_step, worlds, field_shape, field_bounds,
-                 source_commit, window_steps=WINDOW_STEPS):
+                 source_commit, window_steps=WINDOW_STEPS,
+                 recovery_bins=6, edge_directions=(), field_evidence_from_taught=False):
         if worlds <= 0 or window_steps <= 0:
             raise ValueError("Invalid observer dimensions")
         folder = Path(folder)
@@ -39,6 +40,9 @@ class LiveSkillObserver:
                            source_commit=str(source_commit),
                            field_shape=list(map(int, field_shape)),
                            field_bounds=np.asarray(field_bounds).tolist(),
+                           recovery_relative_bins=int(recovery_bins),
+                           transition_edge_directions=np.asarray(edge_directions).tolist(),
+                           field_evidence_from_taught=bool(field_evidence_from_taught),
                            lip_edges_mm=list(LIP_EDGES_MM),
                            grade_edges_deg=list(GRADE_EDGES_DEG),
                            process_start_step=int(start_step))
@@ -81,6 +85,8 @@ class LiveSkillObserver:
         if family not in ("command_window", "recovery_relative", "transition_edge"):
             raise ValueError("Unknown field family")
         t = time.perf_counter()
+        if np.any((np.asarray(successes) != 0) & (np.asarray(successes) != 1)):
+            raise ValueError("Nonbinary capability verdict")
         self._binned(family, cell_ids, successes)
         self.host_seconds += time.perf_counter() - t
 
@@ -91,12 +97,17 @@ class LiveSkillObserver:
         done = np.asarray(metrics["episode_done"]) > .5
         if done.ndim != 2 or done.shape[1] != self.header["worlds"]:
             raise ValueError("Wrong live rollout shape")
-        # Slice only terminal rows; avoid repeated reductions over 131k frames.
+        # Gather only terminal rows, once per metric. Reuse one flat index.
+        ids = np.flatnonzero(done.ravel())
+        cache = {}
         def terminal(name):
+            if name in cache:
+                return cache[name]
             a = np.asarray(metrics[name])
             if a.shape != done.shape:
                 raise ValueError("Wrong metric shape: " + name)
-            return a[done]
+            cache[name] = a.ravel()[ids]
+            return cache[name]
         role = terminal("specialist_focus").astype(int)
         survived = terminal("episode_fell") < .5
         for i, name in enumerate(FOCUS):
