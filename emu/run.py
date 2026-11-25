@@ -180,6 +180,11 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('cross-specialty stairs requires mature foundation and 1-60M ramp')
     survival_school=bool(getattr(args, 'stair_survival_curriculum', False))
     mission_refreshers=bool(getattr(args,'mission_refreshers',False))
+    reference_share=float(getattr(args,'skill_reference_recovery_share',0.))
+    if not math.isfinite(reference_share) or not 0. <= reference_share <= .30:
+        raise ValueError('Reference recovery share must be in [0,.30]')
+    if reference_share and (not getattr(args,'live_skill_observer',False) or mission_refreshers or stillness_birth_frac):
+        raise ValueError('Reference recovery needs observer and no overlapping refresher/stillness programme')
     if mission_refreshers and not cross_stairs:
         raise ValueError('--mission-refreshers requires --cross-specialty-stairs')
     if cross_stairs and not survival_school:
@@ -240,6 +245,7 @@ def one_run_config(args) -> TrainingConfig:
                    cross_specialty_stairs_ramp_steps=cross_ramp,
                    mission_refreshers=mission_refreshers,
                    live_skill_observer=bool(getattr(args,'live_skill_observer',False)),
+                   skill_reference_recovery_share=reference_share,
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
