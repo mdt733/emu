@@ -229,6 +229,12 @@ class EnvState(NamedTuple):
     skill_birth_vy_error: Any
     skill_reference_streak: Any
     skill_reference_settled: Any
+    skill_stair_approach_seen: Any
+    skill_stair_contact_seen: Any
+    skill_stair_foot_streak: Any
+    skill_stair_feet_seen: Any
+    skill_stair_traverse_streak: Any
+    skill_stair_traversed: Any
     academy_lip_index: Any
     academy_streak: Any
     academy_crossings: Any
@@ -1031,6 +1037,7 @@ class EmuMJXEnv(TaskSampler):
                  terrain_lesson: str = 'mixed',
                  temporal_vx_reward_share: float = 0.0,
                  stillness_birth_frac: float = 0.0,
+                 live_skill_observer: bool = False,
                  skill_reference_recovery_share: float = 0.0,
                  skill_practice_recovery_share: float = 0.0,
                  science_gate_mode: str = "legacy",
@@ -1114,6 +1121,7 @@ class EmuMJXEnv(TaskSampler):
                 not 0. <= skill_reference_recovery_share <= .30 or
                 (skill_reference_recovery_share and self.exam_fixture_steps is not None)):
             raise ValueError('Invalid live reference recovery share or exam overlap')
+        self.live_skill_observer=bool(live_skill_observer)
         self.skill_reference_recovery_share = float(skill_reference_recovery_share)
         if (not np.isfinite(skill_practice_recovery_share) or
                 not 0. <= skill_practice_recovery_share <= .15 or
@@ -1980,7 +1988,23 @@ class EmuMJXEnv(TaskSampler):
         if self.skill_reference_recovery_share>0.:
             ref_streak,ref_settled=reference_progress(jnp,state.skill_reference_id,
                 ref_streak,ref_settled,metrics,terminal_fail,(state.ep_len+1.)*CONTROL_DT)
+        stair_state=(state.skill_stair_approach_seen,state.skill_stair_contact_seen,
+            state.skill_stair_foot_streak,state.skill_stair_feet_seen,
+            state.skill_stair_traverse_streak,state.skill_stair_traversed)
+        if self.live_skill_observer:
+            from .live_skill_stairs import first_lip_progress
+            stair_rot=self._rotation_body_to_world(data)
+            stair_state=first_lip_progress(jnp,active=state.academy_active,
+                lip=state.academy_birth_lip_m,goal=state.academy_goal_xy,
+                xy=data.qpos[:,:2],heading=jnp.arctan2(stair_rot[:,1,0],stair_rot[:,0,0]),
+                metrics=metrics,top_feet=academy['skill_first_top_feet'],failed=terminal_fail,
+                approach_seen=stair_state[0],contact_seen=stair_state[1],
+                foot_streak=stair_state[2],feet_seen=stair_state[3],
+                traverse_streak=stair_state[4],traversed=stair_state[5])
         stepped = state._replace(
+            skill_stair_approach_seen=stair_state[0],skill_stair_contact_seen=stair_state[1],
+            skill_stair_foot_streak=stair_state[2],skill_stair_feet_seen=stair_state[3],
+            skill_stair_traverse_streak=stair_state[4],skill_stair_traversed=stair_state[5],
             skill_reference_streak=ref_streak,
             skill_reference_settled=ref_settled,
             data=data,
@@ -2384,6 +2408,12 @@ class EmuMJXEnv(TaskSampler):
             'skill_birth_vy_error':state.skill_birth_vy_error,
             'skill_reference_settled':(done & stepped.skill_reference_settled).astype(jnp.float32),
             'skill_first_birth_lip_m':state.academy_birth_lip_m,
+            **({
+                'skill_stair_approach':(done & stepped.skill_stair_approach_seen).astype(jnp.float32),
+                'skill_stair_first_contact':(done & stepped.skill_stair_contact_seen).astype(jnp.float32),
+                'skill_stair_each_foot_five':(done & jnp.all(stepped.skill_stair_feet_seen,axis=1)).astype(jnp.float32),
+                'skill_stair_traversed':(done & stepped.skill_stair_traversed).astype(jnp.float32),
+            } if self.live_skill_observer else {}),
             'skill_first_goal_completed':(done & state.academy_active &
                 stepped.academy_goal_completed).astype(jnp.float32),
             'academy_episode_attempt':(done & state.academy_active).astype(jnp.float32),
@@ -3246,6 +3276,12 @@ class EmuMJXEnv(TaskSampler):
             skill_birth_vy_error=data.qvel[:,1]-task[:,T.vy],
             skill_reference_streak=izeros,
             skill_reference_settled=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            skill_stair_approach_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            skill_stair_contact_seen=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
+            skill_stair_foot_streak=jnp.zeros((self.num_envs,2),dtype=jnp.int32),
+            skill_stair_feet_seen=jnp.zeros((self.num_envs,2),dtype=jnp.bool_),
+            skill_stair_traverse_streak=izeros,
+            skill_stair_traversed=jnp.zeros((self.num_envs,),dtype=jnp.bool_),
             academy_lip_index=izeros,
             academy_streak=izeros,
             academy_crossings=izeros,
@@ -3661,7 +3697,16 @@ class EmuMJXEnv(TaskSampler):
                            lip & jnp.all(root==attempted_target,axis=1))
         first_cross_verified=(state.terrain_first_cross_verified |
                               first_target_paid)
+        first_top_feet=jnp.zeros_like(foot_cell[:,:,0],dtype=jnp.bool_)
+        if self.live_skill_observer:
+            goal_cell=jnp.floor(state.academy_goal_xy/CARPET_TILE_M).astype(jnp.int32)
+            goal_slot=jnp.mod(goal_cell[:,0],2)+2*jnp.mod(goal_cell[:,1],2)
+            goal_pairs=jnp.take_along_axis(top_contacts_by_tile,
+                jnp.broadcast_to(goal_slot[:,None,None],(self.num_envs,1,2)),axis=1)[:,0,:]
+            first_top_feet=(goal_pairs & healthy[:,None] &
+                            jnp.all(foot_cell==goal_cell[:,None,:],axis=2))
         return dict(
+            skill_first_top_feet=first_top_feet,
             confirmed_tile=jnp.where(confirmed[:,None],root,previous),
             seen_cells=seen_cells,seen_write=seen_write,
             lip_index=state.academy_lip_index+
