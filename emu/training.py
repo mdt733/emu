@@ -42,6 +42,7 @@ from .environment import EmuMJXEnv
 from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .capability_field import CapabilityField, RECOVERY_BINS, EDGE_DIRS
 from .live_skill_observer import LiveSkillObserver
+from .live_skill_teacher import UNIFORM, practice_plan
 from .contracts import ACTION_DIM, OBS_SCHEMA_TERRAIN, TERRAIN_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
     TrainingConfig, doctrine_dict, training_sensor_contract, ppo_minibatches_for_envs,
@@ -156,6 +157,7 @@ def env_kwargs_from_args(args) -> dict:
         temporal_vx_reward_share=args.temporal_vx_reward_share,
         stillness_birth_frac=args.stillness_birth_frac,
         skill_reference_recovery_share=args.skill_reference_recovery_share,
+        skill_practice_recovery_share=args.skill_practice_recovery_share,
         science_gate_mode=args.science_gate_mode,
         science_phase_lowcmd_scale=args.science_phase_lowcmd_scale,
         science_phase_sync_strength=args.science_phase_sync_strength,
@@ -485,6 +487,9 @@ def train(args: TrainingConfig) -> int:
         except Exception as exc:
             raise RuntimeError(f"--resume capability-field restore failed: {exc}") from exc
 
+    practice_weights=list(UNIFORM)
+    practice_rows=[]
+
     def params_with_field(
         step: int, *, teaching_field: CapabilityField | None = None,
     ) -> dict[str, Any]:
@@ -572,6 +577,9 @@ def train(args: TrainingConfig) -> int:
             teach_nodes=bool(args.field_teach_nodes), teach_edges=bool(args.field_teach_edges),
             node_count=FIELD_NODE_ANCHORS, edge_count=FIELD_EDGE_ANCHORS)
         d.update(packet)
+        if args.skill_practice_recovery_share>0.:
+            for i,weight in enumerate(practice_weights):
+                d[f'skill_practice_weight_{i}']=float(weight)
         return d
 
     # --- Initial policy, normalizer and first genuine PPO update ------------
@@ -714,6 +722,19 @@ def train(args: TrainingConfig) -> int:
         if observer is not None:
             observer.observe(rollout_metrics, step=step)
     event_sink = observer.field_events if observer is not None else None
+    def review_skills(window):
+        nonlocal practice_weights
+        if window is None or not args.skill_adaptive_recovery:
+            return
+        # Keep only the small fixed reference subset in host memory.
+        compact={**window,'cells':{k:v for k,v in window['cells'].items()
+                                  if k.startswith('reference_recovery/')}}
+        practice_rows.append(compact)
+        plan=practice_plan(practice_rows,practice_weights)
+        practice_weights=plan['weights']
+        import json
+        with (run_dir/'live_skills'/('teacher-'+observer.path.name)).open('a',encoding='utf-8') as f:
+            f.write(json.dumps(dict(step=window['end_step'],policy_epoch=window['policy_epoch'],**plan),allow_nan=False)+'\n')
     log_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(LOG_EVERY_UPDATES))
     save_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(CHECKPOINT_EVERY_UPDATES))
     snapshot_every_steps = max(0, int(SNAPSHOT_EVERY_STEPS))
@@ -781,7 +802,7 @@ def train(args: TrainingConfig) -> int:
             rollout_metrics, step=total_steps, control_dt=CONTROL_DT,
             exclude_field_taught=not bool(args.field_evidence_from_taught), event_sink=event_sink)
         if observer is not None:
-            observer.flush()
+            review_skills(observer.flush())
         perf.add('capability_field_update', time.perf_counter() - field_t0)
         row.update(field_diag)
         reward_mean = float(np.asarray(aux.get('rollout_reward_mean', 0.0)))
@@ -872,6 +893,8 @@ def train(args: TrainingConfig) -> int:
             if restored is not None:
                 if observer is not None:
                     observer.rollback()
+                practice_rows.clear()
+                practice_weights=list(UNIFORM)
                 rollback_count += 1
                 print(f'{LOG_PREFIX} rollback_count={rollback_count} '
                       f'at step={total_steps:,} (step clock is NOT rewound)',
