@@ -383,6 +383,8 @@ class CapabilityField:
         # They train PPO, but must not inflate relative-severity field cells.
         if 'skill_reference_id' in metrics:
             taught=taught | (arr('skill_reference_id')>=0)
+        if 'skill_uphill_id' in metrics:
+            taught=taught | (arr('skill_uphill_id')>=0)
 
         vx_tol=np.maximum(VX_ABS_TOL,VX_REL_TOL*np.abs(cvx)); vy_tol=np.maximum(VY_ABS_TOL,VY_REL_TOL*np.abs(cvy)); yaw_tol=np.maximum(YAW_ABS_TOL,YAW_REL_TOL*np.abs(cyaw))
         within=(np.abs(vx-cvx)<=vx_tol)&(np.abs(vy-cvy)<=vy_tol)&(np.abs(yaw-cyaw)<=yaw_tol)
