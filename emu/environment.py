@@ -2023,13 +2023,14 @@ class EmuMJXEnv(TaskSampler):
                 approach_seen=stair_state[0],contact_seen=stair_state[1],
                 foot_streak=stair_state[2],feet_seen=stair_state[3],
                 traverse_streak=stair_state[4],traversed=stair_state[5])
-        if self.skill_uphill_stage!='none':
+        if self.skill_uphill_reference_share>0.:
             from .live_skill_uphill import prerequisite_payment
             credit=prerequisite_payment(jnp,state.skill_uphill_id,self.skill_uphill_stage,
                 state.skill_stair_feet_seen,stair_state[3],state.skill_stair_traversed,
                 stair_state[5],terminal_fail)
             reward=reward+credit
             ep_return=ep_return+credit
+            terms={**terms,'uphill_prerequisite':credit}
         stepped = state._replace(
             skill_stair_approach_seen=stair_state[0],skill_stair_contact_seen=stair_state[1],
             skill_stair_foot_streak=stair_state[2],skill_stair_feet_seen=stair_state[3],
@@ -2430,6 +2431,8 @@ class EmuMJXEnv(TaskSampler):
                 stepped.academy_goal_transfer_ready).astype(jnp.float32),
             # Fixed reference births are not evidence for the ordinary
             # governor's moving recovery frontier, although PPO sees them.
+            'regime_steady_frontier':metrics['regime_steady_frontier'] *
+                (state.skill_uphill_id<0).astype(jnp.float32),
             'regime_resilience_frontier':metrics['regime_resilience_frontier'] *
                 (state.skill_reference_id<0).astype(jnp.float32),
             'skill_reference_id':state.skill_reference_id,
