@@ -159,3 +159,35 @@ epoch-separation tests passed. This is not a substitute for MJX physics.
 Next: checkpoint-bound teacher memory and uphill acquisition teaching,
 then matched uniform/adaptive recovery experiments from authenticated
 parents. No main or champion changes.
+
+
+## Phase 3 — checkpoint-owned teacher and physical stair evidence
+
+The adaptive recovery teacher now owns a compact evidence clock, its six
+practice weights, closed reference windows and the unfinished reference
+counts. These are saved with the actual learner in latest, rotating,
+final, evaluated-best and recovery checkpoint metadata. The teacher's
+review interval uses observed world-steps, independent of report-file
+flush boundaries. Same-run restart restores the saved state; no log
+replay or pooling of abandoned episodes. A new external research fork
+starts a new teacher. A rollback restores the selected checkpoint's
+teacher before selecting new reset births, discarding the subsequent
+teacher history. Raw logs keep their separate process/rollback segments.
+An evaluated recovery snapshot carries the teacher state from before the
+rollout that evaluated that policy, consistent with the existing learner
+and field snapshot timing. Live simulation episodes restart on resume.
+
+The passive stair observer now collects physically distinct stages on
+the original first target tile: approach zone, authentic top contact
+(including a leading foot before torso crossing), five consecutive top
+contact frames per foot independently, five consecutive safe traversal
+frames at least 10cm beyond the edge, and traversal plus episode survival.
+All use the actual signed first birth lip and the existing real prism
+contact matrix. These measures are not the old teacher's root-gated
+first-lip arming or disabled stationary goal reward. Bilateral contact
+is not a direct measurement of transferred load. No stair reward,
+frontier, assignment, actor input, or active stair teacher changes yet.
+Next: fixed signed uphill reference births and prerequisite practice,
+matched budget against the current Academy. GPU acceptance remains
+outstanding. The teacher state and first-lip gate tests are added;
+the full physical lifecycle still needs the real GPU run.
