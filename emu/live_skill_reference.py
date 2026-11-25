@@ -11,13 +11,22 @@ SETTLE_DEADLINE_S = 3.
 SETTLE_FRAMES = 25  # .5 seconds continuous good physical tracking
 
 
-def reference_assignment(jax,jnp,keys,is_resilience,active,athletic,mix,share):
-    if share <= 0.:
+def reference_assignment(jax,jnp,keys,is_resilience,active,athletic,mix,share,
+                         practice_share=0.,practice_weights=None):
+    if share <= 0. and practice_share <= 0.:
         return jnp.full(is_resilience.shape,-1,dtype=jnp.int32)
     draw=jax.vmap(lambda k:jax.random.uniform(jax.random.fold_in(k,50601),()))(keys)
     case=jax.vmap(lambda k:jax.random.randint(jax.random.fold_in(k,50602),(),0,6))(keys)
     eligible=is_resilience & active & (athletic<.5) & (mix>=.999999)
-    return jnp.where(eligible & (draw<share),case,-1).astype(jnp.int32)
+    ids=jnp.where(eligible & (draw<share),case,-1)
+    if practice_share>0.:
+        weights=jnp.asarray(practice_weights)
+        logits=jnp.log(jnp.maximum(weights,1e-30))
+        practice_case=jax.vmap(lambda k:jax.random.categorical(
+            jax.random.fold_in(k,50603),logits))(keys)
+        take=eligible & (draw>=share) & (draw<share+practice_share)
+        ids=jnp.where(take,6+practice_case,ids)
+    return ids.astype(jnp.int32)
 
 
 def reference_task(jnp,task,T,ids,vx_hi,phase_gain):
@@ -33,7 +42,7 @@ def reference_task(jnp,task,T,ids,vx_hi,phase_gain):
 
 def reference_velocity(jnp,qvel,ids):
     mask=ids>=0
-    kick=jnp.asarray(REFERENCE_KICKS_MPS,dtype=qvel.dtype)[jnp.maximum(ids,0)]
+    kick=jnp.asarray(REFERENCE_KICKS_MPS,dtype=qvel.dtype)[jnp.mod(jnp.maximum(ids,0),6)]
     target=jnp.zeros_like(qvel[:,:6]).at[:,0].set(REFERENCE_VX_MPS+kick)
     return qvel.at[:,:6].set(jnp.where(mask[:,None],target,qvel[:,:6]))
 
