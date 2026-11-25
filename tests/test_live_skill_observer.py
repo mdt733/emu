@@ -211,3 +211,36 @@ def test_practice_plan_uses_only_fixed_reference_not_practice():
     assert abs(sum(p["weights"])-1)<1e-9
     clean=[dict(rows[-1],policy_epoch=1)]
     assert practice_plan(clean)["reason"]=="uniform_maintenance"
+
+
+def test_reference_and_practice_exposure_and_mission_separation(tmp_path):
+    obs=_observer(tmp_path)
+    m=_rollout()
+    shape=m["episode_done"].shape
+    m["skill_reference_id"]=np.full(shape,-1,np.int32)
+    m["skill_birth_vx_error"]=np.zeros(shape,np.float32)
+    m["skill_birth_vy_error"]=np.zeros(shape,np.float32)
+    m["skill_reference_settled"]=np.zeros(shape,np.float32)
+    m["episode_length"]=np.zeros(shape,np.float32)
+    # Same physical recovery task, but different cohort; a settled robot
+    # that subsequently falls does not earn the mission verdict.
+    m["skill_reference_id"][:,0]=0
+    m["skill_reference_id"][:,1]=6
+    m["skill_reference_id"][:,2]=0
+    m["skill_birth_vx_error"][:,:3]=-.40
+    m["specialist_focus"][:,:3]=1
+    m["episode_done"][-1,:2]=1
+    m["episode_length"][-1,:2]=[150,120]
+    m["skill_reference_settled"][-1,:2]=1
+    m["episode_fell"][-1,1]=1
+    obs.observe(m,step=131072)
+    row=obs.flush(force=True)
+    assert row["world_frames"]==131072
+    assert row["reference_frames_by_case"]==[64,0,0,0,0,0]
+    assert row["practice_frames_by_case"]==[32,0,0,0,0,0]
+    assert row["cells"]["reference_recovery/mission/0"]==dict(attempts=1,passes=1)
+    assert row["cells"]["practice_recovery/mission/0"]==dict(attempts=1,passes=0)
+    assert row["cells"]["practice_recovery/settled/0"]==dict(attempts=1,passes=1)
+    m["episode_length"][-1,0]=149
+    with pytest.raises(ValueError,match="horizon"):
+        obs.observe(m,step=262144)
