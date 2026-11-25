@@ -166,6 +166,7 @@ def main(argv=None) -> int:
                    help='bias the practice distribution using fixed reference evidence; otherwise uniform')
     q.add_argument('--skill-uphill-reference-share',type=float,default=0.)
     q.add_argument('--skill-uphill-practice-share',type=float,default=0.)
+    q.add_argument('--skill-adaptive-uphill',action='store_true')
     q.add_argument('--skill-uphill-stage',choices=('none','first_support','bilateral','traversal'),default='none')
     q.add_argument('--live-skill-observer',action='store_true',
                    help='write passive per-skill counts from existing PPO rollouts; no extra exams')
