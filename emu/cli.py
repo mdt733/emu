@@ -158,6 +158,8 @@ def main(argv=None) -> int:
                    help='start the extra cross-specialty stair exposure ramp')
     q.add_argument('--cross-specialty-stairs-ramp-steps',type=int,default=20000000,
                    help='steps needed to reach maximum modest per-role exposure')
+    q.add_argument('--live-skill-observer',action='store_true',
+                   help='write passive per-skill counts from existing PPO rollouts; no extra exams')
     q.add_argument('--mission-refreshers',action='store_true',
                    help='cold research only: permit one explicitly pinned mature-school refresher programme')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an authorised experiment fork')
