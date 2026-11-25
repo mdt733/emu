@@ -1776,6 +1776,12 @@ class EmuMJXEnv(TaskSampler):
         timeout=jnp.where(state.academy_active,
             state.ep_len+1>=self.academy_course_episode_frames,
             step_i>=self.max_episode_steps)
+        if self.skill_reference_recovery_share>0.:
+            from .live_skill_reference import SETTLE_DEADLINE_S
+            # Identical short first-life horizon for reference and practice.
+            # Ordinary lessons keep their full episode clocks.
+            reference_timeout=(state.ep_len+1)>=round(SETTLE_DEADLINE_S/CONTROL_DT)
+            timeout=jnp.where(state.skill_reference_id>=0,reference_timeout,timeout)
         terminal_fail=jnp.logical_or(metrics['terminal']>.5,physics_diverged)
         terminal_or_timeout=jnp.logical_or(terminal_fail,timeout)
         academy=self._carpet_events(state,data,metrics,terminal_or_timeout,params)
