@@ -179,6 +179,12 @@ class LiveSkillObserver:
                 ("goal_completed", terminal("skill_first_goal_completed") > .5),
                 ("safe_bilateral", (terminal("academy_episode_two_foot_ready") > .5) & survived)):
                 self._binned(f"academy_first_birth/{direction}/{gate}", bins, value[take])
+            if 'skill_stair_first_contact' in metrics:
+                for gate in ('approach','first_contact','each_foot_five','traversed'):
+                    passed=terminal('skill_stair_'+gate)>.5
+                    self._binned(f'academy_physical_first_lip/{direction}/{gate}',bins,passed[take])
+                self._binned(f'academy_physical_first_lip/{direction}/traversed_and_survived',bins,
+                             (survived & (terminal('skill_stair_traversed')>.5))[take])
         # Existing ordinary STEP success is first-encounter + safe timeout,
         # not a birth-denominator Academy gate.
         height = terminal("physical_step_height_m") * 1000.
