@@ -1958,9 +1958,10 @@ class EmuMJXEnv(TaskSampler):
             return step_val
 
         from .live_skill_reference import reference_progress
-        ref_streak,ref_settled=reference_progress(jnp,state.skill_reference_id,
-            state.skill_reference_streak,state.skill_reference_settled,metrics,terminal_fail,
-            (state.ep_len+1.)*CONTROL_DT)
+        ref_streak,ref_settled=state.skill_reference_streak,state.skill_reference_settled
+        if self.skill_reference_recovery_share>0.:
+            ref_streak,ref_settled=reference_progress(jnp,state.skill_reference_id,
+                ref_streak,ref_settled,metrics,terminal_fail,(state.ep_len+1.)*CONTROL_DT)
         stepped = state._replace(
             skill_reference_streak=ref_streak,
             skill_reference_settled=ref_settled,
@@ -2356,6 +2357,10 @@ class EmuMJXEnv(TaskSampler):
                 self._rotation_body_to_world(data)[:,0,0]),
             'academy_goal_sequential_feet_ready':(
                 stepped.academy_goal_transfer_ready).astype(jnp.float32),
+            # Fixed reference births are not evidence for the ordinary
+            # governor's moving recovery frontier, although PPO sees them.
+            'regime_resilience_frontier':metrics['regime_resilience_frontier'] *
+                (state.skill_reference_id<0).astype(jnp.float32),
             'skill_reference_id':state.skill_reference_id,
             'skill_birth_vx_error':state.skill_birth_vx_error,
             'skill_birth_vy_error':state.skill_birth_vy_error,
@@ -2531,7 +2536,7 @@ class EmuMJXEnv(TaskSampler):
         z = w1 * z2 + x1 * y2 - y1 * x2 + z1 * w2
         return jnp.stack([w, x, y, z], axis=-1)
 
-    def _birth_physics(self, data, task, params, keys, carryover_qvel):
+    def _birth_physics(self, data, task, params, keys, carryover_qvel, reference_id=None):
         """Create the physical initial pose/velocity for one sampled lesson.
 
         RESILIENCE samples a larger disturbance than ordinary practice;
@@ -2646,6 +2651,8 @@ class EmuMJXEnv(TaskSampler):
             trans_frac = (TRANSITION_HOLD_MAX_S - min_hold_s) / (TRANSITION_HOLD_MAX_S - TRANSITION_HOLD_MIN_S)
             carry_prob = trans_frac * CARRYOVER_MAX_PROB
             do_carry = jax.vmap(lambda k: jax.random.uniform(k, ()))(carry_keys) < carry_prob
+            if reference_id is not None:
+                do_carry=do_carry & (reference_id<0)
             qvel = jnp.where(do_carry[:, None], carryover_qvel, qvel)
         return data.replace(qpos=qpos, qvel=qvel)
 
@@ -3105,14 +3112,16 @@ class EmuMJXEnv(TaskSampler):
         reference_id=reference_assignment(jax,jnp,keys,focus_id==RESILIENCE,
             specialist_active,task[:,T.athletic_rehearsal],params[P.specialist_mix],
             self.skill_reference_recovery_share)
-        task=reference_task(jnp,task,T,reference_id,self.vx_hi_max,self.phase_speed_gain)
+        if self.skill_reference_recovery_share>0.:
+            task=reference_task(jnp,task,T,reference_id,self.vx_hi_max,self.phase_speed_gain)
         data = self._birth_physics(
             data, task, params,
             (noise_keys, vnoise_keys, tilt_keys, pos_keys, angvel_keys,
              linvel_keys, joint_keys, carry_keys),
-            carryover_qvel,
+            carryover_qvel,reference_id,
         )
-        data=data.replace(qvel=reference_velocity(jnp,data.qvel,reference_id))
+        if self.skill_reference_recovery_share>0.:
+            data=data.replace(qvel=reference_velocity(jnp,data.qvel,reference_id))
         if self.exam_fixture_steps is not None:
             # Every frozen trial begins 22cm before the first real seam,
             # centred in Y. Kicks are velocity initial conditions, not
