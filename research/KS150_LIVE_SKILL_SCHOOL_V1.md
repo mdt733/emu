@@ -90,3 +90,72 @@ compatibility, not mastery. GPU timings are not yet measured.
 
 No new large-run launch is authorized by this phase. The observer is passive
 until the measurement and reference birth contracts are validated.
+
+
+## Phase 2 — fixed-budget, task-specific recovery teacher
+
+Implemented opt-in switches:
+
+- `--live-skill-observer --skill-reference-recovery-share .15`: stable
+  uniform six-case signed longitudinal birth offsets at a .16 m/s
+  forward command on flat prisms. Sensor scale 1, step command .012m,
+  no added random pushes, tilt or carried-over joint/base velocity.
+- `--skill-practice-recovery-share .15`: a separate equal-budget cohort
+  learning the same six cases, uniformly by default.
+- `--skill-adaptive-recovery`: redirect only the practice cohort using
+  evidence from the unchanged reference cohort. Maximum .15 practice and
+  .30 combined share of eligible mature RESILIENCE births, not whole
+  classroom frames. Ordinary, STEP/Academy and athletic role draws remain
+  unchanged. Reference assignment uses an independent fixed case draw.
+
+Reference/practice episodes close at exactly 150 control frames (3s) or
+earlier physical failure. A mission requires 25 uninterrupted stable
+tracking frames within that time AND surviving to the deadline. The
+observer records settling, survival, mission and actual PPO frame exposure
+separately. These short trials must not be treated as equivalent to
+long-horizon survival exams. They are excluded from relative-severity
+capability field events and ordinary resilience frontier evidence.
+
+The teacher uses disjoint blocks of at least 40 completed reference
+trials, two supported mastery blocks and repeated statistically screened
+regression before repair. Acquisition selects developing tasks with two
+recent blocks in the 30–80% range. It prefers repair, preserves half the
+practice distribution as uniform maintenance, and changes each case's
+weight by at most 5 percentage points per review window. No new rewards.
+The uniform and adaptive arms have identical birth budgets, not
+necessarily equal realized frame occupancy; report both.
+
+Teacher decisions are appended to `live_skills/teacher-segment-*.jsonl`.
+For now, the live teacher deliberately restarts from uniform practice
+and a fresh evidence epoch on process restart or rollback. Previous
+raw evidence remains on disk. Checkpoint-bound teacher restoration is
+still needed before a long segmented adaptive campaign; do not silently
+join contradictory policy histories. The online reference ledger is a
+descriptive training measurement, not a held-out test or independent
+training replication.
+
+### Active mature GPU acceptance
+
+The earlier cold two-update smoke cannot exercise mature references.
+In the clean research checkout, run this additional bounded acceptance
+using the project venv (not a research training launch):
+
+```bash
+EMU_PHYSICAL_PROFILE=h40-spring-only \
+python scripts/smoke_gpu_carpet.py --worlds 4096 --device cuda \
+  --prisms --ppo --full-update --stair-survival-curriculum \
+  --live-recovery-smoke --benchmark-updates 5
+```
+
+It verifies identical reference IDs and non-practice observations
+under different practice distributions, actual flat prism geometry and
+birth velocities, active real PPO and terminal reference/practice
+verdicts. This GPU acceptance is not yet executed. Exact committed
+reference, ledger and teacher blobs were copied to an isolated host
+and verified by Git blob hash; CPU JAX 4096-world assignment/velocity
+and settling/deadline tests plus repeated-regression, weight bounds and
+epoch-separation tests passed. This is not a substitute for MJX physics.
+
+Next: checkpoint-bound teacher memory and uphill acquisition teaching,
+then matched uniform/adaptive recovery experiments from authenticated
+parents. No main or champion changes.
