@@ -41,9 +41,10 @@ from .checkpoint_io import (
 from .environment import EmuMJXEnv
 from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
 from .capability_field import CapabilityField
+from .live_skill_observer import LiveSkillObserver
 from .contracts import ACTION_DIM, OBS_SCHEMA_TERRAIN, TERRAIN_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
-    TrainingConfig, doctrine_dict, training_sensor_contract,
+    TrainingConfig, doctrine_dict, training_sensor_contract, ppo_minibatches_for_envs,
     ROLLOUT_STEPS, PPO_EPOCHS, PPO_MINIBATCHES, PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST,
     LOG_EVERY_UPDATES, CHECKPOINT_EVERY_UPDATES, SNAPSHOT_EVERY_STEPS, SNAPSHOT_KEEP,
     PROFILE_PERFORMANCE, MAX_EPISODE_STEPS,
@@ -257,7 +258,7 @@ def unified_launch_mode(args: TrainingConfig) -> str:
             and args.terrain_step_max_m >= .001
             and args.open_frontier)
     if (core and os.environ.get('EMU_UNIFIED_ACCEPTANCE') == 'bounded-ppo-lifecycle'
-            and args.envs in (8, 12, 2048)
+            and args.envs in (8, 12, 2048, 4096)
             and 0 < args.steps <= 2 * args.envs * ROLLOUT_STEPS):
         return 'bounded'
     # One cold run across 20M, 40M, 100M, and beyond. No checkpoint-era
@@ -374,6 +375,7 @@ def train(args: TrainingConfig) -> int:
     # Record the actual compiled model so resumed policies and physical
     # fixed-evaluation reports cannot silently confuse the old torso-contact
     # world with the new two-ball-foot-only world.
+    meta['effective_ppo_minibatches'] = ppo_minibatches_for_envs(args.envs)
     meta['mjx_physics'] = {
         'feet_only_contacts': env.feet_only_contacts,
         'reset_forward_capacity': env.reset_forward_capacity,
@@ -386,7 +388,7 @@ def train(args: TrainingConfig) -> int:
     write_json(run_dir / 'run_meta.json', meta)
     if env.obs_dim != obs_dim or env.sensor_contract != sensor_contract:
         raise RuntimeError('Observation contract mismatch between trainer and sensor environment')
-    trainer = make_trainer(env, seed=args.seed, lr=args.ppo_lr, rollout=ROLLOUT_STEPS, epochs=PPO_EPOCHS, minibatches=PPO_MINIBATCHES,
+    trainer = make_trainer(env, seed=args.seed, lr=args.ppo_lr, rollout=ROLLOUT_STEPS, epochs=PPO_EPOCHS, minibatches=ppo_minibatches_for_envs(args.envs),
                            entropy_cost=args.ppo_entropy_cost, value_cost=args.ppo_value_cost)
     # A two-update CUDA acceptance verifies PPO, physical telemetry,
     # complete checkpoint state, warm resume and actor export. The full
@@ -701,6 +703,14 @@ def train(args: TrainingConfig) -> int:
     # This only aggregates already-transferred scalars; no GPU work or PPO
     # behavior changes. The count is since THIS process began.
     stair_audit = StairCreditAudit()
+    observer = (LiveSkillObserver(run_dir/'live_skills', start_step=resumed_step,
+                    worlds=args.envs, field_shape=field.shape, field_bounds=field.bounds,
+                    source_commit=source_provenance_from_env().get('git_commit',''))
+                if args.live_skill_observer else None)
+    def observe_skills(step):
+        if observer is not None:
+            observer.observe(rollout_metrics, step=step)
+    event_sink = observer.field_events if observer is not None else None
     log_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(LOG_EVERY_UPDATES))
     save_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(CHECKPOINT_EVERY_UPDATES))
     snapshot_every_steps = max(0, int(SNAPSHOT_EVERY_STEPS))
@@ -763,9 +773,12 @@ def train(args: TrainingConfig) -> int:
         # decaying command/recovery/maneuver field every rollout.  This is the
         # broad review loop; no simulator pause is required.
         field_t0 = time.perf_counter()
+        observe_skills(total_steps)
         field_diag = field.update_from_rollout(
             rollout_metrics, step=total_steps, control_dt=CONTROL_DT,
-            exclude_field_taught=not bool(args.field_evidence_from_taught))
+            exclude_field_taught=not bool(args.field_evidence_from_taught), event_sink=event_sink)
+        if observer is not None:
+            observer.flush()
         perf.add('capability_field_update', time.perf_counter() - field_t0)
         row.update(field_diag)
         reward_mean = float(np.asarray(aux.get('rollout_reward_mean', 0.0)))
@@ -854,6 +867,8 @@ def train(args: TrainingConfig) -> int:
                     total_steps, teaching_field=new_field),
                 log_prefix=LOG_PREFIX,expected_refresher_pin=refresher_pin)
             if restored is not None:
+                if observer is not None:
+                    observer.rollback()
                 rollback_count += 1
                 print(f'{LOG_PREFIX} rollback_count={rollback_count} '
                       f'at step={total_steps:,} (step clock is NOT rewound)',
@@ -1087,9 +1102,12 @@ def train(args: TrainingConfig) -> int:
     print(f'{LOG_PREFIX} final physical exams finished; '
           'summarizing final rollout and writing validated final checkpoint...',flush=True)
     row = summarize_rollout(rollout_metrics, rollout_params_for_metrics)
+    observe_skills(total_steps)
     row.update(field.update_from_rollout(
         rollout_metrics, step=total_steps, control_dt=CONTROL_DT,
-        exclude_field_taught=not bool(args.field_evidence_from_taught)))
+        exclude_field_taught=not bool(args.field_evidence_from_taught), event_sink=event_sink))
+    if observer is not None:
+        observer.flush(reason='final', force=True)
     augment_rollout_row(
             row, aux, rollout_params_for_metrics=rollout_params_for_metrics,
             rollout_lr_scale_for_metrics=rollout_lr_scale_for_metrics,
