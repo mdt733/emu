@@ -275,3 +275,43 @@ def test_checkpoint_teacher_continuation_and_rollback():
     corrupted={**checkpoint,"weights":[1.,0.,0.,0.,0.,0.]}
     with pytest.raises(ValueError,match="weights"):
         RecoveryTeacher.from_state_dict(corrupted,120000000)
+
+
+def test_first_lip_physical_gates_do_not_require_torso_crossing():
+    from emu.live_skill_stairs import first_lip_progress
+    n=4
+    active=np.array([True,True,True,False])
+    lip=np.full(n,.028)
+    goal=np.tile([1.6,.5],(n,1))
+    xy=np.tile([.92,.5],(n,1))
+    heading=np.zeros(n)
+    metrics=dict(gravity_z=np.ones(n),support=np.ones(n),bad_contact=np.zeros(n))
+    failed=np.zeros(n,dtype=bool)
+    s=(np.zeros(n,bool),np.zeros(n,bool),np.zeros((n,2),int),
+       np.zeros((n,2),bool),np.zeros(n,int),np.zeros(n,bool))
+    def step(top,xy,failed=failed):
+        nonlocal s
+        s=first_lip_progress(np,active=active,lip=lip,goal=goal,xy=xy,
+            heading=heading,metrics=metrics,top_feet=top,failed=failed,
+            approach_seen=s[0],contact_seen=s[1],foot_streak=s[2],feet_seen=s[3],
+            traverse_streak=s[4],traversed=s[5])
+    # Genuine lead-foot contact before the body reaches the upper tile.
+    lead=np.tile([True,False],(n,1))
+    for _ in range(5):
+        step(lead,xy)
+    assert s[0].tolist()==[True,True,True,False]
+    assert s[1].tolist()==[True,True,True,False]
+    assert s[3][:,0].tolist()==[True,True,True,False]
+    assert not np.any(s[5])
+    # Second foot earns independent frames; no requirement that feet
+    # contact the top simultaneously. The third robot never gets it.
+    second=np.array([[False,True],[False,True],[True,False],[True,True]])
+    for _ in range(5):
+        step(second,xy)
+    assert np.all(s[3],axis=1).tolist()==[True,True,False,False]
+    beyond=np.tile([1.12,.5],(n,1))
+    for _ in range(4):
+        step(second,beyond)
+    assert not np.any(s[5])
+    step(second,beyond,np.array([False,True,False,False]))
+    assert s[5].tolist()==[True,False,False,False]
