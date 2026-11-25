@@ -195,6 +195,9 @@ def one_run_config(args) -> TrainingConfig:
     uphill_ref=float(getattr(args,'skill_uphill_reference_share',0.))
     uphill_practice=float(getattr(args,'skill_uphill_practice_share',0.))
     uphill_stage=getattr(args,'skill_uphill_stage','none')
+    adaptive_uphill=bool(getattr(args,'skill_adaptive_uphill',False))
+    if adaptive_uphill and (not uphill_practice or uphill_stage!='none'):
+        raise ValueError('Adaptive uphill requires practice and no static stage')
     if (not math.isfinite(uphill_ref) or not math.isfinite(uphill_practice)
             or not 0.<=uphill_ref<=.15 or not 0.<=uphill_practice<=.15
             or (uphill_practice and not uphill_ref)
@@ -269,6 +272,7 @@ def one_run_config(args) -> TrainingConfig:
                    skill_uphill_reference_share=uphill_ref,
                    skill_uphill_practice_share=uphill_practice,
                    skill_uphill_stage=uphill_stage,
+                   skill_adaptive_uphill=adaptive_uphill,
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.
