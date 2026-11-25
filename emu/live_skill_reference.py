@@ -23,7 +23,7 @@ def reference_assignment(jax,jnp,keys,is_resilience,active,athletic,mix,share):
 def reference_task(jnp,task,T,ids,vx_hi,phase_gain):
     from .environment import command_phase_rate
     mask=ids>=0
-    for col in (T.vy,T.yaw,T.height,T.pitch,T.roll,T.resilience,T.birth_resilience_d,T.field_taught):
+    for col in (T.vy,T.yaw,T.height,T.pitch,T.roll,T.step_height,T.resilience,T.birth_resilience_d,T.field_taught):
         task=task.at[:,col].set(jnp.where(mask,0.,task[:,col]))
     task=task.at[:,T.vx].set(jnp.where(mask,REFERENCE_VX_MPS,task[:,T.vx]))
     task=task.at[:,T.regime].set(jnp.where(mask,2.,task[:,T.regime]))
