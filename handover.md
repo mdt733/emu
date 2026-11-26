@@ -319,3 +319,34 @@ Update this file at meaningful completion points so a fresh chat can
 resume without relying on remembered messages. Keep precise measured
 evidence and test limitations explicit. The goal is the best teaching
 method, not merely more steps, more exams or more commits.
+
+## Studio progress and live diagnostic export (27 November)
+
+Operator's v3 log confirmed all fork checks, combined birth/geometry
+checks and the first real 4096 x 32 PPO update (131072 steps; 86.84s
+including compile). No later acceptance update or research student
+training is established by that log. Do not infer completion or failure
+from silence. Studio now separates total student training from current
+phase (fork checks, GPU acceptance, parent exams, training, student exams,
+packaging). Old acceptance logs only establish a lower bound; new smoke
+prints each completed update, new trainer prints each observed rollout.
+Output age and process lock are shown without claiming GPU health.
+
+Final ZIP remains the sealed runner output. Partial ZIP is always available
+once a job exists, containing a bounded console log and available metrics,
+lesson JSONL, manifests and exam evidence; omitted oversized files are
+listed. No checkpoint or actor binaries. Partial snapshot is explicitly
+marked incomplete and not a sealed result. A hash-matched copy of
+studio_progress.py passed local tests covering the operator's old log,
+retry boundaries, per-update progress, phase transitions, archive CRC,
+partial JSONL and exclusion of checkpoints. Browser/HTTP integration
+and actual corrected full GPU run remain unverified.
+
+A read-only monitor can run alongside the original Studio on port 8772:
+`python -m scripts.studio --repo "$HOME/emu" --monitor --port 8772`
+from the updated Studio checkout using the existing EMU venv. It reads
+the same state receipts and does not launch, stop or modify the pinned
+job. Keep the old controlling terminal open while it is active. Once
+idle, the new checkout can replace the old controller on port 8770.
+Do not click Get update & run to merely refresh a running job: it selects
+a new source/study. Resume last run preserves the original pin.
