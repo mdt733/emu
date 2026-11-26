@@ -574,6 +574,8 @@ def main():
         # performance. Subsequent calls use the SAME 2048x32 rollout and
         # real four-epoch PPO, synchronized before reading each elapsed time.
         # This mode never writes a checkpoint or launches an overnight run.
+        if a.live_recovery_smoke or a.live_uphill_smoke:
+            print(f'STUDIO PREFLIGHT 1/{a.benchmark_updates}',flush=True)
         steady_update_times=[]
         physics_summary={}
         if a.benchmark_updates>1:
@@ -599,6 +601,8 @@ def main():
                 check_live_metrics(steady_metrics)
                 check_uphill_metrics(steady_metrics)
                 check_observer(steady_metrics,(i+1)*a.worlds*32)
+                if a.live_recovery_smoke or a.live_uphill_smoke:
+                    print(f'STUDIO PREFLIGHT {i+1}/{a.benchmark_updates}',flush=True)
             if live_observer is not None:
                 live_observer.flush(force=True,reason="acceptance_end")
                 step=a.benchmark_updates*a.worlds*32
