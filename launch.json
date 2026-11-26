@@ -1,0 +1,27 @@
+{
+  "schema": "emu.launch.v1",
+  "id": "ks150-live-skill-pilot-v3",
+  "title": "Live Skill School · matched pilot",
+  "description": "Two authenticated 120M parents, uniform vs adaptive recovery vs adaptive uphill. Combined GPU acceptance, six students, independent endpoints and ZIP.",
+  "module": "scripts.live_skill_pilot",
+  "args": [
+    "--root",
+    "{study_root}",
+    "--parent-root",
+    "{parent_root}"
+  ],
+  "parent_study": "ks150-abc-unattended-v2",
+  "result": "results-live-skill-pilot.zip",
+  "worlds": 4096,
+  "students": [
+    "U-s9501",
+    "R-s9501",
+    "H-s9501",
+    "H-s9502",
+    "R-s9502",
+    "U-s9502"
+  ],
+  "parent_step": 120061952,
+  "target_step": 125304832,
+  "profile": "h40-spring-only"
+}
