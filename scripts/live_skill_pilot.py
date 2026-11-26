@@ -191,7 +191,7 @@ def verify_final(root,arm,seed,commit):
     payload=load_checkpoint(ck,expected_sensor_contract=training_sensor_contract(cfg))
     meta=payload["meta"]
     if (cfg.envs!=WORLDS or cfg.steps!=TARGET or cfg.seed!=seed
-            or not cfg.live_skill_observer or cfg.physical_profile!="h40-spring-only"
+            or not cfg.live_skill_observer or cfg.fixed_eval_every_steps!=0 or cfg.physical_profile!="h40-spring-only"
             or cfg.skill_adaptive_recovery!=(arm=="R") or cfg.skill_adaptive_uphill!=(arm=="H")
             or cfg.skill_uphill_stage!="none" or cfg.mission_refreshers or cfg.cross_specialty_stairs
             or any(getattr(cfg,k)!=.15 for k in ("skill_reference_recovery_share",
