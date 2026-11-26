@@ -24,11 +24,16 @@ def progress(focus,students,log,active,log_age=None):
     parent,target=m["parent_step"],m["target_step"]
     per_student=target-parent
     total=per_student*len(m["students"])
+    # Only the latest process's incremental rollout notices count.
+    log=log.rsplit("\n--- ",1)[-1]
+    notices={name:int(step) for name,step in re.findall(r'^STUDIO TRAIN ([a-zA-Z0-9_-]+) (\d+)$',log,re.M)}
     completed=0
     steps={}
     for s in students:
         step=max(parent,s.get("last",{}).get("step") or parent,
                  (s.get("lesson") or {}).get("end_step") or parent)
+        if s["name"] in notices:
+            step=notices[s["name"]]
         if s.get("final_checkpoint") or s.get("endpoint"):
             step=target
         step=max(parent,min(target,int(step)))
@@ -37,7 +42,6 @@ def progress(focus,students,log,active,log_age=None):
     sealed=sum(bool(s.get("endpoint")) for s in students)
     # Reset preflight counts across retries; historical log records are
     # not evidence of completed updates in the current process.
-    log=log.rsplit("\n--- ",1)[-1]
     smoke_done=(root/"acceptance"/"combined.json").is_file()
     current=None
     lower=False
@@ -96,7 +100,7 @@ def progress(focus,students,log,active,log_age=None):
     if not active and phase!="Complete":
         detail="Last observed phase — "+detail
     return dict(phase=phase,detail=detail,student=current,done=done,total=count,unit=unit,
-                lower_bound=lower,training_done=completed,training_total=total,
+                lower_bound=lower,training_done=completed,training_total=total,student_steps=steps,
                 sealed=sealed,students_total=len(m["students"]),log_age_seconds=log_age,
                 active=active)
 
