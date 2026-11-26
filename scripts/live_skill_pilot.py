@@ -82,20 +82,19 @@ def smoke(root,commit):
     """Bounded mature physics checks; no random-actor mastery requirement."""
     out=root/"acceptance"
     out.mkdir(exist_ok=True)
-    for name,updates,flag in (("recovery",5,"--live-recovery-smoke"),
-                              ("uphill",12,"--live-uphill-smoke")):
-        receipt=out/(name+".json")
-        args=["-m","scripts.smoke_gpu_carpet","--worlds",str(WORLDS),
-              "--device","cuda","--prisms","--ppo","--full-update",
-              "--stair-survival-curriculum",flag,"--benchmark-updates",str(updates)]
-        expected=dict(source_commit=commit,args=args)
-        if receipt.exists():
-            if read(receipt)!=expected:
-                raise RuntimeError("Acceptance receipt identity mismatch")
-            continue
-        print(f"PRECHECK: mature {name}, {updates} updates",flush=True)
-        call(*args)
-        write_new(receipt,expected)
+    receipt=out/"combined.json"
+    args=["-m","scripts.smoke_gpu_carpet","--worlds",str(WORLDS),
+          "--device","cuda","--prisms","--ppo","--full-update",
+          "--stair-survival-curriculum","--live-recovery-smoke","--live-uphill-smoke",
+          "--benchmark-updates","12"]
+    expected=dict(source_commit=commit,args=args)
+    if receipt.exists():
+        if read(receipt)!=expected:
+            raise RuntimeError("Acceptance receipt identity mismatch")
+        return
+    print("PRECHECK: both mature lesson families, 12 updates",flush=True)
+    call(*args)
+    write_new(receipt,expected)
 
 
 def preserve_unsealed(path):
