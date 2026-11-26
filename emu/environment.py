@@ -1581,6 +1581,22 @@ class EmuMJXEnv(TaskSampler):
             raise ValueError('terrain exposure must be [0,1] and height must be [0, terrain_step_max_m]')
         packed = np.concatenate((packed, terrain))
         assert packed.shape[0] == TERRAIN_TASK_PARAM_DIM
+        # A neutral reset is also used by make_trainer to discover the
+        # observation shape. Missing entire teacher vectors mean uniform
+        # practice / zero credit, not an invalid all-zero distribution.
+        # Explicit partial vectors still fail rather than silently filling.
+        params = dict(params)
+        for prefix,enabled,default in (
+                ('skill_practice_weight_',self.skill_practice_recovery_share>0.,1./6),
+                ('skill_uphill_weight_',self.skill_adaptive_uphill,1./6),
+                ('skill_uphill_stage_',self.skill_adaptive_uphill,0.),
+                ('skill_uphill_bonus_',self.skill_adaptive_uphill,0.)):
+            names=[prefix+str(i) for i in range(6)]
+            present=[name in params for name in names]
+            if any(present) and not all(present):
+                raise ValueError('Incomplete teacher parameter vector: '+prefix)
+            if enabled and not any(present):
+                params.update({name:default for name in names})
         slope = np.asarray(
             [float(params.get(name, default))
              for name,default in UNIFIED_TERRAIN_FIELDS],dtype=np.float32)
