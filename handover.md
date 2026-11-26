@@ -11,7 +11,7 @@ Repository: [mdt733/emu](https://github.com/mdt733/emu).
 Active research branch: `research/ks150-live-skill-school-v1`,
 [draft PR #106](https://github.com/mdt733/emu/pull/106), based on PR #105.
 The most recent implementation commit at this handover is
-`298ba8f5961edfa40e6f15740336bd5a3c29096e`; later documentation commits
+`87a130e0782b53aac54c3beb8da295a0188a6473`; later documentation commits
 may follow. Keep work on this branch. No merge, champion replacement,
 Pages publication or hardware qualification without explicit owner approval.
 [Previous handover (23 Nov)](https://github.com/mdt733/emu/blob/372bb57bc59ab7ca4bcfb0f99d4460ff23d3c646/handover.md)
@@ -186,48 +186,64 @@ Post-fade retention and actual physical learning still need validation.
 
 ## Exact point to continue
 
-The unattended pilot runner is now implemented in
-`scripts/live_skill_pilot.py` (initial commit
-`390028bfe095d95553a14b441299ac8515f63fbb`). It authenticates A9501
-and A9502 frozen 120M parents, verifies each fork using the production
-CLI, runs the mature recovery (5 updates) and uphill (12 updates)
-GPU acceptance checks including the live observer and teacher, then
-runs matched baseline and endpoint pulse/signed matrix exams using
-one seed (9861), with no adaptive teacher approvals mid-run.
-It runs all six 40-update students sequentially, U/R/H for 9501,
-H/R/U for 9502, and archives raw live windows, decisions, final
-teacher states, training metrics, manifests and matched exam counts.
-The original parents stay untouched. Existing finished students and
-sealed exams are reused on a same-source restart. Unsealed exam output
-is preserved before retry; the original source and root must match.
-The two parent hashes were checked directly against the uploaded
-A/B/C archive. Their actual local full checkpoint bytes must pass
-the launcher verification. No physical GPU preflight or pilot run
-has yet been performed on this branch. The runner has been reviewed
-against the existing trainer/CLI/endpoint contracts, not demonstrated
-end-to-end on the operator's GPU.
+The unattended pilot runner is implemented in
+`scripts/live_skill_pilot.py`. The 26 Nov launch review supersedes
+the earlier launch commit 794f90aa. It removes duplicate trainer
+fixed exams for the explicitly registered observer pilot (cadence 0),
+combines both active mature lesson families in one 4096-world GPU
+preflight of 12 PPO updates, and adds per-case live evidence coverage
+to final receipts. A torn unterminated raw JSONL tail is retained,
+identified and excluded from counts; invalid complete lines are still
+errors. Never pool overlapping restart or rollback segments blindly.
+Ordinary legacy training defaults remain unchanged.
 
-The operator may now run the single unattended command from a clean
-pinned research worktree, with the existing project venv and
-`EMU_PHYSICAL_PROFILE=h40-spring-only`:
+The two original A/120M stage receipts and config SHA256s were
+rechecked directly against the uploaded A/B/C archive; the full
+checkpoint and actor bytes are operator-local and are authenticated
+on launch. The matched 120061952 age is aligned at 131072 steps.
+U/R/H, 40 PPO updates each, 5242880 extra steps/student, total
+31457280, final 125304832, seed 9861 matched independent parent/final
+pulse and signed staircase exam. No routine external exams or
+manual teacher approvals. A local test of source-copied runner
+control-flow functions with mocked children passed six fork checks,
+interruption/resume, one sealed combined preflight, correct treatment
+order, immutable study registration, separate epochs and torn-tail
+handling. Repository tests are added in tests/test_live_skill_pilot.py.
+This is not a full executable trainer or real GPU test; MuJoCo,
+Optax and Flax are unavailable in the local analysis container.
+
+**Scientific budget warning:** From A's sparse 110–120M training
+metrics, each 2048-world rollout completed on average about 3.65–4.18
+RESILIENCE episodes and 18.88–19.53 Academy episodes. Applying the
+new conditional 15% uniform reference share to historical counts
+over 5.24M world-steps suggests only ~7–8 recovery and ~38–39 uphill
+attempts per case, before altered short episode durations and new
+process births. These are rough exposure estimates, not predictions.
+40 trials per evidence block and two supported blocks remain intact.
+This is a small feasibility pilot; it may deliver too few actual
+adaptive decisions to measure teaching efficacy. Do not lower
+mastery thresholds, reinterpret no treatment as no benefit, or
+silently extend one arm. Consider a larger matched or more focused
+follow-up only after actual frame exposure/attempt evidence.
+
+Run from a clean pinned research worktree with the existing WSL venv
+and Spring-only profile. Use a fresh v2 root because the source and
+recipe changed since the previous proposed command:
 
 ```bash
 python -m scripts.live_skill_pilot \
-  --root "$HOME/emu-data/studies/ks150-live-skill-pilot-v1" \
+  --root "$HOME/emu-data/studies/ks150-live-skill-pilot-v2" \
   --parent-root "$HOME/emu-data/studies/ks150-abc-unattended-v2"
 ```
 
-Upload `~/emu-data/studies/ks150-live-skill-pilot-v1/results-live-skill-pilot.zip`
-when complete. Keep the complete local checkpoints. If a preflight
-fails, inspect the actual console evidence; do not skip physical
-checks or silently change the registered experiment. The pilot uses
-a single matched evaluation seed for efficiency and is descriptive,
-with two parent learners, not a definitive qualification test.
-40 updates may not provide enough evidence for teacher actions;
-report insufficient evidence rather than invent improvement.
-Once results arrive, evaluate actual learning/forgetting, delivered
-practice frame shares, teacher actions and held-out missions; do not
-add more speculative teachers before seeing the data.
+Upload `~/emu-data/studies/ks150-live-skill-pilot-v2/results-live-skill-pilot.zip`
+when complete; preserve local checkpoints. The actual source pin is the
+current reviewed branch head or a later explicitly reviewed commit,
+not the earlier 794f90aa. If preflight fails, capture the console log;
+do not bypass physics checks. No real PR #106 GPU acceptance or pilot
+completion is known. Next action: run the bounded preflight and pilot
+on the operator's GPU, then review actual exposure, teacher actions,
+transfer and retention before adding more teaching features.
 
 ## Validation and launch status
 
