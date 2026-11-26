@@ -34,7 +34,7 @@ ARMS={
 }
 RECIPE_4K=list(RECIPE)
 RECIPE_4K[RECIPE_4K.index("--envs")+1]=str(WORLDS)
-RECIPE_4K[RECIPE_4K.index("--fixed-eval-every-steps")+1]="20000000"
+RECIPE_4K[RECIPE_4K.index("--fixed-eval-every-steps")+1]="0"
 COMMON=tuple(RECIPE_4K)+(
     "--live-skill-observer","--skill-reference-recovery-share",".15",
     "--skill-practice-recovery-share",".15","--skill-uphill-reference-share",".15",
