@@ -147,7 +147,8 @@ def student_data(root,name,parent,target):
         cells=raw.get("cells",{})
         lesson={k:raw.get(k) for k in ("start_step","end_step","policy_epoch","world_frames",
               "reference_frames_by_case","practice_frames_by_case",
-              "uphill_reference_frames_by_case","uphill_practice_frames_by_case")}
+              "uphill_reference_frames_by_case","uphill_practice_frames_by_case",
+              "reference_kicks_mps","uphill_heights_m")}
         lesson["cells"]={k:v for k,v in cells.items() if
                          k.startswith(("reference_recovery/","practice_recovery/",
                                        "reference_uphill/","practice_uphill/"))}
@@ -236,6 +237,9 @@ class Studio:
             selected=self.job if resume else self.selected
         if not selected:
             raise RuntimeError("Fetch a launch manifest first")
+        # Re-read the immutable Git manifest, even for a persisted resume.
+        # A local status file is not a command or path authority.
+        selected=self.read_commit(selected["commit"])
         if self.occupied():
             raise RuntimeError("A Studio-managed GPU campaign is already active")
         folder=self.worktree(selected)
@@ -247,7 +251,7 @@ class Studio:
         env=os.environ.copy()
         for k in ("JAX_PLATFORMS","EMU_UNIFIED_ACCEPTANCE","EMU_MISSION_REFRESHER_SHA256"):
             env.pop(k,None)
-        env.update(PYTHONPATH=str(folder),PYTHONUNBUFFERED="1",
+        env.update(PYTHONPATH=str(folder),PYTHONUNBUFFERED="1",PYTHONDONTWRITEBYTECODE="1",
                    EMU_PHYSICAL_PROFILE=m["profile"],XLA_PYTHON_CLIENT_PREALLOCATE="false")
         env.setdefault("JAX_COMPILATION_CACHE_DIR",str(Path.home()/".cache/emu/jax-live-school"))
         log=self.state/(m["id"]+"-"+selected["commit"][:12]+".log")
