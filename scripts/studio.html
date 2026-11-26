@@ -1,0 +1,131 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>EMU Studio — Locomotion lab</title>
+<style>
+:root{color-scheme:dark;--bg:#091b25;--panel:#102c39;--panel2:#0d2531;--line:#2d4b58;--ink:#e4f0f2;--muted:#9bbac4;--mint:#83e4ce;--gold:#e7ba79;--red:#f3a4a0}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 system-ui,sans-serif}button,a,input,select{font:inherit}button{cursor:pointer;border:1px solid var(--line);border-radius:6px;background:#193d4c;color:var(--ink);padding:9px 13px}button:hover:not(:disabled){background:#265665}button:disabled{opacity:.4;cursor:not-allowed}button.primary{background:var(--mint);color:#092d2a;border-color:var(--mint);font-weight:700}button.primary:hover:not(:disabled){background:#b0f5e4}button.stop{color:var(--red)}a{color:var(--mint)}h1,h2,h3,p{margin:0}h1{font-size:24px;font-weight:670;letter-spacing:-.5px}h2{font-size:11px;letter-spacing:1.7px;text-transform:uppercase;color:var(--mint);font-weight:720}h3{font-size:15px}small,.muted{color:var(--muted)}header{max-width:1680px;margin:auto;padding:18px 24px 14px;display:flex;align-items:center;justify-content:space-between;gap:14px}header .brand{display:flex;align-items:center;gap:14px}.mark{width:42px;height:42px;border:1px solid var(--line);border-radius:9px;display:grid;place-items:center;color:var(--mint)}.kicker{font-size:10px;letter-spacing:2.5px;color:var(--mint);font-weight:700}.connection{display:flex;align-items:center;gap:8px;color:var(--muted);font-size:12px}.dot{width:8px;height:8px;border-radius:50%;background:var(--gold)}.dot.on{background:var(--mint)}main{max-width:1680px;margin:auto;padding:0 20px 24px;display:grid;grid-template-columns:minmax(0,1.65fr) minmax(350px,1fr);gap:14px;align-items:start}.column{display:grid;gap:14px;min-width:0}.panel{border:1px solid var(--line);border-radius:10px;background:var(--panel);overflow:hidden;min-width:0}.pad{padding:16px}.head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:12px}.tag{font-size:11px;color:var(--muted);border:1px solid var(--line);padding:3px 7px;border-radius:4px}.actions{display:flex;flex-wrap:wrap;gap:7px}.bar{height:7px;background:#203f4d;border-radius:6px;overflow:hidden}.bar span{height:100%;display:block;background:var(--mint);width:0;transition:width .4s}.statusline{display:flex;justify-content:space-between;gap:8px;margin-bottom:8px}.mono{font:12px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}.subtle{font-size:12px;color:var(--muted)}.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:var(--panel2);border-top:1px solid var(--line)}.metric{padding:13px 14px;border-right:1px solid var(--line);min-width:0}.metric:last-child{border:0}.metric small{display:block;font-size:10px;letter-spacing:.8px;text-transform:uppercase}.metric b{font-size:24px;font-weight:650;letter-spacing:-.8px;white-space:nowrap;font-variant-numeric:tabular-nums}.metric em{font-style:normal;font-size:11px;color:var(--muted)}.scene{aspect-ratio:16/9;position:relative;background:#153b47;overflow:hidden}.scene iframe{width:100%;height:100%;border:0;position:absolute;inset:0;background:#102c39}.scene-placeholder{position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:12px;text-align:center;padding:24px;background:radial-gradient(ellipse at 50% 35%,#224956,#102a37 75%)}.scene-placeholder svg{width:132px;height:132px;max-height:40%}.scene-placeholder p{max-width:440px;color:var(--muted)}.notice{border-left:3px solid var(--gold);padding:9px 12px;background:#223b42;color:#f1ce98;font-size:12px;overflow-wrap:anywhere}.error{border-left:3px solid var(--red);padding:10px 12px;background:#382f36;color:var(--red);white-space:pre-wrap;overflow-wrap:anywhere}.gap{display:grid;gap:12px}.manifest{border-top:1px solid var(--line);padding-top:12px}.manifest p{margin:7px 0}.student{display:grid;grid-template-columns:85px minmax(0,1fr) 74px;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--line)}.student:first-child{border-top:0}.student button{padding:4px 6px;font-size:12px;text-align:left;background:transparent;border-color:transparent}.student button.selected{color:var(--mint);border-color:var(--mint)}.student .label{text-align:right;font-size:11px;color:var(--muted)}.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.chart{background:var(--panel2);border-radius:6px;padding:10px;min-width:0}.chart svg{width:100%;height:105px;display:block}.chart .axis{display:flex;justify-content:space-between;font-size:10px;color:var(--muted)}.table-wrap{overflow:auto}table{width:100%;border-collapse:collapse;font-size:12px;white-space:nowrap}td,th{padding:8px 7px;text-align:right;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}td:first-child,th:first-child{text-align:left}th{font-size:10px;font-weight:600;color:var(--muted);letter-spacing:.3px}td small{font-size:10px}.split{display:grid;grid-template-columns:1fr 1fr;gap:12px}.teacher{border:1px solid var(--line);border-radius:6px;padding:10px;min-width:0}.teacher pre{white-space:pre-wrap;overflow-wrap:anywhere;font-size:11px;color:var(--muted);margin:8px 0 0;max-height:160px;overflow:auto}.log{height:300px;overflow:auto;background:#081b24;color:#c0d9df;padding:12px;white-space:pre-wrap;overflow-wrap:anywhere;font:11px/1.55 ui-monospace,Consolas,monospace;margin:0}.log-controls{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}details{border-top:1px solid var(--line);padding:12px 16px}summary{cursor:pointer;color:var(--muted);font-size:12px}.hidden,[hidden]{display:none!important}.result{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}.result a{display:inline-block;border:1px solid var(--mint);padding:8px 12px;text-decoration:none;border-radius:6px}.empty{color:var(--muted);font-size:12px;padding:10px 0}.path{color:var(--muted);font-size:11px;overflow-wrap:anywhere}.tiny{font-size:11px;color:var(--muted)}footer{max-width:1680px;margin:auto;padding:0 20px 20px;color:var(--muted);font-size:11px}
+@media(max-width:1000px){main{grid-template-columns:1fr}.scene{aspect-ratio:16/10}}@media(max-width:550px){header{padding:12px}main{padding:0 8px 16px}.metrics{grid-template-columns:1fr 1fr}.metric{border-bottom:1px solid var(--line)}.metric b{font-size:21px}.pad{padding:12px}.split,.chart-grid{grid-template-columns:1fr}.student{grid-template-columns:82px 1fr 58px}.connection span:last-child{display:none}}
+</style>
+</head>
+<body>
+<header><div class="brand"><div class="mark"><svg width="28" height="28" viewBox="0 0 40 40" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><rect x="10" y="4" width="20" height="12" rx="3"/><path d="M14 16 9 25 14 35H7M26 16 31 25 25 35h8"/><circle cx="20" cy="10" r="2"/></svg></div><div><div class="kicker">EMU / RESEARCH STUDIO</div><h1>Locomotion laboratory</h1></div></div><div class="connection"><i class="dot" id="connectionDot"></i><span id="connection">Connecting</span></div></header>
+<main>
+<div class="column">
+<section class="panel">
+<div class="pad head"><h2>Physical playground</h2><div class="actions"><button id="viewBtn">Open live viewer</button><a href="http://127.0.0.1:8771/" target="_blank" rel="noopener" id="viewLink" hidden>Separate window</a></div></div>
+<div class="scene"><div id="sceneStart" class="scene-placeholder"><svg viewBox="0 0 140 140" fill="none" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 116H82V99h50" stroke="#729eaa" stroke-width="2"/><path d="M8 126h124" stroke="#426d79" stroke-dasharray="4 5"/><path d="M49 65 37 88 48 115h-12M77 65 91 83 103 98h12" stroke="#dce9ed" stroke-width="5"/><rect x="39" y="40" width="49" height="26" rx="5" fill="#a8c5cd" stroke="#e1edf0" stroke-width="2"/><rect x="75" y="47" width="9" height="7" rx="1" fill="#0c2530"/><path d="M83 55 113 97M83 55 131 97" stroke="#83e4ce" stroke-width="1.3" stroke-dasharray="3 3"/><circle cx="37" cy="88" r="4" fill="#e7ba79"/><circle cx="91" cy="83" r="4" fill="#e7ba79"/></svg><h3>Explore the robot in its physical world</h3><p>Open the existing CPU MuJoCo playground. It can follow saved checkpoints when the training study exists; it does not consume training GPU worlds.</p><small id="viewStatus">Viewer not started</small></div><iframe id="viewerFrame" title="EMU physics playground" hidden></iframe></div>
+<div class="metrics"><div class="metric"><small>Training throughput</small><b id="fps">—</b> <em>steps/s</em></div><div class="metric"><small>Fall rate</small><b id="falls">—</b></div><div class="metric"><small>Actual / target vx</small><b id="speed">—</b> <em>m/s</em></div><div class="metric"><small>Reward</small><b id="reward">—</b></div></div>
+</section>
+<section class="panel pad gap"><div class="head"><h2>Learning history</h2><span class="tag" id="historyName">No student selected</span></div><div class="chart-grid"><div class="chart"><div class="statusline"><small>Mean reward</small><b id="rewardLatest">—</b></div><svg id="rewardChart" viewBox="0 0 320 105" preserveAspectRatio="none" role="img" aria-label="Mean reward history"></svg><div class="axis"><span id="rewardMin">—</span><span id="rewardMax">—</span></div></div><div class="chart"><div class="statusline"><small>Fall rate</small><b id="fallsLatest">—</b></div><svg id="fallChart" viewBox="0 0 320 105" preserveAspectRatio="none" role="img" aria-label="Fall rate history"></svg><div class="axis"><span id="fallMin">—</span><span id="fallMax">—</span></div></div></div><p class="tiny">Sampled rollout metrics, not independent examinations. Charts reflect the selected student.</p></section>
+<section class="panel pad gap"><div class="head"><h2>Live education</h2><span class="tag" id="window">Waiting for evidence</span></div><p class="subtle">Latest complete evidence window only; reference and practice cohorts remain separate. A dash means no recorded attempts, not failure.</p><div class="table-wrap"><table><thead><tr><th>Uphill</th><th>First support</th><th>Both feet</th><th>Traversal</th><th>Reference mission</th><th>Practice mission</th></tr></thead><tbody id="uphill"></tbody></table></div><div class="table-wrap"><table><thead><tr><th>Recovery offset</th><th>Settled + survived (ref.)</th><th>Practice mission</th></tr></thead><tbody id="recovery"></tbody></table></div><div class="split"><div class="teacher"><h3>Recovery teacher</h3><pre id="recoveryTeacher">No decision recorded</pre></div><div class="teacher"><h3>Uphill teacher</h3><pre id="uphillTeacher">No decision recorded</pre></div></div></section>
+</div>
+<div class="column">
+<section class="panel pad gap"><div class="head"><h2>Training control</h2><span id="jobStatus" class="tag">Idle</span></div><div><h3 id="title">Fetch the latest registered experiment</h3><p id="description" class="muted" style="margin-top:5px">Git publishes the experiment, the launcher validates it, and training runs from the exact fetched source.</p></div><div class="actions"><button class="primary" id="updateRun">Get update &amp; run</button><button id="update">Check for update</button><button id="run">Run selected</button><button id="resume">Resume last run</button><button id="stop" class="stop">Stop</button></div><div class="notice" id="busy" hidden></div><div class="error" id="error" hidden></div><div class="manifest gap"><div><small>SELECTED SOURCE</small><div id="sha" class="mono">—</div><div id="branch" class="path"></div></div><div><small>RUNNING / LAST SOURCE</small><div id="activeSha" class="mono">—</div><div id="root" class="path"></div></div><div class="statusline"><span>GPU classroom</span><b id="worlds">—</b></div><div class="statusline"><span>Study budget</span><b id="budget">—</b></div><div class="statusline"><span>Endpoints sealed</span><b id="finished">—</b></div><div class="bar"><span id="totalProgress"></span></div></div><p class="tiny">Updates never modify an active training checkout. A different commit gets its own study directory. Stop requests interruption; resume uses the last saved checkpoint.</p></section>
+<section class="panel pad"><div class="head"><h2>Matched students</h2><span class="tag">Select to inspect</span></div><div id="students" class="empty">Waiting for launch manifest</div><p class="tiny" style="margin-top:12px">U · uniform &nbsp; R · recovery &nbsp; H · uphill. Sealed means the independent endpoint receipt exists.</p></section>
+<section class="panel"><div class="pad head"><h2>Live console</h2><label class="log-controls"><input id="follow" type="checkbox" checked> Follow output</label></div><pre id="log" class="log">No process started.</pre><details><summary>Exact launch command</summary><pre id="command" class="mono"></pre></details><details><summary>Viewer server log</summary><pre id="viewerLog" class="mono"></pre></details></section>
+<section class="panel pad gap"><h2>Results &amp; evidence</h2><div class="result"><div><b id="resultState">Awaiting completed experiment</b><div class="path" id="resultPath">The registered results archive will appear here.</div></div><a id="download" href="/results" hidden>Export results ZIP</a></div><p class="tiny">The archive contains actual experiment evidence. Checkpoints and actor binaries stay on your machine.</p></section>
+</div>
+</main>
+<footer>Local loopback application · authoritative JAX/MJX trainer unchanged · viewer is a CPU playground, not the frozen GPU examiner.</footer>
+<script>
+"use strict";
+const token="__STUDIO_TOKEN__",$=id=>document.getElementById(id);
+const headers={"X-EMU-Token":token};
+let current=null,chosen=null,requestError="",polling=false,viewLoaded=false,viewRequested=false;
+const fmt=(v,d=1)=>v==null||!Number.isFinite(v)?"—":v.toFixed(d);
+const million=v=>v==null?"—":(v/1e6).toFixed(2)+"M";
+function put(id,value){$(id).textContent=value}
+function show(id,visible){$(id).hidden=!visible}
+async function action(name){
+  requestError="";
+  try{
+    const r=await fetch("/api/"+name,{method:"POST",headers});
+    const j=await r.json();
+    if(!r.ok)throw Error(j.error||"Action failed");
+    if(name==="viewer")viewRequested=true;
+  }catch(e){requestError=String(e.message||e)}
+  await poll();
+}
+for(const [id,name] of [["updateRun","update-run"],["update","update"],["run","run"],["resume","resume"],["stop","stop"],["viewBtn","viewer"]]){
+  $(id).onclick=()=>{if(name==="stop"&&!confirm("Interrupt this training process? The last saved checkpoint is retained."))return;action(name)};
+}
+function node(tag,text,cls){const x=document.createElement(tag);if(text!=null)x.textContent=text;if(cls)x.className=cls;return x}
+function chart(id,history,key,scale,color,minId,maxId){
+  const svg=$(id),ns="http://www.w3.org/2000/svg";svg.replaceChildren();
+  const points=history.filter(r=>r.step!=null&&r[key]!=null);
+  function draw(tag,attrs){const x=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))x.setAttribute(k,v);svg.append(x);return x}
+  for(let y=12;y<=94;y+=27)draw("line",{x1:5,x2:315,y1:y,y2:y,stroke:"#2d4b58","stroke-width":.7});
+  if(!points.length){put(minId,"—");put(maxId,"—");return}
+  const values=points.map(r=>r[key]*scale);let lo=Math.min(...values),hi=Math.max(...values);
+  if(lo===hi){lo-=.05;hi+=.05}
+  const x0=points[0].step,x1=points[points.length-1].step;
+  const coords=points.map((r,i)=>[(x1===x0?160:5+310*(r.step-x0)/(x1-x0)),94-82*(values[i]-lo)/(hi-lo)]);
+  draw("polyline",{points:coords.map(p=>p.join(",")).join(" "),fill:"none",stroke:color,"stroke-width":2,"stroke-linejoin":"round"});
+  const last=coords[coords.length-1];draw("circle",{cx:last[0],cy:last[1],r:3,fill:color});
+  put(minId,million(x0));put(maxId,million(x1));
+}
+function cell(c){return c&&c.attempts>0?c.passes+"/"+c.attempts+" ("+Math.round(100*c.passes/c.attempts)+"%)":"—"}
+function rows(id,labels,keys,cells){
+  const body=$(id);body.replaceChildren();
+  labels.forEach((label,i)=>{const tr=node("tr");tr.append(node("td",label));for(const k of keys)tr.append(node("td",cell(cells[k+"/"+i])));body.append(tr)});
+}
+function teacherText(t){
+  if(!t)return "No decision recorded";
+  const out={};for(const k of ["step","evidence_clock","reason","selected","closed_cases","stage","bonus","weights","reference_mastery","events","cooldown"])if(k in t)out[k]=t[k];
+  if(out.weights)out.weights=out.weights.map(v=>Math.round(v*1000)/10+"%");
+  return JSON.stringify(out,null,2);
+}
+function inspect(s){
+  const last=s?.last||{},history=s?.history||[],lesson=s?.lesson,cells=lesson?.cells||{};
+  put("fps",last.train_steps_per_sec==null?"—":Math.round(last.train_steps_per_sec).toLocaleString());
+  put("falls",last.fall_rate==null?"—":fmt(100*last.fall_rate)+"%");
+  put("speed",last.vx_mean==null?"—":fmt(last.vx_mean,2)+" / "+fmt(last.cmd_vx_mean,2));
+  put("reward",fmt(last.reward_mean,3));put("rewardLatest",fmt(last.reward_mean,3));
+  put("fallsLatest",last.fall_rate==null?"—":fmt(100*last.fall_rate)+"%");
+  put("historyName",s?.name||"No student selected");
+  chart("rewardChart",history,"reward_mean",1,"#83e4ce","rewardMin","rewardMax");
+  chart("fallChart",history,"fall_rate",100,"#e7ba79","fallMin","fallMax");
+  put("window",lesson?million(lesson.start_step)+" → "+million(lesson.end_step)+" · epoch "+lesson.policy_epoch:"Waiting for evidence");
+  rows("uphill",["4 mm","8 mm","12 mm","20 mm","28 mm","32 mm"],["reference_uphill/first_support","reference_uphill/each_foot_five","reference_uphill/traversed","reference_uphill/mission","practice_uphill/mission"],cells);
+  rows("recovery",["−0.40 m/s","−0.25 m/s","−0.10 m/s","+0.10 m/s","+0.25 m/s","+0.40 m/s"],["reference_recovery/mission","practice_recovery/mission"],cells);
+  put("recoveryTeacher",teacherText(s?.recovery_teacher));put("uphillTeacher",teacherText(s?.uphill_teacher));
+}
+function render(d){
+  current=d;const sel=d.selected,job=d.job,focus=job||sel,m=sel?.manifest,fm=focus?.manifest;
+  put("title",m?.title||"Fetch the latest registered experiment");put("description",m?.description||"Git publishes the experiment; Studio validates and launches its pinned source.");
+  put("sha",sel?.commit||"—");put("branch",d.branch);put("activeSha",job?.commit||"—");put("root",job?.root||sel?.root||"");
+  put("jobStatus",d.active?"Running":job?.status||"Idle");
+  put("worlds",fm?fm.worlds.toLocaleString()+" worlds":"—");put("budget",fm?million((fm.target_step-fm.parent_step)*fm.students.length)+" steps":"—");
+  show("busy",!!d.busy);put("busy",d.busy?"Working: "+d.busy+"…":"");
+  show("error",!!(requestError||d.error));put("error",requestError||d.error||"");
+  $("run").disabled=!sel||d.active||!!d.busy;$("resume").disabled=!job||d.active||!!d.busy;
+  $("updateRun").disabled=d.active||!!d.busy;$("update").disabled=!!d.busy;
+  $("stop").disabled=!d.can_stop;$("viewBtn").disabled=!!d.busy||(!sel&&!job);
+  const students=d.students||[],done=students.filter(s=>s.endpoint).length;
+  put("finished",students.length?done+" / "+students.length:"—");$("totalProgress").style.width=(students.length?100*students.reduce((a,s)=>a+s.progress,0)/students.length:0)+"%";
+  if(!students.find(s=>s.name===chosen))chosen=(students.find(s=>!s.endpoint&&s.history.length)||students.find(s=>!s.endpoint)||students[0])?.name;
+  const list=$("students");list.replaceChildren();
+  if(!students.length)list.append(node("p","Waiting for launch manifest","empty"));
+  for(const s of students){const row=node("div",null,"student"),btn=node("button",s.name,s.name===chosen?"selected":""),bar=node("div",null,"bar"),fill=node("span");fill.style.width=(100*s.progress)+"%";bar.append(fill);btn.onclick=()=>{chosen=s.name;render(current)};row.append(btn,bar,node("span",s.endpoint?"Sealed":s.final_checkpoint?"Exam pending":s.history.length?Math.round(s.progress*100)+"%":"Waiting","label"));list.append(row)}
+  inspect(students.find(s=>s.name===chosen));
+  const log=$("log");if(log.textContent!==d.log&&d.log){log.textContent=d.log;if($("follow").checked)log.scrollTop=log.scrollHeight}
+  put("command",job?.command?job.command.map(x=>JSON.stringify(x)).join(" "):"No launch yet.");
+  put("viewerLog",d.viewer?.log||"No viewer output.");
+  const ready=d.viewer?.running&&/EMU viewer: http:\/\/127\.0\.0\.1:8771\//.test(d.viewer.log||"");
+  put("viewStatus",ready?"Viewer ready":d.viewer?.running?"Starting / building viewer…":viewRequested?"Viewer stopped — see viewer server log":"Viewer not started");
+  show("viewLink",ready);
+  if(ready&&!viewLoaded){$("viewerFrame").src="http://127.0.0.1:8771/";show("viewerFrame",true);show("sceneStart",false);viewLoaded=true}
+  if(!d.viewer?.running&&viewLoaded){$("viewerFrame").removeAttribute("src");show("viewerFrame",false);show("sceneStart",true);viewLoaded=false}
+  put("resultState",d.result_ready?"Results archive ready":"Awaiting completed experiment");put("resultPath",focus?focus.root+"/"+fm.result:"The registered results archive will appear here.");show("download",!!d.result_ready);
+}
+async function poll(){
+  if(polling)return;polling=true;
+  try{const r=await fetch("/api/status",{headers,cache:"no-store"}),j=await r.json();if(!r.ok)throw Error(j.error);render(j);put("connection","Local server connected");$("connectionDot").classList.add("on")}
+  catch(e){put("connection","Disconnected: "+String(e.message||e));$("connectionDot").classList.remove("on")}
+  finally{polling=false}
+}
+poll();setInterval(poll,1800);
+</script>
+</body></html>
