@@ -128,6 +128,11 @@ def main():
         p.error("--profile-rollout requires --ppo --full-update and --benchmark-updates >=3")
     if a.gpu_audit_dir and not a.profile_rollout:
         p.error("--gpu-audit-dir requires --profile-rollout and full 2048/1024-world PPO")
+    import faulthandler
+    live_smoke=a.live_recovery_smoke or a.live_uphill_smoke
+    if live_smoke:
+        print("STUDIO PREFLIGHT initializing CUDA and physical geometry (15-minute watchdog)",flush=True)
+        faulthandler.dump_traceback_later(900,exit=True)
     os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE","false")
     from emu.ppo import configure_jax
     configure_jax("cuda" if a.device=="gpu" else a.device)
@@ -523,8 +528,6 @@ def main():
             reference_verdicts[1]+=int((done & (ids>=6)).sum())
         initial_leaves=jax.tree_util.tree_leaves(jax.device_get(initial.params))
         initial_actor=jax.tree_util.tree_leaves(jax.device_get(initial.params["pi"]))
-        live_smoke=a.live_recovery_smoke or a.live_uphill_smoke
-        import faulthandler
         if live_smoke:
             print("STUDIO PREFLIGHT starting update 1 (compile + execution)",flush=True)
             faulthandler.dump_traceback_later(900,exit=True)
@@ -580,6 +583,7 @@ def main():
         gc.collect()
         if live_smoke:
             faulthandler.cancel_dump_traceback_later()
+            print('STUDIO PREFLIGHT allocator after update 1:',_memory_counters(jax.devices('gpu')[0]),flush=True)
         rollout_frames=32 if a.full_update else 2
         first_update_world_steps=a.worlds*rollout_frames
         print("real batched PPO training update PASS; "
@@ -629,6 +633,7 @@ def main():
                 del steady_metrics
                 gc.collect()
                 if live_smoke:
+                    print(f'STUDIO PREFLIGHT allocator after update {i+1}:',_memory_counters(jax.devices('gpu')[0]),flush=True)
                     faulthandler.cancel_dump_traceback_later()
                     print(f'STUDIO PREFLIGHT {i+1}/{a.benchmark_updates}',flush=True)
             if live_observer is not None:
