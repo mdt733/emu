@@ -409,7 +409,10 @@ def train(args: TrainingConfig) -> int:
     # Keep the frozen 10-panel protocol/350-frame horizon/two final cohorts;
     # only independent evaluation batch size is capped for this 20M run.
     eval_args = replace(args, envs=32) if continuous_growth else args
-    fixed_eval_worlds = {} if bounded_acceptance else build_eval_worlds(eval_args)
+    external_live_exams=args.fixed_eval_every_steps==0 and args.live_skill_observer
+    if args.fixed_eval_every_steps==0 and not external_live_exams:
+        raise ValueError('Zero fixed exam cadence requires live observer and external endpoint exams')
+    fixed_eval_worlds = {} if bounded_acceptance or external_live_exams else build_eval_worlds(eval_args)
     if continuous_growth:
         print(f'{LOG_PREFIX} one cold-start PPO lineage to {args.steps:,} steps; '
               f'foundation={args.foundation_mix} until {args.foundation_steps:,} steps; '
@@ -792,7 +795,7 @@ def train(args: TrainingConfig) -> int:
 
     def maybe_fixed_eval(step: int, force: bool = False) -> None:
         nonlocal last_eval_step, best_eval_score
-        if bounded_acceptance:
+        if bounded_acceptance or external_live_exams:
             return
         if not force and step - last_eval_step < args.fixed_eval_every_steps:
             return
@@ -1151,12 +1154,10 @@ def train(args: TrainingConfig) -> int:
     # Evaluate and report the exact policy that generated the final rollout
     # before allowing that rollout to update governor stats.
     print(f'{LOG_PREFIX} PPO TARGET REACHED at step={total_steps:,}; '
-          'starting final read-only physics exams and checkpoint publication. '
-          'The next log lines report each exam panel; no new PPO updates '
-          'are running during this phase.',flush=True)
+          + ('independent exams delegated to external runner; ' if external_live_exams else
+             'starting final read-only physics exams; ') + 'checkpoint publication follows.',flush=True)
     maybe_fixed_eval(total_steps, force=True)
-    print(f'{LOG_PREFIX} final physical exams finished; '
-          'summarizing final rollout and writing validated final checkpoint...',flush=True)
+    print(f'{LOG_PREFIX} summarizing final rollout and writing validated final checkpoint...',flush=True)
     row = summarize_rollout(rollout_metrics, rollout_params_for_metrics)
     observe_skills(total_steps)
     row.update(field.update_from_rollout(
