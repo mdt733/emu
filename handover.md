@@ -184,6 +184,43 @@ credit; one fresh pair clears cooldown, another fresh pair can restart.
 Teacher schema v2. Uniform/adaptive use the same initial RNG stream.
 Post-fade retention and actual physical learning still need validation.
 
+## 27 November update — EMU Studio + PPO neutral reset fix
+
+The operator attempted pinned pilot-v2 (df4d624f). All six actual
+cross-source checkpoint verification calls passed, and the real
+4096-world combined GPU geometry preflight passed recovery birth
+isolation (285 reference / 298 practice), exact signed uphill births
+(594 / 641), 8 convex prisms, recycler clearance and two physics frames.
+PPO construction failed before any research students trained, because
+make_trainer calls env.reset({}) and the new practice vector defaults
+were all zeros. Commit d922dd1a fixes params_array: omitted entire
+enabled teacher vectors are uniform / zero credit; explicit partial
+or invalid vectors remain rejected. Exact production host packet
+regression test added. Corrected combined PPO preflight has not run.
+
+User requested a Micro-Moth-like web UI and Git-driven launch standard.
+Implemented root launch.json (schema emu.launch.v1), scripts/studio.py
+(stdlib local control centre), scripts/studio.html (responsive dashboard,
+live console, learner charts, evidence windows, teachers, CPU viewer,
+results ZIP). See docs/STUDIO.md for contract and security boundaries.
+Get update & run explicitly fetches trusted research branch, reads
+manifest and starts exact commit in detached worktree. Each SHA gets
+a separate study root; resume last run reuses its original source.
+No shell commands from manifest or browser. Source and old study
+directories untouched. Loopback port 8770; existing CPU viewer 8771.
+Tests added for local launch/resume/HTTP guard and fixed packet; exact
+HTML script parses, no browser rendering or end-to-end Studio tests
+executed in assistant container. The user can run the local stdlib
+Studio tests before starting. Actual GPU run still pending. Do not
+start another GPU campaign manually while Studio runs its own.
+
+The current manifest registers pilot-v3 with same six-student budget,
+same parent hashes, new source-derived directory:
+~/emu-data/studies/ks150-live-skill-pilot-v3-<SHA12>/.
+Use Studio instead of the old v2 commands below. The previous section
+is retained as historical runner rationale. Next: fix only real
+preflight blockers, collect results and review learning; preserve main.
+
 ## Exact point to continue
 
 The unattended pilot runner is implemented in
