@@ -453,3 +453,29 @@ def test_adaptive_uphill_birth_latched_prerequisite():
     np.testing.assert_array_equal(np.asarray(pay),np.where(np.asarray(s)==2,np.asarray(v),0.))
     repeat=assigned_prerequisite_payment(jnp,b,s,v,new,new,no,no,no)
     assert not np.asarray(repeat).any()
+
+
+def test_neutral_ppo_reset_packet_for_combined_teachers():
+    # Host-only exact production params_array, the path that failed in
+    # make_trainer(env). No MJX world or GPU needed for this regression.
+    from emu.environment import EmuMJXEnv
+    from emu.contracts import P,UNIFIED_TASK_PARAM_DIM
+    env=EmuMJXEnv.__new__(EmuMJXEnv)
+    env.jnp=np
+    env.sensor_noise_scale=1.
+    env.terrain_step_max_m=.055
+    env.academy_height_cap_m=.055
+    env.exam_fixture_steps=None
+    env.skill_practice_recovery_share=.15
+    env.skill_adaptive_uphill=True
+    packet=env.params_array({})
+    assert packet.shape==(UNIFIED_TASK_PARAM_DIM,)
+    np.testing.assert_allclose(packet[P.skill_practice_weight_0:P.skill_practice_weight_5+1],1/6)
+    np.testing.assert_allclose(packet[P.skill_uphill_weight_0:P.skill_uphill_weight_5+1],1/6)
+    assert not packet[P.skill_uphill_stage_0:P.skill_uphill_bonus_5+1].any()
+    with pytest.raises(ValueError,match="Incomplete teacher"):
+        env.params_array({"skill_practice_weight_0":.3})
+    with pytest.raises(ValueError,match="Invalid recovery"):
+        env.params_array({f"skill_practice_weight_{i}":0. for i in range(6)})
+    with pytest.raises(ValueError,match="Invalid adaptive uphill"):
+        env.params_array({f"skill_uphill_weight_{i}":0. for i in range(6)})
