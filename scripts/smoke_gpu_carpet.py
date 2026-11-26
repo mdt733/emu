@@ -523,8 +523,13 @@ def main():
             reference_verdicts[1]+=int((done & (ids>=6)).sum())
         initial_leaves=jax.tree_util.tree_leaves(jax.device_get(initial.params))
         initial_actor=jax.tree_util.tree_leaves(jax.device_get(initial.params["pi"]))
+        live_smoke=a.live_recovery_smoke or a.live_uphill_smoke
+        import faulthandler
+        if live_smoke:
+            print("STUDIO PREFLIGHT starting update 1 (compile + execution)",flush=True)
+            faulthandler.dump_traceback_later(900,exit=True)
         start_update=time.perf_counter()
-        updated,rollout_metrics,diag,_,_=trainer["train_update"](
+        updated,rollout_metrics,diag,raw_obs,previous_policy=trainer["train_update"](
              initial,packet,jnp.zeros((360,),dtype=jnp.float32),
              jnp.ones((360,),dtype=jnp.float32),jnp.asarray(.25,jnp.float32))
         # Device transfer synchronizes the asynchronous XLA update. Include
@@ -560,9 +565,21 @@ def main():
                         assert not values.any()
             print("ABC GPU active PPO cohort PASS: clean/mixed/Academy fractions",
                   float(clean.mean()),float(stairs.mean()),float(academy.mean()),flush=True)
+        # The smoke does not need the pre-update full MJX state or
+        # the 131072 x 360 raw observation matrix after the update.
+        # Retaining them into the next update increases live VRAM.
+        last=updated
+        del initial,updated,raw_obs,previous_policy,diag
+        if live_smoke:
+            print("STUDIO PREFLIGHT update 1: transferring diagnostics",flush=True)
+            rollout_metrics=jax.device_get(rollout_metrics)
         check_live_metrics(rollout_metrics)
         check_uphill_metrics(rollout_metrics)
         check_observer(rollout_metrics,a.worlds*32)
+        del rollout_metrics
+        gc.collect()
+        if live_smoke:
+            faulthandler.cancel_dump_traceback_later()
         rollout_frames=32 if a.full_update else 2
         first_update_world_steps=a.worlds*rollout_frames
         print("real batched PPO training update PASS; "
@@ -579,7 +596,6 @@ def main():
         steady_update_times=[]
         physics_summary={}
         if a.benchmark_updates>1:
-            last=updated
             final_steady_metrics=None
             for i in range(1,a.benchmark_updates):
                 if a.live_uphill_smoke and i==6:
@@ -589,21 +605,35 @@ def main():
                     # fixed lesson families share this compiled learner.
                     packet=env.params_array(dict(active_params,**{k:v for k,v in changed.items()
                         if k.startswith('skill_uphill_')}))
+                if live_smoke:
+                    print(f"STUDIO PREFLIGHT starting update {i+1}/{a.benchmark_updates}",flush=True)
+                    faulthandler.dump_traceback_later(300,exit=True)
                 start_steady=time.perf_counter()
-                nxt,steady_metrics,_,_,_=trainer["train_update"](
+                nxt,steady_metrics,steady_diag,raw_obs,previous_policy=trainer["train_update"](
                     last,packet,jnp.zeros((360,),dtype=jnp.float32),
                     jnp.ones((360,),dtype=jnp.float32),
                     jnp.asarray(.25,jnp.float32))
                 jax.block_until_ready((nxt.obs,nxt.params["pi"][-1]["w"]))
                 steady_update_times.append(time.perf_counter()-start_steady)
                 last=nxt
-                final_steady_metrics=steady_metrics
+                del nxt,steady_diag,raw_obs,previous_policy
+                if live_smoke:
+                    print(f"STUDIO PREFLIGHT update {i+1}: GPU execution finished; transferring diagnostics",flush=True)
+                    steady_metrics=jax.device_get(steady_metrics)
+                    print(f"STUDIO PREFLIGHT update {i+1}: checking observer and teacher",flush=True)
                 check_live_metrics(steady_metrics)
                 check_uphill_metrics(steady_metrics)
                 check_observer(steady_metrics,(i+1)*a.worlds*32)
-                if a.live_recovery_smoke or a.live_uphill_smoke:
+                if i==a.benchmark_updates-1:
+                    final_steady_metrics=steady_metrics
+                del steady_metrics
+                gc.collect()
+                if live_smoke:
+                    faulthandler.cancel_dump_traceback_later()
                     print(f'STUDIO PREFLIGHT {i+1}/{a.benchmark_updates}',flush=True)
             if live_observer is not None:
+                print("STUDIO PREFLIGHT final evidence and teacher restoration checks",flush=True)
+                faulthandler.dump_traceback_later(300,exit=True)
                 live_observer.flush(force=True,reason="acceptance_end")
                 step=a.benchmark_updates*a.worlds*32
                 for teacher in live_teachers:
@@ -662,8 +692,8 @@ def main():
                              for k,v in sample_host.items()}
             print("PHYSICAL SNAPSHOT (last PPO rollout, untrained policy): "
                   +json.dumps(physics_summary,sort_keys=True),flush=True)
-            deaths=np.asarray(jax.device_get(
-                jnp.sum(final_steady_metrics["episode_done"]>.5,axis=1)))
+            deaths=np.sum(np.asarray(jax.device_get(
+                final_steady_metrics["episode_done"]))>.5,axis=1)
             cap=env.reset_forward_capacity
             print("RESET BATCH STATS: "
                   f"mean={np.mean(deaths):.2f}/frame "
@@ -799,6 +829,8 @@ def main():
                     "xla_full_ppo_memory":audit["xla_compiled_full_ppo_memory"],
                     "allocator_after_full_ppo":audit["live_allocator_after_full_ppo"]
                 }),flush=True)
+        if live_smoke:
+            faulthandler.cancel_dump_traceback_later()
         if a.full_update:
             dev=jax.devices("gpu")[0]
             stats=dev.memory_stats() or {}
