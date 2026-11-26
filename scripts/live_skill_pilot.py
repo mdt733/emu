@@ -178,6 +178,58 @@ def endpoint(folder,policy,cfg,expected_actor):
     return receipt
 
 
+def live_coverage(run,commit):
+    """Validate raw windows; preserve abandoned epochs and interrupted tails.
+
+    Counts are per segment/epoch, never pooled across a rollback or retry.
+    A torn final JSONL record can exist after power loss; ignore only an
+    unterminated, unparsable final line, preserving its exact original bytes.
+    """
+    groups={}
+    last=[]
+    torn=[]
+    for p in sorted((run/"live_skills").glob("segment-*.jsonl")):
+        data=p.read_bytes()
+        lines=data.splitlines(keepends=True)
+        previous=None
+        for i,line in enumerate(lines):
+            try:
+                row=json.loads(line)
+            except (UnicodeError,json.JSONDecodeError):
+                if i==len(lines)-1 and not line.endswith(b"\n"):
+                    torn.append(p.name)
+                    break
+                raise
+            if (row["source_commit"]!=commit or row["worlds"]!=WORLDS
+                    or not PARENT_STEP<=row["start_step"]<row["end_step"]<=TARGET
+                    or row["world_frames"]!=row["end_step"]-row["start_step"]
+                    or (previous is not None and row["start_step"]!=previous)):
+                raise RuntimeError("Live observer lineage/window mismatch")
+            previous=row["end_step"]
+            for cell in row["cells"].values():
+                n,k=cell["attempts"],cell["passes"]
+                if type(n) is not int or type(k) is not int or not 0<=k<=n:
+                    raise RuntimeError("Invalid live observer counts")
+            key=(p.name,row["policy_epoch"])
+            g=groups.setdefault(key,dict(segment=p.name,policy_epoch=row["policy_epoch"],
+                start_step=row["start_step"],end_step=row["end_step"],world_frames=0,
+                reference_recovery_attempts=[0]*6,reference_uphill_attempts=[0]*6,
+                recovery_practice_frames=[0]*6,uphill_practice_frames=[0]*6))
+            g["end_step"]=row["end_step"]
+            g["world_frames"]+=row["world_frames"]
+            for j in range(6):
+                for family in ("recovery","uphill"):
+                    cell=row["cells"].get(f"reference_{family}/mission/{j}",{"attempts":0})
+                    g[f"reference_{family}_attempts"][j]+=cell["attempts"]
+                g["recovery_practice_frames"][j]+=row["practice_frames_by_case"][j]
+                g["uphill_practice_frames"][j]+=row["uphill_practice_frames_by_case"][j]
+            last.append(row["end_step"])
+    if TARGET not in last:
+        raise RuntimeError("Missing final live observer window")
+    return dict(segments=list(groups.values()),unparsed_interrupted_tails=torn,
+                note="Counts from different segments/epochs may overlap and must not be pooled blindly.")
+
+
 def verify_final(root,arm,seed,commit):
     from emu.training_config import TrainingConfig,training_sensor_contract
     from emu.checkpoint_io import load_checkpoint
@@ -221,22 +273,7 @@ def verify_final(root,arm,seed,commit):
     if read(export)!=json.loads(json.dumps(bundle)):
         raise RuntimeError("Final export differs from checkpoint")
     _,_,actor=load_exported_actor_for_exam(export)
-    windows=sorted((run/"live_skills").glob("segment-*.jsonl"))
-    last=[]
-    for p in windows:
-        for line in p.read_text().splitlines():
-            row=json.loads(line)
-            if (row["source_commit"]!=commit or row["worlds"]!=WORLDS
-                    or not PARENT_STEP<=row["start_step"]<row["end_step"]<=TARGET
-                    or row["world_frames"]!=row["end_step"]-row["start_step"]):
-                raise RuntimeError("Live observer lineage/window mismatch")
-            for c in row["cells"].values():
-                n,k=c["attempts"],c["passes"]
-                if type(n) is not int or type(k) is not int or not 0<=k<=n:
-                    raise RuntimeError("Invalid live observer counts")
-            last.append(row["end_step"])
-    if TARGET not in last:
-        raise RuntimeError("Missing final live observer window")
+    coverage=live_coverage(run,commit)
     # Preserve raw restart/rollback segments rather than silently pooling.
     files={}
     for p in sorted((run/"live_skills").glob("*.jsonl")):
@@ -251,7 +288,7 @@ def verify_final(root,arm,seed,commit):
     receipt=dict(arm=arm,seed=seed,step=TARGET,source_commit=commit,
                  parent_sha256=PARENTS[seed]["checkpoint"],checkpoint_sha256=sha(ck),
                  actor_source=actor["source"],artifact_sha256=actor["artifact_sha256"],
-                 teacher=teacher,files=files)
+                 teacher=teacher,live_coverage=coverage,files=files)
     seal=out/"training.json"
     if seal.exists():
         if read(seal)!=receipt:
