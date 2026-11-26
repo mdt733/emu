@@ -75,7 +75,7 @@ def main(argv=None) -> int:
     q.add_argument('--foundation-steps',type=int,choices=(10000000,20000000),default=20000000,
                    help='cold foundation length: experiment at 10M or reference 20M')
     q.add_argument('--fixed-eval-every-steps',type=int,default=60000000,
-                   help='steps between independent read-only retention exams')
+                   help='steps between independent read-only retention exams; zero with live skill observer delegates endpoint exams to external runner')
     q.add_argument('--teaching-schedule',choices=('balanced','staged','terrain-early','steering'),
                    default='balanced',help='per-episode focus weights: balanced, staged, terrain-early or steering')
     q.add_argument('--foundation-mix',choices=('main','command-heavy','curious'),default='main',
