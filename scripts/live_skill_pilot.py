@@ -1,0 +1,383 @@
+"""Unattended matched 4096-world Live Skill School pilot.
+
+One command: authenticate parents, register source, GPU acceptance,
+matched endpoint exams and six sequential 40-update forks, sealed ZIP.
+No interactive teacher approvals; no routine external exam during learning.
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import io
+import json
+import os
+from pathlib import Path
+import shutil
+import time
+import zipfile
+
+from scripts.ks150_abc_school import (
+    call, locked, read, root_checked, sha, source, verify_model, write_new,
+    _exam_cells,
+)
+from scripts.live_skill_pilot_plan import (
+    ARMS, COMMON, MODEL, PARENTS, PARENT_SOURCE, PARENT_STEP, TARGET,
+    WORLDS, ROLLOUT, UPDATES, registration, verify_parent,
+)
+
+EXAM_SEED=9861
+SCHEMA="ks150_live_skill_pilot_run_v1"
+
+
+def publish_copy(src,dst,digest):
+    dst.parent.mkdir(parents=True,exist_ok=True)
+    if dst.exists():
+        if sha(dst)!=digest:
+            raise RuntimeError(f"Registered file changed: {dst}")
+        return
+    tmp=dst.with_name(dst.name+".partial")
+    shutil.copyfile(src,tmp)
+    if sha(tmp)!=digest:
+        raise RuntimeError(f"Copy failed digest check: {src}")
+    os.replace(tmp,dst)
+
+
+def require_files(folder,files):
+    for name,digest in files.items():
+        p=folder/name
+        if not p.is_file() or sha(p)!=digest:
+            raise RuntimeError(f"Sealed file missing or changed: {p}")
+
+
+def stage_parent(root,parent_root,seed):
+    old=verify_parent(parent_root,seed)
+    dest=root/"parents"/f"s{seed}"
+    p=PARENTS[seed]
+    publish_copy(old/"checkpoint.pkl",dest/"checkpoints"/"parent.pkl",p["checkpoint"])
+    publish_copy(old/"training_config.json",dest/"training_config.json",p["config"])
+    publish_copy(old/"actor.emupolicy",dest/"actor.emupolicy",p["actor"])
+    publish_copy(old/"stage.json",dest/"stage.json",sha(old/"stage.json"))
+    return dest
+
+
+def student(root,arm,seed):
+    return root/"runs"/f"{arm}-s{seed}"
+
+
+def train_args(root,arm,seed,parent):
+    from emu.checkpoint_io import find_resume
+    run=student(root,arm,seed)
+    args=[*COMMON,*ARMS[arm],"--seed",str(seed),"--steps",str(TARGET),
+          "--run-dir",str(run)]
+    if find_resume(run) is not None:
+        args+=["--resume","auto"]
+    else:
+        args+=["--resume",str(parent/"checkpoints"/"parent.pkl"),
+               "--research-parent-source",PARENT_SOURCE,
+               "--research-parent-sha256",PARENTS[seed]["checkpoint"]]
+    return args
+
+
+def smoke(root,commit):
+    """Bounded mature physics checks; no random-actor mastery requirement."""
+    out=root/"acceptance"
+    out.mkdir(exist_ok=True)
+    for name,updates,flag in (("recovery",5,"--live-recovery-smoke"),
+                              ("uphill",12,"--live-uphill-smoke")):
+        receipt=out/(name+".json")
+        args=["-m","scripts.smoke_gpu_carpet","--worlds",str(WORLDS),
+              "--device","cuda","--prisms","--ppo","--full-update",
+              "--stair-survival-curriculum",flag,"--benchmark-updates",str(updates)]
+        expected=dict(source_commit=commit,args=args)
+        if receipt.exists():
+            if read(receipt)!=expected:
+                raise RuntimeError("Acceptance receipt identity mismatch")
+            continue
+        print(f"PRECHECK: mature {name}, {updates} updates",flush=True)
+        call(*args)
+        write_new(receipt,expected)
+
+
+def preserve_unsealed(path):
+    """Never trust half-published exam output; keep it for diagnosis."""
+    if path.exists():
+        os.replace(path,path.with_name(path.name+f".unsealed-{time.time_ns()}"))
+
+
+def endpoint(folder,policy,cfg,expected_actor):
+    """One matched independent seed at start/end; raw exams sealed by hash."""
+    from emu.policy_export import load_exported_actor_for_exam
+    from emu.training_config import training_sensor_contract
+    from scripts.mission_refresher_review import read_pulse,source_hashes
+    from scripts.v5053_matrix_exam import exam_source_fingerprint
+    folder.mkdir(parents=True,exist_ok=True)
+    _,_,actor=load_exported_actor_for_exam(policy)
+    src=actor["source"]
+    if any(src.get(k)!=v for k,v in expected_actor.items()):
+        raise RuntimeError("Endpoint actor lineage mismatch")
+    artifact=actor["artifact_sha256"]
+    sensor=training_sensor_contract(cfg)["sha256"]
+    seed=EXAM_SEED
+    pulse=folder/f"pulse-{seed}.zip"
+    matrix=folder/f"stairs-{seed}"
+    seal=folder/"endpoint.json"
+    if seal.exists():
+        receipt=read(seal)
+        if (receipt["actor_source"]!=src or receipt["artifact_sha256"]!=artifact
+                or receipt["exam_seed"]!=seed):
+            raise RuntimeError("Endpoint receipt actor mismatch")
+        require_files(folder,receipt["files"])
+        return receipt
+    pulse_seal=folder/"pulse.json"
+    if not pulse_seal.exists():
+        preserve_unsealed(pulse)
+        call("-m","scripts.examine_h40_specialties","--policy",policy,
+             "--output",pulse,"--worlds","2048","--horizon","600",
+             "--seed",seed,"--device","cuda")
+        digest=sha(pulse)
+        read_pulse(pulse,archive_sha256=digest,actor_source=src,
+                   artifact_sha256=artifact,seed=seed,model_sha256=MODEL,
+                   sensor_sha256=sensor,expected_sources=source_hashes())
+        write_new(pulse_seal,dict(sha256=digest,artifact_sha256=artifact))
+    ps=read(pulse_seal)
+    if ps["artifact_sha256"]!=artifact:
+        raise RuntimeError("Pulse actor changed")
+    counts,manifest=read_pulse(pulse,archive_sha256=ps["sha256"],actor_source=src,
+                   artifact_sha256=artifact,seed=seed,model_sha256=MODEL,
+                   sensor_sha256=sensor,expected_sources=source_hashes())
+    matrix_seal=folder/"matrix.json"
+    if not matrix_seal.exists():
+        preserve_unsealed(matrix)
+        call("-m","scripts.v5053_matrix_exam","--policy",policy,
+             "--output",matrix,"--mode","stairs","--worlds","512",
+             "--levels","20","--trials-per-level","10","--horizon","350",
+             "--seed",seed,"--device","cuda")
+        m=read(matrix/"matrix_summary.json")["manifest"]
+        expected=dict(actor_training_source=src,policy_sha256=artifact,
+                      robot_model_sha256=MODEL,exam_source_sha256=exam_source_fingerprint(),
+                      seed=seed,worlds=512,assigned_worlds=400,horizon=350,
+                      mode="stairs",levels=20,trials_per_level=10,device="gpu",
+                      zero_optimizer_updates=True,first_life_only=True)
+        if any(m.get(k)!=v for k,v in expected.items()):
+            raise RuntimeError("Signed matrix provenance mismatch")
+        write_new(matrix_seal,dict(artifact_sha256=artifact,files={
+            str((matrix/n).relative_to(folder)):sha(matrix/n)
+            for n in ("matrix_summary.json","matrix_worlds.csv","matrix_curve.csv")}))
+    ms=read(matrix_seal)
+    if ms["artifact_sha256"]!=artifact:
+        raise RuntimeError("Matrix actor changed")
+    require_files(folder,ms["files"])
+    files={pulse.name:ps["sha256"],pulse_seal.name:sha(pulse_seal),
+           matrix_seal.name:sha(matrix_seal),**ms["files"]}
+    receipt=dict(actor_source=src,artifact_sha256=artifact,exam_seed=seed,
+        files=files,exams=[dict(seed=seed,path=str(pulse),sha256=ps["sha256"])])
+    # Reuse established raw pulse and matrix evidence checks before sealing.
+    cells,_=_exam_cells(receipt,seed)
+    if len(cells)!=292:
+        raise RuntimeError("Incomplete endpoint cells")
+    write_new(seal,receipt)
+    return receipt
+
+
+def verify_final(root,arm,seed,commit):
+    from emu.training_config import TrainingConfig,training_sensor_contract
+    from emu.checkpoint_io import load_checkpoint
+    from emu.live_skill_teacher import RecoveryTeacher
+    from emu.live_skill_uphill_teacher import UphillTeacher
+    from emu.policy_export import build_bundle,write_bundle,load_exported_actor_for_exam
+    run=student(root,arm,seed)
+    cfg=TrainingConfig.load(run/"training_config.json")
+    ck=run/"checkpoints"/"final.pkl"
+    payload=load_checkpoint(ck,expected_sensor_contract=training_sensor_contract(cfg))
+    meta=payload["meta"]
+    if (cfg.envs!=WORLDS or cfg.steps!=TARGET or cfg.seed!=seed
+            or not cfg.live_skill_observer or cfg.physical_profile!="h40-spring-only"
+            or cfg.skill_adaptive_recovery!=(arm=="R") or cfg.skill_adaptive_uphill!=(arm=="H")
+            or cfg.skill_uphill_stage!="none" or cfg.mission_refreshers or cfg.cross_specialty_stairs
+            or any(getattr(cfg,k)!=.15 for k in ("skill_reference_recovery_share",
+                "skill_practice_recovery_share","skill_uphill_reference_share","skill_uphill_practice_share"))
+            or meta["step"]!=TARGET or meta["run_name"]!=run.name
+            or meta["source_provenance"]["git_commit"]!=commit or meta["robot_model_sha256"]!=MODEL):
+        raise RuntimeError("Final learner differs from registered treatment")
+    teacher={}
+    for key,active,cls in (("live_recovery_teacher",arm=="R",RecoveryTeacher),
+                           ("live_uphill_teacher",arm=="H",UphillTeacher)):
+        if active:
+            teacher[key]=cls.from_state_dict(meta.get(key),TARGET).state_dict(TARGET)
+            if teacher[key]["clock"]>UPDATES*WORLDS*ROLLOUT:
+                raise RuntimeError("Teacher observed more than registered budget")
+        elif key in meta:
+            raise RuntimeError("Unexpected active teacher")
+    rm=read(run/"run_meta.json")
+    if rm["effective_ppo_minibatches"]!=16:
+        raise RuntimeError("Wrong effective minibatch count")
+    out=root/"evidence"/run.name
+    out.mkdir(parents=True,exist_ok=True)
+    export=out/"actor.emupolicy"
+    bundle=build_bundle(ck)
+    if not export.exists():
+        tmp=export.with_suffix(".partial")
+        write_bundle(bundle,tmp)
+        os.replace(tmp,export)
+    if read(export)!=json.loads(json.dumps(bundle)):
+        raise RuntimeError("Final export differs from checkpoint")
+    _,_,actor=load_exported_actor_for_exam(export)
+    windows=sorted((run/"live_skills").glob("segment-*.jsonl"))
+    last=[]
+    for p in windows:
+        for line in p.read_text().splitlines():
+            row=json.loads(line)
+            if (row["source_commit"]!=commit or row["worlds"]!=WORLDS
+                    or not PARENT_STEP<=row["start_step"]<row["end_step"]<=TARGET
+                    or row["world_frames"]!=row["end_step"]-row["start_step"]):
+                raise RuntimeError("Live observer lineage/window mismatch")
+            for c in row["cells"].values():
+                n,k=c["attempts"],c["passes"]
+                if type(n) is not int or type(k) is not int or not 0<=k<=n:
+                    raise RuntimeError("Invalid live observer counts")
+            last.append(row["end_step"])
+    if TARGET not in last:
+        raise RuntimeError("Missing final live observer window")
+    # Preserve raw restart/rollback segments rather than silently pooling.
+    files={}
+    for p in sorted((run/"live_skills").glob("*.jsonl")):
+        name="live_skills/"+p.name
+        publish_copy(p,out/name,sha(p))
+        files[name]=sha(out/name)
+    for name in ("training_config.json","run_meta.json","metrics.csv",
+                 "fixed_eval.csv","performance.json","results_data.json"):
+        if (run/name).is_file():
+            publish_copy(run/name,out/name,sha(run/name))
+            files[name]=sha(out/name)
+    receipt=dict(arm=arm,seed=seed,step=TARGET,source_commit=commit,
+                 parent_sha256=PARENTS[seed]["checkpoint"],checkpoint_sha256=sha(ck),
+                 actor_source=actor["source"],artifact_sha256=actor["artifact_sha256"],
+                 teacher=teacher,files=files)
+    seal=out/"training.json"
+    if seal.exists():
+        if read(seal)!=receipt:
+            raise RuntimeError("Final training receipt changed")
+    else:
+        write_new(seal,receipt)
+    return out,cfg,receipt
+
+
+def compare(root):
+    rows=[]
+    for seed in PARENTS:
+        paths={"parent":root/"evidence"/f"parent-s{seed}",
+               **{a:root/"evidence"/f"{a}-s{seed}" for a in ARMS}}
+        data={a:_exam_cells(read(p/"endpoint.json"),EXAM_SEED) for a,p in paths.items()}
+        base,runtime=data["parent"]
+        if any(rt!=runtime or set(c)!=set(base) for c,rt in data.values()):
+            raise RuntimeError("Endpoint runtime/tasks differ")
+        for key,(p,n) in sorted(base.items()):
+            k={a:data[a][0][key][0] for a in ARMS}
+            if any(data[a][0][key][1]!=n for a in ARMS):
+                raise RuntimeError("Unmatched endpoint denominator")
+            rows.append(dict(training_seed=seed,exam_seed=EXAM_SEED,exam=key[0],
+                task=key[1],gate=key[2],attempts_each=n,parent_pass=p,
+                U_pass=k["U"],R_pass=k["R"],H_pass=k["H"],
+                R_minus_U_pp=round(100*(k["R"]-k["U"])/n,6),
+                H_minus_U_pp=round(100*(k["H"]-k["U"])/n,6)))
+    return rows
+
+
+def report(root):
+    rows=compare(root)
+    buf=io.StringIO()
+    writer=csv.DictWriter(buf,fieldnames=list(rows[0]))
+    writer.writeheader(); writer.writerows(rows)
+    out=root/"results-live-skill-pilot.zip"
+    tmp=out.with_suffix(".zip.partial")
+    if out.exists():
+        with zipfile.ZipFile(out) as z:
+            if (json.loads(z.read("study.json"))!=read(root/"study.json")
+                    or z.read("comparison.csv").decode()!=buf.getvalue()
+                    or z.testzip() is not None):
+                raise RuntimeError("Existing results archive differs")
+        return out
+    preserve_unsealed(tmp)
+    with zipfile.ZipFile(tmp,"x",zipfile.ZIP_DEFLATED) as z:
+        z.write(root/"study.json","study.json")
+        z.writestr("comparison.csv",buf.getvalue())
+        z.writestr("README.md","Matched U/R/H pilot. Raw live windows and teacher decisions "
+          "are training evidence, not independent trials. Endpoint exams use the same registered "
+          "seed on each parent and child. Do not pool restart/rollback epochs blindly. "
+          "Two independent parent learners, no automatic promotion. No actor/checkpoint binaries.\n")
+        for p in sorted((root/"acceptance").glob("*.json")):
+            z.write(p,str(p.relative_to(root)))
+        for seed in PARENTS:
+            parent=root/"parents"/f"s{seed}"
+            for name in ("stage.json","training_config.json"):
+                z.write(parent/name,str((parent/name).relative_to(root)))
+            for name in (f"parent-s{seed}",*(f"{a}-s{seed}" for a in ARMS)):
+                folder=root/"evidence"/name
+                for kind in ("endpoint","training"):
+                    seal=folder/(kind+".json")
+                    if kind=="training" and name.startswith("parent-"):
+                        continue
+                    r=read(seal)
+                    require_files(folder,r["files"])
+                    z.write(seal,str(seal.relative_to(root)))
+                    for rel in r["files"]:
+                        p=folder/rel
+                        z.write(p,str(p.relative_to(root)))
+    os.replace(tmp,out)
+    return out
+
+
+def go(root,parent_root):
+    os.environ["EMU_PHYSICAL_PROFILE"]="h40-spring-only"
+    commit=source()
+    verify_model()
+    root=root_checked(root)
+    parent_root=Path(parent_root).expanduser().resolve()
+    if root==parent_root or parent_root in root.parents or root in parent_root.parents:
+        raise ValueError("Pilot must use a separate study root")
+    root.mkdir(parents=True,exist_ok=True)
+    with locked(root):
+        spec=registration(parent_root)
+        spec.update(schema=SCHEMA,status="registered_unattended",source_commit=commit,
+                    exam_seed=EXAM_SEED,exam_policy="parent and final only, matched single seed")
+        spec=json.loads(json.dumps(spec))
+        lock=root/"study.json"
+        if lock.exists():
+            if read(lock)!=spec:
+                raise RuntimeError("Study source/recipe registration differs")
+        else:
+            write_new(lock,spec)
+        parents={s:stage_parent(root,parent_root,s) for s in PARENTS}
+        # Verify each actual fork using production CLI before expensive GPU work.
+        for seed,p in parents.items():
+            for arm in ARMS:
+                call("-m","emu.cli","train","--check-resume-only",*train_args(root,arm,seed,p))
+        smoke(root,commit)
+        from emu.training_config import TrainingConfig
+        for seed,p in parents.items():
+            cfg=TrainingConfig.load_research_ancestor(p/"training_config.json")
+            endpoint(root/"evidence"/f"parent-s{seed}",p/"actor.emupolicy",cfg,
+                     dict(git_commit=PARENT_SOURCE,step=PARENT_STEP,seed=seed,
+                          robot_model_sha256=MODEL,run_name=f"A-s{seed}"))
+        # Rotate treatment order across parents to reduce systematic time bias.
+        for seed,order in ((9501,("U","R","H")),(9502,("H","R","U"))):
+            for arm in order:
+                print(f"STUDENT {arm}-s{seed}: {PARENT_STEP:,} -> {TARGET:,}",flush=True)
+                call("-m","emu.cli","train",*train_args(root,arm,seed,parents[seed]))
+                out,cfg,r=verify_final(root,arm,seed,commit)
+                endpoint(out,out/"actor.emupolicy",cfg,dict(git_commit=commit,
+                         step=TARGET,seed=seed,robot_model_sha256=MODEL,run_name=f"{arm}-s{seed}"))
+        print("UPLOAD READY:",report(root),flush=True)
+
+
+def main(argv=None):
+    p=argparse.ArgumentParser(description=__doc__)
+    p.add_argument("--root",required=True,type=Path)
+    p.add_argument("--parent-root",type=Path,
+        default=Path.home()/"emu-data/studies/ks150-abc-unattended-v2")
+    a=p.parse_args(argv)
+    go(a.root,a.parent_root)
+
+
+if __name__=="__main__":
+    main()
