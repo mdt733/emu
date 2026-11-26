@@ -350,3 +350,25 @@ job. Keep the old controlling terminal open while it is active. Once
 idle, the new checkout can replace the old controller on port 8770.
 Do not click Get update & run to merely refresh a running job: it selects
 a new source/study. Resume last run preserves the original pin.
+
+## Operator reported overnight acceptance stall (27 November)
+
+The operator confirmed the v3 attempt remained at the first real PPO
+update overnight and treats it as broken. The exact cause is not yet
+established; no further trace was supplied. Review found that smoke
+retained obsolete full MJX state, previous-policy state, raw observation
+matrix and previous rollout arrays across the next update. Commits
+9b44c80c and 2a718c5c release these references, reuse one host diagnostic
+transfer in live smoke, log dispatch/synchronization/observer phases and
+allocator counters, and arm faulthandler watchdogs (900s initialization
+and first update, 300s subsequent updates and final checks; exit with
+traceback rather than silent overnight wait). Acceptance criteria,
+physics, teacher policies and 4096-world budget unchanged. Real GPU
+validation still required; this is a plausible memory-pressure fix,
+not a verified diagnosis. Stop the failed job in its existing Studio,
+wait for the process to exit, then use Get update & run. The new Git
+source automatically has a new isolated study directory. Original
+failed evidence remains. Do not use Resume last run for this fix.
+Older Studio can fetch and launch the new experiment; the Studio UI
+itself is loaded from its bootstrap checkout and requires the newer
+controller/monitor checkout for progress/partial ZIP features.
