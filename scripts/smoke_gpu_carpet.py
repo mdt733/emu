@@ -441,6 +441,31 @@ def main():
         packet=env.params_array(active_params)
         initial=trainer["make_initial_state"](active_params)
         reference_verdicts=[0,0]
+        live_observer=None
+        if a.live_recovery_smoke or a.live_uphill_smoke:
+            import tempfile
+            from emu.capability_field import CapabilityField, RECOVERY_BINS, EDGE_DIRS
+            from emu.live_skill_observer import LiveSkillObserver
+            from emu.live_skill_teacher import RecoveryTeacher
+            from emu.live_skill_uphill_teacher import UphillTeacher
+            from emu.contracts import CONTROL_DT
+            live_temp=tempfile.TemporaryDirectory(prefix="emu-live-smoke-")
+            live_field=CapabilityField()
+            live_observer=LiveSkillObserver(live_temp.name,start_step=0,worlds=a.worlds,
+                field_shape=live_field.shape,field_bounds=live_field.bounds,
+                recovery_bins=RECOVERY_BINS,edge_directions=EDGE_DIRS,
+                source_commit="bounded_gpu_acceptance")
+            live_teacher=RecoveryTeacher() if a.live_recovery_smoke else UphillTeacher()
+        def check_observer(metrics,step):
+            if live_observer is None:
+                return
+            host=jax.device_get(metrics)
+            counts=live_observer.observe(host,step=step)
+            live_field.update_from_rollout(host,step=step,control_dt=CONTROL_DT,
+                event_sink=live_observer.field_events)
+            live_teacher.observe(counts if a.live_recovery_smoke else
+                live_observer.last_uphill_counts,a.worlds*32)
+            live_observer.flush()
         uphill_verdicts=np.zeros((2,6),dtype=np.int64)
         uphill_survivors=np.zeros((2,6),dtype=np.int64)
         def check_uphill_metrics(metrics):
@@ -528,6 +553,7 @@ def main():
                   float(clean.mean()),float(stairs.mean()),float(academy.mean()),flush=True)
         check_live_metrics(rollout_metrics)
         check_uphill_metrics(rollout_metrics)
+        check_observer(rollout_metrics,a.worlds*32)
         rollout_frames=32 if a.full_update else 2
         first_update_world_steps=a.worlds*rollout_frames
         print("real batched PPO training update PASS; "
@@ -560,6 +586,14 @@ def main():
                 final_steady_metrics=steady_metrics
                 check_live_metrics(steady_metrics)
                 check_uphill_metrics(steady_metrics)
+                check_observer(steady_metrics,(i+1)*a.worlds*32)
+            if live_observer is not None:
+                live_observer.flush(force=True,reason="acceptance_end")
+                step=a.benchmark_updates*a.worlds*32
+                restored=type(live_teacher).from_state_dict(live_teacher.state_dict(step),step)
+                assert restored.state_dict(step)==live_teacher.state_dict(step)
+                print("LIVE GPU actual-rollout observer, capability field and teacher state PASS",flush=True)
+                live_temp.cleanup()
             if a.live_recovery_smoke:
                 assert all(reference_verdicts),reference_verdicts
                 print("LIVE RECOVERY GPU terminal verdicts PASS:",reference_verdicts,flush=True)
