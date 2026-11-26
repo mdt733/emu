@@ -186,48 +186,48 @@ Post-fade retention and actual physical learning still need validation.
 
 ## Exact point to continue
 
-The adaptive uphill modules have now passed isolated CPU/JAX tests,
-and a matched pilot is registered. Full GPU and trainer integration
-are still unexecuted. Continue here:
+The unattended pilot runner is now implemented in
+`scripts/live_skill_pilot.py` (initial commit
+`390028bfe095d95553a14b441299ac8515f63fbb`). It authenticates A9501
+and A9502 frozen 120M parents, verifies each fork using the production
+CLI, runs the mature recovery (5 updates) and uphill (12 updates)
+GPU acceptance checks including the live observer and teacher, then
+runs matched baseline and endpoint pulse/signed matrix exams using
+one seed (9861), with no adaptive teacher approvals mid-run.
+It runs all six 40-update students sequentially, U/R/H for 9501,
+H/R/U for 9502, and archives raw live windows, decisions, final
+teacher states, training metrics, manifests and matched exam counts.
+The original parents stay untouched. Existing finished students and
+sealed exams are reused on a same-source restart. Unsealed exam output
+is preserved before retry; the original source and root must match.
+The two parent hashes were checked directly against the uploaded
+A/B/C archive. Their actual local full checkpoint bytes must pass
+the launcher verification. No physical GPU preflight or pilot run
+has yet been performed on this branch. The runner has been reviewed
+against the existing trainer/CLI/endpoint contracts, not demonstrated
+end-to-end on the operator's GPU.
 
-1. Read the latest phase 5 in
-   `research/KS150_LIVE_SKILL_SCHOOL_V1.md` and the new
-   `scripts/live_skill_pilot_plan.py`. Build the unattended pilot
-   runner, not more speculative teacher features. Verify full parent
-   bytes locally: A9501/A9502 frozen **120M** stage in the A/B/C
-   evidence tree; exact hashes are in the registration module.
-   The 140M final age is off the 4096-world boundary by 65536 steps;
-   120061952 is aligned. Use an immutable staged parent checkpoint
-   under checkpoints/ with its matching training_config.json;
-   don't mutate A/B/C. Existing CLI requires explicit ancestor
-   source+checkpoint SHA. Checkpoint source, sensor, model, optimizer
-   and resume/final boundary checks remain strict.
-2. U uniform both, R adaptive recovery only, H adaptive uphill only;
-   matched triplets from both parents, same seed per triplet. 40
-   PPO updates per arm, 5242880 extra steps each, target 125304832,
-   total 31457280. All arms have both .15/.15 conditional reference
-   and practice budgets; no routine independent exams. Start/end
-   frozen exams only, using fresh registered seeds and comparable
-   physical mission counts. Report actual frame exposure, task
-   counts, teacher decisions, any rollback, throughput and raw
-   endpoint results. Equal birth budgets do not imply equal frames.
-   This short pilot may yield few decisions or fades; do not extend
-   only the treatment arms or confuse exam trials with replications.
-3. Finish full integration review and acceptance. Active uphill GPU
-   smoke now uses adaptive packet, >=12 updates and changes weights
-   and bonus after update 6, checks exact reference isolation,
-   birth-latched rewards and completed cases. It reports survival
-   separately instead of requiring a random actor to pass. Recovery
-   active smoke >=5 updates. Cold 2-update smoke doesn't exercise
-   mature births. Check actual trainer checkpoint timing, config/
-   packet contracts, old tests and restored dual teacher states.
-   The GPU is operator-local; don't claim these acceptance commands
-   have run. Make one unattended source-pinned launch only when the
-   runner, preflight and report lifecycle are ready.
-4. Once the pilot produces evidence, consider precision/stop/settling
-   and longer retention experiments. Assess sensor observability
-   before absolute XY rewards; avoid rewarding immobility. No
-   automatic promotion.
+The operator may now run the single unattended command from a clean
+pinned research worktree, with the existing project venv and
+`EMU_PHYSICAL_PROFILE=h40-spring-only`:
+
+```bash
+python -m scripts.live_skill_pilot \
+  --root "$HOME/emu-data/studies/ks150-live-skill-pilot-v1" \
+  --parent-root "$HOME/emu-data/studies/ks150-abc-unattended-v2"
+```
+
+Upload `~/emu-data/studies/ks150-live-skill-pilot-v1/results-live-skill-pilot.zip`
+when complete. Keep the complete local checkpoints. If a preflight
+fails, inspect the actual console evidence; do not skip physical
+checks or silently change the registered experiment. The pilot uses
+a single matched evaluation seed for efficiency and is descriptive,
+with two parent learners, not a definitive qualification test.
+40 updates may not provide enough evidence for teacher actions;
+report insufficient evidence rather than invent improvement.
+Once results arrive, evaluate actual learning/forgetting, delivered
+practice frame shares, teacher actions and held-out missions; do not
+add more speculative teachers before seeing the data.
 
 ## Validation and launch status
 
@@ -239,7 +239,7 @@ NumPy/JAX tests, not end-to-end MJX. Prior chat reported 323 reference and
 four fades 4→3→2→1→0, restoration and rollback snapshot, stall/cooldown,
 no-contact guard, 291 fixed and 339 practice cohort assignments preserved;
 28mm practice 55→203, one-time credit, exact initial uniform/adaptive
-4096-element assignment match. No real GPU run of PR #106 is known. No new large campaign is authorized by this handover.
+4096-element assignment match. No real GPU run of PR #106 is known. Only the registered small U/R/H pilot is prepared for unattended launch; no champion promotion.
 The operator's machine previously supported 4096 worlds; no sustained
 throughput measurement on this new code is available. The latest full CI
 status is not asserted.
@@ -258,8 +258,8 @@ only after the actual runner and relevant preflight are reviewed.
 on mdt733/emu branch research/ks150-live-skill-school-v1 (PR #106),
 then research/KS150_LIVE_SKILL_SCHOOL_V1.md and current source. Resume
 at the exact next-work section; don't restart the design or change main.
-The adaptive uphill CPU tests passed; build the matched pilot runner and
-validate physical GPU integration. Focus on efficient
+The matched pilot runner is implemented; physical GPU acceptance is pending.
+Continue from actual run evidence or any observed blocker. Focus on efficient
 4096-world live education and one unattended matched experiment."
 
 Update this file at meaningful completion points so a fresh chat can
