@@ -82,8 +82,9 @@ def one_run_config(args) -> TrainingConfig:
             (velocity_i_multiplier > 1.0 and not unified)):
         raise ValueError('velocity I requires unified learning, ramp 0.1..5s, multiplier 1..3')
     fixed_eval_every_steps=int(getattr(args,'fixed_eval_every_steps',60_000_000))
-    if fixed_eval_every_steps < 1_000_000:
-        raise ValueError('fixed eval cadence must be >=1M world steps')
+    external_live_exams=(fixed_eval_every_steps==0 and bool(getattr(args,'live_skill_observer',False)))
+    if fixed_eval_every_steps < 1_000_000 and not external_live_exams:
+        raise ValueError('fixed eval cadence must be >=1M world steps; zero requires live skill observer and external endpoint exams')
     if foundation_steps not in (10_000_000,20_000_000):
         raise ValueError('foundation must be 10M or 20M world steps')
     if foundation_mix not in ('main','command-heavy','curious'):
