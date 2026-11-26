@@ -23,7 +23,7 @@
 </div>
 <div class="column">
 <section class="panel pad gap"><div class="head"><h2>Training control</h2><span id="jobStatus" class="tag">Idle</span></div><div><h3 id="title">Fetch the latest registered experiment</h3><p id="description" class="muted" style="margin-top:5px">Git publishes the experiment, the launcher validates it, and training runs from the exact fetched source.</p></div><div class="actions"><button class="primary" id="updateRun">Get update &amp; run</button><button id="update">Check for update</button><button id="run">Run selected</button><button id="resume">Resume last run</button><button id="stop" class="stop">Stop</button></div><div class="notice" id="busy" hidden></div><div class="error" id="error" hidden></div><div class="manifest gap"><div><small>SELECTED SOURCE</small><div id="sha" class="mono">—</div><div id="branch" class="path"></div></div><div><small>RUNNING / LAST SOURCE</small><div id="activeSha" class="mono">—</div><div id="root" class="path"></div></div><div class="statusline"><span>GPU classroom</span><b id="worlds">—</b></div><div class="statusline"><span>Study budget</span><b id="budget">—</b></div><div class="statusline"><span>Endpoints sealed</span><b id="finished">—</b></div><div class="bar"><span id="totalProgress"></span></div></div><p class="tiny">Updates never modify an active training checkout. A different commit gets its own study directory. Stop requests interruption; resume uses the last saved checkpoint.</p></section>
-<section class="panel pad"><div class="head"><h2>Matched students</h2><span class="tag">Select to inspect</span></div><div id="students" class="empty">Waiting for launch manifest</div><p class="tiny" style="margin-top:12px">U · uniform &nbsp; R · recovery &nbsp; H · uphill. Sealed means the independent endpoint receipt exists.</p></section>
+<section class="panel pad"><div class="head"><h2>Matched students</h2><label class="log-controls"><input id="autoStudent" type="checkbox" checked> Follow active student</label></div><div id="students" class="empty">Waiting for launch manifest</div><p class="tiny" style="margin-top:12px">U · uniform &nbsp; R · recovery &nbsp; H · uphill. Sealed means the independent endpoint receipt exists.</p></section>
 <section class="panel"><div class="pad head"><h2>Live console</h2><label class="log-controls"><input id="follow" type="checkbox" checked> Follow output</label></div><pre id="log" class="log">No process started.</pre><details><summary>Exact launch command</summary><pre id="command" class="mono"></pre></details><details><summary>Viewer server log</summary><pre id="viewerLog" class="mono"></pre></details></section>
 <section class="panel pad gap"><h2>Results &amp; evidence</h2><div class="result"><div><b id="resultState">Awaiting completed experiment</b><div class="path" id="resultPath">The registered results archive will appear here.</div></div><a id="download" href="/results" hidden>Export results ZIP</a></div><p class="tiny">The archive contains actual experiment evidence. Checkpoints and actor binaries stay on your machine.</p></section>
 </div>
@@ -88,8 +88,8 @@ function inspect(s){
   chart("rewardChart",history,"reward_mean",1,"#83e4ce","rewardMin","rewardMax");
   chart("fallChart",history,"fall_rate",100,"#e7ba79","fallMin","fallMax");
   put("window",lesson?million(lesson.start_step)+" → "+million(lesson.end_step)+" · epoch "+lesson.policy_epoch:"Waiting for evidence");
-  rows("uphill",["4 mm","8 mm","12 mm","20 mm","28 mm","32 mm"],["reference_uphill/first_support","reference_uphill/each_foot_five","reference_uphill/traversed","reference_uphill/mission","practice_uphill/mission"],cells);
-  rows("recovery",["−0.40 m/s","−0.25 m/s","−0.10 m/s","+0.10 m/s","+0.25 m/s","+0.40 m/s"],["reference_recovery/mission","practice_recovery/mission"],cells);
+  rows("uphill",(lesson?.uphill_heights_m||[.004,.008,.012,.020,.028,.032]).map(v=>Math.round(v*1000)+" mm"),["reference_uphill/first_support","reference_uphill/each_foot_five","reference_uphill/traversed","reference_uphill/mission","practice_uphill/mission"],cells);
+  rows("recovery",(lesson?.reference_kicks_mps||[-.40,-.25,-.10,.10,.25,.40]).map(v=>(v>=0?"+":"−")+Math.abs(v).toFixed(2)+" m/s"),["reference_recovery/mission","practice_recovery/mission"],cells);
   put("recoveryTeacher",teacherText(s?.recovery_teacher));put("uphillTeacher",teacherText(s?.uphill_teacher));
 }
 function render(d){
@@ -105,10 +105,10 @@ function render(d){
   $("stop").disabled=!d.can_stop;$("viewBtn").disabled=!!d.busy||(!sel&&!job);
   const students=d.students||[],done=students.filter(s=>s.endpoint).length;
   put("finished",students.length?done+" / "+students.length:"—");$("totalProgress").style.width=(students.length?100*students.reduce((a,s)=>a+s.progress,0)/students.length:0)+"%";
-  if(!students.find(s=>s.name===chosen))chosen=(students.find(s=>!s.endpoint&&s.history.length)||students.find(s=>!s.endpoint)||students[0])?.name;
+  if($("autoStudent").checked||!students.find(s=>s.name===chosen))chosen=(students.find(s=>!s.endpoint&&s.history.length)||students.find(s=>!s.endpoint)||students[students.length-1])?.name;
   const list=$("students");list.replaceChildren();
   if(!students.length)list.append(node("p","Waiting for launch manifest","empty"));
-  for(const s of students){const row=node("div",null,"student"),btn=node("button",s.name,s.name===chosen?"selected":""),bar=node("div",null,"bar"),fill=node("span");fill.style.width=(100*s.progress)+"%";bar.append(fill);btn.onclick=()=>{chosen=s.name;render(current)};row.append(btn,bar,node("span",s.endpoint?"Sealed":s.final_checkpoint?"Exam pending":s.history.length?Math.round(s.progress*100)+"%":"Waiting","label"));list.append(row)}
+  for(const s of students){const row=node("div",null,"student"),btn=node("button",s.name,s.name===chosen?"selected":""),bar=node("div",null,"bar"),fill=node("span");fill.style.width=(100*s.progress)+"%";bar.append(fill);btn.onclick=()=>{$("autoStudent").checked=false;chosen=s.name;render(current)};row.append(btn,bar,node("span",s.endpoint?"Sealed":s.final_checkpoint?"Exam pending":s.history.length?Math.round(s.progress*100)+"%":"Waiting","label"));list.append(row)}
   inspect(students.find(s=>s.name===chosen));
   const log=$("log");if(log.textContent!==d.log&&d.log){log.textContent=d.log;if($("follow").checked)log.scrollTop=log.scrollHeight}
   put("command",job?.command?job.command.map(x=>JSON.stringify(x)).join(" "):"No launch yet.");
