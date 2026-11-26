@@ -173,6 +173,7 @@ class Studio:
             raise ValueError("Origin must be the trusted mdt733/emu repository")
         self.lock=threading.RLock()
         self.busy=None
+        self.closing=False
         self.error=""
         self.selected=None
         self.job=None
@@ -230,8 +231,9 @@ class Studio:
             raise RuntimeError("Worktree manifest differs from selected commit")
         return folder
 
-    def launch(self):
-        with self.lock: selected=self.selected
+    def launch(self,resume=False):
+        with self.lock:
+            selected=self.job if resume else self.selected
         if not selected:
             raise RuntimeError("Fetch a launch manifest first")
         if self.occupied():
@@ -243,9 +245,8 @@ class Studio:
         if not Path(selected["parent"]).is_dir():
             raise RuntimeError("Registered parent study is missing: "+selected["parent"])
         env=os.environ.copy()
-        for k in ("JAX_PLATFORMS","CUDA_VISIBLE_DEVICES","EMU_UNIFIED_ACCEPTANCE",
-                  "EMU_MISSION_REFRESHER_SHA256"):
-            if k!="CUDA_VISIBLE_DEVICES": env.pop(k,None)
+        for k in ("JAX_PLATFORMS","EMU_UNIFIED_ACCEPTANCE","EMU_MISSION_REFRESHER_SHA256"):
+            env.pop(k,None)
         env.update(PYTHONPATH=str(folder),PYTHONUNBUFFERED="1",
                    EMU_PHYSICAL_PROFILE=m["profile"],XLA_PYTHON_CLIENT_PREALLOCATE="false")
         env.setdefault("JAX_COMPILATION_CACHE_DIR",str(Path.home()/".cache/emu/jax-live-school"))
@@ -255,9 +256,10 @@ class Studio:
             command=[str(self.python),"-m",m["module"],*args]
             out.write(("\n--- "+time.strftime("%Y-%m-%d %H:%M:%S")+
                        " | "+selected["commit"]+" ---\n").encode())
-            proc=subprocess.Popen(command,cwd=folder,env=env,stdout=out,
-                     stderr=subprocess.STDOUT,start_new_session=True,pass_fds=(guard.fileno(),))
             with self.lock:
+                if self.closing: raise RuntimeError("Studio is closing")
+                proc=subprocess.Popen(command,cwd=folder,env=env,stdout=out,
+                     stderr=subprocess.STDOUT,start_new_session=True,pass_fds=(guard.fileno(),))
                 self.proc=proc
                 self.job=dict(**selected,status="running",pid=proc.pid,
                               log=log.name,command=command,returncode=None)
@@ -276,13 +278,14 @@ class Studio:
         root=Path(selected["root"])/"runs"
         args=[str(self.python),"-m","emu.cli","viewer",str(folder/"showcase/champion.emupolicy"),
               "--port","8771","--no-open"]
-        if root.is_dir():
-            args+=["--live","--root",str(root)]
+        args+=["--live","--root",str(root)]
         env={**os.environ,"PYTHONPATH":str(folder),"JAX_PLATFORMS":"cpu",
              "XLA_PYTHON_CLIENT_PREALLOCATE":"false","PYTHONUNBUFFERED":"1"}
-        with (self.state/"viewer.log").open("ab",buffering=0) as out:
-            self.viewer=subprocess.Popen(args,cwd=folder,env=env,stdout=out,
-                            stderr=subprocess.STDOUT,start_new_session=True)
+        with self.lock:
+            if self.closing: raise RuntimeError("Studio is closing")
+            with (self.state/"viewer.log").open("wb",buffering=0) as out:
+                self.viewer=subprocess.Popen(args,cwd=folder,env=env,stdout=out,
+                                stderr=subprocess.STDOUT,start_new_session=True)
 
     def poll(self):
         if self.proc is not None and self.proc.poll() is not None:
@@ -295,14 +298,15 @@ class Studio:
         with self.lock:
             self.poll()
             if self.busy: raise RuntimeError("Another Studio operation is in progress")
-            if action in ("run","update-run") and self.occupied():
+            if self.closing: raise RuntimeError("Studio is closing")
+            if action in ("run","update-run","resume") and self.occupied():
                 raise RuntimeError("A Studio-managed GPU campaign is already active")
             self.error=""
             self.busy=action
         def work():
             try:
                 if action in ("update","update-run"): self.refresh()
-                if action in ("run","update-run"): self.launch()
+                if action in ("run","update-run","resume"): self.launch(resume=action=="resume")
                 if action=="viewer": self.open_viewer()
             except Exception as e:
                 with self.lock: self.error=str(e)
@@ -344,10 +348,12 @@ class Studio:
 
     def close(self):
         # Leave no deliberate detached GPU jobs after normal shutdown.
-        for p in (self.proc,self.viewer):
-            if p is not None and p.poll() is None:
-                try: os.killpg(p.pid,signal.SIGINT)
-                except ProcessLookupError: pass
+        with self.lock:
+            self.closing=True
+            for p in (self.proc,self.viewer):
+                if p is not None and p.poll() is None:
+                    try: os.killpg(p.pid,signal.SIGINT)
+                    except ProcessLookupError: pass
 
 
 def handler(studio,port):
@@ -408,7 +414,7 @@ def handler(studio,port):
             action=urlsplit(self.path).path.removeprefix("/api/")
             try:
                 if action=="stop": studio.stop()
-                elif action in ("update","run","update-run","viewer"): studio.start_action(action)
+                elif action in ("update","run","update-run","resume","viewer"): studio.start_action(action)
                 else: return self.json(404,{"error":"Unknown action"})
                 return self.json(202,{"accepted":True})
             except Exception as e: return self.json(409,{"error":str(e)})
