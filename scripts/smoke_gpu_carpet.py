@@ -122,7 +122,7 @@ def main():
         p.error("Live recovery smoke needs 4096-world full-update survival school and >=5 updates")
     if a.live_uphill_smoke and (not a.full_update or a.worlds!=4096 or
             not a.stair_survival_curriculum or a.abc_refresher_smoke or
-            a.live_recovery_smoke or a.benchmark_updates<12):
+            a.benchmark_updates<12):
         p.error("Live uphill smoke needs 4096-world full-update survival school and >=12 updates")
     if a.profile_rollout and (not a.full_update or a.benchmark_updates<3):
         p.error("--profile-rollout requires --ppo --full-update and --benchmark-updates >=3")
@@ -461,7 +461,9 @@ def main():
                 field_shape=live_field.shape,field_bounds=live_field.bounds,
                 recovery_bins=RECOVERY_BINS,edge_directions=EDGE_DIRS,
                 source_commit="bounded_gpu_acceptance")
-            live_teacher=RecoveryTeacher() if a.live_recovery_smoke else UphillTeacher()
+            live_teachers=[]
+            if a.live_recovery_smoke: live_teachers.append(RecoveryTeacher())
+            if a.live_uphill_smoke: live_teachers.append(UphillTeacher())
         def check_observer(metrics,step):
             if live_observer is None:
                 return
@@ -469,8 +471,9 @@ def main():
             counts=live_observer.observe(host,step=step)
             live_field.update_from_rollout(host,step=step,control_dt=CONTROL_DT,
                 event_sink=live_observer.field_events)
-            live_teacher.observe(counts if a.live_recovery_smoke else
-                live_observer.last_uphill_counts,a.worlds*32)
+            for teacher in live_teachers:
+                teacher.observe(counts if isinstance(teacher,RecoveryTeacher) else
+                    live_observer.last_uphill_counts,a.worlds*32)
             live_observer.flush()
         uphill_verdicts=np.zeros((2,6),dtype=np.int64)
         uphill_survivors=np.zeros((2,6),dtype=np.int64)
@@ -580,7 +583,10 @@ def main():
                 if a.live_uphill_smoke and i==6:
                     # A real teacher change during active lives: existing birth
                     # credit is retained, subsequent births receive faded credit.
-                    packet=env.params_array(changed)
+                    # Preserve the actual mixed role/recovery packet when both
+                    # fixed lesson families share this compiled learner.
+                    packet=env.params_array(dict(active_params,**{k:v for k,v in changed.items()
+                        if k.startswith('skill_uphill_')}))
                 start_steady=time.perf_counter()
                 nxt,steady_metrics,_,_,_=trainer["train_update"](
                     last,packet,jnp.zeros((360,),dtype=jnp.float32),
@@ -596,8 +602,9 @@ def main():
             if live_observer is not None:
                 live_observer.flush(force=True,reason="acceptance_end")
                 step=a.benchmark_updates*a.worlds*32
-                restored=type(live_teacher).from_state_dict(live_teacher.state_dict(step),step)
-                assert restored.state_dict(step)==live_teacher.state_dict(step)
+                for teacher in live_teachers:
+                    restored=type(teacher).from_state_dict(teacher.state_dict(step),step)
+                    assert restored.state_dict(step)==teacher.state_dict(step)
                 print("LIVE GPU actual-rollout observer, capability field and teacher state PASS",flush=True)
                 live_temp.cleanup()
             if a.live_recovery_smoke:
