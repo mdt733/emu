@@ -427,6 +427,12 @@ def main():
             raise RuntimeError('Survival school escaped nominal 40mm ordinary cap')
         print("SURVIVAL SCHOOL physical metrics and nominal cap PASS",flush=True)
     if a.ppo:
+        # Geometry probe worlds are not PPO worlds. Drop their large data
+        # trees before compiling the 4096-world learner to avoid a false
+        # VRAM failure caused by smoke-only simultaneous allocations.
+        del state,obs,out,safe_data,relocated,blocked,blocked_data,edge_data,edge_shifted
+        import gc
+        gc.collect()
         from emu.ppo import make_trainer
         from emu.training_config import ppo_minibatches_for_envs
         trainer=make_trainer(env,seed=a.seed,lr=2e-4,
