@@ -24,6 +24,8 @@ import threading
 import time
 from urllib.parse import urlsplit
 
+from scripts.studio_progress import progress, partial_archive
+
 BRANCH = "research/ks150-live-skill-school-v1"
 ORIGINS = {"https://github.com/mdt733/emu", "https://github.com/mdt733/emu.git",
            "git@github.com:mdt733/emu.git", "ssh://git@github.com/mdt733/emu.git"}
@@ -163,7 +165,8 @@ def student_data(root,name,parent,target):
 
 
 class Studio:
-    def __init__(self,repo,state_dir,python):
+    def __init__(self,repo,state_dir,python,monitor=False):
+        self.monitor=bool(monitor)
         self.repo=repo.resolve()
         self.state=state_dir.expanduser().resolve()
         self.state.mkdir(parents=True,exist_ok=True,mode=0o700)
@@ -328,6 +331,27 @@ class Studio:
     def snapshot(self):
         with self.lock:
             self.poll()
+            if self.monitor:
+                # Observe the original controller's atomic state receipts;
+                # never acquire its control lock or mutate its job.
+                for attr,name in (('job','job.json'),('selected','selection.json')):
+                    try:
+                        data=json.loads((self.state/name).read_text())
+                        old=getattr(self,attr)
+                        if old is None or old['commit']!=data['commit']:
+                            selected=self.read_commit(data['commit'])
+                        else:
+                            selected={k:old[k] for k in ('commit','manifest','root','parent')}
+                        if attr=='job':
+                            if data.get('root')!=selected['root']:
+                                raise ValueError('Stored study root mismatch')
+                            expected_log=selected['manifest']['id']+'-'+selected['commit'][:12]+'.log'
+                            if data.get('log')!=expected_log:
+                                raise ValueError('Stored log identity mismatch')
+                            selected.update({k:data.get(k) for k in ('status','pid','log','command','returncode')})
+                        setattr(self,attr,selected)
+                    except FileNotFoundError:
+                        pass
             selected=self.selected
             job=dict(self.job) if self.job else None
             busy,error=self.busy,self.error
@@ -342,10 +366,16 @@ class Studio:
             m=focus["manifest"]; root=Path(focus["root"])
             rows=[student_data(root,s,m["parent_step"],m["target_step"]) for s in m["students"]]
             result=(root/m["result"]).is_file()
+        log_path=self.state/job["log"] if job else None
+        log=tail(log_path) if log_path else ""
+        try: age=max(0,time.time()-log_path.stat().st_mtime) if log_path else None
+        except OSError: age=None
+        status=progress(focus,rows,log,active,age) if focus else None
         return dict(selected=selected,job=job,busy=busy,error=error,active=active,
-                    can_stop=self.proc is not None and self.proc.poll() is None,
+                    monitor=self.monitor,progress=status,partial_ready=bool(job),
+                    can_stop=not self.monitor and self.proc is not None and self.proc.poll() is None,
                     students=rows,result_ready=result,
-                    log=tail(self.state/job["log"]) if job else "",
+                    log=log,
                     viewer=dict(running=viewer is not None and viewer.poll() is None,
                                 log=tail(self.state/"viewer.log",6000)),
                     branch=BRANCH)
@@ -392,8 +422,26 @@ def handler(studio,port):
                     return self.json(403,{"error":"Session token required"})
                 try: return self.json(200,studio.snapshot())
                 except Exception as e: return self.json(500,{"error":str(e)})
+            if path=="/partial-results":
+                try:
+                    status=studio.snapshot()
+                    job=status["job"]
+                    if not job: return self.json(404,{"error":"No job to export"})
+                    archive,size=partial_archive(job,studio.state/job["log"],status["progress"])
+                    with archive:
+                        self.send_response(200)
+                        self.send_header("Content-Type","application/zip")
+                        self.send_header("Content-Disposition",'attachment; filename="emu-partial-results.zip"')
+                        self.send_header("Content-Length",str(size))
+                        self.send_header("Cache-Control","no-store")
+                        self.end_headers()
+                        while chunk:=archive.read(65536): self.wfile.write(chunk)
+                except (BrokenPipeError,ConnectionResetError): pass
+                except Exception as e: return self.json(500,{"error":str(e)})
+                return
             if path=="/results":
                 # No path parameter: only the current job's registered ZIP.
+                if studio.monitor: studio.snapshot()
                 with studio.lock: focus=studio.job or studio.selected
                 if not focus: return self.json(404,{"error":"No study selected"})
                 name=focus["manifest"]["result"]; p=Path(focus["root"])/name
@@ -415,6 +463,7 @@ def handler(studio,port):
                     or self.headers.get("X-EMU-Token")!=studio.token
                     or self.headers.get("Content-Length","0")!="0"):
                 return self.json(403,{"error":"Local same-origin session required"})
+            if studio.monitor: return self.json(403,{"error":"Read-only monitor; use original Studio for controls"})
             action=urlsplit(self.path).path.removeprefix("/api/")
             try:
                 if action=="stop": studio.stop()
@@ -431,8 +480,15 @@ def main():
     p.add_argument("--port",type=int,default=8770)
     p.add_argument("--state",type=Path,default=Path.home()/".local/share/emu-studio")
     p.add_argument("--python",type=Path,default=Path(sys.executable))
+    p.add_argument("--monitor",action="store_true",help="read-only monitor of an existing Studio; no job control")
     a=p.parse_args()
-    studio=Studio(a.repo,a.state,a.python)
+    studio=Studio(a.repo,a.state,a.python,monitor=a.monitor)
+    if a.monitor:
+        with http.server.ThreadingHTTPServer(("127.0.0.1",a.port),handler(studio,a.port)) as server:
+            print(f"EMU Studio read-only monitor: http://127.0.0.1:{a.port}/",flush=True)
+            try: server.serve_forever()
+            except KeyboardInterrupt: pass
+        return
     with (studio.state/"studio.lock").open("a") as lock:
         fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
         with http.server.ThreadingHTTPServer(("127.0.0.1",a.port),handler(studio,a.port)) as server:
