@@ -371,6 +371,10 @@ class Studio:
         try: age=max(0,time.time()-log_path.stat().st_mtime) if log_path else None
         except OSError: age=None
         status=progress(focus,rows,log,active,age) if focus else None
+        if status:
+            parent,target=m["parent_step"],m["target_step"]
+            for row in rows:
+                row["progress"]=(status["student_steps"][row["name"]]-parent)/(target-parent)
         return dict(selected=selected,job=job,busy=busy,error=error,active=active,
                     monitor=self.monitor,progress=status,partial_ready=bool(job),
                     can_stop=not self.monitor and self.proc is not None and self.proc.poll() is None,
