@@ -752,6 +752,9 @@ def train(args: TrainingConfig) -> int:
         if observer is None:
             return
         counts=observer.observe(rollout_metrics, step=step)
+        # Lightweight progress record: this rollout already completed
+        # and its metrics were transferred. No extra device synchronization.
+        print(f'STUDIO TRAIN {run_name} {step}',flush=True)
         if teacher is not None:
             plan=teacher.observe(counts,args.envs*ROLLOUT_STEPS)
             if plan is not None:
