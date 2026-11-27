@@ -6,6 +6,14 @@ Reference/practice have identical task and geometry distributions. Only
 practice can receive optional once-per-life prerequisite credit.
 """
 UP_HEIGHTS_M=(.004,.008,.012,.020,.028,.032)
+UP_CLIFF_HEIGHTS_M=(.020,.028,.029,.030,.031,.032)
+
+
+def uphill_heights(profile='ladder'):
+    if profile=='ladder': return UP_HEIGHTS_M
+    if profile=='cliff': return UP_CLIFF_HEIGHTS_M
+    raise ValueError('Unknown uphill lesson profile')
+
 UP_VX=.16
 UP_APPROACH_M=.22
 UP_FRAMES=350
@@ -32,8 +40,8 @@ def uphill_assignment(jax,xp,keys,academy,mix,reference_share,practice_share,wei
                  (draw<reference_share+practice_share),6+practice_case,-1)).astype(xp.int32)
 
 
-def assigned_height(xp,ids):
-    return xp.where(ids>=0,xp.asarray(UP_HEIGHTS_M,dtype=xp.float32)[xp.mod(xp.maximum(ids,0),6)],0.)
+def assigned_height(xp,ids,heights=UP_HEIGHTS_M):
+    return xp.where(ids>=0,xp.asarray(heights,dtype=xp.float32)[xp.mod(xp.maximum(ids,0),6)],0.)
 
 
 def uphill_task(xp,task,T,ids,vx_hi,phase_gain):
