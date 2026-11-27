@@ -153,7 +153,8 @@ def student_data(root,name,parent,target):
               "reference_kicks_mps","uphill_heights_m")}
         lesson["cells"]={k:v for k,v in cells.items() if
                          k.startswith(("reference_recovery/","practice_recovery/",
-                                       "reference_uphill/","practice_uphill/"))}
+                                       "reference_uphill/","practice_uphill/",
+                                       "reference_uphill_before_approach_frame/"))}
     endpoint=(root/"evidence"/name/"endpoint.json").is_file()
     final=(folder/"checkpoints"/"final.pkl").is_file()
     return dict(name=name,history=list(history),last=last,lesson=lesson,
