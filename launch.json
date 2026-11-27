@@ -1,27 +1,27 @@
 {
   "schema": "emu.launch.v1",
-  "id": "ks150-live-skill-pilot-v3",
-  "title": "Live Skill School · matched pilot",
-  "description": "Two authenticated 120M parents, uniform vs adaptive recovery vs adaptive uphill. Combined GPU acceptance, six students, independent endpoints and ZIP.",
+  "id": "ks150-live-skill-cliff-v1",
+  "title": "Cliff School · focused uphill education",
+  "description": "Matched uniform vs adaptive uphill study at 20/28/29/30/31/32mm. Two authenticated parents, 100 PPO updates per student, actual lesson exposure and frozen endpoints.",
   "module": "scripts.live_skill_pilot",
   "args": [
+    "--classroom",
+    "cliff",
     "--root",
     "{study_root}",
     "--parent-root",
     "{parent_root}"
   ],
   "parent_study": "ks150-abc-unattended-v2",
-  "result": "results-live-skill-pilot.zip",
+  "result": "results-live-skill-cliff.zip",
   "worlds": 4096,
   "students": [
     "U-s9501",
-    "R-s9501",
     "H-s9501",
     "H-s9502",
-    "R-s9502",
     "U-s9502"
   ],
   "parent_step": 120061952,
-  "target_step": 125304832,
+  "target_step": 133169152,
   "profile": "h40-spring-only"
 }
