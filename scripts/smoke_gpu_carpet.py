@@ -73,6 +73,7 @@ def main():
     p.add_argument("--full-update",action="store_true")
     p.add_argument("--live-uphill-smoke",action="store_true",
                    help="active fixed-height uphill reference/practice prism acceptance")
+    p.add_argument("--uphill-profile",choices=("ladder","cliff"),default="ladder")
     p.add_argument("--live-recovery-smoke",action="store_true",
                    help="actual mature fixed reference and targeted practice births and PPO")
     p.add_argument("--abc-refresher-smoke",action="store_true",
@@ -187,8 +188,10 @@ def main():
     if a.live_recovery_smoke:
         school_kwargs.update(skill_reference_recovery_share=.15,skill_practice_recovery_share=.15)
     if a.live_uphill_smoke:
-        school_kwargs.update(live_skill_observer=True,skill_uphill_reference_share=.15,
-                             skill_uphill_practice_share=.15,skill_adaptive_uphill=True)
+        share=.25 if a.uphill_profile=="cliff" else .15
+        school_kwargs.update(live_skill_observer=True,skill_uphill_reference_share=share,
+                             skill_uphill_practice_share=share,skill_adaptive_uphill=True,
+                             skill_uphill_profile=a.uphill_profile)
     env=EmuMJXEnv(
         robot_xml_path,num_envs=a.worlds,seed=a.seed,max_episode_steps=700,
         terrain_step_max_m=(.055 if a.stair_survival_curriculum else .08),
@@ -273,7 +276,8 @@ def main():
         del new,new_obs,old_obs_host
 
     if a.live_uphill_smoke:
-        from emu.live_skill_uphill import UP_HEIGHTS_M,UP_APPROACH_M,UP_VX
+        from emu.live_skill_uphill import uphill_heights,UP_APPROACH_M,UP_VX
+        UP_HEIGHTS_M=uphill_heights(a.uphill_profile)
         from emu.environment import T
         ids=np.asarray(state.skill_uphill_id); active=ids>=0
         assert set(ids)==set(range(-1,12))
@@ -465,10 +469,10 @@ def main():
             live_observer=LiveSkillObserver(live_temp.name,start_step=0,worlds=a.worlds,
                 field_shape=live_field.shape,field_bounds=live_field.bounds,
                 recovery_bins=RECOVERY_BINS,edge_directions=EDGE_DIRS,
-                source_commit="bounded_gpu_acceptance")
+                source_commit="bounded_gpu_acceptance",uphill_profile=a.uphill_profile)
             live_teachers=[]
             if a.live_recovery_smoke: live_teachers.append(RecoveryTeacher())
-            if a.live_uphill_smoke: live_teachers.append(UphillTeacher())
+            if a.live_uphill_smoke: live_teachers.append(UphillTeacher(a.uphill_profile))
         def check_observer(metrics,step):
             if live_observer is None:
                 return
