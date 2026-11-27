@@ -9,7 +9,7 @@ from __future__ import annotations
 from math import isfinite
 from copy import deepcopy
 from .live_skill_ledger import Block
-from .live_skill_uphill import UP_HEIGHTS_M
+from .live_skill_uphill import uphill_heights
 from .live_skill_teacher import UNIFORM, MAX_WEIGHT_CHANGE
 
 # Counts: attempts, contact, first sustained support, both feet, traversal,
@@ -41,12 +41,14 @@ def diagnose_pair(pair):
 
 
 class UphillTeacher:
-    SCHEMA="emu_uphill_teacher_v2"
-    def __init__(self):
+    SCHEMA="emu_uphill_teacher_v3"
+    def __init__(self,profile="ladder"):
+        self.profile=profile
+        self.heights=uphill_heights(profile)
         self.clock=0
         self.review_clock=0
-        self.pending=[[0]*6 for _ in UP_HEIGHTS_M]
-        self.blocks=[[] for _ in UP_HEIGHTS_M]
+        self.pending=[[0]*6 for _ in self.heights]
+        self.blocks=[[] for _ in self.heights]
         self.stage=[0]*6
         self.bonus=[0.]*6
         self.weights=list(UNIFORM)
@@ -129,19 +131,22 @@ class UphillTeacher:
         self.weights=[a+alpha*(b-a) for a,b in zip(self.weights,desired)]
         return dict(evidence_clock=self.clock,closed_cases=closed,stage=list(self.stage),
                     bonus=list(self.bonus),weights=list(self.weights),
-                    reference_mastery=list(self.unassisted),events=events,
+                    reference_mastery=list(self.unassisted),events=events,heights_mm=[round(x*1000) for x in self.heights],
                     stalled_pairs=list(self.stalled),cooldown=list(self.cooldown))
 
     def state_dict(self,checkpoint_step):
-        return dict(schema=self.SCHEMA,checkpoint_step=int(checkpoint_step),
+        return dict(schema=self.SCHEMA,profile=self.profile,checkpoint_step=int(checkpoint_step),
             clock=self.clock,review_clock=self.review_clock,pending=deepcopy(self.pending),
             blocks=deepcopy(self.blocks),stage=list(self.stage),bonus=list(self.bonus),
             weights=list(self.weights),unassisted=list(self.unassisted),
             stalled=list(self.stalled),baseline=list(self.baseline),cooldown=list(self.cooldown))
 
     @classmethod
-    def from_state_dict(cls,state,checkpoint_step):
-        obj=cls()
+    def from_state_dict(cls,state,checkpoint_step,profile=None):
+        if not isinstance(state,dict): raise ValueError('Uphill teacher checkpoint identity mismatch')
+        obj=cls(profile if profile is not None else state.get('profile','ladder'))
+        if state.get('profile')!=obj.profile:
+            raise ValueError('Uphill teacher physical profile mismatch')
         if (not isinstance(state,dict) or set(state)!=set(obj.state_dict(checkpoint_step))
                 or state["schema"]!=cls.SCHEMA or state["checkpoint_step"]!=int(checkpoint_step)):
             raise ValueError("Uphill teacher checkpoint identity mismatch")
