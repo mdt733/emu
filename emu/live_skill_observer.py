@@ -40,6 +40,7 @@ class LiveSkillObserver:
         from .live_skill_reference import (REFERENCE_KICKS_MPS, REFERENCE_VX_MPS,
             REFERENCE_SENSOR_SCALE, REFERENCE_STEP_COMMAND_M, SETTLE_DEADLINE_S, SETTLE_FRAMES)
         from .live_skill_uphill import uphill_heights,UP_FRAMES,UP_VX,UP_APPROACH_M,UP_SENSOR_SCALE
+        self.uphill_profile=uphill_profile
         self.uphill_heights=uphill_heights(uphill_profile)
         self.header = dict(schema=SCHEMA, worlds=int(worlds),
                            uphill_heights_m=list(self.uphill_heights),uphill_horizon_frames=UP_FRAMES,
@@ -181,6 +182,25 @@ class LiveSkillObserver:
             if assigned_up.shape!=done.shape or np.any((assigned_up<-1)|(assigned_up>=12)):
                 raise ValueError('Invalid uphill rollout cohort')
             self.uphill_frames+=np.bincount(assigned_up[assigned_up>=0].astype(np.int64),minlength=12)
+            # Frame-denominator approach diagnostics; never mission passes.
+            # Fixed seam at x=1m, approach line x=.85m. Include retreat
+            # frames rather than silently censoring non-engagement.
+            if self.uphill_profile=='cliff' and 'skill_world_vx_after_step' in metrics:
+                pos=np.asarray(metrics['physical_position_xy_after_step'])
+                heading=np.asarray(metrics['physical_heading_rad_after_step'])
+                vx=np.asarray(metrics['skill_world_vx_after_step'])
+                cmd=np.asarray(metrics['cmd_vx'])
+                if pos.shape!=done.shape+(2,) or any(x.shape!=done.shape for x in (heading,vx,cmd)):
+                    raise ValueError('Wrong cliff approach diagnostic shape')
+                reference=(assigned_up>=0)&(assigned_up<6)
+                take=reference&(pos[...,0]<.85)&np.isfinite(vx)&np.isfinite(heading)&np.isfinite(cmd)
+                cases=assigned_up[take]
+                for gate,passed in (
+                        ('forward_gt_005',vx>.05),('reverse_lt_minus005',vx<-.05),
+                        ('slow_abs_le_005',np.abs(vx)<=.05),
+                        ('heading_aligned',np.abs(heading)<=.35),
+                        ('command_016',np.abs(cmd-.16)<=.02)):
+                    self._binned('reference_uphill_before_approach_frame/'+gate,cases,passed[take])
             ids=terminal('skill_uphill_id').astype(int)
             fixed=ids>=0
             if np.any(ids[fixed]>=12) or np.any(fixed & ~academy):
