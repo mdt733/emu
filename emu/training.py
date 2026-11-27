@@ -498,13 +498,13 @@ def train(args: TrainingConfig) -> int:
             raise RuntimeError(f"--resume capability-field restore failed: {exc}") from exc
 
     teacher=RecoveryTeacher() if args.skill_adaptive_recovery else None
-    uphill_teacher=UphillTeacher() if args.skill_adaptive_uphill else None
+    uphill_teacher=UphillTeacher(args.skill_uphill_profile) if args.skill_adaptive_uphill else None
     same_run_resume=bool(args.resume and (args.resume=='auto' or
         Path(args.resume).resolve().parent==(run_dir/'checkpoints').resolve()))
     if teacher is not None and same_run_resume and resumed_payload is not None:
         teacher=RecoveryTeacher.from_state_dict(parent_meta.get('live_recovery_teacher'),resumed_step)
     if uphill_teacher is not None and same_run_resume and resumed_payload is not None:
-        uphill_teacher=UphillTeacher.from_state_dict(parent_meta.get('live_uphill_teacher'),resumed_step)
+        uphill_teacher=UphillTeacher.from_state_dict(parent_meta.get('live_uphill_teacher'),resumed_step,args.skill_uphill_profile)
     def teacher_meta(step):
         out={}
         if teacher is not None: out['live_recovery_teacher']=teacher.state_dict(step)
@@ -512,7 +512,7 @@ def train(args: TrainingConfig) -> int:
         return out
     def restore_teachers(m):
         return (RecoveryTeacher.from_state_dict(m.get('live_recovery_teacher'),m['step']) if teacher is not None else None,
-                UphillTeacher.from_state_dict(m.get('live_uphill_teacher'),m['step']) if uphill_teacher is not None else None)
+                UphillTeacher.from_state_dict(m.get('live_uphill_teacher'),m['step'],args.skill_uphill_profile) if uphill_teacher is not None else None)
 
     def params_with_field(
         step: int, *, teaching_field: CapabilityField | None = None,
