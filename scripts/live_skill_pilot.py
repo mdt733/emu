@@ -252,6 +252,7 @@ def live_coverage(run,commit,plan=DEFAULT):
             g=groups.setdefault(key,dict(segment=p.name,policy_epoch=row["policy_epoch"],
                 start_step=row["start_step"],end_step=row["end_step"],world_frames=0,
                 reference_recovery_attempts=[0]*6,reference_uphill_attempts=[0]*6,
+                recovery_reference_frames=[0]*6,uphill_reference_frames=[0]*6,
                 recovery_practice_frames=[0]*6,uphill_practice_frames=[0]*6))
             g["end_step"]=row["end_step"]
             g["world_frames"]+=row["world_frames"]
@@ -261,6 +262,8 @@ def live_coverage(run,commit,plan=DEFAULT):
                     g[f"reference_{family}_attempts"][j]+=cell["attempts"]
                 g["recovery_practice_frames"][j]+=row["practice_frames_by_case"][j]
                 g["uphill_practice_frames"][j]+=row["uphill_practice_frames_by_case"][j]
+                g["recovery_reference_frames"][j]+=row.get("reference_frames_by_case",[0]*6)[j]
+                g["uphill_reference_frames"][j]+=row.get("uphill_reference_frames_by_case",[0]*6)[j]
             last.append(row["end_step"])
     if plan.target not in last:
         raise RuntimeError("Missing final live observer window")
@@ -361,17 +364,62 @@ def compare(root,plan=DEFAULT):
     return rows
 
 
+def cliff_windows(root,plan):
+    """One row per physical height, cohort and raw window. Do not merge
+    overlapping restart/rollback epochs into fictitious extra evidence."""
+    from emu.live_skill_uphill import uphill_heights
+    gates=("approach","first_contact","first_support","each_foot_five","traversed","mission","survived")
+    frame_gates=("forward_gt_005","reverse_lt_minus005","slow_abs_le_005",
+                 "heading_aligned","command_016")
+    rows=[]
+    for seed in PARENTS:
+        for arm,_ in plan.arms:
+            name=f"{arm}-s{seed}"
+            folder=root/"evidence"/name
+            for path in sorted((folder/"live_skills").glob("segment-*.jsonl")):
+                lines=path.read_bytes().splitlines(keepends=True)
+                for j,line in enumerate(lines):
+                    try: raw=json.loads(line)
+                    except (UnicodeError,json.JSONDecodeError):
+                        if j==len(lines)-1 and not line.endswith(b"\n"): break
+                        raise
+                    for i,h in enumerate(uphill_heights(plan.profile)):
+                        for cohort in ("reference","practice"):
+                            prefix=f"{cohort}_uphill"
+                            cells=raw["cells"]
+                            row=dict(student=name,segment=path.name,epoch=raw["policy_epoch"],
+                                start_step=raw["start_step"],end_step=raw["end_step"],
+                                world_frames=raw["world_frames"],height_mm=round(h*1000),cohort=cohort,
+                                case_frames=raw[f"uphill_{cohort}_frames_by_case"][i])
+                            row["world_frame_share"]=row["case_frames"]/row["world_frames"]
+                            for gate in gates:
+                                cell=cells.get(f"{prefix}/{gate}/{i}",{"attempts":0,"passes":0})
+                                row[gate+"_attempts"]=cell["attempts"]
+                                row[gate+"_passes"]=cell["passes"]
+                            for gate in frame_gates:
+                                cell=cells.get(f"reference_uphill_before_approach_frame/{gate}/{i}",{}) if cohort=="reference" else {}
+                                row[gate+"_frames"]=cell.get("attempts","")
+                                row[gate+"_pass_frames"]=cell.get("passes","")
+                            rows.append(row)
+    stream=io.StringIO()
+    writer=csv.DictWriter(stream,fieldnames=list(rows[0]))
+    writer.writeheader(); writer.writerows(rows)
+    return stream.getvalue()
+
+
 def report(root,plan=DEFAULT):
     rows=compare(root,plan)
     buf=io.StringIO()
     writer=csv.DictWriter(buf,fieldnames=list(rows[0]))
     writer.writeheader(); writer.writerows(rows)
+    cliff=cliff_windows(root,plan) if plan.profile=="cliff" else None
     out=root/plan.result
     tmp=out.with_suffix(".zip.partial")
     if out.exists():
         with zipfile.ZipFile(out) as z:
             if (json.loads(z.read("study.json"))!=read(root/"study.json")
                     or z.read("comparison.csv").decode()!=buf.getvalue()
+                    or (cliff is not None and z.read("cliff_windows.csv").decode()!=cliff)
                     or z.testzip() is not None):
                 raise RuntimeError("Existing results archive differs")
         return out
@@ -379,6 +427,7 @@ def report(root,plan=DEFAULT):
     with zipfile.ZipFile(tmp,"x",zipfile.ZIP_DEFLATED) as z:
         z.write(root/"study.json","study.json")
         z.writestr("comparison.csv",buf.getvalue())
+        if cliff is not None: z.writestr("cliff_windows.csv",cliff)
         z.writestr("README.md","Matched "+plan.name+" pilot. Raw live windows and teacher decisions "
           "are training evidence, not independent trials. Endpoint exams use the same registered "
           "seed on each parent and child. Do not pool restart/rollback epochs blindly. "
