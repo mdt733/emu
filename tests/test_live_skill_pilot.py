@@ -41,11 +41,11 @@ def test_pilot_unattended_resume(tmp_path,monkeypatch):
             raise RuntimeError("interrupted")
         complete.add(n)
     monkeypatch.setattr(p,"call",call)
-    monkeypatch.setattr(p,"endpoint",lambda folder,policy,cfg,expected:
+    monkeypatch.setattr(p,"endpoint",lambda folder,policy,cfg,expected,plan:
         events.append(("endpoint",expected["run_name"])))
-    monkeypatch.setattr(p,"verify_final",lambda root,arm,seed,commit:
+    monkeypatch.setattr(p,"verify_final",lambda root,arm,seed,commit,plan:
         (root/"evidence"/f"{arm}-s{seed}",None,None))
-    monkeypatch.setattr(p,"report",lambda root:events.append("archive") or root/"results.zip")
+    monkeypatch.setattr(p,"report",lambda root,plan:events.append("archive") or root/"results.zip")
     with pytest.raises(RuntimeError,match="interrupted"):
         p.go(root,parent_root)
     assert events.count("smoke")==1 and "archive" not in events
@@ -83,3 +83,17 @@ def test_live_coverage_preserves_torn_tail_and_separates_epochs(tmp_path):
     second.write_text(second.read_text()+"not json\n")
     with pytest.raises(json.JSONDecodeError):
         p.live_coverage(tmp_path,"commit")
+
+
+def test_cliff_plan_equal_budget_and_distinct_result(tmp_path):
+    q=p.cliff_plan()
+    assert q.profile=="cliff" and q.updates==100
+    assert q.target==133169152
+    assert tuple(dict(q.arms))==("U","H")
+    assert q.spec(tmp_path)["total_additional_steps"]==52428800
+    assert q.exam_seed!=p.DEFAULT.exam_seed
+    assert q.result!=p.DEFAULT.result
+    for flag in ("--skill-uphill-reference-share","--skill-uphill-practice-share"):
+        assert q.common[q.common.index(flag)+1]==".25"
+    assert q.common[q.common.index("--skill-uphill-profile")+1]=="cliff"
+    assert p.DEFAULT.uphill_share==.15 and p.DEFAULT.target==p.TARGET
