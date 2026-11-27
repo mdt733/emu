@@ -372,3 +372,81 @@ failed evidence remains. Do not use Resume last run for this fix.
 Older Studio can fetch and launch the new experiment; the Studio UI
 itself is loaded from its bootstrap checkout and requires the newer
 controller/monitor checkout for progress/partial ZIP features.
+
+
+## Completed Live Skill School pilot — 27 November 2026
+
+**Actual run succeeded.** Source dc6bd19923c3d03e873f816a6c51d466515517a1,
+study ~/emu-data/studies/ks150-live-skill-pilot-v3-dc6bd19923c3.
+Operator uploaded results-live-skill-pilot.zip (3.3 MB, 110 entries,
+ZIP CRC clean; all 88 receipt-referenced file SHA256s matched).
+Combined GPU acceptance receipt present. Six students all final
+125304832, five complete live windows each, one epoch/segment each,
+5242880 world steps each (31457280 total), no recorded rollback or
+nonfinite gradient skip. Final sustained PPO rates 31779–32569/s,
+sum of six trainer wall times 1189s excluding external exams/acceptance.
+Configs within each matched parent differ only by run_dir and the two
+adaptive flags. Full checkpoint and actor binaries not in archive.
+
+**Neither adaptive treatment actually activated.** Both R teachers
+made five uniform-maintenance reviews each; both H teachers closed
+only one block per height, no events, all zero stage/bonus. All final
+weights exactly uniform. Thus endpoint variation is not evidence of
+adaptive teaching benefit/harm. Two independent parent seeds only.
+
+Reference coverage: recovery 43–54 completed attempts per student
+(4–14 per case), uphill 388–412 total (57–77 per case). Actual
+recovery reference share ~0.13–0.17% frames, practice ~0.17–0.19%;
+uphill reference ~2.66–2.97%, practice ~2.81–2.95%. Conditional
+birth percentages are NOT global experience quotas. Two 40-attempt
+blocks insufficient for both teachers. Avoid lowering evidence criteria.
+
+Pooled matched pulse mission pass % (one independent exam seed 9861,
+two parents, 4096 attempts each across all tasks):
+| Mission | Parent | U | R | H |
+|---|---:|---:|---:|---:|
+| Command |95.18|96.48|96.22|95.44|
+| Control |99.80|99.41|99.61|99.22|
+| Resilience |85.55|79.69|86.33|83.20|
+| Slope |72.79|73.83|65.36|70.96|
+| Step |39.84|43.36|42.38|39.84|
+| Transition |99.02|98.44|98.83|98.63|
+| All |77.00|77.47|76.49|76.29|
+
+Signed matrix traversal up parent/U/R/H = 71/67/60/67 of 400 each;
+down 160/141/161/153 of 400 each. At >=32mm uphill zero of 260
+per group (780 student trials). Academy frontier 3–3.5mm up,55mm down.
+Live uphill pooled reference counts across six students:
+height, attempts, approach, first_contact, first_support, bilateral,
+traversal, mission, survival:
+4,388,388,388,388,362,338,338,388
+8,363,363,363,363,338,317,317,363
+12,416,416,413,413,390,369,369,415
+20,413,413,411,407,367,335,335,385
+28,412,412,276,240,154,103,101,271
+32,409,40,1,1,1,0,0,392
+Reference traversal gate is near lip (10cm beyond); matrix is 60cm
+beyond seam and vx .25 vs .16 live. Do not equate rates.
+
+Raw independent matrix across six final students, 60 trials/height:
+28mm median best forward progress 1.320m, 56/60 leading contact,
+33/60 both feet,11/60 traversal,45/60 survived. 32mm median forward
+progress .080m,2/60 leading contact,0 bilateral/traversal,57/60 survived.
+Approach collapse/avoidance or inability to engage is a hypothesis,
+not verified intent or mechanism. 28mm weight-transfer/bilateral
+support deficit distinct from 32mm approach deficit. Inspect actual
+sensor/command/reward trajectory, toe path, signed displacement and
+yaw before prescribing new shaping. 32mm high survival is NOT mastery.
+
+Next recommendation (not implemented or launched): matched focused
+28mm practice intervention with enough reference births to actually
+activate, plus short 28–32mm approach diagnosis (e.g. 28/29/30/31/32)
+to localize cliff; keep held-out exam unchanged, separate recovery
+repair study with explicit global exposure target rather than tiny
+conditional birth share. Approximate recovery reference 2% world-frame
+budget could yield ~700 150-frame trials per 5.24M steps, ~116/case
+if uniform/full horizons; actual occupancy and block timing need
+measurement. Retain all ordinary training, same budgets/parent,
+minimum 40 attempts and two disjoint blocks. No champion promotion
+or automatic conclusion about adaptive teachers. Evidence not yet
+committed as raw archive; request operator ZIP again if needed.
