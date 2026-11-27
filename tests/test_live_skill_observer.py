@@ -479,3 +479,52 @@ def test_neutral_ppo_reset_packet_for_combined_teachers():
         env.params_array({f"skill_practice_weight_{i}":0. for i in range(6)})
     with pytest.raises(ValueError,match="Invalid adaptive uphill"):
         env.params_array({f"skill_uphill_weight_{i}":0. for i in range(6)})
+
+
+def test_cliff_profile_physical_heights_and_frame_evidence(tmp_path):
+    from emu.live_skill_uphill import uphill_heights,assigned_height
+    from emu.live_skill_uphill_teacher import UphillTeacher
+    heights=uphill_heights("cliff")
+    assert heights==(.020,.028,.029,.030,.031,.032)
+    assert uphill_heights("ladder")==(.004,.008,.012,.020,.028,.032)
+    np.testing.assert_allclose(assigned_height(np,np.arange(12),heights),
+                               np.tile(heights,2),atol=1e-7)
+    with pytest.raises(ValueError,match="profile"):
+        uphill_heights("wrong")
+    field=CapabilityField()
+    obs=LiveSkillObserver(tmp_path,start_step=0,worlds=8,field_shape=field.shape,
+        field_bounds=field.bounds,source_commit="test",window_steps=1,uphill_profile="cliff")
+    m=_rollout(8)
+    shape=m["episode_done"].shape
+    m["skill_uphill_id"]=np.full(shape,-1,np.int32)
+    m["skill_uphill_id"][:,:3]=[1,5,7]
+    m["academy_active"][:,:3]=1
+    m["skill_first_birth_lip_m"][:,:3]=[.028,.032,.028]
+    m["episode_length"]=np.zeros(shape,np.float32)
+    m["episode_length"][-1,:3]=350
+    m["episode_done"][-1,:3]=1
+    for gate in ("approach","first_contact","first_support","each_foot_five","traversed"):
+        m["skill_stair_"+gate]=np.zeros(shape,np.float32)
+    m["physical_position_xy_after_step"]=np.zeros(shape+(2,),np.float32)
+    m["physical_position_xy_after_step"][16:,0,0]=.90
+    m["physical_heading_rad_after_step"]=np.zeros(shape,np.float32)
+    m["skill_world_vx_after_step"]=np.zeros(shape,np.float32)
+    m["skill_world_vx_after_step"][:,0]=.10
+    m["skill_world_vx_after_step"][:8,1]=-.10
+    m["cmd_vx"]=np.full(shape,.16,np.float32)
+    obs.observe(m,step=256)
+    row=obs.flush(force=True)
+    assert row["uphill_heights_m"]==list(heights)
+    cells=row["cells"]
+    prefix="reference_uphill_before_approach_frame/"
+    assert cells[prefix+"forward_gt_005/1"]==dict(attempts=16,passes=16)
+    assert cells[prefix+"reverse_lt_minus005/5"]==dict(attempts=32,passes=8)
+    assert cells[prefix+"slow_abs_le_005/5"]==dict(attempts=32,passes=24)
+    assert cells["reference_uphill/mission/5"]==dict(attempts=1,passes=0)
+    # A frame statistic never changes the episode-denominator teacher count.
+    assert obs.last_uphill_counts[5]==[1,0,0,0,0,0]
+    t=UphillTeacher("cliff")
+    ck=t.state_dict(0)
+    assert UphillTeacher.from_state_dict(ck,0,"cliff").heights==heights
+    with pytest.raises(ValueError,match="profile"):
+        UphillTeacher.from_state_dict(ck,0,"ladder")
