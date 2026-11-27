@@ -185,7 +185,7 @@ class LiveSkillObserver:
             # Frame-denominator approach diagnostics; never mission passes.
             # Fixed seam at x=1m, approach line x=.85m. Include retreat
             # frames rather than silently censoring non-engagement.
-            if self.uphill_profile=='cliff' and 'skill_world_vx_after_step' in metrics:
+            if self.uphill_profile=='cliff':
                 pos=np.asarray(metrics['physical_position_xy_after_step'])
                 heading=np.asarray(metrics['physical_heading_rad_after_step'])
                 vx=np.asarray(metrics['skill_world_vx_after_step'])
