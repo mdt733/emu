@@ -7,6 +7,7 @@ No interactive teacher approvals; no routine external exam during learning.
 from __future__ import annotations
 
 import argparse
+from dataclasses import dataclass
 import csv
 import io
 import json
@@ -27,6 +28,40 @@ from scripts.live_skill_pilot_plan import (
 
 EXAM_SEED=9861
 SCHEMA="ks150_live_skill_pilot_run_v1"
+
+@dataclass(frozen=True)
+class StudyPlan:
+    name: str
+    profile: str
+    arms: tuple
+    common: tuple
+    updates: int
+    exam_seed: int
+    uphill_share: float
+    result: str
+
+    @property
+    def target(self):
+        return PARENT_STEP+self.updates*WORLDS*ROLLOUT
+
+    def spec(self,parent_root):
+        base=registration(parent_root)
+        base.update(schema=SCHEMA,study_kind=self.name,uphill_profile=self.profile,
+                    arms={k:list(v) for k,v in self.arms},common=list(self.common),
+                    updates=self.updates,target=self.target,exam_seed=self.exam_seed,
+                    total_additional_steps=len(PARENTS)*len(self.arms)*self.updates*WORLDS*ROLLOUT,
+                    uphill_share=self.uphill_share,result=self.result)
+        return base
+
+DEFAULT=StudyPlan("original","ladder",tuple(ARMS.items()),tuple(COMMON),
+                  UPDATES,EXAM_SEED,.15,"results-live-skill-pilot.zip")
+def cliff_plan():
+    common=list(COMMON)
+    for flag in ("--skill-uphill-reference-share","--skill-uphill-practice-share"):
+        common[common.index(flag)+1]=".25"
+    common+=["--skill-uphill-profile","cliff"]
+    return StudyPlan("cliff","cliff",(("U",()),("H",("--skill-adaptive-uphill",))),
+                     tuple(common),100,9862,.25,"results-live-skill-cliff.zip")
 
 
 def publish_copy(src,dst,digest):
@@ -64,10 +99,10 @@ def student(root,arm,seed):
     return root/"runs"/f"{arm}-s{seed}"
 
 
-def train_args(root,arm,seed,parent):
+def train_args(root,arm,seed,parent,plan=DEFAULT):
     from emu.checkpoint_io import find_resume
     run=student(root,arm,seed)
-    args=[*COMMON,*ARMS[arm],"--seed",str(seed),"--steps",str(TARGET),
+    args=[*plan.common,*dict(plan.arms)[arm],"--seed",str(seed),"--steps",str(plan.target),
           "--run-dir",str(run)]
     if find_resume(run) is not None:
         args+=["--resume","auto"]
@@ -78,7 +113,7 @@ def train_args(root,arm,seed,parent):
     return args
 
 
-def smoke(root,commit):
+def smoke(root,commit,plan=DEFAULT):
     """Bounded mature physics checks; no random-actor mastery requirement."""
     out=root/"acceptance"
     out.mkdir(exist_ok=True)
@@ -87,6 +122,7 @@ def smoke(root,commit):
           "--device","cuda","--prisms","--ppo","--full-update",
           "--stair-survival-curriculum","--live-recovery-smoke","--live-uphill-smoke",
           "--benchmark-updates","12"]
+    if plan.profile!="ladder": args+=["--uphill-profile",plan.profile]
     expected=dict(source_commit=commit,args=args)
     if receipt.exists():
         if read(receipt)!=expected:
@@ -103,7 +139,7 @@ def preserve_unsealed(path):
         os.replace(path,path.with_name(path.name+f".unsealed-{time.time_ns()}"))
 
 
-def endpoint(folder,policy,cfg,expected_actor):
+def endpoint(folder,policy,cfg,expected_actor,plan=DEFAULT):
     """One matched independent seed at start/end; raw exams sealed by hash."""
     from emu.policy_export import load_exported_actor_for_exam
     from emu.training_config import training_sensor_contract
@@ -116,7 +152,7 @@ def endpoint(folder,policy,cfg,expected_actor):
         raise RuntimeError("Endpoint actor lineage mismatch")
     artifact=actor["artifact_sha256"]
     sensor=training_sensor_contract(cfg)["sha256"]
-    seed=EXAM_SEED
+    seed=plan.exam_seed
     pulse=folder/f"pulse-{seed}.zip"
     matrix=folder/f"stairs-{seed}"
     seal=folder/"endpoint.json"
@@ -178,13 +214,14 @@ def endpoint(folder,policy,cfg,expected_actor):
     return receipt
 
 
-def live_coverage(run,commit):
+def live_coverage(run,commit,plan=DEFAULT):
     """Validate raw windows; preserve abandoned epochs and interrupted tails.
 
     Counts are per segment/epoch, never pooled across a rollback or retry.
     A torn final JSONL record can exist after power loss; ignore only an
     unterminated, unparsable final line, preserving its exact original bytes.
     """
+    from emu.live_skill_uphill import uphill_heights
     groups={}
     last=[]
     torn=[]
@@ -201,7 +238,8 @@ def live_coverage(run,commit):
                     break
                 raise
             if (row["source_commit"]!=commit or row["worlds"]!=WORLDS
-                    or not PARENT_STEP<=row["start_step"]<row["end_step"]<=TARGET
+                    or not PARENT_STEP<=row["start_step"]<row["end_step"]<=plan.target
+                    or (plan.profile!="ladder" and row.get("uphill_heights_m")!=list(uphill_heights(plan.profile)))
                     or row["world_frames"]!=row["end_step"]-row["start_step"]
                     or (previous is not None and row["start_step"]!=previous)):
                 raise RuntimeError("Live observer lineage/window mismatch")
@@ -224,13 +262,13 @@ def live_coverage(run,commit):
                 g["recovery_practice_frames"][j]+=row["practice_frames_by_case"][j]
                 g["uphill_practice_frames"][j]+=row["uphill_practice_frames_by_case"][j]
             last.append(row["end_step"])
-    if TARGET not in last:
+    if plan.target not in last:
         raise RuntimeError("Missing final live observer window")
     return dict(segments=list(groups.values()),unparsed_interrupted_tails=torn,
                 note="Counts from different segments/epochs may overlap and must not be pooled blindly.")
 
 
-def verify_final(root,arm,seed,commit):
+def verify_final(root,arm,seed,commit,plan=DEFAULT):
     from emu.training_config import TrainingConfig,training_sensor_contract
     from emu.checkpoint_io import load_checkpoint
     from emu.live_skill_teacher import RecoveryTeacher
@@ -241,21 +279,24 @@ def verify_final(root,arm,seed,commit):
     ck=run/"checkpoints"/"final.pkl"
     payload=load_checkpoint(ck,expected_sensor_contract=training_sensor_contract(cfg))
     meta=payload["meta"]
-    if (cfg.envs!=WORLDS or cfg.steps!=TARGET or cfg.seed!=seed
+    if (cfg.envs!=WORLDS or cfg.steps!=plan.target or cfg.seed!=seed
             or not cfg.live_skill_observer or cfg.fixed_eval_every_steps!=0 or cfg.physical_profile!="h40-spring-only"
             or cfg.skill_adaptive_recovery!=(arm=="R") or cfg.skill_adaptive_uphill!=(arm=="H")
             or cfg.skill_uphill_stage!="none" or cfg.mission_refreshers or cfg.cross_specialty_stairs
-            or any(getattr(cfg,k)!=.15 for k in ("skill_reference_recovery_share",
-                "skill_practice_recovery_share","skill_uphill_reference_share","skill_uphill_practice_share"))
-            or meta["step"]!=TARGET or meta["run_name"]!=run.name
+            or cfg.skill_uphill_profile!=plan.profile
+            or any(getattr(cfg,k)!=.15 for k in ("skill_reference_recovery_share","skill_practice_recovery_share"))
+            or any(getattr(cfg,k)!=plan.uphill_share for k in ("skill_uphill_reference_share","skill_uphill_practice_share"))
+            or meta["step"]!=plan.target or meta["run_name"]!=run.name
             or meta["source_provenance"]["git_commit"]!=commit or meta["robot_model_sha256"]!=MODEL):
         raise RuntimeError("Final learner differs from registered treatment")
     teacher={}
     for key,active,cls in (("live_recovery_teacher",arm=="R",RecoveryTeacher),
                            ("live_uphill_teacher",arm=="H",UphillTeacher)):
         if active:
-            teacher[key]=cls.from_state_dict(meta.get(key),TARGET).state_dict(TARGET)
-            if teacher[key]["clock"]>UPDATES*WORLDS*ROLLOUT:
+            restored=(cls.from_state_dict(meta.get(key),plan.target,plan.profile) if arm=="H" else
+                      cls.from_state_dict(meta.get(key),plan.target))
+            teacher[key]=restored.state_dict(plan.target)
+            if teacher[key]["clock"]>plan.updates*WORLDS*ROLLOUT:
                 raise RuntimeError("Teacher observed more than registered budget")
         elif key in meta:
             raise RuntimeError("Unexpected active teacher")
@@ -273,7 +314,7 @@ def verify_final(root,arm,seed,commit):
     if read(export)!=json.loads(json.dumps(bundle)):
         raise RuntimeError("Final export differs from checkpoint")
     _,_,actor=load_exported_actor_for_exam(export)
-    coverage=live_coverage(run,commit)
+    coverage=live_coverage(run,commit,plan)
     # Preserve raw restart/rollback segments rather than silently pooling.
     files={}
     for p in sorted((run/"live_skills").glob("*.jsonl")):
@@ -285,7 +326,7 @@ def verify_final(root,arm,seed,commit):
         if (run/name).is_file():
             publish_copy(run/name,out/name,sha(run/name))
             files[name]=sha(out/name)
-    receipt=dict(arm=arm,seed=seed,step=TARGET,source_commit=commit,
+    receipt=dict(arm=arm,seed=seed,step=plan.target,source_commit=commit,
                  parent_sha256=PARENTS[seed]["checkpoint"],checkpoint_sha256=sha(ck),
                  actor_source=actor["source"],artifact_sha256=actor["artifact_sha256"],
                  teacher=teacher,live_coverage=coverage,files=files)
@@ -298,33 +339,34 @@ def verify_final(root,arm,seed,commit):
     return out,cfg,receipt
 
 
-def compare(root):
+def compare(root,plan=DEFAULT):
+    arms=dict(plan.arms)
     rows=[]
     for seed in PARENTS:
         paths={"parent":root/"evidence"/f"parent-s{seed}",
-               **{a:root/"evidence"/f"{a}-s{seed}" for a in ARMS}}
-        data={a:_exam_cells(read(p/"endpoint.json"),EXAM_SEED) for a,p in paths.items()}
+               **{a:root/"evidence"/f"{a}-s{seed}" for a in arms}}
+        data={a:_exam_cells(read(p/"endpoint.json"),plan.exam_seed) for a,p in paths.items()}
         base,runtime=data["parent"]
         if any(rt!=runtime or set(c)!=set(base) for c,rt in data.values()):
             raise RuntimeError("Endpoint runtime/tasks differ")
         for key,(p,n) in sorted(base.items()):
-            k={a:data[a][0][key][0] for a in ARMS}
-            if any(data[a][0][key][1]!=n for a in ARMS):
+            k={a:data[a][0][key][0] for a in arms}
+            if any(data[a][0][key][1]!=n for a in arms):
                 raise RuntimeError("Unmatched endpoint denominator")
-            rows.append(dict(training_seed=seed,exam_seed=EXAM_SEED,exam=key[0],
-                task=key[1],gate=key[2],attempts_each=n,parent_pass=p,
-                U_pass=k["U"],R_pass=k["R"],H_pass=k["H"],
-                R_minus_U_pp=round(100*(k["R"]-k["U"])/n,6),
-                H_minus_U_pp=round(100*(k["H"]-k["U"])/n,6)))
+            row=dict(training_seed=seed,exam_seed=plan.exam_seed,exam=key[0],
+                task=key[1],gate=key[2],attempts_each=n,parent_pass=p)
+            row.update({f"{a}_pass":v for a,v in k.items()})
+            row.update({f"{a}_minus_U_pp":round(100*(v-k["U"])/n,6) for a,v in k.items() if a!="U"})
+            rows.append(row)
     return rows
 
 
-def report(root):
-    rows=compare(root)
+def report(root,plan=DEFAULT):
+    rows=compare(root,plan)
     buf=io.StringIO()
     writer=csv.DictWriter(buf,fieldnames=list(rows[0]))
     writer.writeheader(); writer.writerows(rows)
-    out=root/"results-live-skill-pilot.zip"
+    out=root/plan.result
     tmp=out.with_suffix(".zip.partial")
     if out.exists():
         with zipfile.ZipFile(out) as z:
@@ -337,7 +379,7 @@ def report(root):
     with zipfile.ZipFile(tmp,"x",zipfile.ZIP_DEFLATED) as z:
         z.write(root/"study.json","study.json")
         z.writestr("comparison.csv",buf.getvalue())
-        z.writestr("README.md","Matched U/R/H pilot. Raw live windows and teacher decisions "
+        z.writestr("README.md","Matched "+plan.name+" pilot. Raw live windows and teacher decisions "
           "are training evidence, not independent trials. Endpoint exams use the same registered "
           "seed on each parent and child. Do not pool restart/rollback epochs blindly. "
           "Two independent parent learners, no automatic promotion. No actor/checkpoint binaries.\n")
@@ -347,7 +389,7 @@ def report(root):
             parent=root/"parents"/f"s{seed}"
             for name in ("stage.json","training_config.json"):
                 z.write(parent/name,str((parent/name).relative_to(root)))
-            for name in (f"parent-s{seed}",*(f"{a}-s{seed}" for a in ARMS)):
+            for name in (f"parent-s{seed}",*(f"{a}-s{seed}" for a,_ in plan.arms)):
                 folder=root/"evidence"/name
                 for kind in ("endpoint","training"):
                     seal=folder/(kind+".json")
@@ -363,7 +405,7 @@ def report(root):
     return out
 
 
-def go(root,parent_root):
+def go(root,parent_root,plan=DEFAULT):
     os.environ["EMU_PHYSICAL_PROFILE"]="h40-spring-only"
     commit=source()
     verify_model()
@@ -373,9 +415,9 @@ def go(root,parent_root):
         raise ValueError("Pilot must use a separate study root")
     root.mkdir(parents=True,exist_ok=True)
     with locked(root):
-        spec=registration(parent_root)
-        spec.update(schema=SCHEMA,status="registered_unattended",source_commit=commit,
-                    exam_seed=EXAM_SEED,exam_policy="parent and final only, matched single seed")
+        spec=plan.spec(parent_root)
+        spec.update(status="registered_unattended",source_commit=commit,
+                    exam_policy="parent and final only, matched single seed")
         spec=json.loads(json.dumps(spec))
         lock=root/"study.json"
         if lock.exists():
@@ -386,24 +428,25 @@ def go(root,parent_root):
         parents={s:stage_parent(root,parent_root,s) for s in PARENTS}
         # Verify each actual fork using production CLI before expensive GPU work.
         for seed,p in parents.items():
-            for arm in ARMS:
-                call("-m","emu.cli","train","--check-resume-only",*train_args(root,arm,seed,p))
-        smoke(root,commit)
+            for arm,_ in plan.arms:
+                call("-m","emu.cli","train","--check-resume-only",*train_args(root,arm,seed,p,plan))
+        smoke(root,commit,plan)
         from emu.training_config import TrainingConfig
         for seed,p in parents.items():
             cfg=TrainingConfig.load_research_ancestor(p/"training_config.json")
             endpoint(root/"evidence"/f"parent-s{seed}",p/"actor.emupolicy",cfg,
                      dict(git_commit=PARENT_SOURCE,step=PARENT_STEP,seed=seed,
-                          robot_model_sha256=MODEL,run_name=f"A-s{seed}"))
+                          robot_model_sha256=MODEL,run_name=f"A-s{seed}"),plan)
         # Rotate treatment order across parents to reduce systematic time bias.
-        for seed,order in ((9501,("U","R","H")),(9502,("H","R","U"))):
+        order=tuple(a for a,_ in plan.arms)
+        for seed,order in ((9501,order),(9502,order[::-1])):
             for arm in order:
-                print(f"STUDENT {arm}-s{seed}: {PARENT_STEP:,} -> {TARGET:,}",flush=True)
-                call("-m","emu.cli","train",*train_args(root,arm,seed,parents[seed]))
-                out,cfg,r=verify_final(root,arm,seed,commit)
+                print(f"STUDENT {arm}-s{seed}: {PARENT_STEP:,} -> {plan.target:,}",flush=True)
+                call("-m","emu.cli","train",*train_args(root,arm,seed,parents[seed],plan))
+                out,cfg,r=verify_final(root,arm,seed,commit,plan)
                 endpoint(out,out/"actor.emupolicy",cfg,dict(git_commit=commit,
-                         step=TARGET,seed=seed,robot_model_sha256=MODEL,run_name=f"{arm}-s{seed}"))
-        print("UPLOAD READY:",report(root),flush=True)
+                         step=plan.target,seed=seed,robot_model_sha256=MODEL,run_name=f"{arm}-s{seed}"),plan)
+        print("UPLOAD READY:",report(root,plan),flush=True)
 
 
 def main(argv=None):
@@ -411,8 +454,9 @@ def main(argv=None):
     p.add_argument("--root",required=True,type=Path)
     p.add_argument("--parent-root",type=Path,
         default=Path.home()/"emu-data/studies/ks150-abc-unattended-v2")
+    p.add_argument("--classroom",choices=("original","cliff"),default="original")
     a=p.parse_args(argv)
-    go(a.root,a.parent_root)
+    go(a.root,a.parent_root,cliff_plan() if a.classroom=="cliff" else DEFAULT)
 
 
 if __name__=="__main__":
