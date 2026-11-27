@@ -238,6 +238,7 @@ class TrainingConfig:
     skill_uphill_practice_share: float = 0.
     skill_uphill_stage: str = 'none'
     skill_adaptive_uphill: bool = False
+    skill_uphill_profile: str = 'ladder'
 
     # One executable 360-input prism trainer. Old attitude profiles live in Git.
     attitude_profile: str = "v5015"
@@ -324,8 +325,10 @@ class TrainingConfig:
         old_uphill={'skill_uphill_reference_share','skill_uphill_practice_share','skill_uphill_stage'}
         historical=(*historical,*(x|old_uphill for x in historical))
         old_uphill_adaptive={'skill_adaptive_uphill'}
+        historical=(*historical,*(x|old_uphill_adaptive for x in historical))
+        old_uphill_profile={'skill_uphill_profile'}
         if not (keys-expected) and missing in (
-                *historical,*(x|old_uphill_adaptive for x in historical)):
+                *historical,*(x|old_uphill_profile for x in historical)):
             data={**data,**{k:getattr(cls,k) for k in missing}}
         elif keys != expected:
             raise ValueError(
