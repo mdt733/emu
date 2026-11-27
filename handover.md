@@ -450,3 +450,73 @@ measurement. Retain all ordinary training, same budgets/parent,
 minimum 40 attempts and two disjoint blocks. No champion promotion
 or automatic conclusion about adaptive teachers. Evidence not yet
 committed as raw archive; request operator ZIP again if needed.
+
+
+## Cliff School — focused next experiment (28 November 2026)
+
+Implemented on the existing PR #106 branch. New Studio manifest
+`ks150-live-skill-cliff-v1` (commit 3c0caf41), launching
+`scripts.live_skill_pilot --classroom cliff`. The completed pilot is
+preserved at its exact old source/root; main and champion unchanged.
+User can click **Get update & run** in the existing Studio. A new
+source-derived root is created. Do not resume the old pilot into this
+study. Final archive is `results-live-skill-cliff.zip`.
+
+Design: same two authenticated original A120M full-state parents and
+matching training seeds, U (uniform practice) vs H (adaptive uphill).
+Four sequential students, order U/H for 9501, H/U for 9502, 4096 worlds,
+100 PPO updates each = 13,107,200 additional steps/student; target
+133,169,152; total 52,428,800. Exact combined GPU preflight uses the
+new cliff profile and same .25/.25 conditional Academy birth shares.
+Original ladder remains default for other recipes. Fixed reference
+heights (20,28,29,30,31,32) mm; all reference/practice births have same
+task/physical distribution before adaptive decisions. 20mm maintenance,
+five heights around observed cliff. Recovery reference/practice unchanged
+at .15/.15 conditional RESILIENCE births, no adaptive recovery arm.
+All worlds train PPO. Half Academy births remain ordinary. Actual
+global frame share is measured, not guaranteed. Independent matched
+pulse and signed matrix endpoints use fresh registered exam seed 9862,
+same examiner geometry and scoring; no duplicate trainer exams.
+
+Preserve minimum 40 completed attempts/block, two supported blocks,
+bounded prerequisite bonus and fading. No new approach bonus or reward
+for simply stopping near a lip. Teacher checkpoint schema v3 binds
+profile to physical heights; never restore ladder evidence as cliff
+evidence. This tests combined adaptive allocation+prerequisite credit,
+not their separate causal contributions. If insufficient evidence
+or zero intervention, explicitly report that rather than claiming no effect.
+
+Passive cliff diagnostics: for each fixed reference case, actual
+post-step root x<.85m (seam x=1m), record finite world-X velocity
+forward >.05m/s, retreat <-.05m/s, slow |vx|<=.05m/s, yaw alignment
+|heading|<=.35 rad and command within .02m/s of .16. Frame-denominator
+statistics, not independent episodes; include retreat frames. Existing
+approach/contact/bilateral/traversal/survival mission gates retained.
+New compact cliff_windows.csv preserves separate raw windows, epoch,
+height, cohort, frame exposure and physical gates; no blind pooling
+across rollback. Studio source displays added diagnostics (existing
+bootstrap can launch; UI upgrade itself requires new checkout).
+Archive reinspection: 28mm vs 32mm median horizontal speed .222 vs
+.084m/s, support .954 vs .984, speed MAE .066 vs .239. Not proof of
+intentional avoidance. No full sensor/toe trajectory trace yet.
+
+Validation: hash-matched exact uphill assignment module passed JAX CPU
+4096 test with 2048 eligible worlds, 513 reference/539 practice IDs,
+all reference IDs and practice membership unchanged when weights
+shifted, 28mm practice 96→322. Exact teacher module tested with copied
+Block and allocation constants: two weak blocks selected bilateral
+at 28mm, no false support credit at 32mm with zero contact, all four
+fades and exact checkpoint replay; wrong physical profile rejected.
+New repository tests cover observer frame/episode separation and
+runner plan. Those full tests, end-to-end trainer/runner and actual
+cliff CUDA preflight have not been executed here. Container GitHub DNS
+unavailable, no local MuJoCo/Optax/Flax. The mandatory operator-side
+preflight remains authoritative. No training launched by this turn.
+
+Next: collect cliff results, diagnose approach cliff before prescribing
+approach shaping, evaluate actual dose and adaptive activation versus
+matched uniform. Separate recovery exposure experiment still pending:
+design a global experience target and bounded feedback allocation,
+not merely increase conditional recovery birth probability. Do not
+mix its treatment into this uphill comparison or claim global frame
+control has already been implemented.
