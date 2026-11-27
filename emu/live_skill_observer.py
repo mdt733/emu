@@ -30,7 +30,8 @@ class LiveSkillObserver:
     """
     def __init__(self, folder, *, start_step, worlds, field_shape, field_bounds,
                  source_commit, window_steps=WINDOW_STEPS,
-                 recovery_bins=6, edge_directions=(), field_evidence_from_taught=False):
+                 recovery_bins=6, edge_directions=(), field_evidence_from_taught=False,
+                 uphill_profile='ladder'):
         if worlds <= 0 or window_steps <= 0:
             raise ValueError("Invalid observer dimensions")
         folder = Path(folder)
@@ -38,9 +39,10 @@ class LiveSkillObserver:
         self.path = folder / f"segment-{int(start_step)}-{uuid.uuid4().hex}.jsonl"
         from .live_skill_reference import (REFERENCE_KICKS_MPS, REFERENCE_VX_MPS,
             REFERENCE_SENSOR_SCALE, REFERENCE_STEP_COMMAND_M, SETTLE_DEADLINE_S, SETTLE_FRAMES)
-        from .live_skill_uphill import UP_HEIGHTS_M,UP_FRAMES,UP_VX,UP_APPROACH_M,UP_SENSOR_SCALE
+        from .live_skill_uphill import uphill_heights,UP_FRAMES,UP_VX,UP_APPROACH_M,UP_SENSOR_SCALE
+        self.uphill_heights=uphill_heights(uphill_profile)
         self.header = dict(schema=SCHEMA, worlds=int(worlds),
-                           uphill_heights_m=list(UP_HEIGHTS_M),uphill_horizon_frames=UP_FRAMES,
+                           uphill_heights_m=list(self.uphill_heights),uphill_horizon_frames=UP_FRAMES,
                            uphill_vx_mps=UP_VX,uphill_approach_m=UP_APPROACH_M,
                            uphill_sensor_scale=UP_SENSOR_SCALE,
                            reference_kicks_mps=list(REFERENCE_KICKS_MPS),
@@ -174,7 +176,7 @@ class LiveSkillObserver:
         academy = terminal("academy_active") > .5
         lip = terminal("skill_first_birth_lip_m") * 1000.
         if 'skill_uphill_id' in metrics:
-            from .live_skill_uphill import UP_HEIGHTS_M,UP_FRAMES
+            from .live_skill_uphill import UP_FRAMES
             assigned_up=np.asarray(metrics['skill_uphill_id'])
             if assigned_up.shape!=done.shape or np.any((assigned_up<-1)|(assigned_up>=12)):
                 raise ValueError('Invalid uphill rollout cohort')
@@ -184,7 +186,7 @@ class LiveSkillObserver:
             if np.any(ids[fixed]>=12) or np.any(fixed & ~academy):
                 raise ValueError('Invalid uphill cohort identity')
             if fixed.any():
-                expected=np.asarray(UP_HEIGHTS_M)[ids[fixed]%6]*1000.
+                expected=np.asarray(self.uphill_heights)[ids[fixed]%6]*1000.
                 if not np.allclose(lip[fixed],expected,atol=.05):
                     raise ValueError('Physical uphill lip mismatch')
                 length=terminal('episode_length')
