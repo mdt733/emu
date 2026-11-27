@@ -2459,6 +2459,7 @@ class EmuMJXEnv(TaskSampler):
             # their ordinary position_xy sample is PRE-step and misses
             # the last frame when goal completion ends the episode.
             'physical_position_xy_after_step':data.qpos[:,:2],
+            **({'skill_world_vx_after_step':data.qvel[:,0]} if self.live_skill_observer else {}),
             'physical_heading_rad_after_step':jnp.arctan2(
                 self._rotation_body_to_world(data)[:,1,0],
                 self._rotation_body_to_world(data)[:,0,0]),
