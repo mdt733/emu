@@ -1047,6 +1047,7 @@ class EmuMJXEnv(TaskSampler):
                  skill_uphill_practice_share: float = 0.0,
                  skill_uphill_stage: str = 'none',
                  skill_adaptive_uphill: bool = False,
+                 skill_uphill_profile: str = 'ladder',
                  science_gate_mode: str = "legacy",
                  science_phase_lowcmd_scale: float = 1.0,
                  science_phase_sync_strength: float = 1.0,
@@ -1136,17 +1137,19 @@ class EmuMJXEnv(TaskSampler):
                 (skill_practice_recovery_share and not skill_reference_recovery_share)):
             raise ValueError('Invalid bounded recovery practice share')
         self.skill_practice_recovery_share=float(skill_practice_recovery_share)
-        from .live_skill_uphill import UP_STAGE_NAMES, UP_HEIGHTS_M
+        from .live_skill_uphill import UP_STAGE_NAMES, uphill_heights
+        self.skill_uphill_heights=uphill_heights(skill_uphill_profile)
+        uphill_share_cap=.25 if skill_uphill_profile=='cliff' else .15
         if (not np.isfinite([skill_uphill_reference_share,skill_uphill_practice_share]).all()
-                or not 0.<=skill_uphill_reference_share<=.15
-                or not 0.<=skill_uphill_practice_share<=.15
+                or not 0.<=skill_uphill_reference_share<=uphill_share_cap
+                or not 0.<=skill_uphill_practice_share<=uphill_share_cap
                 or (skill_uphill_practice_share and not skill_uphill_reference_share)
                 or skill_uphill_stage not in UP_STAGE_NAMES
                 or (skill_uphill_stage!='none' and not skill_uphill_practice_share)
                 or (skill_uphill_reference_share and (not live_skill_observer or
                     not academy_stream or not stair_survival_curriculum or
                     self.exam_fixture_steps is not None or stillness_birth_frac or
-                    terrain_step_max_m<max(UP_HEIGHTS_M) or academy_height_cap_m<max(UP_HEIGHTS_M)))):
+                    terrain_step_max_m<max(self.skill_uphill_heights) or academy_height_cap_m<max(self.skill_uphill_heights)))):
             raise ValueError('Invalid isolated uphill teaching configuration')
         self.skill_uphill_reference_share=float(skill_uphill_reference_share)
         self.skill_uphill_practice_share=float(skill_uphill_practice_share)
@@ -3041,7 +3044,7 @@ class EmuMJXEnv(TaskSampler):
         if self.skill_uphill_reference_share>0.:
             from .live_skill_uphill import assigned_height
             exact=uphill_id>=0
-            xp,yp=carpet_exam_lip_profiles(jnp,assigned_height(jnp,uphill_id))
+            xp,yp=carpet_exam_lip_profiles(jnp,assigned_height(jnp,uphill_id,self.skill_uphill_heights))
             xprof=jnp.where(exact[:,None],xp,xprof)
             yprof=jnp.where(exact[:,None],yp,yprof)
             slope,up,down=(jnp.where(exact,0.,v) for v in (slope,up,down))
