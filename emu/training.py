@@ -164,6 +164,7 @@ def env_kwargs_from_args(args) -> dict:
         skill_uphill_practice_share=args.skill_uphill_practice_share,
         skill_uphill_stage=args.skill_uphill_stage,
         skill_adaptive_uphill=args.skill_adaptive_uphill,
+        skill_uphill_profile=args.skill_uphill_profile,
         science_gate_mode=args.science_gate_mode,
         science_phase_lowcmd_scale=args.science_phase_lowcmd_scale,
         science_phase_sync_strength=args.science_phase_sync_strength,
@@ -746,7 +747,8 @@ def train(args: TrainingConfig) -> int:
                     worlds=args.envs, field_shape=field.shape, field_bounds=field.bounds,
                     source_commit=source_provenance_from_env().get('git_commit',''),
                     recovery_bins=RECOVERY_BINS, edge_directions=EDGE_DIRS,
-                    field_evidence_from_taught=args.field_evidence_from_taught)
+                    field_evidence_from_taught=args.field_evidence_from_taught,
+                    uphill_profile=args.skill_uphill_profile)
                 if args.live_skill_observer else None)
     def observe_skills(step):
         if observer is None:
