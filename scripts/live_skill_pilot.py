@@ -228,17 +228,17 @@ def endpoint(folder,policy,cfg,expected_actor,plan=DEFAULT):
                  "--output",matrix,"--mode","stairs","--worlds","512",
                  "--levels","20","--trials-per-level","10","--horizon","350",
                  "--seed",seed,"--device","cuda")
-        m=read(matrix/"matrix_summary.json")["manifest"]
-        expected=dict(actor_training_source=src,policy_sha256=artifact,
-                      robot_model_sha256=MODEL,exam_source_sha256=exam_source_fingerprint(),
-                      seed=seed,worlds=512,assigned_worlds=400,horizon=350,
-                      mode="stairs",levels=20,trials_per_level=10,device="gpu",
-                      zero_optimizer_updates=True,first_life_only=True)
-        if any(m.get(k)!=v for k,v in expected.items()):
-            raise RuntimeError("Signed matrix provenance mismatch")
-        write_new(matrix_seal,dict(artifact_sha256=artifact,files={
-            str((matrix/n).relative_to(folder)):sha(matrix/n)
-            for n in ("matrix_summary.json","matrix_worlds.csv","matrix_curve.csv")}))
+            m=read(matrix/"matrix_summary.json")["manifest"]
+            expected=dict(actor_training_source=src,policy_sha256=artifact,
+                          robot_model_sha256=MODEL,exam_source_sha256=exam_source_fingerprint(),
+                          seed=seed,worlds=512,assigned_worlds=400,horizon=350,
+                          mode="stairs",levels=20,trials_per_level=10,device="gpu",
+                          zero_optimizer_updates=True,first_life_only=True)
+            if any(m.get(k)!=v for k,v in expected.items()):
+                raise RuntimeError("Signed matrix provenance mismatch")
+            write_new(matrix_seal,dict(artifact_sha256=artifact,files={
+                str((matrix/n).relative_to(folder)):sha(matrix/n)
+                for n in ("matrix_summary.json","matrix_worlds.csv","matrix_curve.csv")}))
     ms=read(matrix_seal)
     if ms["artifact_sha256"]!=artifact:
         raise RuntimeError("Matrix actor changed")
@@ -248,10 +248,11 @@ def endpoint(folder,policy,cfg,expected_actor,plan=DEFAULT):
     receipt=dict(actor_source=src,artifact_sha256=artifact,exam_seed=seed,
         files=files,exams=[dict(seed=seed,path=str(pulse),sha256=ps["sha256"])])
     # Reuse established raw pulse and matrix evidence checks before sealing.
-    cells,_=_exam_cells(receipt,seed)
-    if len(cells)!=292:
-        raise RuntimeError("Incomplete endpoint cells")
-    write_new(seal,receipt)
+    with timed_stage("seal",folder.name):
+        cells,_=_exam_cells(receipt,seed)
+        if len(cells)!=292:
+            raise RuntimeError("Incomplete endpoint cells")
+        write_new(seal,receipt)
     return receipt
 
 

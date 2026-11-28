@@ -62,7 +62,8 @@ function chart(id,history,key,scale,color,minId,maxId){
   const values=points.map(r=>r[key]*scale);let lo=Math.min(...values),hi=Math.max(...values);
   if(lo===hi){lo-=.05;hi+=.05}
   const x0=points[0].step,x1=points[points.length-1].step;
-  const coords=points.map((r,i)=>[(x1===x0?160:5+310*(r.step-x0)/(x1-x0)),94-82*(values[i]-lo)/(hi-lo)]);
+  const coords=points.map((r,i)=>[(x1===x0?175:39+276*(r.step-x0)/(x1-x0)),94-82*(values[i]-lo)/(hi-lo)]);
+  for(const [y,v] of [[12,hi],[53,(lo+hi)/2],[94,lo]]){const label=draw("text",{x:35,y:y+3,"text-anchor":"end",fill:"#9db5bf","font-size":9});label.textContent=Math.abs(v)>=1000?(v/1000).toFixed(1)+"k":Math.abs(v)>=10?v.toFixed(0):v.toFixed(2)}
   draw("polyline",{points:coords.map(p=>p.join(",")).join(" "),fill:"none",stroke:color,"stroke-width":2,"stroke-linejoin":"round"});
   const last=coords[coords.length-1];draw("circle",{cx:last[0],cy:last[1],r:3,fill:color});
   put(minId,million(x0));put(maxId,million(x1));
@@ -106,7 +107,7 @@ function renderEta(e,job){
   const key=job?.commit||"";if(key!==etaJob){etaJob=key;etaTrace.length=0}
   put("etaRemaining",duration(e?.remaining_seconds));put("etaFinish",finishTime(e?.finish_unix));put("etaPhase",duration(e?.current_seconds));
   put("etaRate",Number.isFinite(e?.rate)?Math.round(e.rate).toLocaleString()+" /s":"—");
-  put("etaRange",e&&e.remaining_seconds>0?"Planning range: "+duration(e.low_seconds)+" – "+duration(e.high_seconds):"");
+  put("etaRange",e&&e.remaining_seconds>0?"Planning range: "+duration(e.low_seconds)+" – "+duration(e.high_seconds)+" · "+finishTime(e.finish_unix-e.remaining_seconds+e.low_seconds)+" – "+finishTime(e.finish_unix-e.remaining_seconds+e.high_seconds):"");
   put("etaNote",e?(e.note+(e.rate_source?" · "+e.rate_source:"")+" · timing samples: "+Object.entries(e.sample_counts||{}).filter(([k,v])=>v).map(([k,v])=>k+" "+v).join(", ")):"No running study forecast.");
   const breakdown=$("etaBreakdown");breakdown.replaceChildren();
   const grouped={};for(const c of e?.components||[])grouped[c.kind]=(grouped[c.kind]||0)+c.seconds;
