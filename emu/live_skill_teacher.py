@@ -94,12 +94,23 @@ class RecoveryTeacher:
         if self.clock-self.window_start<self.REVIEW_STEPS:
             return None
         row=self._row(self.window_start,self.clock,self.pending)
+        # Only a newly closed supported block can change the dose.
+        # A trickle of episodes after an old decision must not cause the
+        # same stale diagnosis to amplify itself on every review.
+        before={x["case"]:len(x["blocks"]) for x in summarize_segment(self.rows)}
         self.rows.append(row)
-        # Empty reference windows are genuine absence of evidence, not a
-        # fresh reason to increase the dose from an old regression.
-        plan=(practice_plan(self.rows,self.weights) if any(n for n,k in self.pending)
-              else dict(weights=list(self.weights),reason="no_new_reference_trials",
-                        selected=[],statuses=[]))
+        after=summarize_segment(self.rows)
+        fresh=[x["case"] for x in after if len(x["blocks"])>before.get(x["case"],0)]
+        candidate=practice_plan(self.rows,self.weights) if fresh else None
+        if candidate is not None and (not candidate["selected"] or
+                                     set(candidate["selected"])&set(fresh)):
+            plan=candidate
+        else:
+            plan=dict(weights=list(self.weights),reason=("await_target_evidence" if fresh
+                      else "await_supported_block"),selected=[],
+                      statuses=[x["status"] for x in after])
+        plan["fresh_cases"]=fresh
+        plan["closed_blocks"]=[len(x["blocks"]) for x in after]
         self.weights=list(plan["weights"])
         self.window_start=self.clock
         self.pending=[[0,0] for _ in range(6)]

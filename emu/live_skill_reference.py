@@ -5,6 +5,23 @@ no extra birth tilt or later push, and a signed longitudinal velocity
 offset. Random gait phase and normal sensor/joint noise remain. Reference
 births replace only a bounded fraction of mature RESILIENCE births.
 """
+# Conditional on eligible mature resilience births, not all PPO frames.
+# Even the dense research classroom reserves at least 25% for ordinary
+# resilience births. The reference and practice tasks stay identical.
+MAX_REFERENCE_SHARE=.50
+MAX_PRACTICE_SHARE=.25
+MAX_FIXED_SHARE=.75
+
+
+def valid_recovery_shares(reference,practice):
+    from math import isfinite
+    return (isfinite(reference) and isfinite(practice) and
+            0.<=reference<=MAX_REFERENCE_SHARE and
+            0.<=practice<=MAX_PRACTICE_SHARE and
+            reference+practice<=MAX_FIXED_SHARE+1e-7 and
+            (practice==0. or reference>0.))
+
+
 REFERENCE_KICKS_MPS = (-.40,-.25,-.10,.10,.25,.40)
 REFERENCE_VX_MPS = .16
 REFERENCE_SENSOR_SCALE = 1.

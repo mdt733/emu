@@ -182,13 +182,10 @@ def one_run_config(args) -> TrainingConfig:
     survival_school=bool(getattr(args, 'stair_survival_curriculum', False))
     mission_refreshers=bool(getattr(args,'mission_refreshers',False))
     reference_share=float(getattr(args,'skill_reference_recovery_share',0.))
-    if not math.isfinite(reference_share) or not 0. <= reference_share <= .30:
-        raise ValueError('Reference recovery share must be in [0,.30]')
     practice_share=float(getattr(args,'skill_practice_recovery_share',0.))
     adaptive_recovery=bool(getattr(args,'skill_adaptive_recovery',False))
-    if (not math.isfinite(practice_share) or not 0.<=practice_share<=.15 or
-            reference_share+practice_share>.30+1e-7 or
-            (practice_share and not reference_share) or
+    from .live_skill_reference import valid_recovery_shares
+    if (not valid_recovery_shares(reference_share,practice_share) or
             (adaptive_recovery and not practice_share)):
         raise ValueError('Invalid fixed-budget skill practice configuration')
     if reference_share and (not getattr(args,'live_skill_observer',False) or mission_refreshers or stillness_birth_frac):

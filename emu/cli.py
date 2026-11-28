@@ -159,9 +159,9 @@ def main(argv=None) -> int:
     q.add_argument('--cross-specialty-stairs-ramp-steps',type=int,default=20000000,
                    help='steps needed to reach maximum modest per-role exposure')
     q.add_argument('--skill-reference-recovery-share',type=float,default=0.,
-                   help='fraction of mature resilience births assigned fixed signed flat recovery tasks (max .30)')
+                   help='fraction of mature resilience births assigned fixed signed flat recovery tasks (max .50)')
     q.add_argument('--skill-practice-recovery-share',type=float,default=0.,
-                   help='separate fixed-budget practice share within mature resilience births (max .15)')
+                   help='separate fixed-budget practice share within mature resilience births (max .25)')
     q.add_argument('--skill-adaptive-recovery',action='store_true',
                    help='bias the practice distribution using fixed reference evidence; otherwise uniform')
     q.add_argument('--skill-uphill-reference-share',type=float,default=0.)

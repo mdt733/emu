@@ -75,6 +75,8 @@ def main():
                    help="active fixed-height uphill reference/practice prism acceptance")
     p.add_argument("--uphill-profile",choices=("ladder","cliff","engagement"),default="ladder")
     p.add_argument("--novice-fall-relief",action="store_true")
+    p.add_argument("--recovery-reference-share",type=float,default=.15)
+    p.add_argument("--recovery-practice-share",type=float,default=.15)
     p.add_argument("--live-recovery-smoke",action="store_true",
                    help="actual mature fixed reference and targeted practice births and PPO")
     p.add_argument("--abc-refresher-smoke",action="store_true",
@@ -133,6 +135,11 @@ def main():
     import faulthandler
     if a.novice_fall_relief and (not a.live_uphill_smoke or a.uphill_profile!="engagement"):
         p.error("Novice relief smoke requires engagement uphill smoke")
+    from emu.live_skill_reference import valid_recovery_shares
+    if not valid_recovery_shares(a.recovery_reference_share,a.recovery_practice_share):
+        p.error("Invalid recovery classroom budget")
+    if a.live_recovery_smoke and not (a.recovery_reference_share>0 and a.recovery_practice_share>0):
+        p.error("Recovery smoke needs both fixed cohorts")
     live_smoke=a.live_recovery_smoke or a.live_uphill_smoke
     if live_smoke:
         print("STUDIO PREFLIGHT initializing CUDA and physical geometry (15-minute watchdog)",flush=True)
@@ -189,7 +196,8 @@ def main():
         academy_course_episode_frames=1200)
         if a.stair_survival_curriculum else {})
     if a.live_recovery_smoke:
-        school_kwargs.update(skill_reference_recovery_share=.15,skill_practice_recovery_share=.15)
+        school_kwargs.update(skill_reference_recovery_share=a.recovery_reference_share,
+                             skill_practice_recovery_share=a.recovery_practice_share)
     if a.live_uphill_smoke:
         share=.25 if a.uphill_profile in ("cliff","engagement") else .15
         school_kwargs.update(live_skill_observer=True,skill_uphill_reference_share=share,

@@ -1126,17 +1126,12 @@ class EmuMJXEnv(TaskSampler):
         if not np.isfinite(stillness_birth_frac) or not 0. <= stillness_birth_frac <= .25:
             raise ValueError("stillness_birth_frac must be in [0,0.25]")
         self.stillness_birth_frac = float(stillness_birth_frac)
-        if (not np.isfinite(skill_reference_recovery_share) or
-                not 0. <= skill_reference_recovery_share <= .30 or
+        from .live_skill_reference import valid_recovery_shares
+        if (not valid_recovery_shares(skill_reference_recovery_share,skill_practice_recovery_share) or
                 (skill_reference_recovery_share and self.exam_fixture_steps is not None)):
             raise ValueError('Invalid live reference recovery share or exam overlap')
         self.live_skill_observer=bool(live_skill_observer)
         self.skill_reference_recovery_share = float(skill_reference_recovery_share)
-        if (not np.isfinite(skill_practice_recovery_share) or
-                not 0. <= skill_practice_recovery_share <= .15 or
-                skill_reference_recovery_share+skill_practice_recovery_share>.30+1e-7 or
-                (skill_practice_recovery_share and not skill_reference_recovery_share)):
-            raise ValueError('Invalid bounded recovery practice share')
         self.skill_practice_recovery_share=float(skill_practice_recovery_share)
         from .live_skill_uphill import UP_STAGE_NAMES, uphill_heights
         self.skill_uphill_heights=uphill_heights(skill_uphill_profile)

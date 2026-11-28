@@ -118,3 +118,19 @@ def test_freedom_plan_matches_engagement_and_isolates_treatment():
     assert dict(q.arms)=={"U":(),"H":("--skill-adaptive-uphill",),
         "F":("--skill-adaptive-uphill","--skill-novice-fall-relief")}
     assert q.exam_seed==9864 and q.result=="results-live-skill-freedom.zip"
+
+
+def test_retention_plan_distinguishes_coverage_and_adaptation():
+    q=p.retention_plan()
+    assert q.profile=="engagement" and q.updates==240 and q.target==151519232
+    assert q.spec(Path("/tmp/parent"))["total_additional_steps"]==188743680
+    arms=dict(q.arms)
+    assert tuple(arms)==("F","B","T")
+    assert arms["T"]==(*arms["B"],"--skill-adaptive-recovery")
+    for a,r,pr in (("F",".15",".15"),("B",".50",".25"),("T",".50",".25")):
+        flags=(*q.common,*arms[a])
+        for flag,value in (("--skill-reference-recovery-share",r),("--skill-practice-recovery-share",pr)):
+            assert flags.count(flag)==1 and flags[flags.index(flag)+1]==value
+        assert "--skill-adaptive-uphill" in flags and "--skill-novice-fall-relief" in flags
+    assert q.result=="results-live-skill-retention.zip"
+    assert p.freedom_plan().updates==160

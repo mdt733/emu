@@ -528,3 +528,28 @@ def test_cliff_profile_physical_heights_and_frame_evidence(tmp_path):
     assert UphillTeacher.from_state_dict(ck,0,"cliff").heights==heights
     with pytest.raises(ValueError,match="profile"):
         UphillTeacher.from_state_dict(ck,0,"ladder")
+
+
+def test_dense_recovery_budget_and_fresh_decisions():
+    from emu.live_skill_reference import valid_recovery_shares
+    from emu.live_skill_teacher import RecoveryTeacher
+    assert valid_recovery_shares(.15,.15)
+    assert valid_recovery_shares(.50,.25)
+    for a,b in ((.51,.25),(.50,.26),(0.,.1),(-.1,0.),(float("nan"),0.)):
+        assert not valid_recovery_shares(a,b)
+    t=RecoveryTeacher()
+    def block(n,k):
+        return t.observe([[n,k]]+[[0,0] for _ in range(5)],t.REVIEW_STEPS)
+    assert block(40,40)["reason"]=="uniform_maintenance"
+    assert block(40,40)["statuses"][0]=="mastered_reference"
+    assert block(40,10)["statuses"][0]=="regression_watch"
+    repair=block(40,10)
+    assert repair["reason"]=="repair" and repair["fresh_cases"]==[0]
+    assert repair["weights"][0]>1/6
+    weight=repair["weights"]
+    assert block(1,0)["weights"]==weight
+    assert block(38,0)["weights"]==weight
+    again=block(1,0)
+    assert again["fresh_cases"]==[0] and again["weights"][0]>weight[0]
+    clone=RecoveryTeacher.from_state_dict(t.state_dict(120000000),120000000)
+    assert clone.state_dict(120000000)==t.state_dict(120000000)

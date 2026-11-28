@@ -880,3 +880,47 @@ Audit continuation-return economics before testing a separate
 intervention. Keep matched controls and independent exam. User's
 goal remains a good school from cold starts, not selection of a
 good final seed. No code/launch changes or promotion in this review.
+
+
+## Retention School V1 — next matched experiment
+
+Keep the Freedom recipe including novice penalty relief in ALL three
+arms. F repeats its original .15/.15 recovery reference/practice
+birth shares; B raises to .50/.25, with uniform practice; T uses
+exactly B's budget and fixed tasks but activates the existing
+recovery teacher. These shares are conditional on eligible mature
+resilience births, not global frames. At least 25% remain ordinary
+even in B/T. Fixed reference is still a 3s flat signed kick/settle
+task; it is not the whole resilience specialty. No independent
+exam feedback to training. The larger exposure tests whether it
+is a useful proxy and whether more experience or adaptive allocation
+is helpful. Do not claim retention merely because a reference improves.
+
+240 updates per student, 31,457,280 additional steps, target 151,519,232,
+six students = 188,743,680 steps, new independent exam seed 9865.
+Same A/120M parents and all other treatments held fixed. The longer
+budget (vs Freedom 160) was selected to improve the chance of four
+40-attempt blocks per recovery case (two mastery, two regression).
+Freedom archives had ~200 reference episodes/student at .15 share
+and 160 updates; naive scaling to .50 and 240 gives ~1000/student,
+~167/case, not a guaranteed count. No parent mastery inferred from
+a different independent exam. If a reference never establishes
+mastery, acquisition is possible but a repair decision is not.
+F is a matched longer-run control, not the earlier completed student.
+
+Recovery teacher now changes allocation only on newly closed blocks
+and requires fresh evidence from a selected case before increasing
+or decreasing a targeted dose. Existing 50% uniform practice floor,
+.05 per-review weight change, Wilson mastery/repair thresholds,
+checkpoint history and rollback semantics remain. No extra policy
+inputs, no new reward, no physics change. Expanded share validation
+is common to CLI and environment; no new configuration fields.
+GPU preflight exercises the denser recovery share alongside Freedom
+uphill lessons. Recovery windows CSV exposes actual global frames,
+attempts, passes, closed blocks, mastery anchors and repair status;
+raw teacher logs preserved. Manifest retention-v1.
+Primary contrast T vs B; secondary B vs F. Independent resilience
+mission plus other specialties and signed stairs must be reviewed.
+A full school still needs more representative fixed references in
+every specialty and a cross-specialty budget controller; this is
+a narrow mechanism test, not that finished controller.

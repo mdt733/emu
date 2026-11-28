@@ -1,29 +1,29 @@
 {
   "schema": "emu.launch.v1",
-  "id": "ks150-live-skill-freedom-v1",
-  "title": "Freedom School · learn through failure",
-  "description": "Matched uniform, adaptive engagement and adaptive engagement with skill-local direct fall penalty relief. Real terminal falls and original reference rewards; actual failure-cost evidence.",
+  "id": "ks150-live-skill-retention-v1",
+  "title": "Retention School · learn without forgetting",
+  "description": "Matched Freedom baseline, dense uniform recovery coverage, and equally budgeted adaptive recovery practice. Fixed evidence, protected ordinary births, independent transfer exam.",
   "module": "scripts.live_skill_pilot",
   "args": [
     "--classroom",
-    "freedom",
+    "retention",
     "--root",
     "{study_root}",
     "--parent-root",
     "{parent_root}"
   ],
   "parent_study": "ks150-abc-unattended-v2",
-  "result": "results-live-skill-freedom.zip",
+  "result": "results-live-skill-retention.zip",
   "worlds": 4096,
   "students": [
-    "U-s9501",
-    "H-s9501",
     "F-s9501",
-    "F-s9502",
-    "H-s9502",
-    "U-s9502"
+    "B-s9501",
+    "T-s9501",
+    "T-s9502",
+    "B-s9502",
+    "F-s9502"
   ],
   "parent_step": 120061952,
-  "target_step": 141033472,
+  "target_step": 151519232,
   "profile": "h40-spring-only"
 }

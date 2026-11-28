@@ -79,6 +79,24 @@ def freedom_plan():
         base.common,160,9864,.25,"results-live-skill-freedom.zip")
 
 
+def retention_plan():
+    # F = exact previous Freedom recipe, B = more uniform recovery
+    # practice/reference, T = same budget plus adaptive recovery teacher.
+    base=freedom_plan()
+    common=list(base.common)
+    for flag in ("--skill-reference-recovery-share","--skill-practice-recovery-share"):
+        i=common.index(flag)
+        del common[i:i+2]
+    freedom=dict(base.arms)["F"]
+    def shares(r,p):
+        return ("--skill-reference-recovery-share",r,"--skill-practice-recovery-share",p)
+    return StudyPlan("retention","engagement",(
+        ("F",(*freedom,*shares(".15",".15"))),
+        ("B",(*freedom,*shares(".50",".25"))),
+        ("T",(*freedom,*shares(".50",".25"),"--skill-adaptive-recovery"))),
+        tuple(common),240,9865,.25,"results-live-skill-retention.zip")
+
+
 def publish_copy(src,dst,digest):
     dst.parent.mkdir(parents=True,exist_ok=True)
     if dst.exists():
@@ -138,7 +156,9 @@ def smoke(root,commit,plan=DEFAULT):
           "--stair-survival-curriculum","--live-recovery-smoke","--live-uphill-smoke",
           "--benchmark-updates","12"]
     if plan.profile!="ladder": args+=["--uphill-profile",plan.profile]
-    if plan.name=="freedom": args+=["--novice-fall-relief"]
+    if plan.name in ("freedom","retention"): args+=["--novice-fall-relief"]
+    if plan.name=="retention":
+        args+=["--recovery-reference-share",".50","--recovery-practice-share",".25"]
     expected=dict(source_commit=commit,args=args)
     if receipt.exists():
         if read(receipt)!=expected:
@@ -258,7 +278,7 @@ def live_coverage(run,commit,plan=DEFAULT):
                     or (plan.profile!="ladder" and row.get("uphill_heights_m")!=list(uphill_heights(plan.profile)))
                     or (plan.profile=="engagement" and (row.get("uphill_profile")!="engagement"
                          or not isinstance(row.get("uphill_motion_reward_sums"),dict)))
-                    or (plan.name=="freedom" and not isinstance(row.get("uphill_fall_cost_sums"),dict))
+                    or (plan.name in ("freedom","retention") and not isinstance(row.get("uphill_fall_cost_sums"),dict))
                     or row["world_frames"]!=row["end_step"]-row["start_step"]
                     or (previous is not None and row["start_step"]!=previous)):
                 raise RuntimeError("Live observer lineage/window mismatch")
@@ -301,22 +321,28 @@ def verify_final(root,arm,seed,commit,plan=DEFAULT):
     ck=run/"checkpoints"/"final.pkl"
     payload=load_checkpoint(ck,expected_sensor_contract=training_sensor_contract(cfg))
     meta=payload["meta"]
+    treatment=(*plan.common,*dict(plan.arms)[arm])
+    adaptive_recovery="--skill-adaptive-recovery" in treatment
+    adaptive_uphill="--skill-adaptive-uphill" in treatment
+    relief="--skill-novice-fall-relief" in treatment
+    def share(flag): return float(treatment[treatment.index(flag)+1])
     if (cfg.envs!=WORLDS or cfg.steps!=plan.target or cfg.seed!=seed
             or not cfg.live_skill_observer or cfg.fixed_eval_every_steps!=0 or cfg.physical_profile!="h40-spring-only"
-            or cfg.skill_adaptive_recovery!=(arm=="R") or cfg.skill_adaptive_uphill!=(arm in ("H","F"))
-            or cfg.skill_novice_fall_relief!=(arm=="F")
+            or cfg.skill_adaptive_recovery!=adaptive_recovery or cfg.skill_adaptive_uphill!=adaptive_uphill
+            or cfg.skill_novice_fall_relief!=relief
             or cfg.skill_uphill_stage!="none" or cfg.mission_refreshers or cfg.cross_specialty_stairs
             or cfg.skill_uphill_profile!=plan.profile
-            or any(getattr(cfg,k)!=.15 for k in ("skill_reference_recovery_share","skill_practice_recovery_share"))
+            or cfg.skill_reference_recovery_share!=share("--skill-reference-recovery-share")
+            or cfg.skill_practice_recovery_share!=share("--skill-practice-recovery-share")
             or any(getattr(cfg,k)!=plan.uphill_share for k in ("skill_uphill_reference_share","skill_uphill_practice_share"))
             or meta["step"]!=plan.target or meta["run_name"]!=run.name
             or meta["source_provenance"]["git_commit"]!=commit or meta["robot_model_sha256"]!=MODEL):
         raise RuntimeError("Final learner differs from registered treatment")
     teacher={}
-    for key,active,cls in (("live_recovery_teacher",arm=="R",RecoveryTeacher),
-                           ("live_uphill_teacher",arm in ("H","F"),UphillTeacher)):
+    for key,active,cls in (("live_recovery_teacher",adaptive_recovery,RecoveryTeacher),
+                           ("live_uphill_teacher",adaptive_uphill,UphillTeacher)):
         if active:
-            restored=(cls.from_state_dict(meta.get(key),plan.target,plan.profile) if arm in ("H","F") else
+            restored=(cls.from_state_dict(meta.get(key),plan.target,plan.profile) if cls is UphillTeacher else
                       cls.from_state_dict(meta.get(key),plan.target))
             teacher[key]=restored.state_dict(plan.target)
             if teacher[key]["clock"]>plan.updates*WORLDS*ROLLOUT:
@@ -379,8 +405,11 @@ def compare(root,plan=DEFAULT):
             row=dict(training_seed=seed,exam_seed=plan.exam_seed,exam=key[0],
                 task=key[1],gate=key[2],attempts_each=n,parent_pass=p)
             row.update({f"{a}_pass":v for a,v in k.items()})
-            row.update({f"{a}_minus_U_pp":round(100*(v-k["U"])/n,6) for a,v in k.items() if a!="U"})
-            if "F" in k: row["F_minus_H_pp"]=round(100*(k["F"]-k["H"])/n,6)
+            baseline="U" if "U" in k else "F"
+            row.update({f"{a}_minus_{baseline}_pp":round(100*(v-k[baseline])/n,6)
+                        for a,v in k.items() if a!=baseline})
+            if "F" in k and "H" in k: row["F_minus_H_pp"]=round(100*(k["F"]-k["H"])/n,6)
+            if "T" in k and "B" in k: row["T_minus_B_pp"]=round(100*(k["T"]-k["B"])/n,6)
             rows.append(row)
     return rows
 
@@ -437,7 +466,7 @@ def cliff_windows(root,plan):
                                     row[motion+"_reward_frames"]=n if cohort=="reference" else ""
                                     row[motion+"_mean_total_reward"]=total/n if cohort=="reference" and n else ""
                                     row[motion+"_mean_locomotion_reward"]=loc/n if cohort=="reference" and n else ""
-                            if plan.name=="freedom":
+                            if plan.name in ("freedom","retention"):
                                 for s in range(6):
                                     n,relieved,full,actual,age,diverged=raw["uphill_fall_cost_sums"].get(
                                         f"{cohort}/{s}/{i}",[0,0,0.,0.,0.,0])
@@ -446,7 +475,8 @@ def cliff_windows(root,plan):
                                         not 0<=diverged<=n or not full<=actual<=0. or
                                         not 0<=age or (not relieved and abs(full-actual)>1e-5)):
                                         raise RuntimeError("Invalid fall-cost evidence")
-                                    if relieved and (arm!="F" or cohort!="practice" or s==0):
+                                    if relieved and ("--skill-novice-fall-relief" not in dict(plan.arms)[arm]
+                                                     or cohort!="practice" or s==0):
                                         raise RuntimeError("Relief escaped registered treatment")
                                     row[f"stage_{s}_falls"]=n
                                     row[f"stage_{s}_relieved_falls"]=relieved
@@ -461,12 +491,57 @@ def cliff_windows(root,plan):
     return stream.getvalue()
 
 
+def recovery_windows(root,plan):
+    """Raw recovery counts and cumulative supported evidence per segment/epoch."""
+    from emu.live_skill_ledger import summarize_segment
+    from emu.live_skill_reference import REFERENCE_KICKS_MPS
+    rows=[]
+    for seed in PARENTS:
+        for arm,_ in plan.arms:
+            name=f"{arm}-s{seed}"
+            for path in sorted((root/"evidence"/name/"live_skills").glob("segment-*.jsonl")):
+                epoch=None
+                history=[]
+                lines=path.read_bytes().splitlines(keepends=True)
+                for j,line in enumerate(lines):
+                    try: raw=json.loads(line)
+                    except (UnicodeError,json.JSONDecodeError):
+                        if j==len(lines)-1 and not line.endswith(b"\n"): break
+                        raise
+                    if epoch!=raw["policy_epoch"]:
+                        history=[]
+                        epoch=raw["policy_epoch"]
+                    history.append(raw)
+                    info=summarize_segment(history)
+                    for i,kick in enumerate(REFERENCE_KICKS_MPS):
+                        status=info[i]
+                        row=dict(student=name,segment=path.name,epoch=epoch,
+                            start_step=raw["start_step"],end_step=raw["end_step"],
+                            world_frames=raw["world_frames"],kick_mps=kick,
+                            closed_blocks=len(status["blocks"]),pending_trials=status["pending"]["attempts"],
+                            status=status["status"],repeated_regression_blocks=status["repeated_regression_blocks"],
+                            mastery_anchor_attempts=(status["anchor"] or {}).get("attempts",0),
+                            mastery_anchor_passes=(status["anchor"] or {}).get("passes",0))
+                        for cohort,field in (("reference","reference_frames_by_case"),("practice","practice_frames_by_case")):
+                            cell=raw["cells"].get(f"{cohort}_recovery/mission/{i}",{})
+                            row[f"{cohort}_attempts"]=cell.get("attempts",0)
+                            row[f"{cohort}_passes"]=cell.get("passes",0)
+                            row[f"{cohort}_frames"]=raw[field][i]
+                        rows.append(row)
+    if not rows: raise RuntimeError("No recovery reference windows")
+    stream=io.StringIO()
+    writer=csv.DictWriter(stream,fieldnames=list(rows[0]))
+    writer.writeheader();writer.writerows(rows)
+    return stream.getvalue()
+
+
 def report(root,plan=DEFAULT):
     rows=compare(root,plan)
     buf=io.StringIO()
     writer=csv.DictWriter(buf,fieldnames=list(rows[0]))
     writer.writeheader(); writer.writerows(rows)
     cliff=cliff_windows(root,plan) if plan.profile in ("cliff","engagement") else None
+    recovery=recovery_windows(root,plan) if plan.name=="retention" else None
     out=root/plan.result
     tmp=out.with_suffix(".zip.partial")
     if out.exists():
@@ -474,6 +549,7 @@ def report(root,plan=DEFAULT):
             if (json.loads(z.read("study.json"))!=read(root/"study.json")
                     or z.read("comparison.csv").decode()!=buf.getvalue()
                     or (cliff is not None and z.read("cliff_windows.csv").decode()!=cliff)
+                    or (recovery is not None and z.read("recovery_windows.csv").decode()!=recovery)
                     or z.testzip() is not None):
                 raise RuntimeError("Existing results archive differs")
         return out
@@ -482,6 +558,7 @@ def report(root,plan=DEFAULT):
         z.write(root/"study.json","study.json")
         z.writestr("comparison.csv",buf.getvalue())
         if cliff is not None: z.writestr("cliff_windows.csv",cliff)
+        if recovery is not None: z.writestr("recovery_windows.csv",recovery)
         z.writestr("README.md","Matched "+plan.name+" pilot. Raw live windows and teacher decisions "
           "are training evidence, not independent trials. Endpoint exams use the same registered "
           "seed on each parent and child. Do not pool restart/rollback epochs blindly. "
@@ -557,9 +634,9 @@ def main(argv=None):
     p.add_argument("--root",required=True,type=Path)
     p.add_argument("--parent-root",type=Path,
         default=Path.home()/"emu-data/studies/ks150-abc-unattended-v2")
-    p.add_argument("--classroom",choices=("original","cliff","engagement","freedom"),default="original")
+    p.add_argument("--classroom",choices=("original","cliff","engagement","freedom","retention"),default="original")
     a=p.parse_args(argv)
-    go(a.root,a.parent_root,{"original":DEFAULT,"cliff":cliff_plan(),"engagement":engagement_plan(),"freedom":freedom_plan()}[a.classroom])
+    go(a.root,a.parent_root,{"original":DEFAULT,"cliff":cliff_plan(),"engagement":engagement_plan(),"freedom":freedom_plan(),"retention":retention_plan()}[a.classroom])
 
 
 if __name__=="__main__":
