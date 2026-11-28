@@ -649,3 +649,22 @@ combined expanded allocation and shaping, not a separate allocation-only
 ablation. Frozen height grid remains an experimental diagnostic, not the
 ultimate autonomous school curriculum. GPU acceptance and full repository
 tests pending on operator machine. No training launched here.
+
+Validation before publication: hash-matched exact candidate
+live_skill_uphill_teacher.py and live_skill_stairs.py executed in a local
+CPU harness with source-copied Block/constants, gate helpers and payment
+function. Three tests passed (approach -> contact, both four-step fades,
+checkpoint replay/profile guard, preserved original no-contact behaviour,
+stall cooldown, rejected reverse/turned/reference/failure/repeat credit).
+4096-world JAX CPU JIT check produced 1345 expected first-event payments
+and zero repeated payments. This is synthetic, not MJX physics. The
+candidate also fixes the telemetry name to reward_weighted_locomotion
+(the existing environment exports weighted payments under that prefix),
+seals the engagement profile on raw windows and adds repository observer
+and runner regression tests. Full observer integration tests, production
+PPO and real GPU acceptance are still pending; container cannot clone
+GitHub and has no MuJoCo/Optax/Flax. Studio preflight exercises the actual
+production path before accepting training. Do not treat test success as
+evidence that the educational intervention works. The longer budget was
+selected to increase the opportunity for actual teaching and fading; it
+does not guarantee enough disjoint mastery pairs.
