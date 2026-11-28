@@ -257,7 +257,8 @@ class Studio:
         for k in ("JAX_PLATFORMS","EMU_UNIFIED_ACCEPTANCE","EMU_MISSION_REFRESHER_SHA256"):
             env.pop(k,None)
         env.update(PYTHONPATH=str(folder),PYTHONUNBUFFERED="1",PYTHONDONTWRITEBYTECODE="1",
-                   EMU_PHYSICAL_PROFILE=m["profile"],XLA_PYTHON_CLIENT_PREALLOCATE="false")
+                   EMU_PHYSICAL_PROFILE=m["profile"],XLA_PYTHON_CLIENT_PREALLOCATE="false",
+                   EMU_STUDIO_UI_REV="eta-v1")
         env.setdefault("JAX_COMPILATION_CACHE_DIR",str(Path.home()/".cache/emu/jax-live-school"))
         log=self.state/(m["id"]+"-"+selected["commit"][:12]+".log")
         with self.gpu_lock.open("a") as guard,log.open("ab",buffering=0) as out:

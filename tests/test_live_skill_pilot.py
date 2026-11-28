@@ -134,3 +134,16 @@ def test_retention_plan_distinguishes_coverage_and_adaptation():
         assert "--skill-adaptive-uphill" in flags and "--skill-novice-fall-relief" in flags
     assert q.result=="results-live-skill-retention.zip"
     assert p.freedom_plan().updates==160
+
+
+def test_simplicity_plan_is_matched_ablation():
+    q=p.simplicity_plan()
+    assert q.common==p.retention_plan().common
+    assert q.updates==240 and q.target==151519232 and q.exam_seed==9866
+    a=dict(q.arms)
+    assert tuple(a)==("U","H","B")
+    assert a["H"]==("--skill-adaptive-uphill",*a["U"])
+    assert a["B"]==p.retention_plan().arms[1][1]
+    assert tuple(x for x in a["B"] if x!="--skill-novice-fall-relief")==a["H"]
+    assert "--skill-adaptive-recovery" not in (*q.common,*a["B"])
+    assert q.spec(Path("/tmp/parent"))["total_additional_steps"]==188743680

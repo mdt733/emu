@@ -1,18 +1,87 @@
 # EMU handover — Live Skill School
 
-**Updated 26 November 2026.** Read this first when resuming the project in a
+**Updated 28 November 2026.** Read this first when resuming the project in a
 new conversation. This file is the current research entry point, not an
 instruction to launch training. Check the live branch head before editing;
 the source IDs below identify implementation/evidence milestones.
+
+## Read first — current status (28 November)
+
+**Goal: a good school, not a selected good student.** Main and champion
+frozen. Keep one focused branch. The next registered study is Simplicity
+School V1 (U/H/B), not Retention. Same authenticated A/120M parents,
+4096 worlds, 240 updates/student, 151519232 final age, 188743680 new steps,
+exam seed 9866. Dense uniform recovery .50/.25 for all; fixed uphill
+.25/.25 and 20/28/29/30/31/32mm. U has uniform uphill practice,
+H activates uphill teacher, B also activates novice fall relief.
+No adaptive recovery. H-U isolates uphill teaching, B-H isolates relief
+with feedback effects; B repeats previous Broad practice treatment.
+No new physics, global rewards, PPO parameters or exam changes.
+Results: results-live-skill-simplicity.zip. No automatic promotion.
+
+Operator wants one magic button, not extra terminals. Legacy controller
+on 8770 cannot hot-reload its API/HTML. The new runner starts a
+read-only ETA companion automatically at http://localhost:8772/.
+Original controller remains authoritative for Stop/Resume/final ZIP.
+Companion closes at runner exit. New ETA-aware controllers skip it.
+See docs/STUDIO.md. Never update an active pinned worktree or restart
+a GPU run to refresh the UI. New ETA separates current vs future
+student throughput and includes compile/exam/packaging time.
+Current GPU/browser integration requires operator evidence.
+
+### Latest completed evidence: Retention School
+
+Archive results-live-skill-retention.zip (4696051 bytes, 116 entries,
+CRC clean), source b8656ad3219a66da3f51cc15728890a24869bd0f.
+118/118 available receipt hashes match; 38 referenced ancestor files
+not bundled. All six students completed 151519232, zero recorded
+rollback/nonfinite gradient skips, no torn observer tails.
+Final PPO throughput B9501/F9501 22901/18991, other four
+41192–42969 steps/s. Cause unknown, don't infer GPU problem.
+
+Matched independent pulse counts parent/F/B/T (2048 per seed):
+9501 1608/1598/1652/1523; 9502 1539/1626/1623/1669.
+Pooled family counts parent/F/B/T:
+command 736/736/732/745 of768; control 510/512/512/512 of512;
+resilience 428/481/468/472 of512; slope 550/509/577/507 of768;
+step 415/474/474/446 of1024; transition 508/512/512/510 of512.
+Overall 3147/3224/3275/3192 of4096. All three improved resilience
+vs matched parents; dense B and T did not outperform F on resilience.
+B best overall, mainly slopes; T inconsistent by seed.
+Reference recovery completed F/B/T=601/1957/1973, passes 451/1507/1544;
+practice 600/999/1038, passes 462/757/840.
+B/T ~980 reference attempts/student, actual ~0.47% of global frames;
+F ~300, ~0.14%. Most cases 3–4 closed evidence blocks.
+T9501 6 acquisition, 5 uniform, 19 waiting decisions; T9502
+5 acquisition, 4 uniform, 21 waiting. **No repair decisions**.
+T9501 four mastered reference cases, T9502 zero; B9502 three,
+B9501 zero. Not a demonstrated retention treatment; recovery reference
+is narrow signed longitudinal kick, not all resilience tasks.
+
+Late reference windows starting >=145227776, traversal successes
+over attempts, heights 20/28/29/30/31/32mm:
+F 204/222,218/256,167/234,132/227,83/214,48/224;
+B 193/210,172/240,134/225,109/202,107/250,57/219;
+T 220/235,185/266,142/263,113/246,93/231,60/239.
+Independent signed uphill totals per seed parent/F/B/T:
+9501 32/34/33/32; 9502 29/44/33/36 (200 each).
+Downhill 9501 69/67/78/55; 9502 69/106/70/93.
+At +32mm F/B/T 3/2/1 of20; no traversals at >=36mm.
+Live progress does not establish independent transfer.
+No promotion: two seeds only, exam seed changed across studies.
+Next test remove complexity before adding a shared budget controller.
+If simpler U/H wins, favour simpler school; later qualify cold
+starts with multiple seeds, matched independent exams and retention
+across all competencies. Don't confuse references with independent exams.
 
 ## Current repository and owner direction
 
 Repository: [mdt733/emu](https://github.com/mdt733/emu).
 Active research branch: `research/ks150-live-skill-school-v1`,
 [draft PR #106](https://github.com/mdt733/emu/pull/106), based on PR #105.
-The most recent implementation commit at this handover is
-`87a130e0782b53aac54c3beb8da295a0188a6473`; later documentation commits
-may follow. Keep work on this branch. No merge, champion replacement,
+The current registered implementation is Simplicity School V1; use the
+branch HEAD and launch.json as the source of truth. Historical source IDs
+below are pinned evidence, not launch instructions. Keep work on this branch. No merge, champion replacement,
 Pages publication or hardware qualification without explicit owner approval.
 [Previous handover (23 Nov)](https://github.com/mdt733/emu/blob/372bb57bc59ab7ca4bcfb0f99d4460ff23d3c646/handover.md)
 preserves older history. See issue #62 and docs/RESEARCH_FINDINGS.md for

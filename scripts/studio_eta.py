@@ -168,6 +168,12 @@ def forecast(focus,students,status,log,state,now=None):
         r=current_row.get("last",{}).get("train_steps_per_sec")
         if valid(r): rate_samples=[r*.94]
     rate,rate_low,rate_high=estimate("rate",rate_samples)
+    future_rate,future_low,future_high=estimate("rate",all_rates or rate_samples)
+    # A different process can run at a different speed (Retention had
+    # both 19k and 43k students). Do not treat the current warm rate as
+    # a precise prediction for every later process.
+    future_low=min(future_low,PRIORS["rate"][1])
+    future_high=max(future_high,PRIORS["rate"][2])
     estimates={k:estimate(k,samples.get(k,[])) for k in PRIORS if k!="rate"}
     # Use the measured stage events where available; for legacy jobs
     # receipt mtimes establish a rough stage start, not an exact timestamp.
@@ -236,7 +242,8 @@ def forecast(focus,students,status,log,state,now=None):
                 start=elapsed_stage("train",name,previous)
                 add("startup",name,t,started=start,is_current=is_current)
             if remaining:
-                t=(remaining/rate,remaining/rate_high,remaining/rate_low)
+                t=((remaining/rate,remaining/rate_high,remaining/rate_low) if is_current
+                   else (remaining/future_rate,remaining/future_high,remaining/future_low))
                 add("training",name,t)
                 components[-1]["current"]=is_current
             elif is_current:
@@ -262,7 +269,7 @@ def forecast(focus,students,status,log,state,now=None):
           "Wall-clock forecast; range reflects observed variability and cold starts")
     return dict(remaining_seconds=total[0],low_seconds=total[1],high_seconds=total[2],
                 finish_unix=now+total[0],current_seconds=sum(c["seconds"] for c in current_parts) if current_parts else None,
-                rate=rate,rate_source="recent wall-clock intervals" if live_rates else
+                rate=rate,future_rate=future_rate,rate_source="recent wall-clock intervals" if live_rates else
                      "other current-study intervals" if all_rates else "PPO rate adjusted for host overhead" if rate_samples else "historical prior",
                 components=components,timeline=timeline,note=note,
                 sample_counts={**{k:len(v) for k,v in samples.items()},"rate":len(rate_samples)},

@@ -167,3 +167,20 @@ The slow Cliff run is a reminder that large throughput changes can
 invalidate any estimate. This tests training-only predictions, not
 end-to-end completion forecasts or browser/GPU integration. The complete
 new UI has not been exercised in the operator's browser or live WSL job.
+
+
+## Legacy controller compatibility for the Simplicity launch
+
+The original 8770 server captures the HTML at startup and cannot be
+hot-reloaded safely through the existing button. The new pinned runner
+automatically starts an ETA-aware, read-only companion on 8772 when
+launched from a legacy Studio checkout. No extra terminal. Open
+http://localhost:8772/ after Get update & run on the original 8770.
+The companion has no GPU/control lock, stays in the runner process
+group, and closes when the runner exits. Final ZIP and controls remain
+on 8770. ETA-aware controller launches skip the companion; direct CLI
+runs also skip it. If the port is occupied, the companion may fail
+without stopping training. No attempt to replace a live controller.
+The new ETA also distinguishes current and future students' rates,
+with a wider future envelope because Retention contained two much
+slower students. Browser/WSL integration not yet validated.

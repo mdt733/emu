@@ -99,6 +99,20 @@ def retention_plan():
         tuple(common),240,9865,.25,"results-live-skill-retention.zip")
 
 
+def simplicity_plan():
+    # Same dense recovery budget and terrain distribution in every arm.
+    # U -> H isolates adaptive uphill teaching; H -> B adds fall relief.
+    base=retention_plan()
+    broad=dict(base.arms)["B"]
+    uniform=tuple(x for x in broad if x not in
+                  ("--skill-adaptive-uphill","--skill-novice-fall-relief"))
+    return StudyPlan("simplicity","engagement",(
+        ("U",uniform),
+        ("H",("--skill-adaptive-uphill",*uniform)),
+        ("B",broad)),base.common,240,9866,.25,
+        "results-live-skill-simplicity.zip")
+
+
 def publish_copy(src,dst,digest):
     dst.parent.mkdir(parents=True,exist_ok=True)
     if dst.exists():
@@ -158,8 +172,8 @@ def smoke(root,commit,plan=DEFAULT):
           "--stair-survival-curriculum","--live-recovery-smoke","--live-uphill-smoke",
           "--benchmark-updates","12"]
     if plan.profile!="ladder": args+=["--uphill-profile",plan.profile]
-    if plan.name in ("freedom","retention"): args+=["--novice-fall-relief"]
-    if plan.name=="retention":
+    if plan.name in ("freedom","retention","simplicity"): args+=["--novice-fall-relief"]
+    if plan.name in ("retention","simplicity"):
         args+=["--recovery-reference-share",".50","--recovery-practice-share",".25"]
     expected=dict(source_commit=commit,args=args)
     if receipt.exists():
@@ -284,7 +298,7 @@ def live_coverage(run,commit,plan=DEFAULT):
                     or (plan.profile!="ladder" and row.get("uphill_heights_m")!=list(uphill_heights(plan.profile)))
                     or (plan.profile=="engagement" and (row.get("uphill_profile")!="engagement"
                          or not isinstance(row.get("uphill_motion_reward_sums"),dict)))
-                    or (plan.name in ("freedom","retention") and not isinstance(row.get("uphill_fall_cost_sums"),dict))
+                    or (plan.name in ("freedom","retention","simplicity") and not isinstance(row.get("uphill_fall_cost_sums"),dict))
                     or row["world_frames"]!=row["end_step"]-row["start_step"]
                     or (previous is not None and row["start_step"]!=previous)):
                 raise RuntimeError("Live observer lineage/window mismatch")
@@ -416,6 +430,7 @@ def compare(root,plan=DEFAULT):
                         for a,v in k.items() if a!=baseline})
             if "F" in k and "H" in k: row["F_minus_H_pp"]=round(100*(k["F"]-k["H"])/n,6)
             if "T" in k and "B" in k: row["T_minus_B_pp"]=round(100*(k["T"]-k["B"])/n,6)
+            if "B" in k and "H" in k: row["B_minus_H_pp"]=round(100*(k["B"]-k["H"])/n,6)
             rows.append(row)
     return rows
 
@@ -472,7 +487,7 @@ def cliff_windows(root,plan):
                                     row[motion+"_reward_frames"]=n if cohort=="reference" else ""
                                     row[motion+"_mean_total_reward"]=total/n if cohort=="reference" and n else ""
                                     row[motion+"_mean_locomotion_reward"]=loc/n if cohort=="reference" and n else ""
-                            if plan.name in ("freedom","retention"):
+                            if plan.name in ("freedom","retention","simplicity"):
                                 for s in range(6):
                                     n,relieved,full,actual,age,diverged=raw["uphill_fall_cost_sums"].get(
                                         f"{cohort}/{s}/{i}",[0,0,0.,0.,0.,0])
@@ -547,7 +562,7 @@ def report(root,plan=DEFAULT):
     writer=csv.DictWriter(buf,fieldnames=list(rows[0]))
     writer.writeheader(); writer.writerows(rows)
     cliff=cliff_windows(root,plan) if plan.profile in ("cliff","engagement") else None
-    recovery=recovery_windows(root,plan) if plan.name=="retention" else None
+    recovery=recovery_windows(root,plan) if plan.name in ("retention","simplicity") else None
     out=root/plan.result
     tmp=out.with_suffix(".zip.partial")
     if out.exists():
@@ -644,9 +659,14 @@ def main(argv=None):
     p.add_argument("--root",required=True,type=Path)
     p.add_argument("--parent-root",type=Path,
         default=Path.home()/"emu-data/studies/ks150-abc-unattended-v2")
-    p.add_argument("--classroom",choices=("original","cliff","engagement","freedom","retention"),default="original")
+    p.add_argument("--classroom",choices=("original","cliff","engagement","freedom","retention","simplicity"),default="original")
     a=p.parse_args(argv)
-    go(a.root,a.parent_root,{"original":DEFAULT,"cliff":cliff_plan(),"engagement":engagement_plan(),"freedom":freedom_plan(),"retention":retention_plan()}[a.classroom])
+    from scripts.studio_bridge import legacy_eta_monitor
+    plan={"original":DEFAULT,"cliff":cliff_plan(),"engagement":engagement_plan(),
+          "freedom":freedom_plan(),"retention":retention_plan(),
+          "simplicity":simplicity_plan()}[a.classroom]
+    with legacy_eta_monitor():
+        go(a.root,a.parent_root,plan)
 
 
 if __name__=="__main__":

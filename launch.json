@@ -1,27 +1,27 @@
 {
   "schema": "emu.launch.v1",
-  "id": "ks150-live-skill-retention-v1",
-  "title": "Retention School · learn without forgetting",
-  "description": "Matched Freedom baseline, dense uniform recovery coverage, and equally budgeted adaptive recovery practice. Fixed evidence, protected ordinary births, independent transfer exam.",
+  "id": "ks150-live-skill-simplicity-v1",
+  "title": "Simplicity School · does the tutor help?",
+  "description": "Matched dense uniform recovery; U uniform uphill, H adaptive uphill, B adaptive plus novice fall relief. Same experience budget. Updated ETA monitor starts automatically with legacy Studio.",
   "module": "scripts.live_skill_pilot",
   "args": [
     "--classroom",
-    "retention",
+    "simplicity",
     "--root",
     "{study_root}",
     "--parent-root",
     "{parent_root}"
   ],
   "parent_study": "ks150-abc-unattended-v2",
-  "result": "results-live-skill-retention.zip",
+  "result": "results-live-skill-simplicity.zip",
   "worlds": 4096,
   "students": [
-    "F-s9501",
+    "U-s9501",
+    "H-s9501",
     "B-s9501",
-    "T-s9501",
-    "T-s9502",
     "B-s9502",
-    "F-s9502"
+    "H-s9502",
+    "U-s9502"
   ],
   "parent_step": 120061952,
   "target_step": 151519232,
