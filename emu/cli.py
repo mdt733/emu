@@ -75,7 +75,7 @@ def main(argv=None) -> int:
     q.add_argument('--foundation-steps',type=int,choices=(10000000,20000000),default=20000000,
                    help='cold foundation length: experiment at 10M or reference 20M')
     q.add_argument('--fixed-eval-every-steps',type=int,default=60000000,
-                   help='steps between independent read-only retention exams')
+                   help='steps between independent read-only retention exams; zero with live skill observer delegates endpoint exams to external runner')
     q.add_argument('--teaching-schedule',choices=('balanced','staged','terrain-early','steering'),
                    default='balanced',help='per-episode focus weights: balanced, staged, terrain-early or steering')
     q.add_argument('--foundation-mix',choices=('main','command-heavy','curious'),default='main',
@@ -158,6 +158,22 @@ def main(argv=None) -> int:
                    help='start the extra cross-specialty stair exposure ramp')
     q.add_argument('--cross-specialty-stairs-ramp-steps',type=int,default=20000000,
                    help='steps needed to reach maximum modest per-role exposure')
+    q.add_argument('--skill-reference-recovery-share',type=float,default=0.,
+                   help='fraction of mature resilience births assigned fixed signed flat recovery tasks (max .50)')
+    q.add_argument('--skill-practice-recovery-share',type=float,default=0.,
+                   help='separate fixed-budget practice share within mature resilience births (max .25)')
+    q.add_argument('--skill-adaptive-recovery',action='store_true',
+                   help='bias the practice distribution using fixed reference evidence; otherwise uniform')
+    q.add_argument('--skill-uphill-reference-share',type=float,default=0.)
+    q.add_argument('--skill-uphill-practice-share',type=float,default=0.)
+    q.add_argument('--skill-adaptive-uphill',action='store_true')
+    q.add_argument('--skill-novice-fall-relief',action='store_true',
+                   help='practice-only adaptive direct fall penalty reduction; real falls still terminate')
+    q.add_argument('--skill-uphill-profile',choices=('ladder','cliff','engagement'),default='ladder',
+                   help='fixed physical reference ladder; cliff concentrates 20/28/29/30/31/32mm')
+    q.add_argument('--skill-uphill-stage',choices=('none','first_support','bilateral','traversal'),default='none')
+    q.add_argument('--live-skill-observer',action='store_true',
+                   help='write passive per-skill counts from existing PPO rollouts; no extra exams')
     q.add_argument('--mission-refreshers',action='store_true',
                    help='cold research only: permit one explicitly pinned mature-school refresher programme')
     q.add_argument('--resume',default='',help='auto for same-run checkpoint, or an authorised experiment fork')

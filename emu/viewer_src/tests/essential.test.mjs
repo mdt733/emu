@@ -564,3 +564,39 @@ test('first lip completion requires both real soles on the new physical surface'
   assert.equal(supportedFirstLip({...args,feet:[
     feet[0],{...feet[1],soleZ:.08}]}),false);
 });
+
+
+test('live viewer starts supplied champion before waiting for the first checkpoint',async()=>{
+  const main=readFileSync(new URL('../src/main.js',import.meta.url),'utf8');
+  const start=main.slice(main.indexOf('async function startViewerFeed()'),main.indexOf('\napplyHeadingGain();\nstartViewerFeed();'));
+  // Exercise the actual startup function with mock browser/API boundaries,
+  // without creating a WebGL context or loading MuJoCo WASM in Node.
+  for(const fallback of ['ok','http-error','absent']){
+    const calls=[],library=[],elements=new Map();
+    const $=id=>{
+      if(!elements.has(id))elements.set(id,{checked:true,textContent:''});
+      return elements.get(id);
+    };
+    const fetch=async url=>{
+      calls.push(url);
+      if(url==='/api/viewer-config')return {json:async()=>({live:true,initial_policy:fallback!=='absent',sensor_lab:false})};
+      assert.equal(url,'/api/initial-policy');
+      return {ok:fallback==='ok',status:503,text:async()=>'champion'};
+    };
+    const run=new Function('location','fetch','isJsonResponse','isViewerConfig','livePanel',
+      '$','carpetDrive','syncGoalMode','parsePolicy','policyLibrary','activatePolicy',
+      'pollLive','setInterval','setStatus','console',
+      'let demoActive=false,strollClock=0;\n'+start+'\nreturn startViewerFeed();');
+    await run({hostname:'127.0.0.1'},fetch,()=>true,()=>true,{},$,{},()=>{},
+      text=>({text}),library,async index=>{calls.push('activate:'+index);return true;},
+      async()=>calls.push('poll'),()=>calls.push('schedule'),()=>calls.push('error'),{error(){}});
+    assert.deepEqual(calls,fallback==='ok'?
+      ['/api/viewer-config','/api/initial-policy','activate:0','poll','schedule']:
+      fallback==='http-error'?['/api/viewer-config','/api/initial-policy','error','poll','schedule']:
+        ['/api/viewer-config','poll','schedule']);
+    if(fallback==='ok'){
+      assert.equal(library[0].isFallback,true);
+      assert.equal($('livePhase').textContent,'Champion fallback');
+    }
+  }
+});

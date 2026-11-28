@@ -82,8 +82,9 @@ def one_run_config(args) -> TrainingConfig:
             (velocity_i_multiplier > 1.0 and not unified)):
         raise ValueError('velocity I requires unified learning, ramp 0.1..5s, multiplier 1..3')
     fixed_eval_every_steps=int(getattr(args,'fixed_eval_every_steps',60_000_000))
-    if fixed_eval_every_steps < 1_000_000:
-        raise ValueError('fixed eval cadence must be >=1M world steps')
+    external_live_exams=(fixed_eval_every_steps==0 and bool(getattr(args,'live_skill_observer',False)))
+    if fixed_eval_every_steps < 1_000_000 and not external_live_exams:
+        raise ValueError('fixed eval cadence must be >=1M world steps; zero requires live skill observer and external endpoint exams')
     if foundation_steps not in (10_000_000,20_000_000):
         raise ValueError('foundation must be 10M or 20M world steps')
     if foundation_mix not in ('main','command-heavy','curious'):
@@ -180,6 +181,36 @@ def one_run_config(args) -> TrainingConfig:
         raise ValueError('cross-specialty stairs requires mature foundation and 1-60M ramp')
     survival_school=bool(getattr(args, 'stair_survival_curriculum', False))
     mission_refreshers=bool(getattr(args,'mission_refreshers',False))
+    reference_share=float(getattr(args,'skill_reference_recovery_share',0.))
+    practice_share=float(getattr(args,'skill_practice_recovery_share',0.))
+    adaptive_recovery=bool(getattr(args,'skill_adaptive_recovery',False))
+    from .live_skill_reference import valid_recovery_shares
+    if (not valid_recovery_shares(reference_share,practice_share) or
+            (adaptive_recovery and not practice_share)):
+        raise ValueError('Invalid fixed-budget skill practice configuration')
+    if reference_share and (not getattr(args,'live_skill_observer',False) or mission_refreshers or stillness_birth_frac):
+        raise ValueError('Reference recovery needs observer and no overlapping refresher/stillness programme')
+    uphill_ref=float(getattr(args,'skill_uphill_reference_share',0.))
+    uphill_practice=float(getattr(args,'skill_uphill_practice_share',0.))
+    uphill_stage=getattr(args,'skill_uphill_stage','none')
+    adaptive_uphill=bool(getattr(args,'skill_adaptive_uphill',False))
+    uphill_profile=getattr(args,'skill_uphill_profile','ladder')
+    novice_fall_relief=bool(getattr(args,'skill_novice_fall_relief',False))
+    if novice_fall_relief and (not adaptive_uphill or uphill_profile!='engagement'):
+        raise ValueError('Novice fall relief requires adaptive engagement practice')
+    from .live_skill_uphill import uphill_heights
+    uphill_heights(uphill_profile)
+    uphill_cap=.25 if uphill_profile in ('cliff','engagement') else .15
+    if adaptive_uphill and (not uphill_practice or uphill_stage!='none'):
+        raise ValueError('Adaptive uphill requires practice and no static stage')
+    if (not math.isfinite(uphill_ref) or not math.isfinite(uphill_practice)
+            or not 0.<=uphill_ref<=uphill_cap or not 0.<=uphill_practice<=uphill_cap
+            or (uphill_practice and not uphill_ref)
+            or uphill_stage not in ('none','first_support','bilateral','traversal')
+            or (uphill_stage!='none' and not uphill_practice)
+            or (uphill_ref and (not survival_school or not getattr(args,'live_skill_observer',False)
+                or mission_refreshers or stillness_birth_frac))):
+        raise ValueError('Invalid isolated uphill reference/practice configuration')
     if mission_refreshers and not cross_stairs:
         raise ValueError('--mission-refreshers requires --cross-specialty-stairs')
     if cross_stairs and not survival_school:
@@ -239,6 +270,16 @@ def one_run_config(args) -> TrainingConfig:
                    cross_specialty_stairs_start_steps=cross_start,
                    cross_specialty_stairs_ramp_steps=cross_ramp,
                    mission_refreshers=mission_refreshers,
+                   live_skill_observer=bool(getattr(args,'live_skill_observer',False)),
+                   skill_reference_recovery_share=reference_share,
+                   skill_practice_recovery_share=practice_share,
+                   skill_adaptive_recovery=adaptive_recovery,
+                   skill_uphill_reference_share=uphill_ref,
+                   skill_uphill_practice_share=uphill_practice,
+                   skill_uphill_stage=uphill_stage,
+                   skill_adaptive_uphill=adaptive_uphill,
+                   skill_uphill_profile=uphill_profile,
+                   skill_novice_fall_relief=novice_fall_relief,
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.

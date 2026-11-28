@@ -529,6 +529,7 @@ class RecoveredLearner:
     obs_var: Any
     obs_count: float
     lr_scale: float
+    teacher: Any = None
 
 
 def try_restore_recovery(
@@ -537,6 +538,7 @@ def try_restore_recovery(
     obs_mean: Any, obs_var: Any, obs_count: float,
     task_params_for_field: Callable[[Any], dict[str, Any]],
     log_prefix: str, expected_refresher_pin: dict | None = None,
+    restore_teacher: Callable[[dict], Any] | None = None,
 ) -> RecoveredLearner | None:
     """Restore EVERY learning coordinate and reset the physical worlds.
 
@@ -577,6 +579,7 @@ def try_restore_recovery(
                   "params -- skipping recovery, continuing with ordinary retreat only.", flush=True)
             return None
 
+        restored_teacher=restore_teacher(payload['meta']) if restore_teacher else None
         saved = payload['state']
         restored_state = state._replace(
             params=jax.device_put(saved['params']),
@@ -594,7 +597,9 @@ def try_restore_recovery(
         # The restored field, not the stale collapsed field, must choose the
         # reset task. Keep JAX RNG derivation and reset order unchanged.
         fresh_key = jax.random.fold_in(env.key0, step)
-        fresh_params = env.params_array(task_params_for_field(restored_field))
+        fresh_params = env.params_array(
+            task_params_for_field(restored_field,restored_teacher) if restore_teacher
+            else task_params_for_field(restored_field))
         fresh_env_state = env.reset_jit(fresh_key, fresh_params)
         restored_state = restored_state._replace(
             env_state=fresh_env_state, obs=env.obs(fresh_env_state))
@@ -610,7 +615,7 @@ def try_restore_recovery(
         health.note_recovery_performed()
         return RecoveredLearner(
             restored_state, restored_field, obs_mean, obs_var,
-            obs_count, lr_scale)
+            obs_count, lr_scale, restored_teacher)
     except Exception as exc:
         if old_governor is not None:
             try:

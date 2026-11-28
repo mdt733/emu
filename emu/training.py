@@ -40,10 +40,13 @@ from .checkpoint_io import (
 )
 from .environment import EmuMJXEnv
 from .domain_randomization import DomainRandomizationConfig, doctrine_dict as domain_doctrine_dict
-from .capability_field import CapabilityField
+from .capability_field import CapabilityField, RECOVERY_BINS, EDGE_DIRS
+from .live_skill_observer import LiveSkillObserver
+from .live_skill_teacher import UNIFORM, RecoveryTeacher
+from .live_skill_uphill_teacher import UphillTeacher
 from .contracts import ACTION_DIM, OBS_SCHEMA_TERRAIN, TERRAIN_OBS_DIM, CONTROL_DT, FIELD_NODE_ANCHORS, FIELD_EDGE_ANCHORS
 from .training_config import (
-    TrainingConfig, doctrine_dict, training_sensor_contract,
+    TrainingConfig, doctrine_dict, training_sensor_contract, ppo_minibatches_for_envs,
     ROLLOUT_STEPS, PPO_EPOCHS, PPO_MINIBATCHES, PPO_LR, PPO_ENTROPY_COST, PPO_VALUE_COST,
     LOG_EVERY_UPDATES, CHECKPOINT_EVERY_UPDATES, SNAPSHOT_EVERY_STEPS, SNAPSHOT_KEEP,
     PROFILE_PERFORMANCE, MAX_EPISODE_STEPS,
@@ -154,6 +157,15 @@ def env_kwargs_from_args(args) -> dict:
         terrain_lesson=args.terrain_lesson,
         temporal_vx_reward_share=args.temporal_vx_reward_share,
         stillness_birth_frac=args.stillness_birth_frac,
+        live_skill_observer=args.live_skill_observer,
+        skill_reference_recovery_share=args.skill_reference_recovery_share,
+        skill_practice_recovery_share=args.skill_practice_recovery_share,
+        skill_uphill_reference_share=args.skill_uphill_reference_share,
+        skill_uphill_practice_share=args.skill_uphill_practice_share,
+        skill_uphill_stage=args.skill_uphill_stage,
+        skill_adaptive_uphill=args.skill_adaptive_uphill,
+        skill_uphill_profile=args.skill_uphill_profile,
+        skill_novice_fall_relief=getattr(args,'skill_novice_fall_relief',False),
         science_gate_mode=args.science_gate_mode,
         science_phase_lowcmd_scale=args.science_phase_lowcmd_scale,
         science_phase_sync_strength=args.science_phase_sync_strength,
@@ -257,7 +269,7 @@ def unified_launch_mode(args: TrainingConfig) -> str:
             and args.terrain_step_max_m >= .001
             and args.open_frontier)
     if (core and os.environ.get('EMU_UNIFIED_ACCEPTANCE') == 'bounded-ppo-lifecycle'
-            and args.envs in (8, 12, 2048)
+            and args.envs in (8, 12, 2048, 4096)
             and 0 < args.steps <= 2 * args.envs * ROLLOUT_STEPS):
         return 'bounded'
     # One cold run across 20M, 40M, 100M, and beyond. No checkpoint-era
@@ -374,6 +386,7 @@ def train(args: TrainingConfig) -> int:
     # Record the actual compiled model so resumed policies and physical
     # fixed-evaluation reports cannot silently confuse the old torso-contact
     # world with the new two-ball-foot-only world.
+    meta['effective_ppo_minibatches'] = ppo_minibatches_for_envs(args.envs)
     meta['mjx_physics'] = {
         'feet_only_contacts': env.feet_only_contacts,
         'reset_forward_capacity': env.reset_forward_capacity,
@@ -386,7 +399,7 @@ def train(args: TrainingConfig) -> int:
     write_json(run_dir / 'run_meta.json', meta)
     if env.obs_dim != obs_dim or env.sensor_contract != sensor_contract:
         raise RuntimeError('Observation contract mismatch between trainer and sensor environment')
-    trainer = make_trainer(env, seed=args.seed, lr=args.ppo_lr, rollout=ROLLOUT_STEPS, epochs=PPO_EPOCHS, minibatches=PPO_MINIBATCHES,
+    trainer = make_trainer(env, seed=args.seed, lr=args.ppo_lr, rollout=ROLLOUT_STEPS, epochs=PPO_EPOCHS, minibatches=ppo_minibatches_for_envs(args.envs),
                            entropy_cost=args.ppo_entropy_cost, value_cost=args.ppo_value_cost)
     # A two-update CUDA acceptance verifies PPO, physical telemetry,
     # complete checkpoint state, warm resume and actor export. The full
@@ -398,7 +411,10 @@ def train(args: TrainingConfig) -> int:
     # Keep the frozen 10-panel protocol/350-frame horizon/two final cohorts;
     # only independent evaluation batch size is capped for this 20M run.
     eval_args = replace(args, envs=32) if continuous_growth else args
-    fixed_eval_worlds = {} if bounded_acceptance else build_eval_worlds(eval_args)
+    external_live_exams=args.fixed_eval_every_steps==0 and args.live_skill_observer
+    if args.fixed_eval_every_steps==0 and not external_live_exams:
+        raise ValueError('Zero fixed exam cadence requires live observer and external endpoint exams')
+    fixed_eval_worlds = {} if bounded_acceptance or external_live_exams else build_eval_worlds(eval_args)
     if continuous_growth:
         print(f'{LOG_PREFIX} one cold-start PPO lineage to {args.steps:,} steps; '
               f'foundation={args.foundation_mix} until {args.foundation_steps:,} steps; '
@@ -482,8 +498,26 @@ def train(args: TrainingConfig) -> int:
         except Exception as exc:
             raise RuntimeError(f"--resume capability-field restore failed: {exc}") from exc
 
+    teacher=RecoveryTeacher() if args.skill_adaptive_recovery else None
+    uphill_teacher=UphillTeacher(args.skill_uphill_profile) if args.skill_adaptive_uphill else None
+    same_run_resume=bool(args.resume and (args.resume=='auto' or
+        Path(args.resume).resolve().parent==(run_dir/'checkpoints').resolve()))
+    if teacher is not None and same_run_resume and resumed_payload is not None:
+        teacher=RecoveryTeacher.from_state_dict(parent_meta.get('live_recovery_teacher'),resumed_step)
+    if uphill_teacher is not None and same_run_resume and resumed_payload is not None:
+        uphill_teacher=UphillTeacher.from_state_dict(parent_meta.get('live_uphill_teacher'),resumed_step,args.skill_uphill_profile)
+    def teacher_meta(step):
+        out={}
+        if teacher is not None: out['live_recovery_teacher']=teacher.state_dict(step)
+        if uphill_teacher is not None: out['live_uphill_teacher']=uphill_teacher.state_dict(step)
+        return out
+    def restore_teachers(m):
+        return (RecoveryTeacher.from_state_dict(m.get('live_recovery_teacher'),m['step']) if teacher is not None else None,
+                UphillTeacher.from_state_dict(m.get('live_uphill_teacher'),m['step'],args.skill_uphill_profile) if uphill_teacher is not None else None)
+
     def params_with_field(
         step: int, *, teaching_field: CapabilityField | None = None,
+        teaching_teacher=None,
     ) -> dict[str, Any]:
         """Build the next lesson for the live OR restored capability field."""
         d = governor.params_dict()
@@ -569,6 +603,14 @@ def train(args: TrainingConfig) -> int:
             teach_nodes=bool(args.field_teach_nodes), teach_edges=bool(args.field_teach_edges),
             node_count=FIELD_NODE_ANCHORS, edge_count=FIELD_EDGE_ANCHORS)
         d.update(packet)
+        if args.skill_practice_recovery_share>0.:
+            active_teacher=teacher if teaching_teacher is None else teaching_teacher[0]
+            for i,weight in enumerate(active_teacher.weights if active_teacher is not None else UNIFORM):
+                d[f'skill_practice_weight_{i}']=float(weight)
+        if uphill_teacher is not None:
+            active_uphill=uphill_teacher if teaching_teacher is None else teaching_teacher[1]
+            for name,values in (('weight',active_uphill.weights),('stage',active_uphill.stage),('bonus',active_uphill.bonus)):
+                for i,value in enumerate(values): d[f'skill_uphill_{name}_{i}']=float(value)
         return d
 
     # --- Initial policy, normalizer and first genuine PPO update ------------
@@ -636,6 +678,7 @@ def train(args: TrainingConfig) -> int:
     rollout_curriculum_state_for_metrics = governor.state_dict()
     rollout_health_state_for_metrics = health.state_dict()
     rollout_field_state_for_metrics = field.state_dict()
+    rollout_teacher_meta_for_metrics=teacher_meta(resumed_step+args.envs*ROLLOUT_STEPS)
     rollout_lr_scale_for_metrics = lr_scale
     norm_diag = {'obs_norm_update_mean_l2': 0.0, 'obs_norm_update_std_l2': 0.0,
                  'obs_norm_anchor_mean_l2': 0.0, 'obs_norm_anchor_std_l2': 0.0,
@@ -701,6 +744,33 @@ def train(args: TrainingConfig) -> int:
     # This only aggregates already-transferred scalars; no GPU work or PPO
     # behavior changes. The count is since THIS process began.
     stair_audit = StairCreditAudit()
+    observer = (LiveSkillObserver(run_dir/'live_skills', start_step=resumed_step,
+                    worlds=args.envs, field_shape=field.shape, field_bounds=field.bounds,
+                    source_commit=source_provenance_from_env().get('git_commit',''),
+                    recovery_bins=RECOVERY_BINS, edge_directions=EDGE_DIRS,
+                    field_evidence_from_taught=args.field_evidence_from_taught,
+                    uphill_profile=args.skill_uphill_profile)
+                if args.live_skill_observer else None)
+    def observe_skills(step):
+        if observer is None:
+            return
+        counts=observer.observe(rollout_metrics, step=step)
+        # Lightweight progress record: this rollout already completed
+        # and its metrics were transferred. No extra device synchronization.
+        print(f'STUDIO TRAIN {run_name} {step}',flush=True)
+        if teacher is not None:
+            plan=teacher.observe(counts,args.envs*ROLLOUT_STEPS)
+            if plan is not None:
+                import json
+                with (run_dir/'live_skills'/('teacher-'+observer.path.name)).open('a',encoding='utf-8') as f:
+                    f.write(json.dumps(dict(step=step,policy_epoch=observer.epoch,**plan),allow_nan=False)+'\n')
+        if uphill_teacher is not None:
+            plan=uphill_teacher.observe(observer.last_uphill_counts,args.envs*ROLLOUT_STEPS)
+            if plan is not None:
+                import json
+                with (run_dir/'live_skills'/('uphill-teacher-'+observer.path.name)).open('a',encoding='utf-8') as f:
+                    f.write(json.dumps(dict(step=step,policy_epoch=observer.epoch,**plan),allow_nan=False)+'\n')
+    event_sink = observer.field_events if observer is not None else None
     log_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(LOG_EVERY_UPDATES))
     save_every_steps = args.envs * ROLLOUT_STEPS * max(1, int(CHECKPOINT_EVERY_UPDATES))
     snapshot_every_steps = max(0, int(SNAPSHOT_EVERY_STEPS))
@@ -731,7 +801,7 @@ def train(args: TrainingConfig) -> int:
 
     def maybe_fixed_eval(step: int, force: bool = False) -> None:
         nonlocal last_eval_step, best_eval_score
-        if bounded_acceptance:
+        if bounded_acceptance or external_live_exams:
             return
         if not force and step - last_eval_step < args.fixed_eval_every_steps:
             return
@@ -750,7 +820,7 @@ def train(args: TrainingConfig) -> int:
             best_score=best_eval_score, best_path=best_eval_path,
             curriculum_state=governor.state_dict, health_state=health.state_dict,
             field_state=field.state_dict, lr_scale=lr_scale, version=version,
-            checkpoint_meta=obs_meta, perf=perf, log_prefix=LOG_PREFIX,
+            checkpoint_meta={**obs_meta,**teacher_meta(step)}, perf=perf, log_prefix=LOG_PREFIX,
             progress=lambda message: print(f'{LOG_PREFIX} {message}',flush=True))
         last_eval_step = step
         latest_eval.update(out)
@@ -763,9 +833,12 @@ def train(args: TrainingConfig) -> int:
         # decaying command/recovery/maneuver field every rollout.  This is the
         # broad review loop; no simulator pause is required.
         field_t0 = time.perf_counter()
+        observe_skills(total_steps)
         field_diag = field.update_from_rollout(
             rollout_metrics, step=total_steps, control_dt=CONTROL_DT,
-            exclude_field_taught=not bool(args.field_evidence_from_taught))
+            exclude_field_taught=not bool(args.field_evidence_from_taught), event_sink=event_sink)
+        if observer is not None:
+            observer.flush()
         perf.add('capability_field_update', time.perf_counter() - field_t0)
         row.update(field_diag)
         reward_mean = float(np.asarray(aux.get('rollout_reward_mean', 0.0)))
@@ -828,6 +901,7 @@ def train(args: TrainingConfig) -> int:
             save_checkpoint(
                 run_dir / 'checkpoints' / 'recovery.pkl', rollout_policy_state,
                 {'step': total_steps, 'run_name': run_name, **obs_meta,
+                 **rollout_teacher_meta_for_metrics,
                  'competence': comp_med, 'core_competence': core_med,
                  'recovery_tier': recovery_tier, 'recovery_rank': list(recovery_rank),
                  'lr_scale': rollout_lr_scale_for_metrics, 'evaluated_policy': True},
@@ -850,10 +924,15 @@ def train(args: TrainingConfig) -> int:
                 recovery_path, state=state, governor=governor,
                 health=health, env=env, step=total_steps, report=report,
                 obs_mean=obs_mean, obs_var=obs_var, obs_count=obs_count,
-                task_params_for_field=lambda new_field: params_with_field(
-                    total_steps, teaching_field=new_field),
-                log_prefix=LOG_PREFIX,expected_refresher_pin=refresher_pin)
+                task_params_for_field=lambda new_field,new_teacher=None: params_with_field(
+                    total_steps, teaching_field=new_field,teaching_teacher=new_teacher),
+                log_prefix=LOG_PREFIX,expected_refresher_pin=refresher_pin,
+                restore_teacher=restore_teachers if teacher is not None or uphill_teacher is not None else None)
             if restored is not None:
+                if observer is not None:
+                    observer.rollback()
+                if teacher is not None or uphill_teacher is not None:
+                    teacher,uphill_teacher=restored.teacher
                 rollback_count += 1
                 print(f'{LOG_PREFIX} rollback_count={rollback_count} '
                       f'at step={total_steps:,} (step clock is NOT rewound)',
@@ -953,7 +1032,7 @@ def train(args: TrainingConfig) -> int:
             # loop completely rather than relying on a single guard.
             ck_timing = save_checkpoint(
                 run_dir / 'checkpoints' / 'latest.pkl', state,
-                {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale, **obs_meta}, obs_norm,
+                {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale, **obs_meta, **teacher_meta(total_steps)}, obs_norm,
                 curriculum_state=governor.state_dict(), health_state=health.state_dict(),
                 field_state=field.state_dict(), require_finite_state=True)
             perf.add('checkpoint_latest_device_get', ck_timing['device_get_s'])
@@ -970,7 +1049,7 @@ def train(args: TrainingConfig) -> int:
             obs_norm = {'mean': obs_mean, 'var': obs_var, 'count': obs_count}
             snap_timing = save_rotating_snapshot(
                 run_dir / 'checkpoints', state,
-                {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale, **obs_meta}, obs_norm,
+                {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale, **obs_meta, **teacher_meta(total_steps)}, obs_norm,
                 curriculum_state=governor.state_dict(), health_state=health.state_dict(),
                 field_state=field.state_dict(), step=total_steps,
                 keep=max(0, int(SNAPSHOT_KEEP)))
@@ -985,6 +1064,7 @@ def train(args: TrainingConfig) -> int:
         rollout_curriculum_state_for_metrics = governor.state_dict()
         rollout_health_state_for_metrics = health.state_dict()
         rollout_field_state_for_metrics = field.state_dict()
+        rollout_teacher_meta_for_metrics=teacher_meta(total_steps+args.envs*ROLLOUT_STEPS)
         rollout_lr_scale_for_metrics = float(lr_scale)
         evaluated_obs_norm = {'mean': obs_mean, 'var': obs_var, 'count': obs_count}
         old_mean, old_std = obs_mean, obs_var ** 0.5
@@ -1080,16 +1160,17 @@ def train(args: TrainingConfig) -> int:
     # Evaluate and report the exact policy that generated the final rollout
     # before allowing that rollout to update governor stats.
     print(f'{LOG_PREFIX} PPO TARGET REACHED at step={total_steps:,}; '
-          'starting final read-only physics exams and checkpoint publication. '
-          'The next log lines report each exam panel; no new PPO updates '
-          'are running during this phase.',flush=True)
+          + ('independent exams delegated to external runner; ' if external_live_exams else
+             'starting final read-only physics exams; ') + 'checkpoint publication follows.',flush=True)
     maybe_fixed_eval(total_steps, force=True)
-    print(f'{LOG_PREFIX} final physical exams finished; '
-          'summarizing final rollout and writing validated final checkpoint...',flush=True)
+    print(f'{LOG_PREFIX} summarizing final rollout and writing validated final checkpoint...',flush=True)
     row = summarize_rollout(rollout_metrics, rollout_params_for_metrics)
+    observe_skills(total_steps)
     row.update(field.update_from_rollout(
         rollout_metrics, step=total_steps, control_dt=CONTROL_DT,
-        exclude_field_taught=not bool(args.field_evidence_from_taught)))
+        exclude_field_taught=not bool(args.field_evidence_from_taught), event_sink=event_sink))
+    if observer is not None:
+        observer.flush(reason='final', force=True)
     augment_rollout_row(
             row, aux, rollout_params_for_metrics=rollout_params_for_metrics,
             rollout_lr_scale_for_metrics=rollout_lr_scale_for_metrics,
@@ -1129,7 +1210,7 @@ def train(args: TrainingConfig) -> int:
         run_dir, step=total_steps, params=params, report=report, metrics_row=final_row)
     final_ck_timing = save_checkpoint(
         run_dir / 'checkpoints' / 'latest.pkl', state,
-        {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale, **obs_meta},
+        {'step': total_steps, 'run_name': run_name, 'lr_scale': lr_scale, **obs_meta, **teacher_meta(total_steps)},
         {'mean': obs_mean, 'var': obs_var, 'count': obs_count},
         curriculum_state=governor.state_dict(), health_state=health.state_dict(),
         field_state=field.state_dict(), require_finite_state=True)
