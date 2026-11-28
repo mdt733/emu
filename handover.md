@@ -749,3 +749,35 @@ isolate novice failure-cost treatment from milestone shaping, ideally
 include uniform, engagement and engagement+reduced-fall-cost arms.
 Don't change global reward or launch manifest before registering and
 testing the new mechanism. No new training treatment implemented here.
+
+
+## Freedom School V1 (28 November)
+
+Registered three matched arms, U (uniform), H (existing engagement),
+F (identical H plus direct novice fall cost relief). Original two A/120M
+parents, 160 updates each, six students = 125829120 new world steps,
+target 141033472, matched independent exam seed 9864. No new geometry,
+actor inputs, optimizer or global reward changes. Existing engagement
+height profile, reference/practice distributions and teacher remain.
+F only: actual practice birth with active prerequisite stage and bonus
+b pays fraction 1-.90*b/4 of original explicit early-fall penalty.
+b=4,3,2,1,0 => .10,.325,.55,.775,1. This uses existing birth-latched
+lesson support as a local maturity proxy, not age or proof of total
+task mastery. No relief before diagnosis, during cooldown or when the
+lesson is inactive. Physics divergence always pays full original cost.
+Real falls still terminate, reset and lose continuation return.
+No compensation for lost future reward, no reward for falling. Treat
+reset exploitation / rapid failure as a failure mode to test rather
+than assuming it is impossible. H vs F isolates enabling relief
+(including the resulting adaptive feedback), not separately a different
+teacher allocation policy. U anchors ordinary practice.
+
+All engagement arms publish actual baseline penalty, actual paid
+penalty, relief, and divergence. Observer aggregates counts, actual
+relieved falls, both cost sums and fall age sums per stage, cohort,
+height. Raw windows and cliff_windows.csv retain those denominators.
+GPU preflight must observe both relieved and full-cost terminal
+falls and verify actual payment equals expected before accepting.
+Original global reward, references, independent exam untouched.
+New manifest ks150-live-skill-freedom-v1; results-live-skill-freedom.zip.
+No training launched in this chat. Full GPU acceptance pending.

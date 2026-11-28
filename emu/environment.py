@@ -1048,6 +1048,7 @@ class EmuMJXEnv(TaskSampler):
                  skill_uphill_stage: str = 'none',
                  skill_adaptive_uphill: bool = False,
                  skill_uphill_profile: str = 'ladder',
+                 skill_novice_fall_relief: bool = False,
                  science_gate_mode: str = "legacy",
                  science_phase_lowcmd_scale: float = 1.0,
                  science_phase_sync_strength: float = 1.0,
@@ -1158,6 +1159,9 @@ class EmuMJXEnv(TaskSampler):
         if skill_adaptive_uphill and (not skill_uphill_practice_share or skill_uphill_stage!='none'):
             raise ValueError('Adaptive uphill needs practice and no static prerequisite stage')
         self.skill_adaptive_uphill=bool(skill_adaptive_uphill)
+        if skill_novice_fall_relief and (not skill_adaptive_uphill or skill_uphill_profile!='engagement'):
+            raise ValueError('Novice fall relief requires the adaptive engagement classroom')
+        self.skill_novice_fall_relief=bool(skill_novice_fall_relief)
         if science_gate_mode not in ("legacy","zero-only","off"):
             raise ValueError("Invalid v5051 gate mode")
         limits=dict(science_phase_lowcmd_scale=(0.,1.),
@@ -1856,8 +1860,21 @@ class EmuMJXEnv(TaskSampler):
         # penalty points and drown out novice ascent/foothold discovery.
         # Preserve the proven 700-frame gait penalty economics; ages beyond
         # 700 naturally receive the original flat base penalty only.
-        reward,fall_payment=apply_early_fall_penalty(
-            reward,terminal_fail,episode_age_steps,self.max_episode_steps,xp=jnp)
+        # Relief is determined at birth by the teacher's existing stage
+        # and bonus, not by training age or a future success/failure.
+        if self.skill_novice_fall_relief:
+            from .rewards import novice_fall_scale
+            fall_scale=novice_fall_scale(jnp,state.skill_uphill_id,
+                state.skill_uphill_birth_stage,state.skill_uphill_birth_bonus,physics_diverged)
+            _,full_fall_payment=apply_early_fall_penalty(
+                reward,terminal_fail,episode_age_steps,self.max_episode_steps,xp=jnp)
+            reward,fall_payment=apply_early_fall_penalty(
+                reward,terminal_fail,episode_age_steps,self.max_episode_steps,xp=jnp,
+                penalty_scale=fall_scale)
+        else:
+            reward,fall_payment=apply_early_fall_penalty(
+                reward,terminal_fail,episode_age_steps,self.max_episode_steps,xp=jnp)
+            full_fall_payment=fall_payment
 
         ep_return = state.ep_return + reward
         ep_len = state.ep_len + 1.0
@@ -2155,6 +2172,9 @@ class EmuMJXEnv(TaskSampler):
             cmd_resampled=cmd_resampled, fall_payment=fall_payment)
         if self.skill_uphill_profile=='engagement':
             out_metrics['skill_total_reward']=jnp.nan_to_num(reward)
+            out_metrics['skill_full_fall_payment']=full_fall_payment
+            out_metrics['skill_fall_relief']=fall_payment-full_fall_payment
+            out_metrics['skill_physics_diverged']=physics_diverged.astype(jnp.float32)
         return StepOut(
             new_state, jnp.nan_to_num(obs), jnp.nan_to_num(bootstrap_obs), jnp.nan_to_num(reward), done.astype(jnp.float32),
             # Defense in depth: the rollback above is the real fix for

@@ -165,6 +165,7 @@ def env_kwargs_from_args(args) -> dict:
         skill_uphill_stage=args.skill_uphill_stage,
         skill_adaptive_uphill=args.skill_adaptive_uphill,
         skill_uphill_profile=args.skill_uphill_profile,
+        skill_novice_fall_relief=getattr(args,'skill_novice_fall_relief',False),
         science_gate_mode=args.science_gate_mode,
         science_phase_lowcmd_scale=args.science_phase_lowcmd_scale,
         science_phase_sync_strength=args.science_phase_sync_strength,

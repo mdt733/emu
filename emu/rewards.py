@@ -312,8 +312,19 @@ def _gait_maturity(m, jnp, *, allow_zero_command_balance=False,
 # Historical counterfactual and ascent-credit experiments remain in Git.
 # The live prism reward has no speculative single-lip ascent subsidy.
 
+def novice_fall_scale(xp, ids, stage, bonus, diverged):
+    """Birth-latched lesson tolerance; never relieve a numerical failure.
+
+    The teacher's existing bonus is 4 for a diagnosed missing prerequisite,
+    fades by one on fresh mastery evidence, and is zero when inactive.
+    Do not change ordinary or reference worlds, or add survival credit.
+    """
+    eligible=(ids>=6)&(ids<12)&(stage>=1)&(stage<=5)&~diverged
+    return xp.where(eligible,1.-.90*xp.clip(bonus,0.,4.)/4.,1.)
+
+
 def apply_early_fall_penalty(reward, terminal_fail, episode_age_steps,
-                             max_episode_steps, *, xp):
+                             max_episode_steps, *, xp, penalty_scale=None):
     """Same early-death penalty as accepted main. Timeouts receive no penalty.
 
     The second return value is a negative *reward contribution*, not a measured
@@ -322,6 +333,8 @@ def apply_early_fall_penalty(reward, terminal_fail, episode_age_steps,
     amount = (EARLY_FALL_BASE_PENALTY +
               EARLY_FALL_TIME_PENALTY *
               xp.maximum(0.0, max_episode_steps - episode_age_steps))
+    if penalty_scale is not None:
+        amount=amount*penalty_scale
     penalized = xp.where(terminal_fail, reward - amount, reward)
     payment = xp.where(terminal_fail, -amount, xp.zeros_like(reward))
     return penalized, payment

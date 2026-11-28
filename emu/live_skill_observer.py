@@ -69,6 +69,7 @@ class LiveSkillObserver:
         self.window_steps = int(window_steps)
         self.counts = {}
         self.motion_reward_sums = {}
+        self.fall_cost_sums = {}
         self.updates = 0
         self.epoch = 0
         self.host_seconds = 0.
@@ -232,6 +233,36 @@ class LiveSkillObserver:
                                                (np.asarray(metrics['episode_fell'])>.5)))):
                         raise ValueError('Invalid actual uphill bonus payment')
                     practice=assigned_up>=6
+                    if 'skill_fall_relief' in metrics:
+                        # All arms publish the same diagnostics, including
+                        # zero relief in U/H. Sum actual terminal payments,
+                        # not inferred reward from prescribed lessons.
+                        relief=np.asarray(metrics['skill_fall_relief'])
+                        full=np.asarray(metrics['skill_full_fall_payment'])
+                        actual=np.asarray(metrics['reward_weighted_fall_penalty'])
+                        diverged=np.asarray(metrics['skill_physics_diverged'])>.5
+                        fell=np.asarray(metrics['episode_fell'])>.5
+                        if any(a.shape!=done.shape for a in (relief,full,actual,diverged,fell)):
+                            raise ValueError('Wrong fall cost diagnostic shape')
+                        if (not np.isfinite(relief).all() or not np.isfinite(full).all() or
+                            np.any(relief<0.) or np.any(actual>0.) or
+                            not np.allclose(full+relief,actual,atol=2e-5) or
+                            np.any((relief>0.)&(~practice|~fell|~done|diverged|(stage==0)|(bonus==0)))):
+                            raise ValueError('Invalid actual novice fall relief')
+                        for cohort,mask in (('reference',reference),('practice',practice)):
+                            for s in range(6):
+                                selected=mask & fell & (stage==s)
+                                for i in range(6):
+                                    take_fall=selected & (assigned_up%6==i)
+                                    n=int(take_fall.sum())
+                                    if n:
+                                        sums=self.fall_cost_sums.setdefault(f'{cohort}/{s}/{i}',[0,0,0.,0.,0.,0])
+                                        sums[0]+=n
+                                        sums[1]+=int((take_fall & (relief>0.)).sum())
+                                        sums[2]+=float(np.sum(full[take_fall],dtype=np.float64))
+                                        sums[3]+=float(np.sum(actual[take_fall],dtype=np.float64))
+                                        sums[4]+=float(np.sum(age[take_fall],dtype=np.float64))
+                                        sums[5]+=int((take_fall & diverged).sum())
                     for s in range(6):
                         selected=practice & (stage==s)
                         self._binned(f'practice_uphill_stage_{s}_frames',assigned_up[selected]%6,pay[selected]>0.)
@@ -320,12 +351,14 @@ class LiveSkillObserver:
                           for key, (n, k) in sorted(self.counts.items())})
         if self.uphill_profile=='engagement':
             row['uphill_motion_reward_sums']={k:list(v) for k,v in self.motion_reward_sums.items()}
+            row['uphill_fall_cost_sums']={k:list(v) for k,v in self.fall_cost_sums.items()}
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, sort_keys=True, allow_nan=False) + "\n")
             f.flush()
         self.start = self.last
         self.counts.clear()
         self.motion_reward_sums.clear()
+        self.fall_cost_sums.clear()
         self.updates = 0
         self.host_seconds = 0.
         self.reference_frames.fill(0)

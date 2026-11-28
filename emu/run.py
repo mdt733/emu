@@ -198,6 +198,9 @@ def one_run_config(args) -> TrainingConfig:
     uphill_stage=getattr(args,'skill_uphill_stage','none')
     adaptive_uphill=bool(getattr(args,'skill_adaptive_uphill',False))
     uphill_profile=getattr(args,'skill_uphill_profile','ladder')
+    novice_fall_relief=bool(getattr(args,'skill_novice_fall_relief',False))
+    if novice_fall_relief and (not adaptive_uphill or uphill_profile!='engagement'):
+        raise ValueError('Novice fall relief requires adaptive engagement practice')
     from .live_skill_uphill import uphill_heights
     uphill_heights(uphill_profile)
     uphill_cap=.25 if uphill_profile in ('cliff','engagement') else .15
@@ -279,6 +282,7 @@ def one_run_config(args) -> TrainingConfig:
                    skill_uphill_stage=uphill_stage,
                    skill_adaptive_uphill=adaptive_uphill,
                    skill_uphill_profile=uphill_profile,
+                   skill_novice_fall_relief=novice_fall_relief,
                    fixed_eval_every_steps=fixed_eval_every_steps,
                    # Source main foundation: steady-first low-gain gait. The
                    # mature caps remain physical *headroom*, not birth tasks.

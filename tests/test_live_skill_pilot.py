@@ -107,3 +107,14 @@ def test_engagement_plan_preserves_matched_control_and_old_profile():
     assert dict(q.arms)=={"U":(),"H":("--skill-adaptive-uphill",)}
     assert q.exam_seed==9863 and q.result=="results-live-skill-engagement.zip"
     assert p.cliff_plan().profile=="cliff" and p.cliff_plan().updates==100
+
+
+def test_freedom_plan_matches_engagement_and_isolates_treatment():
+    q=p.freedom_plan()
+    assert q.profile=="engagement" and q.updates==160
+    assert q.common==p.engagement_plan().common
+    assert q.target==141033472
+    assert q.spec(Path("/tmp/parent"))["total_additional_steps"]==125829120
+    assert dict(q.arms)=={"U":(),"H":("--skill-adaptive-uphill",),
+        "F":("--skill-adaptive-uphill","--skill-novice-fall-relief")}
+    assert q.exam_seed==9864 and q.result=="results-live-skill-freedom.zip"

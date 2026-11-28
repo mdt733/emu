@@ -74,6 +74,7 @@ def main():
     p.add_argument("--live-uphill-smoke",action="store_true",
                    help="active fixed-height uphill reference/practice prism acceptance")
     p.add_argument("--uphill-profile",choices=("ladder","cliff","engagement"),default="ladder")
+    p.add_argument("--novice-fall-relief",action="store_true")
     p.add_argument("--live-recovery-smoke",action="store_true",
                    help="actual mature fixed reference and targeted practice births and PPO")
     p.add_argument("--abc-refresher-smoke",action="store_true",
@@ -130,6 +131,8 @@ def main():
     if a.gpu_audit_dir and not a.profile_rollout:
         p.error("--gpu-audit-dir requires --profile-rollout and full 2048/1024-world PPO")
     import faulthandler
+    if a.novice_fall_relief and (not a.live_uphill_smoke or a.uphill_profile!="engagement"):
+        p.error("Novice relief smoke requires engagement uphill smoke")
     live_smoke=a.live_recovery_smoke or a.live_uphill_smoke
     if live_smoke:
         print("STUDIO PREFLIGHT initializing CUDA and physical geometry (15-minute watchdog)",flush=True)
@@ -191,7 +194,8 @@ def main():
         share=.25 if a.uphill_profile in ("cliff","engagement") else .15
         school_kwargs.update(live_skill_observer=True,skill_uphill_reference_share=share,
                              skill_uphill_practice_share=share,skill_adaptive_uphill=True,
-                             skill_uphill_profile=a.uphill_profile)
+                             skill_uphill_profile=a.uphill_profile,
+                             skill_novice_fall_relief=a.novice_fall_relief)
     env=EmuMJXEnv(
         robot_xml_path,num_envs=a.worlds,seed=a.seed,max_episode_steps=700,
         terrain_step_max_m=(.055 if a.stair_survival_curriculum else .08),
@@ -492,15 +496,31 @@ def main():
             live_observer.flush()
         uphill_verdicts=np.zeros((2,6),dtype=np.int64)
         uphill_survivors=np.zeros((2,6),dtype=np.int64)
+        relief_falls=0
+        ordinary_falls=0
         def check_uphill_metrics(metrics):
+            nonlocal relief_falls,ordinary_falls
             if not a.live_uphill_smoke:
                 return
             keys=("skill_uphill_id","skill_first_birth_lip_m","episode_done","episode_length",
                   "episode_fell","reward_uphill_prerequisite","skill_uphill_birth_stage",
                   "skill_uphill_birth_bonus","skill_stair_first_support",
                   "skill_stair_each_foot_five","skill_stair_traversed")
+            if a.novice_fall_relief:
+                keys+=("skill_fall_relief","skill_full_fall_payment","reward_weighted_fall_penalty","skill_physics_diverged")
             m={k:np.asarray(v) for k,v in jax.device_get({k:metrics[k] for k in keys}).items()}
             ids=m["skill_uphill_id"]; active=ids>=0
+            if a.novice_fall_relief:
+                fell=m["episode_fell"]>.5
+                eligible=(ids>=6)&(m["skill_uphill_birth_stage"]>0)&(m["skill_uphill_birth_bonus"]>0)&~(m["skill_physics_diverged"]>.5)
+                scale=np.where(eligible,1.-.9*m["skill_uphill_birth_bonus"]/4.,1.)
+                full=np.where(fell,-(65.+.1*np.maximum(0.,700.-m["episode_length"])),0.)
+                np.testing.assert_allclose(m["skill_full_fall_payment"],full,atol=2e-5)
+                np.testing.assert_allclose(m["reward_weighted_fall_penalty"],full*scale,atol=2e-5)
+                np.testing.assert_allclose(m["skill_fall_relief"],full*scale-full,atol=2e-5)
+                assert np.all(m["episode_done"][fell]>.5)
+                relief_falls+=int((fell & eligible).sum())
+                ordinary_falls+=int((fell & ~eligible).sum())
             assert ids.shape==(32,a.worlds) and active.any()
             np.testing.assert_allclose(m["skill_first_birth_lip_m"][active],
                 np.asarray(UP_HEIGHTS_M)[ids[active].astype(int)%6],atol=5e-5)
@@ -661,6 +681,9 @@ def main():
                 print("LIVE RECOVERY GPU terminal verdicts PASS:",reference_verdicts,flush=True)
             if a.live_uphill_smoke:
                 assert np.all(uphill_verdicts>0),uphill_verdicts
+                if a.novice_fall_relief:
+                    assert relief_falls>0 and ordinary_falls>0,(relief_falls,ordinary_falls)
+                    print("NOVICE FALL GPU isolation PASS:",relief_falls,ordinary_falls,flush=True)
                 print("LIVE UPHILL GPU completed trials per cohort/case:",uphill_verdicts.tolist(),flush=True)
                 print("LIVE UPHILL GPU survived full horizons:",uphill_survivors.tolist(),flush=True)
                 # Random initial actor need not master or survive a climb.

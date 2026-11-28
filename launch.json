@@ -1,23 +1,25 @@
 {
   "schema": "emu.launch.v1",
-  "id": "ks150-live-skill-engagement-v1",
-  "title": "Engagement School · learn to attempt",
-  "description": "Matched uniform versus expanded adaptive uphill teacher: controlled approach, first contact and existing physical prerequisites. Actual credit and movement reward audit.",
+  "id": "ks150-live-skill-freedom-v1",
+  "title": "Freedom School · learn through failure",
+  "description": "Matched uniform, adaptive engagement and adaptive engagement with skill-local direct fall penalty relief. Real terminal falls and original reference rewards; actual failure-cost evidence.",
   "module": "scripts.live_skill_pilot",
   "args": [
     "--classroom",
-    "engagement",
+    "freedom",
     "--root",
     "{study_root}",
     "--parent-root",
     "{parent_root}"
   ],
   "parent_study": "ks150-abc-unattended-v2",
-  "result": "results-live-skill-engagement.zip",
+  "result": "results-live-skill-freedom.zip",
   "worlds": 4096,
   "students": [
     "U-s9501",
     "H-s9501",
+    "F-s9501",
+    "F-s9502",
     "H-s9502",
     "U-s9502"
   ],

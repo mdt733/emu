@@ -72,6 +72,13 @@ def engagement_plan():
                      160,9863,.25,"results-live-skill-engagement.zip")
 
 
+def freedom_plan():
+    base=engagement_plan()
+    return StudyPlan("freedom","engagement",(*base.arms,
+        ("F",("--skill-adaptive-uphill","--skill-novice-fall-relief"))),
+        base.common,160,9864,.25,"results-live-skill-freedom.zip")
+
+
 def publish_copy(src,dst,digest):
     dst.parent.mkdir(parents=True,exist_ok=True)
     if dst.exists():
@@ -131,6 +138,7 @@ def smoke(root,commit,plan=DEFAULT):
           "--stair-survival-curriculum","--live-recovery-smoke","--live-uphill-smoke",
           "--benchmark-updates","12"]
     if plan.profile!="ladder": args+=["--uphill-profile",plan.profile]
+    if plan.name=="freedom": args+=["--novice-fall-relief"]
     expected=dict(source_commit=commit,args=args)
     if receipt.exists():
         if read(receipt)!=expected:
@@ -250,6 +258,7 @@ def live_coverage(run,commit,plan=DEFAULT):
                     or (plan.profile!="ladder" and row.get("uphill_heights_m")!=list(uphill_heights(plan.profile)))
                     or (plan.profile=="engagement" and (row.get("uphill_profile")!="engagement"
                          or not isinstance(row.get("uphill_motion_reward_sums"),dict)))
+                    or (plan.name=="freedom" and not isinstance(row.get("uphill_fall_cost_sums"),dict))
                     or row["world_frames"]!=row["end_step"]-row["start_step"]
                     or (previous is not None and row["start_step"]!=previous)):
                 raise RuntimeError("Live observer lineage/window mismatch")
@@ -294,7 +303,8 @@ def verify_final(root,arm,seed,commit,plan=DEFAULT):
     meta=payload["meta"]
     if (cfg.envs!=WORLDS or cfg.steps!=plan.target or cfg.seed!=seed
             or not cfg.live_skill_observer or cfg.fixed_eval_every_steps!=0 or cfg.physical_profile!="h40-spring-only"
-            or cfg.skill_adaptive_recovery!=(arm=="R") or cfg.skill_adaptive_uphill!=(arm=="H")
+            or cfg.skill_adaptive_recovery!=(arm=="R") or cfg.skill_adaptive_uphill!=(arm in ("H","F"))
+            or cfg.skill_novice_fall_relief!=(arm=="F")
             or cfg.skill_uphill_stage!="none" or cfg.mission_refreshers or cfg.cross_specialty_stairs
             or cfg.skill_uphill_profile!=plan.profile
             or any(getattr(cfg,k)!=.15 for k in ("skill_reference_recovery_share","skill_practice_recovery_share"))
@@ -304,9 +314,9 @@ def verify_final(root,arm,seed,commit,plan=DEFAULT):
         raise RuntimeError("Final learner differs from registered treatment")
     teacher={}
     for key,active,cls in (("live_recovery_teacher",arm=="R",RecoveryTeacher),
-                           ("live_uphill_teacher",arm=="H",UphillTeacher)):
+                           ("live_uphill_teacher",arm in ("H","F"),UphillTeacher)):
         if active:
-            restored=(cls.from_state_dict(meta.get(key),plan.target,plan.profile) if arm=="H" else
+            restored=(cls.from_state_dict(meta.get(key),plan.target,plan.profile) if arm in ("H","F") else
                       cls.from_state_dict(meta.get(key),plan.target))
             teacher[key]=restored.state_dict(plan.target)
             if teacher[key]["clock"]>plan.updates*WORLDS*ROLLOUT:
@@ -370,6 +380,7 @@ def compare(root,plan=DEFAULT):
                 task=key[1],gate=key[2],attempts_each=n,parent_pass=p)
             row.update({f"{a}_pass":v for a,v in k.items()})
             row.update({f"{a}_minus_U_pp":round(100*(v-k["U"])/n,6) for a,v in k.items() if a!="U"})
+            if "F" in k: row["F_minus_H_pp"]=round(100*(k["F"]-k["H"])/n,6)
             rows.append(row)
     return rows
 
@@ -426,6 +437,18 @@ def cliff_windows(root,plan):
                                     row[motion+"_reward_frames"]=n if cohort=="reference" else ""
                                     row[motion+"_mean_total_reward"]=total/n if cohort=="reference" and n else ""
                                     row[motion+"_mean_locomotion_reward"]=loc/n if cohort=="reference" and n else ""
+                            if plan.name=="freedom":
+                                for s in range(6):
+                                    n,relieved,full,actual,age,diverged=raw["uphill_fall_cost_sums"].get(
+                                        f"{cohort}/{s}/{i}",[0,0,0.,0.,0.,0])
+                                    if relieved and (arm!="F" or cohort!="practice" or s==0):
+                                        raise RuntimeError("Relief escaped registered treatment")
+                                    row[f"stage_{s}_falls"]=n
+                                    row[f"stage_{s}_relieved_falls"]=relieved
+                                    row[f"stage_{s}_full_fall_cost"]=-full
+                                    row[f"stage_{s}_actual_fall_cost"]=-actual
+                                    row[f"stage_{s}_fall_age_sum"]=age
+                                    row[f"stage_{s}_diverged_falls"]=diverged
                             rows.append(row)
     stream=io.StringIO()
     writer=csv.DictWriter(stream,fieldnames=list(rows[0]))
@@ -529,9 +552,9 @@ def main(argv=None):
     p.add_argument("--root",required=True,type=Path)
     p.add_argument("--parent-root",type=Path,
         default=Path.home()/"emu-data/studies/ks150-abc-unattended-v2")
-    p.add_argument("--classroom",choices=("original","cliff","engagement"),default="original")
+    p.add_argument("--classroom",choices=("original","cliff","engagement","freedom"),default="original")
     a=p.parse_args(argv)
-    go(a.root,a.parent_root,{"original":DEFAULT,"cliff":cliff_plan(),"engagement":engagement_plan()}[a.classroom])
+    go(a.root,a.parent_root,{"original":DEFAULT,"cliff":cliff_plan(),"engagement":engagement_plan(),"freedom":freedom_plan()}[a.classroom])
 
 
 if __name__=="__main__":
