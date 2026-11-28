@@ -991,9 +991,11 @@ async function pollLive() {
     const response = await fetch('/api/live/status', {cache:'no-store'});
     if (!response.ok) throw new Error(`Status HTTP ${response.status}`);
     const state = await response.json();
-    $('livePhase').textContent = state.phase || 'Awaiting checkpoint';
+    const showingFallback = Boolean(sim && policyLibrary[activePolicyIndex]?.isFallback);
+    $('livePhase').textContent = state.phase || (showingFallback ? 'Champion fallback' : 'Awaiting checkpoint');
     $('liveStep').textContent = state.step == null ? '—' : Number(state.step).toLocaleString();
-    $('liveNote').textContent = state.note || (state.available ? 'Latest validated checkpoint ready' : 'Waiting for first checkpoint');
+    const note = state.note || (state.available ? 'Latest validated checkpoint ready' : 'Waiting for first checkpoint');
+    $('liveNote').textContent = showingFallback ? 'Showing champion until a live policy loads. ' + note : note;
     if (!state.available || !state.revision || state.revision === liveRevision ||
         !$('liveUpdate').checked || loading) return;
     const policyResponse = await fetch('/api/live/policy', {cache:'no-store'});
@@ -1127,6 +1129,26 @@ async function startViewerFeed() {
           demoActive=$('liveDemo').checked;
           if(demoActive){carpetDrive.value='manual';strollClock=Infinity;}
           syncGoalMode();
+          // Studio supplies a known champion AND a live watcher. Initialize
+          // the scene before polling checkpoints: an empty or slow watcher
+          // must not leave an uninitialized black canvas.
+          if (config.initial_policy) {
+            try {
+              const file = await fetch('/api/initial-policy', {cache:'no-store'});
+              if (!file.ok) throw new Error(`Initial policy HTTP ${file.status}`);
+              const parsed = parsePolicy(await file.text());
+              policyLibrary.push({fileName:'CHAMPION · waiting for live checkpoint',bundle:parsed,isFallback:true});
+              if (!await activatePolicy(policyLibrary.length-1))
+                throw new Error('Champion fallback could not be started');
+              $('livePhase').textContent = 'Champion fallback';
+              $('liveNote').textContent = 'Showing champion until a live policy loads.';
+            } catch (err) {
+              // A broken fallback must not prevent the live watcher from
+              // recovering when a valid training checkpoint appears.
+              console.error('Live viewer fallback:', err);
+              setStatus(`Fallback: ${err?.message || String(err)}`, 'error');
+            }
+          }
           await pollLive();
           setInterval(pollLive, 12000);
         }

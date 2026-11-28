@@ -520,3 +520,17 @@ design a global experience target and bounded feedback allocation,
 not merely increase conditional recovery birth probability. Do not
 mix its treatment into this uphill comparison or claim global frame
 control has already been implemented.
+
+
+## Studio live viewer fallback fix (28 November)
+
+The owner reported a black scene with joysticks/settings visible. Source
+inspection found the live startup branch ignored the supplied initial policy
+(`config.initial_policy && !config.live`); an empty live watcher therefore
+never created the simulator. Browser startup now loads the supplied champion
+before polling, labels it as fallback, and continues polling even if fallback
+loading fails. Existing live checkpoint validation and training remain unchanged.
+The viewer-only change does not alter launch.json, teacher or physics. A
+running study remains pinned; do not restart training to apply a viewer fix.
+The already-running old viewer can load showcase/champion.emupolicy manually.
+A browser/WASM acceptance check on the operator's machine remains necessary.
