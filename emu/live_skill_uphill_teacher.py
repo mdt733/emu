@@ -48,7 +48,7 @@ def engagement_diagnose_pair(pair):
         return 0
     # Earliest missing prerequisite, only after two supported blocks.
     # If contact already works, do not force an arbitrary torso path.
-    if all(r[6]/r[0]<=.80 and r[1]/r[0]<=.30 and
+    if all(r[6]/r[0]<=.50 and r[1]/r[0]<=.30 and
            1.-r[6]/r[0]>=GAP for r in pair):
         return 4
     if all(r[6]/r[0]>=.30 and r[1]/r[0]<=.80 and

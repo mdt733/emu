@@ -248,6 +248,8 @@ def live_coverage(run,commit,plan=DEFAULT):
             if (row["source_commit"]!=commit or row["worlds"]!=WORLDS
                     or not PARENT_STEP<=row["start_step"]<row["end_step"]<=plan.target
                     or (plan.profile!="ladder" and row.get("uphill_heights_m")!=list(uphill_heights(plan.profile)))
+                    or (plan.profile=="engagement" and (row.get("uphill_profile")!="engagement"
+                         or not isinstance(row.get("uphill_motion_reward_sums"),dict)))
                     or row["world_frames"]!=row["end_step"]-row["start_step"]
                     or (previous is not None and row["start_step"]!=previous)):
                 raise RuntimeError("Live observer lineage/window mismatch")

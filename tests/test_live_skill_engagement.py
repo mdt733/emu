@@ -50,3 +50,49 @@ def test_real_controlled_approach_and_once_only_credit():
             previous_approach=a,next_approach=s[0],previous_contact=c,next_contact=s[1])
     np.testing.assert_array_equal(pay(no,no),[4,4,0,0,0,0])
     assert not pay(s[0],s[1]).any()
+
+
+def test_engagement_observer_counts_real_payments_and_rewards(tmp_path):
+    from emu.live_skill_observer import LiveSkillObserver
+    # Four real frame records; terminal gate evidence remains episode based.
+    shape=(2,2)
+    names=["episode_done","episode_fell","specialist_focus","academy_active",
+           "skill_first_birth_lip_m","academy_episode_first_lip_armed",
+           "academy_episode_two_foot_ready","skill_first_goal_completed",
+           "physical_step_height_m","physical_slope_deg","episode_length",
+           "physical_heading_rad_after_step","skill_world_vx_after_step","cmd_vx",
+           "skill_uphill_birth_stage","skill_uphill_birth_bonus",
+           "skill_total_reward","reward_weighted_locomotion","reward_uphill_prerequisite"]
+    names += [f"terrain_episode_{k}_{d}" for d in ("up","down") for k in ("attempt","success")]
+    names += [f"slope_episode_{k}_{d}" for d in ("uphill","downhill","cross_left","cross_right")
+              for k in ("attempt","stable","success")]
+    names += ["skill_stair_"+g for g in ("approach","first_contact","first_support","each_foot_five","traversed")]
+    m={k:np.zeros(shape,np.float32) for k in names}
+    m["specialist_focus"].fill(3);m["academy_active"].fill(1)
+    m["skill_uphill_id"]=np.array([[5,11],[5,11]],np.int32)
+    m["skill_first_birth_lip_m"].fill(.032)
+    m["physical_position_xy_after_step"]=np.zeros(shape+(2,),np.float32)
+    m["episode_length"][:]=[[349,1],[350,2]]
+    m["episode_done"][1,0]=1
+    m["skill_stair_approach"][1,0]=1
+    m["cmd_vx"].fill(.16)
+    m["skill_world_vx_after_step"][:,0]=[.1,-.1]
+    m["skill_total_reward"][:,0]=[2.,1.]
+    m["reward_weighted_locomotion"][:,0]=[1.,.25]
+    m["skill_uphill_birth_stage"][:,1]=4
+    m["skill_uphill_birth_bonus"][:,1]=4
+    m["reward_uphill_prerequisite"][1,1]=4
+    obs=LiveSkillObserver(tmp_path,start_step=0,worlds=2,field_shape=(1,),
+        field_bounds=((0,1),),source_commit="test",window_steps=1,uphill_profile="engagement")
+    obs.observe(m,step=4)
+    row=obs.flush()
+    assert row["uphill_profile"]=="engagement"
+    assert obs.last_uphill_counts[5]==[1,0,0,0,0,0,1]
+    assert row["cells"]["practice_uphill_stage_4_frames/5"]=={"attempts":2,"passes":1}
+    assert row["cells"]["practice_uphill_stage_4_births/5"]=={"attempts":1,"passes":1}
+    assert row["cells"]["practice_uphill_stage_4_bonus_4/5"]=={"attempts":1,"passes":1}
+    assert row["uphill_motion_reward_sums"]=={"forward/5":[1,2.,1.],"reverse/5":[1,1.,.25]}
+    assert not obs.motion_reward_sums
+    m["reward_uphill_prerequisite"][0,0]=4
+    with pytest.raises(ValueError,match="actual uphill bonus"):
+        obs.observe(m,step=8)

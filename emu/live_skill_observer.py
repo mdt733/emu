@@ -63,6 +63,8 @@ class LiveSkillObserver:
                            lip_edges_mm=list(LIP_EDGES_MM),
                            grade_edges_deg=list(GRADE_EDGES_DEG),
                            process_start_step=int(start_step))
+        if self.uphill_profile=='engagement':
+            self.header['uphill_profile']=self.uphill_profile
         self.start = self.last = int(start_step)
         self.window_steps = int(window_steps)
         self.counts = {}
@@ -205,7 +207,7 @@ class LiveSkillObserver:
                 if self.uphill_profile=='engagement':
                     # Same PPO reward, not a hypothetical reward reconstruction.
                     total=np.asarray(metrics['skill_total_reward'])
-                    locomotion=np.asarray(metrics['reward_locomotion'])
+                    locomotion=np.asarray(metrics['reward_weighted_locomotion'])
                     if total.shape!=done.shape or locomotion.shape!=done.shape:
                         raise ValueError('Wrong engagement reward diagnostic shape')
                     for label,motion in (('forward',vx>.05),('reverse',vx<-.05),('slow',np.abs(vx)<=.05)):
@@ -225,7 +227,9 @@ class LiveSkillObserver:
                     age=np.asarray(metrics['episode_length'])
                     if any(a.shape!=done.shape for a in (stage,bonus,pay,age)):
                         raise ValueError('Wrong uphill credit diagnostic shape')
-                    if np.any((pay!=0)&((assigned_up<6)|(pay!=bonus)|(stage==0))):
+                    if (not np.isin(stage,range(6)).all() or not np.isin(bonus,range(5)).all()
+                            or np.any((pay!=0)&((assigned_up<6)|(pay!=bonus)|(stage==0)|
+                                               (np.asarray(metrics['episode_fell'])>.5)))):
                         raise ValueError('Invalid actual uphill bonus payment')
                     practice=assigned_up>=6
                     for s in range(6):
@@ -315,7 +319,7 @@ class LiveSkillObserver:
                    cells={key: {"attempts": n, "passes": k}
                           for key, (n, k) in sorted(self.counts.items())})
         if self.uphill_profile=='engagement':
-            row['uphill_motion_reward_sums']=self.motion_reward_sums
+            row['uphill_motion_reward_sums']={k:list(v) for k,v in self.motion_reward_sums.items()}
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, sort_keys=True, allow_nan=False) + "\n")
             f.flush()

@@ -303,6 +303,12 @@ def main():
         assert np.all(np.asarray(state.skill_uphill_birth_bonus)[practice]==4.)
         assert np.all(np.asarray(changed_state.skill_uphill_birth_bonus)[practice]==1.)
         assert not np.asarray(changed_state.skill_uphill_birth_bonus)[~practice].any()
+        if a.uphill_profile=="engagement":
+            birth_stages=np.asarray(state.skill_uphill_birth_stage)
+            assert not birth_stages[~practice].any()
+            np.testing.assert_array_equal(birth_stages[practice],
+                np.asarray([2,4,5,2,4,5])[ids[practice]%6])
+            print("ENGAGEMENT GPU birth stage isolation PASS",flush=True)
         del changed_state,changed_obs
         print("LIVE UPHILL GPU exact signed prism births PASS:",
             int(((ids>=0)&(ids<6)).sum()),int((ids>=6).sum()),flush=True)
