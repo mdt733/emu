@@ -25,6 +25,7 @@ import time
 from urllib.parse import urlsplit
 
 from scripts.studio_progress import progress, partial_archive
+from scripts.studio_eta import forecast
 
 BRANCH = "research/ks150-live-skill-school-v1"
 ORIGINS = {"https://github.com/mdt733/emu", "https://github.com/mdt733/emu.git",
@@ -122,7 +123,7 @@ def recent_jsonl(path):
 def student_data(root,name,parent,target):
     folder=root/"runs"/name
     keys=("step","reward_mean","fall_rate","vx_mean","cmd_vx_mean",
-          "train_steps_per_sec","steps_per_sec","core_competence",
+          "train_steps_per_sec","steps_per_sec","elapsed_s","core_competence",
           "academy_height_up_m","academy_height_down_m","rollback_count")
     history=deque(maxlen=96)
     try:
@@ -373,6 +374,7 @@ class Studio:
         except OSError: age=None
         status=progress(focus,rows,log,active,age) if focus else None
         if status:
+            status["eta"]=forecast(focus,rows,status,log,self.state)
             parent,target=m["parent_step"],m["target_step"]
             for row in rows:
                 row["progress"]=(status["student_steps"][row["name"]]-parent)/(target-parent)

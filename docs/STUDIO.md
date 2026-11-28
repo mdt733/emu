@@ -127,3 +127,29 @@ job. Keep the old controlling terminal open while it is active. Once
 idle, the new checkout can replace the old controller on port 8770.
 Do not click Get update & run to merely refresh a running job: it selects
 a new source/study. Resume last run preserves the original pin.
+
+
+## Wall-clock forecast (28 November)
+
+Studio now forecasts remaining study and current stage time, local finish
+time, a planning range, per-student endpoint times and time remaining by
+stage. The measured training percentage still uses completed world steps,
+not elapsed estimates. Throughput graph uses consecutive wall-clock
+metrics intervals (including host overhead), alongside PPO-only rate.
+Forecast drift graph is sampled every 15 seconds in the browser session.
+Prior timings use the recent local KS150 archives as a starting point;
+local Studio logs supply compile and exam samples, current study metrics
+supply effective throughput. Old pinned runners remain supported via
+their existing logs and receipts, with approximate stage starts.
+New runners log STUDIO TIME start/end for setup, acceptance, train,
+pulse, matrix and packaging. Ranges are planning envelopes, not statistical
+confidence intervals; compilation cache misses, stalls and GPU contention
+can exceed them. Unknown stage start is labeled, not silently fabricated.
+No training recipe, exam or launch manifest changes in this update.
+
+To inspect the active old run without interruption, fetch and make a
+separate detached checkout of this UI revision, then run the read-only
+monitor on port 8772 using the same EMU venv and state directory.
+After the run finishes, close the original controller before launching
+the updated controller on 8770. Do not select a new training run merely
+to update the UI.

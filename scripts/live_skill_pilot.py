@@ -26,6 +26,8 @@ from scripts.live_skill_pilot_plan import (
     WORLDS, ROLLOUT, UPDATES, registration, verify_parent,
 )
 
+from scripts.studio_eta import timed_stage
+
 EXAM_SEED=9861
 SCHEMA="ks150_live_skill_pilot_run_v1"
 
@@ -165,8 +167,9 @@ def smoke(root,commit,plan=DEFAULT):
             raise RuntimeError("Acceptance receipt identity mismatch")
         return
     print("PRECHECK: both mature lesson families, 12 updates",flush=True)
-    call(*args)
-    write_new(receipt,expected)
+    with timed_stage("acceptance","study"):
+        call(*args)
+        write_new(receipt,expected)
 
 
 def preserve_unsealed(path):
@@ -202,14 +205,15 @@ def endpoint(folder,policy,cfg,expected_actor,plan=DEFAULT):
     pulse_seal=folder/"pulse.json"
     if not pulse_seal.exists():
         preserve_unsealed(pulse)
-        call("-m","scripts.examine_h40_specialties","--policy",policy,
-             "--output",pulse,"--worlds","2048","--horizon","600",
-             "--seed",seed,"--device","cuda")
-        digest=sha(pulse)
-        read_pulse(pulse,archive_sha256=digest,actor_source=src,
-                   artifact_sha256=artifact,seed=seed,model_sha256=MODEL,
-                   sensor_sha256=sensor,expected_sources=source_hashes())
-        write_new(pulse_seal,dict(sha256=digest,artifact_sha256=artifact))
+        with timed_stage("pulse",folder.name):
+            call("-m","scripts.examine_h40_specialties","--policy",policy,
+                 "--output",pulse,"--worlds","2048","--horizon","600",
+                 "--seed",seed,"--device","cuda")
+            digest=sha(pulse)
+            read_pulse(pulse,archive_sha256=digest,actor_source=src,
+                       artifact_sha256=artifact,seed=seed,model_sha256=MODEL,
+                       sensor_sha256=sensor,expected_sources=source_hashes())
+            write_new(pulse_seal,dict(sha256=digest,artifact_sha256=artifact))
     ps=read(pulse_seal)
     if ps["artifact_sha256"]!=artifact:
         raise RuntimeError("Pulse actor changed")
@@ -219,10 +223,11 @@ def endpoint(folder,policy,cfg,expected_actor,plan=DEFAULT):
     matrix_seal=folder/"matrix.json"
     if not matrix_seal.exists():
         preserve_unsealed(matrix)
-        call("-m","scripts.v5053_matrix_exam","--policy",policy,
-             "--output",matrix,"--mode","stairs","--worlds","512",
-             "--levels","20","--trials-per-level","10","--horizon","350",
-             "--seed",seed,"--device","cuda")
+        with timed_stage("matrix",folder.name):
+            call("-m","scripts.v5053_matrix_exam","--policy",policy,
+                 "--output",matrix,"--mode","stairs","--worlds","512",
+                 "--levels","20","--trials-per-level","10","--horizon","350",
+                 "--seed",seed,"--device","cuda")
         m=read(matrix/"matrix_summary.json")["manifest"]
         expected=dict(actor_training_source=src,policy_sha256=artifact,
                       robot_model_sha256=MODEL,exam_source_sha256=exam_source_fingerprint(),
@@ -605,11 +610,12 @@ def go(root,parent_root,plan=DEFAULT):
                 raise RuntimeError("Study source/recipe registration differs")
         else:
             write_new(lock,spec)
-        parents={s:stage_parent(root,parent_root,s) for s in PARENTS}
-        # Verify each actual fork using production CLI before expensive GPU work.
-        for seed,p in parents.items():
-            for arm,_ in plan.arms:
-                call("-m","emu.cli","train","--check-resume-only",*train_args(root,arm,seed,p,plan))
+        with timed_stage("setup","study"):
+            parents={s:stage_parent(root,parent_root,s) for s in PARENTS}
+            # Verify each actual fork using production CLI before expensive GPU work.
+            for seed,p in parents.items():
+                for arm,_ in plan.arms:
+                    call("-m","emu.cli","train","--check-resume-only",*train_args(root,arm,seed,p,plan))
         smoke(root,commit,plan)
         from emu.training_config import TrainingConfig
         for seed,p in parents.items():
@@ -622,11 +628,14 @@ def go(root,parent_root,plan=DEFAULT):
         for seed,order in ((9501,order),(9502,order[::-1])):
             for arm in order:
                 print(f"STUDENT {arm}-s{seed}: {PARENT_STEP:,} -> {plan.target:,}",flush=True)
-                call("-m","emu.cli","train",*train_args(root,arm,seed,parents[seed],plan))
-                out,cfg,r=verify_final(root,arm,seed,commit,plan)
+                with timed_stage("train",f"{arm}-s{seed}"):
+                    call("-m","emu.cli","train",*train_args(root,arm,seed,parents[seed],plan))
+                    out,cfg,r=verify_final(root,arm,seed,commit,plan)
                 endpoint(out,out/"actor.emupolicy",cfg,dict(git_commit=commit,
                          step=plan.target,seed=seed,robot_model_sha256=MODEL,run_name=f"{arm}-s{seed}"),plan)
-        print("UPLOAD READY:",report(root,plan),flush=True)
+        with timed_stage("package","study"):
+            result=report(root,plan)
+        print("UPLOAD READY:",result,flush=True)
 
 
 def main(argv=None):

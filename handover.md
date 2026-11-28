@@ -939,3 +939,10 @@ execution remain untested locally; MuJoCo/Optax/Flax unavailable.
 Studio source displays fresh cases, block counts and statuses when using
 the updated UI bootstrap. Old UI still supports the generic manifest.
 No training launched, no champion promotion. Main remains frozen.
+
+
+## Studio ETA / progress upgrade (28 November)
+
+UI/runner timing only; retention training recipe and launch.json unchanged.
+See docs/STUDIO.md. Existing active job remains pinned; read-only monitor
+on 8772 can observe it without stopping the original controller.
