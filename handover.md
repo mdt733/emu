@@ -668,3 +668,84 @@ production path before accepting training. Do not treat test success as
 evidence that the educational intervention works. The longer budget was
 selected to increase the opportunity for actual teaching and fading; it
 does not guarantee enough disjoint mastery pairs.
+
+
+## Completed Engagement School — 28 November 2026
+
+Operator archive results-live-skill-engagement.zip, source 87f54fd7,
+81 entries, CRC clean; 86 file hash comparisons across training, matrix,
+endpoint and pulse receipts passed. Four students completed 141033472,
+160 updates / 20971520 additional world steps each; 83886080 total.
+GPU combined acceptance receipt present. No rollback or skipped NaN
+gradients; final reported train_steps_per_sec 41029–41912.
+Single observer segment / epoch 0 per student. 9813 fixed uphill
+reference and 9813 practice completed episodes (reference counts
+U9501/H9501/U9502/H9502=2453/2449/2497/2414; practice
+2452/2476/2442/2443). Actual global frame share ~3.91–4.15%
+reference, ~3.92–4.15% practice.
+
+Both teachers prescribed lessons at 124256256. H9501: first contact
+at 29/31mm, controlled approach at 32mm; later bilateral at 28mm and
+contact at 30mm. H9502: contact at 29mm, approach at 31mm; later
+contact at 28/30mm and approach at 32mm. H9501 faded contact at 29mm
+4->3 at final update. H9502 faded contact at 28mm 4->3->2.
+No fully faded lessons or stall pauses. Both mastered 20mm reference
+mission. Actual births / payments / sum of reward for stage 2,4,5:
+H9501 302/231/924, 361/180/720, 1003/471/1884;
+H9502 0/0/0, 645/247/988, 975/627/2418. Combined 3286 assisted
+births, 1756 actual payments, 6934 reward units. U zero credit.
+
+Late windows start >=135790592 (pooled two students per arm):
+height mm, U/H attempts, U/H controlled approach %, first contact %,
+bilateral %, traversal %, survival %:
+20 201/184 100/100 100/100 96.5/97.8 90.0/92.4 99.0/100
+28 193/186 99.0/99.5 99.5/96.2 85.5/84.4 68.9/71.0 92.2/92.5
+29 186/180 98.9/98.3 86.6/83.3 69.9/66.7 52.2/57.2 91.9/96.1
+30 183/198 91.3/94.9 61.7/66.2 45.9/51.0 33.9/31.8 91.8/92.4
+31 207/189 71.0/73.5 29.0/34.4 16.9/22.8 10.6/16.9 96.1/95.2
+32 189/220 46.0/49.1 4.2/8.2 1.6/3.6 1.1/2.7 98.9/98.6.
+Early windows end <=124256256: 32mm U/H controlled approach
+13.3/11.9%, contact and traversal zero. Both arms learn; no robust
+causal or transfer benefit. 32mm reference approach definition differs
+from prior Cliff study (controlled gate), so do not directly compare.
+
+Reward contrast pooled by actual pre-approach reference frame count:
+height mm; forward/reverse/slow total mean reward:
+20 2.333/NA/2.691 (only 111 slow frames)
+28 2.505/2.488/2.894
+29 2.728/2.552/2.890
+30 2.913/2.600/2.873
+31 3.064/2.631/2.855
+32 3.160/2.628/2.833 (191924/202917/141385 frames).
+At 32mm weighted locomotion means .987/.518/.667.
+Forward generally pays more at hardest heights, yet retreat remains
+common. Frame rewards do not establish action-conditional expected
+return or fall risk. Direct early fall penalty source 65 + .1 *
+max(0,700-age), in addition to losing future reward on termination.
+Even at end of 350-frame fixed classroom life a fall costs ~100;
+one +4 milestone is small relative to this. Hypothesis: failure
+economics, not just missing positive incentive. Need explicitly test
+practice-only attenuation while keeping real failure/reset and unchanged
+references, ordinary training and independent exams; may also need to
+address foregone continuation reward, not just explicit penalty.
+User emphasized self-preservation belongs after learning skill limits,
+not before exploration. Skill maturity, not absolute policy age.
+
+Independent matched fresh seed 9863 pulse mission totals parent/U/H:
+9501 1623/1624/1543, 9502 1576/1643/1720, each 2048.
+Pooled family counts parent/U/H:
+command 730/739/736 of 768; control 509/512/511 of 512;
+resilience 435/463/470 of 512; slope 562/570/562 of 768;
+step 455/471/474 of 1024; transition 508/512/510 of 512.
+Overall 3199/3267/3263 of 4096; essentially tied U vs H.
+Signed stair traversal parent/U/H of 200 each:
+9501 uphill 22/33/26, downhill 76/56/62;
+9502 uphill 25/34/27, downhill 76/73/84.
+28mm uphill 9501 2/4/2, 9502 2/3/4; all zero at >=32mm.
+No adaptive promotion. Prior exam seed differed, use within-study
+matched comparison rather than direct delta to earlier Cliff exam.
+Next proposed experiment: same parent and matched training protocol,
+isolate novice failure-cost treatment from milestone shaping, ideally
+include uniform, engagement and engagement+reduced-fall-cost arms.
+Don't change global reward or launch manifest before registering and
+testing the new mechanism. No new training treatment implemented here.
