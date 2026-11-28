@@ -184,3 +184,16 @@ without stopping training. No attempt to replace a live controller.
 The new ETA also distinguishes current and future students' rates,
 with a wider future envelope because Retention contained two much
 slower students. Browser/WSL integration not yet validated.
+
+
+Validation of this update: copied exact studio_bridge.py and
+test_studio_bridge.py (blob hashes f93133dfff7978c7c883837bcb9f8ba5a54962cc
+and 32290773c1173a98540997de6a33f8ca19f676d9) to local isolated harness.
+Both unit tests passed. A real temporary Git repository and detached
+worktree also verified discovery of the original repo/state, start of a
+dummy child, and child termination on context exit. This does not
+exercise the actual HTTP server or WSL browser. New study plan, updated
+future-rate estimator, archive export and GPU preflight not executed
+end-to-end locally. The operator should click the original magic button,
+then use the automatic 8772 monitor if the controller is legacy. The
+existing 8770 controller and completed Retention archive remain intact.
