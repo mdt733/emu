@@ -153,3 +153,17 @@ monitor on port 8772 using the same EMU venv and state directory.
 After the run finishes, close the original controller before launching
 the updated controller on 8770. Do not select a new training run merely
 to update the UI.
+
+
+Validation: hash-matched exact studio_eta.py and test_studio_eta.py
+executed locally with unittest; four tests passed (remaining workload,
+wall-rate measurement, receipt transitions, resume, retry and stopped
+states). Retrospective check using all 14 training metrics series from
+Cliff, Engagement and Freedom: at midpoint of logged training rows the
+median absolute remaining-training-time error was 1.49s (0.68%); range
+covered 13/14, maximum error 435s. At three-quarter point median absolute
+error was 0.61s (0.46%); range covered 14/14, maximum error 266s.
+The slow Cliff run is a reminder that large throughput changes can
+invalidate any estimate. This tests training-only predictions, not
+end-to-end completion forecasts or browser/GPU integration. The complete
+new UI has not been exercised in the operator's browser or live WSL job.

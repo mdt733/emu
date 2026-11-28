@@ -946,3 +946,17 @@ No training launched, no champion promotion. Main remains frozen.
 UI/runner timing only; retention training recipe and launch.json unchanged.
 See docs/STUDIO.md. Existing active job remains pinned; read-only monitor
 on 8772 can observe it without stopping the original controller.
+
+
+Validation: hash-matched exact studio_eta.py and test_studio_eta.py
+executed locally with unittest; four tests passed (remaining workload,
+wall-rate measurement, receipt transitions, resume, retry and stopped
+states). Retrospective check using all 14 training metrics series from
+Cliff, Engagement and Freedom: at midpoint of logged training rows the
+median absolute remaining-training-time error was 1.49s (0.68%); range
+covered 13/14, maximum error 435s. At three-quarter point median absolute
+error was 0.61s (0.46%); range covered 14/14, maximum error 266s.
+The slow Cliff run is a reminder that large throughput changes can
+invalidate any estimate. This tests training-only predictions, not
+end-to-end completion forecasts or browser/GPU integration. The complete
+new UI has not been exercised in the operator's browser or live WSL job.
