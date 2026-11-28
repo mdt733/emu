@@ -794,3 +794,89 @@ GPU smoke is mandatory and must check relieved and ordinary terminal
 falls. The 10% floor was selected as a deliberately strong single
 treatment after the prior modest +4 bonus failed to beat uniform practice;
 not a proven optimal value. No changes to lost continuation return.
+
+
+## Completed Freedom School V1 — 28 November 2026
+
+Archive results-live-skill-freedom.zip (4219002 bytes, 111 entries,
+CRC clean), pinned source dad0d048ae86e92fc6b7d0303b16232c8179003c.
+114 available receipt-referenced hashes matched; 38 ancestral files
+listed in stage receipts intentionally not included in the archive
+(cannot independently verify those bytes here). Both packaged parent
+config hashes match registration. Combined GPU acceptance receipt present.
+All six students reached 141033472, 160 updates / 20971520 new steps
+per student, 125829120 total. Final throughput 41233–42611 world
+steps/s; no rollback or NaN gradient skips; per-arm paired configs
+differ only in run_dir and the registered adaptive/relief flags.
+Fixed uphill reference counts U/H/F 4895/4910/4946, practice
+4887/4873/4937. Approx 4.04–4.10% of global frames for each cohort.
+
+Actual practice falls U/H/F=355/340/373, of which 0/0/200 received
+relief; 98 and 102 in the two F students. F full-cost counterfactual
+sum 43551.70, actual 22935.85 (20615.85 direct penalty units avoided);
+all recorded uphill practice falls had zero divergence. F relief
+at 20/28/29/30/31/32mm=0/27/75/39/37/22. F assisted births 3200,
+actual positive milestone payments 1874; H assisted births 3265,
+payments 2474. F practice fall fraction 7.56%, H 6.98%, U 7.26%;
+F mean age at fall 182.4 frames, H 174.2, U 171.5. No clear evidence
+of rapid-reset exploitation; no large increase in actual risk-taking.
+F relieved falls only ~4.05% of completed practice episodes. No
+change to lost continuation return. Teacher milestone bonus remains
+a proxy for maturity, not task mastery. All adaptive students mastered
+20mm reference mission, none fully faded all assistance. H fade
+events 7+2, F 2+1; no stall pauses.
+
+Late unassisted references (window start >=135790592), pooled U/H/F
+traversal percent by mm:
+20 78.0/90.2/90.5; 28 67.3/80.4/67.8; 29 54.7/65.4/62.9;
+30 52.0/56.3/37.5; 31 33.3/41.5/19.0; 32 20.0/24.6/4.0.
+At 32mm, controlled approach U/H/F 62.4/65.1/38.8; actual top
+contact 37.6/35.9/10.0; survival 98.0/96.9/99.0. H versus F at
+32mm per seed: 43.3 vs 6.2% (9501), 3.3 vs 1.9% (9502).
+Pre-approach forward/reverse/slow frame fractions U 34.9/33.6/31.4,
+H 35.7/34.3/30.0, F 35.2/36.2/28.5. F did not cure obstacle
+engagement; both reference and practice traversal pooled were worse
+than H. These are changing-policy in-training measures, not frozen
+exam replicates.
+
+Independent pulse mission counts (parent/U/H/F):
+9501 1590/1542/1455/1595; 9502 1538/1557/1555/1639, each 2048.
+Pooled counts by family:
+command 721/725/734/743 of 768;
+control 508/511/512/511 of 512;
+resilience 434/480/458/376 of 512;
+slope 529/462/437/583 of 768;
+step 426/410/357/510 of 1024;
+transition 510/511/512/511 of 512.
+Overall 3128/3099/3010/3234 of 4096. F beat H by 224 missions
+(+5.47pp), U by 135 (+3.30pp), parent by 106 (+2.59pp).
+Slope and step improve in both paired F versus H comparisons, but
+resilience drops in both (9501 H222 -> F159, 9502 H236 -> F217).
+Resilience survival H467 -> F479; poor mission competence, not
+merely more falls. U survival 486. The F treatment has a meaningful
+tradeoff and must not be promoted as a whole school.
+
+Independent signed stairs traversed_5frame counts parent/U/H/F of
+200 per direction:
+9501 up 23/45/26/29, down 81/55/55/66;
+9502 up 25/33/30/42, down 79/68/53/89.
+At +32mm U/H/F successes of 20=3/4/1 (only F9502 passed);
+none at +36mm or higher. Use within-study matched seed 9864
+comparisons; don't directly compare counts from prior exam seeds.
+
+Interpretation: selective relief changes optimization and broad
+transfer, but did not solve hard uphill engagement. H vs F tests
+the relief-enabled teacher including feedback-mediated changes in
+assignments, not fixed identical per-world treatment. Only two
+training replicates. The large recovery loss despite good survival
+is an example of missing cross-skill retention. Fixed recovery
+references remain sparse (F 9501 199, F9502 203 across six cases,
+29–45 per case), too little for two 40-attempt blocks/case. Do not
+automatically escalate relief or reward for attempts. Proposed next:
+improve general teacher evidence allocation and a conservative
+retention budget; protect previously acquired skills using fixed
+references, and use supported deterioration to trigger repair.
+Audit continuation-return economics before testing a separate
+intervention. Keep matched controls and independent exam. User's
+goal remains a good school from cold starts, not selection of a
+good final seed. No code/launch changes or promotion in this review.
