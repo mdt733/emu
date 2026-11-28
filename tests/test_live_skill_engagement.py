@@ -82,6 +82,15 @@ def test_engagement_observer_counts_real_payments_and_rewards(tmp_path):
     m["skill_uphill_birth_stage"][:,1]=4
     m["skill_uphill_birth_bonus"][:,1]=4
     m["reward_uphill_prerequisite"][1,1]=4
+    # One genuine failed practice frame. The reference episode survives.
+    m["episode_done"][1,1]=1
+    m["episode_fell"][1,1]=1
+    m["reward_uphill_prerequisite"][1,1]=0
+    m["reward_uphill_prerequisite"][0,1]=4
+    m["skill_full_fall_payment"]=np.array([[0,0],[0,-134.8]],np.float32)
+    m["reward_weighted_fall_penalty"]=np.array([[0,0],[0,-13.48]],np.float32)
+    m["skill_fall_relief"]=m["reward_weighted_fall_penalty"]-m["skill_full_fall_payment"]
+    m["skill_physics_diverged"]=np.zeros(shape,np.float32)
     obs=LiveSkillObserver(tmp_path,start_step=0,worlds=2,field_shape=(1,),
         field_bounds=((0,1),),source_commit="test",window_steps=1,uphill_profile="engagement")
     obs.observe(m,step=4)
@@ -92,6 +101,10 @@ def test_engagement_observer_counts_real_payments_and_rewards(tmp_path):
     assert row["cells"]["practice_uphill_stage_4_births/5"]=={"attempts":1,"passes":1}
     assert row["cells"]["practice_uphill_stage_4_bonus_4/5"]=={"attempts":1,"passes":1}
     assert row["uphill_motion_reward_sums"]=={"forward/5":[1,2.,1.],"reverse/5":[1,1.,.25]}
+    f=row["uphill_fall_cost_sums"]["practice/4/5"]
+    assert f[:2]==[1,1] and f[4:]==[2.,0]
+    np.testing.assert_allclose(f[2:4],[-134.8,-13.48],atol=2e-5)
+    assert not obs.fall_cost_sums
     assert not obs.motion_reward_sums
     m["reward_uphill_prerequisite"][0,0]=4
     with pytest.raises(ValueError,match="actual uphill bonus"):

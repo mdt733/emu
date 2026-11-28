@@ -781,3 +781,16 @@ falls and verify actual payment equals expected before accepting.
 Original global reward, references, independent exam untouched.
 New manifest ks150-live-skill-freedom-v1; results-live-skill-freedom.zip.
 No training launched in this chat. Full GPU acceptance pending.
+
+
+Validation: copied the exact candidate penalty helpers and original constants
+into an isolated CPU harness; ran the candidate test_novice_fall_relief.py
+(blob hash d1f021ced05f34d50628c68e93ae202a327540b7 matched GitHub).
+Both NumPy and JAX CPU tests passed (4096-world jitted payment check).
+Not a full repository test or real physics test. Added a synthetic
+observer fall-payment test and archive checks for invalid or out-of-arm
+relief; these integration tests are committed but not locally executed.
+GPU smoke is mandatory and must check relieved and ordinary terminal
+falls. The 10% floor was selected as a deliberately strong single
+treatment after the prior modest +4 bonus failed to beat uniform practice;
+not a proven optimal value. No changes to lost continuation return.

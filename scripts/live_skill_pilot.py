@@ -441,6 +441,11 @@ def cliff_windows(root,plan):
                                 for s in range(6):
                                     n,relieved,full,actual,age,diverged=raw["uphill_fall_cost_sums"].get(
                                         f"{cohort}/{s}/{i}",[0,0,0.,0.,0.,0])
+                                    if (type(n) is not int or type(relieved) is not int or
+                                        type(diverged) is not int or not 0<=relieved<=n or
+                                        not 0<=diverged<=n or not full<=actual<=0. or
+                                        not 0<=age or (not relieved and abs(full-actual)>1e-5)):
+                                        raise RuntimeError("Invalid fall-cost evidence")
                                     if relieved and (arm!="F" or cohort!="practice" or s==0):
                                         raise RuntimeError("Relief escaped registered treatment")
                                     row[f"stage_{s}_falls"]=n
