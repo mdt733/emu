@@ -924,3 +924,18 @@ mission plus other specialties and signed stairs must be reviewed.
 A full school still needs more representative fixed references in
 every specialty and a cross-specialty budget controller; this is
 a narrow mechanism test, not that finished controller.
+
+
+Validation before publication: local isolated CPU harness used exact
+candidate teacher and ledger blobs (68b1b11afa96557d00b4593abb873d7b491d685f
+and 1a82eb082296297ea0f36764cb7008dc80b67492; git hash-object matched)
+with extracted unchanged reference constants and new share validator.
+Two pytest tests passed: mastery/repair, no stale-dose escalation,
+recovery of uniform allocation, share bounds, checkpoint replay/rollback.
+The extracted recovery CSV function was also exercised on the real prior
+Freedom ZIP; 720 rows and all 1,204 reference trials accounted for.
+Full repository integration, actual GPU preflight and new-study launcher
+execution remain untested locally; MuJoCo/Optax/Flax unavailable.
+Studio source displays fresh cases, block counts and statuses when using
+the updated UI bootstrap. Old UI still supports the generic manifest.
+No training launched, no champion promotion. Main remains frozen.

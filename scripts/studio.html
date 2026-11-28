@@ -74,7 +74,7 @@ function rows(id,labels,keys,cells){
 }
 function teacherText(t){
   if(!t)return "No decision recorded";
-  const out={};for(const k of ["step","evidence_clock","reason","selected","closed_cases","stage","bonus","weights","reference_mastery","events","cooldown"])if(k in t)out[k]=t[k];
+  const out={};for(const k of ["step","evidence_clock","reason","selected","fresh_cases","closed_blocks","statuses","closed_cases","stage","bonus","weights","reference_mastery","events","cooldown"])if(k in t)out[k]=t[k];
   if(out.weights)out.weights=out.weights.map(v=>Math.round(v*1000)/10+"%");
   return JSON.stringify(out,null,2);
 }
