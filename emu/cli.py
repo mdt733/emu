@@ -167,7 +167,7 @@ def main(argv=None) -> int:
     q.add_argument('--skill-uphill-reference-share',type=float,default=0.)
     q.add_argument('--skill-uphill-practice-share',type=float,default=0.)
     q.add_argument('--skill-adaptive-uphill',action='store_true')
-    q.add_argument('--skill-uphill-profile',choices=('ladder','cliff'),default='ladder',
+    q.add_argument('--skill-uphill-profile',choices=('ladder','cliff','engagement'),default='ladder',
                    help='fixed physical reference ladder; cliff concentrates 20/28/29/30/31/32mm')
     q.add_argument('--skill-uphill-stage',choices=('none','first_support','bilateral','traversal'),default='none')
     q.add_argument('--live-skill-observer',action='store_true',

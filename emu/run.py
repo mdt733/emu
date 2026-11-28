@@ -200,7 +200,7 @@ def one_run_config(args) -> TrainingConfig:
     uphill_profile=getattr(args,'skill_uphill_profile','ladder')
     from .live_skill_uphill import uphill_heights
     uphill_heights(uphill_profile)
-    uphill_cap=.25 if uphill_profile=='cliff' else .15
+    uphill_cap=.25 if uphill_profile in ('cliff','engagement') else .15
     if adaptive_uphill and (not uphill_practice or uphill_stage!='none'):
         raise ValueError('Adaptive uphill requires practice and no static stage')
     if (not math.isfinite(uphill_ref) or not math.isfinite(uphill_practice)

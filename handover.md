@@ -624,3 +624,28 @@ coverage/retention by physical difficulty, not a handpicked cliff.
 Recovery global exposure study remains separate. Keep launch manifest
 unchanged until a new experiment is genuinely ready. Viewer-only
 fix at 166c38a4 does not invalidate this pinned completed study.
+
+
+## Engagement classroom implementation (28 November)
+
+Next bounded study retains the same physical heights and two authenticated
+parents, with a new opt-in engagement profile. U is uniform; H has the
+expanded adaptive teacher. Stage IDs 1–3 retain their meaning; 4 is a
+controlled moving approach (forward world speed >.05, aligned heading,
+upright, supported, no bad contact), 5 is actual first destination top
+contact. Both are once per life, practice only, never on failure frames.
+Contact is not assumed to require torso approach. Two supported blocks,
+40 attempts minimum, existing fade/stall/cooldown and maintenance floor.
+The old cliff/ladder teacher is preserved. No global reward or physics
+changes, no new policy input. Frame reward contrast (total PPO reward and
+locomotion component) and stage-specific births, frames and actual bonus
+payments are exported by height; these are descriptive, not causal.
+
+160 PPO updates/student = 20,971,520 new steps each, four students,
+83,886,080 total; target 141,033,472. Exam seed 9863, same independent
+examiner. New manifest engagement-v1; output results-live-skill-engagement.zip.
+Do not resume prior Cliff School into this study. This comparison evaluates
+combined expanded allocation and shaping, not a separate allocation-only
+ablation. Frozen height grid remains an experimental diagnostic, not the
+ultimate autonomous school curriculum. GPU acceptance and full repository
+tests pending on operator machine. No training launched here.

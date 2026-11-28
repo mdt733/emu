@@ -12,11 +12,18 @@ FOOT_SUPPORT_FRAMES=5
 
 def first_lip_progress(xp, *, active, lip, goal, xy, heading, metrics, top_feet,
                        failed, approach_seen, contact_seen, foot_streak,
-                       feet_seen, traverse_streak, traversed):
+                       feet_seen, traverse_streak, traversed, controlled_mask=None, world_vx=None):
     valid=active & (xp.abs(lip)>.0015) & ~failed
     edge=goal[:,0]-DESTINATION_AFTER_LIP_M
     in_approach=(xy[:,0]>=edge-.15)&(xy[:,0]<edge)&(
         xp.abs(xy[:,1]-goal[:,1])<=.25)
+    if controlled_mask is not None:
+        # No extra credit for parking, retreating, turning sideways or
+        # collapsing into the approach zone. Only a real moving approach.
+        controlled=(world_vx>.05)&(xp.abs(heading)<=.35)&(
+            metrics['gravity_z']>=.80)&(metrics['support']>0.)&(
+            metrics['bad_contact']<.1)
+        in_approach=in_approach & (~controlled_mask | controlled)
     approach_seen=approach_seen | (valid & in_approach)
     good_feet=top_feet & valid[:,None]
     contact_seen=contact_seen | xp.any(good_feet,axis=1)

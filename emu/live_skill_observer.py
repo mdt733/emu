@@ -66,6 +66,7 @@ class LiveSkillObserver:
         self.start = self.last = int(start_step)
         self.window_steps = int(window_steps)
         self.counts = {}
+        self.motion_reward_sums = {}
         self.updates = 0
         self.epoch = 0
         self.host_seconds = 0.
@@ -137,7 +138,7 @@ class LiveSkillObserver:
         # Separate fixed, signed, flat reference tasks from changing ordinary
         # recovery severity. No survival-only verdict can count as settling.
         teacher_counts=[[0,0] for _ in range(6)]
-        self.last_uphill_counts=[[0]*6 for _ in range(6)]
+        self.last_uphill_counts=[[0]*(7 if self.uphill_profile=='engagement' else 6) for _ in range(6)]
         if 'skill_reference_id' in metrics:
             assigned=np.asarray(metrics['skill_reference_id'])
             if assigned.shape!=done.shape or np.any((assigned<-1)|(assigned>=12)):
@@ -185,7 +186,7 @@ class LiveSkillObserver:
             # Frame-denominator approach diagnostics; never mission passes.
             # Fixed seam at x=1m, approach line x=.85m. Include retreat
             # frames rather than silently censoring non-engagement.
-            if self.uphill_profile=='cliff':
+            if self.uphill_profile in ('cliff','engagement'):
                 pos=np.asarray(metrics['physical_position_xy_after_step'])
                 heading=np.asarray(metrics['physical_heading_rad_after_step'])
                 vx=np.asarray(metrics['skill_world_vx_after_step'])
@@ -201,6 +202,40 @@ class LiveSkillObserver:
                         ('heading_aligned',np.abs(heading)<=.35),
                         ('command_016',np.abs(cmd-.16)<=.02)):
                     self._binned('reference_uphill_before_approach_frame/'+gate,cases,passed[take])
+                if self.uphill_profile=='engagement':
+                    # Same PPO reward, not a hypothetical reward reconstruction.
+                    total=np.asarray(metrics['skill_total_reward'])
+                    locomotion=np.asarray(metrics['reward_locomotion'])
+                    if total.shape!=done.shape or locomotion.shape!=done.shape:
+                        raise ValueError('Wrong engagement reward diagnostic shape')
+                    for label,motion in (('forward',vx>.05),('reverse',vx<-.05),('slow',np.abs(vx)<=.05)):
+                        select=take & motion
+                        for i in range(6):
+                            mask=select & (assigned_up==i)
+                            n=int(mask.sum())
+                            if n:
+                                key=f'{label}/{i}'
+                                sums=self.motion_reward_sums.setdefault(key,[0,0.,0.])
+                                sums[0]+=n
+                                sums[1]+=float(np.sum(total[mask],dtype=np.float64))
+                                sums[2]+=float(np.sum(locomotion[mask],dtype=np.float64))
+                    stage=np.asarray(metrics['skill_uphill_birth_stage'])
+                    bonus=np.asarray(metrics['skill_uphill_birth_bonus'])
+                    pay=np.asarray(metrics['reward_uphill_prerequisite'])
+                    age=np.asarray(metrics['episode_length'])
+                    if any(a.shape!=done.shape for a in (stage,bonus,pay,age)):
+                        raise ValueError('Wrong uphill credit diagnostic shape')
+                    if np.any((pay!=0)&((assigned_up<6)|(pay!=bonus)|(stage==0))):
+                        raise ValueError('Invalid actual uphill bonus payment')
+                    practice=assigned_up>=6
+                    for s in range(6):
+                        selected=practice & (stage==s)
+                        self._binned(f'practice_uphill_stage_{s}_frames',assigned_up[selected]%6,pay[selected]>0.)
+                        born=selected & (age==1)
+                        self._binned(f'practice_uphill_stage_{s}_births',assigned_up[born]%6,np.ones(int(born.sum()),bool))
+                        for amount in range(1,5):
+                            paying=selected & (pay==amount)
+                            self._binned(f'practice_uphill_stage_{s}_bonus_{amount}',assigned_up[paying]%6,np.ones(int(paying.sum()),bool))
             ids=terminal('skill_uphill_id').astype(int)
             fixed=ids>=0
             if np.any(ids[fixed]>=12) or np.any(fixed & ~academy):
@@ -225,6 +260,8 @@ class LiveSkillObserver:
                         int((take & (terminal('skill_stair_'+gate)>.5)).sum())
                         for gate in ('first_contact','first_support','each_foot_five','traversed')]+[
                         int((take & survived & (terminal('skill_stair_traversed')>.5)).sum())]
+                    if self.uphill_profile=='engagement':
+                        self.last_uphill_counts[case].append(int((take & (terminal('skill_stair_approach')>.5)).sum()))
             academy=academy & ~fixed
         for sign, direction in ((1, "up"), (-1, "down")):
             take = academy & (sign * lip > 1.5) & np.isfinite(lip)
@@ -277,11 +314,14 @@ class LiveSkillObserver:
                    uphill_practice_frames_by_case=self.uphill_frames[6:].tolist(),
                    cells={key: {"attempts": n, "passes": k}
                           for key, (n, k) in sorted(self.counts.items())})
+        if self.uphill_profile=='engagement':
+            row['uphill_motion_reward_sums']=self.motion_reward_sums
         with self.path.open("a", encoding="utf-8") as f:
             f.write(json.dumps(row, sort_keys=True, allow_nan=False) + "\n")
             f.flush()
         self.start = self.last
         self.counts.clear()
+        self.motion_reward_sums.clear()
         self.updates = 0
         self.host_seconds = 0.
         self.reference_frames.fill(0)

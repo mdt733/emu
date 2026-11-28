@@ -73,7 +73,7 @@ def main():
     p.add_argument("--full-update",action="store_true")
     p.add_argument("--live-uphill-smoke",action="store_true",
                    help="active fixed-height uphill reference/practice prism acceptance")
-    p.add_argument("--uphill-profile",choices=("ladder","cliff"),default="ladder")
+    p.add_argument("--uphill-profile",choices=("ladder","cliff","engagement"),default="ladder")
     p.add_argument("--live-recovery-smoke",action="store_true",
                    help="actual mature fixed reference and targeted practice births and PPO")
     p.add_argument("--abc-refresher-smoke",action="store_true",
@@ -188,7 +188,7 @@ def main():
     if a.live_recovery_smoke:
         school_kwargs.update(skill_reference_recovery_share=.15,skill_practice_recovery_share=.15)
     if a.live_uphill_smoke:
-        share=.25 if a.uphill_profile=="cliff" else .15
+        share=.25 if a.uphill_profile in ("cliff","engagement") else .15
         school_kwargs.update(live_skill_observer=True,skill_uphill_reference_share=share,
                              skill_uphill_practice_share=share,skill_adaptive_uphill=True,
                              skill_uphill_profile=a.uphill_profile)
@@ -212,7 +212,7 @@ def main():
         params.update({f"skill_practice_weight_{i}":1./6 for i in range(6)})
     if a.live_uphill_smoke:
         params.update({f"skill_uphill_weight_{i}":1./6 for i in range(6)})
-        params.update({f"skill_uphill_stage_{i}":2. for i in range(6)})
+        params.update({f"skill_uphill_stage_{i}":float((2,4,5)[i%3] if a.uphill_profile=="engagement" else 2) for i in range(6)})
         params.update({f"skill_uphill_bonus_{i}":4. for i in range(6)})
     packet=env.params_array(params)
     state,obs=env.reset(params)

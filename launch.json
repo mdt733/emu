@@ -1,19 +1,19 @@
 {
   "schema": "emu.launch.v1",
-  "id": "ks150-live-skill-cliff-v1",
-  "title": "Cliff School · focused uphill education",
-  "description": "Matched uniform vs adaptive uphill study at 20/28/29/30/31/32mm. Two authenticated parents, 100 PPO updates per student, actual lesson exposure and frozen endpoints.",
+  "id": "ks150-live-skill-engagement-v1",
+  "title": "Engagement School · learn to attempt",
+  "description": "Matched uniform versus expanded adaptive uphill teacher: controlled approach, first contact and existing physical prerequisites. Actual credit and movement reward audit.",
   "module": "scripts.live_skill_pilot",
   "args": [
     "--classroom",
-    "cliff",
+    "engagement",
     "--root",
     "{study_root}",
     "--parent-root",
     "{parent_root}"
   ],
   "parent_study": "ks150-abc-unattended-v2",
-  "result": "results-live-skill-cliff.zip",
+  "result": "results-live-skill-engagement.zip",
   "worlds": 4096,
   "students": [
     "U-s9501",
@@ -22,6 +22,6 @@
     "U-s9502"
   ],
   "parent_step": 120061952,
-  "target_step": 133169152,
+  "target_step": 141033472,
   "profile": "h40-spring-only"
 }

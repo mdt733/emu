@@ -97,3 +97,13 @@ def test_cliff_plan_equal_budget_and_distinct_result(tmp_path):
         assert q.common[q.common.index(flag)+1]==".25"
     assert q.common[q.common.index("--skill-uphill-profile")+1]=="cliff"
     assert p.DEFAULT.uphill_share==.15 and p.DEFAULT.target==p.TARGET
+
+
+def test_engagement_plan_preserves_matched_control_and_old_profile():
+    q=p.engagement_plan()
+    assert q.profile=="engagement" and q.updates==160
+    assert q.target==141033472
+    assert q.spec(Path("/tmp/parent"))["total_additional_steps"]==83886080
+    assert dict(q.arms)=={"U":(),"H":("--skill-adaptive-uphill",)}
+    assert q.exam_seed==9863 and q.result=="results-live-skill-engagement.zip"
+    assert p.cliff_plan().profile=="cliff" and p.cliff_plan().updates==100

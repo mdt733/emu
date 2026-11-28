@@ -64,6 +64,14 @@ def cliff_plan():
                      tuple(common),100,9862,.25,"results-live-skill-cliff.zip")
 
 
+def engagement_plan():
+    base=cliff_plan()
+    common=list(base.common)
+    common[common.index("--skill-uphill-profile")+1]="engagement"
+    return StudyPlan("engagement","engagement",base.arms,tuple(common),
+                     160,9863,.25,"results-live-skill-engagement.zip")
+
+
 def publish_copy(src,dst,digest):
     dst.parent.mkdir(parents=True,exist_ok=True)
     if dst.exists():
@@ -400,6 +408,22 @@ def cliff_windows(root,plan):
                                 cell=cells.get(f"reference_uphill_before_approach_frame/{gate}/{i}",{}) if cohort=="reference" else {}
                                 row[gate+"_frames"]=cell.get("attempts","")
                                 row[gate+"_pass_frames"]=cell.get("passes","")
+                            if plan.profile=="engagement":
+                                for s in range(6):
+                                    key=f"practice_uphill_stage_{s}"
+                                    credit=cells.get(f"{key}_frames/{i}",{})
+                                    birth=cells.get(f"{key}_births/{i}",{})
+                                    row[f"stage_{s}_frames"]=credit.get("attempts",0) if cohort=="practice" else ""
+                                    row[f"stage_{s}_payments"]=credit.get("passes",0) if cohort=="practice" else ""
+                                    row[f"stage_{s}_births"]=birth.get("attempts",0) if cohort=="practice" else ""
+                                    row[f"stage_{s}_reward_sum"]=sum(
+                                        a*cells.get(f"{key}_bonus_{a}/{i}",{}).get("passes",0) for a in range(1,5)
+                                    ) if cohort=="practice" else ""
+                                for motion in ("forward","reverse","slow"):
+                                    n,total,loc=raw.get("uphill_motion_reward_sums",{}).get(f"{motion}/{i}",[0,0.,0.])
+                                    row[motion+"_reward_frames"]=n if cohort=="reference" else ""
+                                    row[motion+"_mean_total_reward"]=total/n if cohort=="reference" and n else ""
+                                    row[motion+"_mean_locomotion_reward"]=loc/n if cohort=="reference" and n else ""
                             rows.append(row)
     stream=io.StringIO()
     writer=csv.DictWriter(stream,fieldnames=list(rows[0]))
@@ -412,7 +436,7 @@ def report(root,plan=DEFAULT):
     buf=io.StringIO()
     writer=csv.DictWriter(buf,fieldnames=list(rows[0]))
     writer.writeheader(); writer.writerows(rows)
-    cliff=cliff_windows(root,plan) if plan.profile=="cliff" else None
+    cliff=cliff_windows(root,plan) if plan.profile in ("cliff","engagement") else None
     out=root/plan.result
     tmp=out.with_suffix(".zip.partial")
     if out.exists():
@@ -503,9 +527,9 @@ def main(argv=None):
     p.add_argument("--root",required=True,type=Path)
     p.add_argument("--parent-root",type=Path,
         default=Path.home()/"emu-data/studies/ks150-abc-unattended-v2")
-    p.add_argument("--classroom",choices=("original","cliff"),default="original")
+    p.add_argument("--classroom",choices=("original","cliff","engagement"),default="original")
     a=p.parse_args(argv)
-    go(a.root,a.parent_root,cliff_plan() if a.classroom=="cliff" else DEFAULT)
+    go(a.root,a.parent_root,{"original":DEFAULT,"cliff":cliff_plan(),"engagement":engagement_plan()}[a.classroom])
 
 
 if __name__=="__main__":

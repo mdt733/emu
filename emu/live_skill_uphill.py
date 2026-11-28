@@ -11,7 +11,7 @@ UP_CLIFF_HEIGHTS_M=(.020,.028,.029,.030,.031,.032)
 
 def uphill_heights(profile='ladder'):
     if profile=='ladder': return UP_HEIGHTS_M
-    if profile=='cliff': return UP_CLIFF_HEIGHTS_M
+    if profile in ('cliff','engagement'): return UP_CLIFF_HEIGHTS_M
     raise ValueError('Unknown uphill lesson profile')
 
 UP_VX=.16
@@ -19,6 +19,9 @@ UP_APPROACH_M=.22
 UP_FRAMES=350
 UP_SENSOR_SCALE=1.
 UP_STAGE_NAMES=("none","first_support","bilateral","traversal")
+# Keep existing stage IDs stable for old recipes. The two new gates are
+# enabled only by the registered engagement classroom.
+ENGAGEMENT_STAGES=(4,5)  # controlled approach, first top contact
 
 
 def uphill_assignment(jax,xp,keys,academy,mix,reference_share,practice_share,weights=None):
@@ -86,9 +89,15 @@ def birth_credit(xp,ids,stages,bonuses):
 
 
 def assigned_prerequisite_payment(xp,ids,stage,bonus,previous_feet,next_feet,
-                                 previous_traversed,next_traversed,failed):
+                                 previous_traversed,next_traversed,failed, *,
+                                 previous_approach=None,next_approach=None,
+                                 previous_contact=None,next_contact=None):
     before=xp.sum(previous_feet,axis=1); after=xp.sum(next_feet,axis=1)
     new=((stage==1)&(before==0)&(after>=1)) | (
          (stage==2)&(before<2)&(after==2)) | (
          (stage==3)&next_traversed&~previous_traversed)
+    if previous_approach is not None:
+        new=new | ((stage==4)&next_approach&~previous_approach)
+    if previous_contact is not None:
+        new=new | ((stage==5)&next_contact&~previous_contact)
     return xp.where(new & (ids>=6) & ~failed,bonus,0.)

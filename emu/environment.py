@@ -1139,7 +1139,8 @@ class EmuMJXEnv(TaskSampler):
         self.skill_practice_recovery_share=float(skill_practice_recovery_share)
         from .live_skill_uphill import UP_STAGE_NAMES, uphill_heights
         self.skill_uphill_heights=uphill_heights(skill_uphill_profile)
-        uphill_share_cap=.25 if skill_uphill_profile=='cliff' else .15
+        self.skill_uphill_profile=skill_uphill_profile
+        uphill_share_cap=.25 if skill_uphill_profile in ('cliff','engagement') else .15
         if (not np.isfinite([skill_uphill_reference_share,skill_uphill_practice_share]).all()
                 or not 0.<=skill_uphill_reference_share<=uphill_share_cap
                 or not 0.<=skill_uphill_practice_share<=uphill_share_cap
@@ -1661,7 +1662,7 @@ class EmuMJXEnv(TaskSampler):
         if self.skill_adaptive_uphill:
             if (not np.isfinite(slope[31:49]).all() or np.any(uw<1./12-1e-6) or
                     np.any(uw>7./12+1e-6) or not np.isclose(uw.sum(),1.,atol=1e-6) or
-                    not np.isin(us,[0.,1.,2.,3.]).all() or not np.isin(ub,[0.,1.,2.,3.,4.]).all() or
+                    not np.isin(us,range(6 if getattr(self,'skill_uphill_profile','ladder')=='engagement' else 4)).all() or not np.isin(ub,[0.,1.,2.,3.,4.]).all() or
                     np.any((us==0.)!=(ub==0.))):
                 raise ValueError('Invalid adaptive uphill teacher packet')
         elif np.any(slope[31:49]!=0.):
@@ -2056,13 +2057,17 @@ class EmuMJXEnv(TaskSampler):
                 metrics=metrics,top_feet=academy['skill_first_top_feet'],failed=terminal_fail,
                 approach_seen=stair_state[0],contact_seen=stair_state[1],
                 foot_streak=stair_state[2],feet_seen=stair_state[3],
-                traverse_streak=stair_state[4],traversed=stair_state[5])
+                traverse_streak=stair_state[4],traversed=stair_state[5],
+                controlled_mask=(state.skill_uphill_id>=0 if self.skill_uphill_profile=='engagement' else None),
+                world_vx=data.qvel[:,0])
         if self.skill_uphill_reference_share>0.:
             from .live_skill_uphill import assigned_prerequisite_payment
             credit=assigned_prerequisite_payment(jnp,state.skill_uphill_id,
                 state.skill_uphill_birth_stage,state.skill_uphill_birth_bonus,
                 state.skill_stair_feet_seen,stair_state[3],state.skill_stair_traversed,
-                stair_state[5],terminal_fail)
+                stair_state[5],terminal_fail,
+                previous_approach=state.skill_stair_approach_seen,next_approach=stair_state[0],
+                previous_contact=state.skill_stair_contact_seen,next_contact=stair_state[1])
             reward=reward+credit
             ep_return=ep_return+credit
             terms={**terms,'uphill_prerequisite':credit}
@@ -2148,6 +2153,8 @@ class EmuMJXEnv(TaskSampler):
             timeout=timeout, terminal_fail=terminal_fail, done=done,
             transition_active=transition_active,
             cmd_resampled=cmd_resampled, fall_payment=fall_payment)
+        if self.skill_uphill_profile=='engagement':
+            out_metrics['skill_total_reward']=jnp.nan_to_num(reward)
         return StepOut(
             new_state, jnp.nan_to_num(obs), jnp.nan_to_num(bootstrap_obs), jnp.nan_to_num(reward), done.astype(jnp.float32),
             # Defense in depth: the rollback above is the real fix for
