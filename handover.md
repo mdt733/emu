@@ -534,3 +534,93 @@ The viewer-only change does not alter launch.json, teacher or physics. A
 running study remains pinned; do not restart training to apply a viewer fix.
 The already-running old viewer can load showcase/champion.emupolicy manually.
 A browser/WASM acceptance check on the operator's machine remains necessary.
+
+
+## Completed Cliff School — 28 November 2026
+
+Operator uploaded results-live-skill-cliff.zip (2,755,520 bytes, 81
+entries, CRC clean, 62 receipt-referenced file SHA256s verified).
+Source 71d61544f9e73683b93c252734b885adcff9823c, root
+~/emu-data/studies/ks150-live-skill-cliff-v1-71d61544f9e7.
+Four students completed 133169152, 100 updates/13107200 new steps each;
+52428800 total. Combined GPU acceptance receipt present; no reported
+rollback or nan_grad_skips_total. Each run has one observer segment,
+epoch 0, no torn tails. Config pairs differ only in run_dir and
+skill_adaptive_uphill. Last reported train_steps_per_sec ~16.7k for
+U9501 versus ~41.5–41.8k for other three; no cause established.
+
+Exposure: 6434 reference and 6342 practice uphill episodes; 255–284
+reference completions per height/student. Actual reference frame share
+4.15–4.42%, practice 4.04–4.40%; not global 25% allocations.
+Recovery reference 128–138 per student for H9501/U9502/H9502
+(see raw receipts for exact counts), still too sparse for two blocks
+per case. No adaptive recovery treatment.
+
+One actual teacher intervention: H9502 selected stage 2 bilateral
+support at 28mm, 125304832 (40 updates into 100). Its practice birth
+weight rose from 1/6 to .466667 by 132644864, bonus remained 4, no
+fade/pause. In last three complete windows (start >=129499136),
+28mm practice frame share within practice cohort was 38.9% vs U9502
+16.9%. Actual payment counts not exported; do not claim bonus delivery
+frequency from stage alone. H9501 never selected any stage; weights
+uniform and bonus zero throughout, despite ample exposure. It is an
+inactive teacher, not evidence that shaping caused its improvement.
+
+Pooled live fixed references (all four evolving learners; not endpoint
+or independent replicates):
+height mm, n, approach %, first contact %, sustained first support %,
+both feet %, traverse %, survive %, forward/reverse/slow before approach %:
+20,1097,100,99.2,98.8,91.4,83.0,95.4,99.3/0.0/0.6
+28,1069,99.9,79.7,73.1,56.6,43.8,79.1,68.9/9.2/22.0
+29,1080,97.0,52.2,47.7,35.0,25.0,84.4,43.5/19.8/36.7
+30,1070,80.9,29.2,25.8,18.9,13.8,93.8,35.2/26.7/38.1
+31,1068,53.4,10.9,9.6,5.9,4.5,96.8,34.1/33.9/32.0
+32,1050,24.2,3.2,2.7,1.6,1.0,97.8,36.3/38.2/25.4
+Pre-approach command maintained 100% rounded for all heights.
+These are pooled frame ratios, not independent observations or
+evidence of intention. Heading aligned 99.7/74.0/52.8/57.1/61.6/67.5%.
+At 32mm H9501 alone traversed 10/263 overall, 9/67 in late windows;
+all other students zero. This was without intervention. All four
+improved live 28mm traversal from early to late (windows ending <=
+125304832 vs starting >=129499136): U9501 45/119 ->41/71,
+H9501 48/113 ->54/69, U9502 22/117 ->23/75, H9502 25/124 ->36/67.
+No endpoint 32mm independent traversal by any student.
+
+Independent matched seed 9862 signed matrix traversal counts
+(each direction 200 per learner):
+seed, direction, parent/U/H:
+9501 up 30/31/26, down 81/74/69
+9502 up 27/9/40, down 79/57/133
+At 28mm uphill, 9501 parent/U/H=1/1/1 of 10;
+9502=0/0/4 of 10. >=32mm all zero (verify raw matrix for any
+other height before claiming larger breakthroughs).
+Pulse missions pooled across two learners per arm (4096 attempts):
+parent/U/H total 3142/3138/3268; per family percentages
+command 94.66/96.22/97.27, control 99.41/99.61/100,
+resilience 85.74/87.50/92.38, slope 69.92/64.45/68.23,
+step 40.92/42.58/49.02, transition 99.80/99.61/99.61.
+Per seed total: 9501 1607/1578/1529 of 2048; 9502
+1535/1560/1739 of 2048. Seed9502 H improved substantially but
+one active treatment replicate, combined allocation+bonus, and
+inactive H9501 differs from matched U even without intervention.
+Cannot yet establish causal efficacy or generalization. No promotion.
+
+Owner emphasized the goal is a good school, not a good student.
+Use mature matched forks to test mechanisms cheaply, then require
+fresh randomly initialized multi-seed learners under an autonomous
+school to establish sample efficiency, retention, transfer,
+consistency and reduced human intervention. Do not bake the specific
+28–32mm ladder or 120M checkpoint into the eventual school.
+
+Next recommendation, not yet implemented: teacher must diagnose
+approach/contact gaps, not just support after contact. First audit
+reward/physical trajectory (heading, toe path, tracking, survival
+versus forward progress) and instrument actual per-stage payment
+counts and practice births. Test a general prerequisite engagement
+lesson with conservative fade and matched controls (separate
+allocation-only from shaping when practical); avoid rewarding merely
+standing near an obstacle or reckless falls. Consider reference
+coverage/retention by physical difficulty, not a handpicked cliff.
+Recovery global exposure study remains separate. Keep launch manifest
+unchanged until a new experiment is genuinely ready. Viewer-only
+fix at 166c38a4 does not invalidate this pinned completed study.
